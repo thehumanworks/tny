@@ -16,6 +16,80 @@ signalling, or retained MSYS2 Windows Job Objects
 any file or provider side effect, while reading existing records still works.
 Image generation itself is unaffected there.
 
+## Opt-in durable DAG (native ask jobs)
+
+[ADR 0136](adr/0136-durable-dag-over-jobs.md) extends the existing supervisor,
+not a second controller. Submit a lead and two read-only workers through the
+existing batch JSON entry point:
+
+```sh
+cat <<'JSON' | tny jobs submit batch --json
+{"kind":"ask","dag":true,"concurrency":2,"items":[
+  {"prompt":"Read only: identify the review scope. Do not edit files.","label":"lead","role":"lead"},
+  {"prompt":"Read only: review reliability. Do not edit files.","label":"reliability","role":"worker","depends_on":[0]},
+  {"prompt":"Read only: review security. Do not edit files.","label":"security","role":"worker","depends_on":[0]}
+]}
+JSON
+# Use the returned id. These operations remain bounded / explicit:
+tny jobs status JOB_ID --json
+tny jobs wait JOB_ID --timeout 30 --json
+tny jobs logs JOB_ID --item 1 --json
+tny jobs cancel JOB_ID --items 1 --json
+tny jobs retry JOB_ID --failed --json
+```
+
+Read-only instructions are not a sandbox. Use the existing permission controls
+and tool profile for enforcement. The lead role is descriptive; it does not
+confer privileges or automatically collect worker answers. For a
+review/implement/verify template, use three items labelled with those names,
+with dependencies `[]`, `[0]`, `[1]`. Execution gates do not inject earlier
+answers into prompts. Inspect canonical result/session/log references explicitly.
+An editing task that changes the checkout invalidates this slice's clean
+workspace retry fence; managed editing workspaces are a separate integration.
+
+`dag:true` currently supports ask items only. Dependencies are zero-based item
+indices, including forward edges. Cycles, duplicate edges, self-edges, invalid
+indices, and DAG metadata without opt-in are refused before execution. Labels
+are bounded strings; roles are `lead` or `worker` (the default). DAG definitions
+must be persisted; use ordinary batches for `persist_request:false`.
+
+The returned `run_id` equals the existing job `id`. Each item exposes `task_id`,
+`attempt`, dependencies, label/role, definition and dependency SHA-256, plus
+its existing canonical result references. CLI `parent_session_id` is null.
+Trusted runtime adapters can supply their active session with
+`tny_jobs_run_context`; supplied parent/run IDs in JSON are refused and never
+create membership or authority. Tool schema and runtime lineage wiring remain
+lead-owned integration work.
+
+A descendant waits for all dependencies to succeed with intact artifacts.
+A failed/cancelled/interrupted dependency makes the descendant `failed` with
+`error_code:dependency_blocked`, without a provider request. Explicit retry
+reuses successful items and their original attempts after integrity checks;
+concurrent retries cannot create two execution owners. Retry never silently
+replays successful work or uncertain effects. Unknown cleanup refuses retry.
+
+Every DAG task and run reports **`verification:unverified`**, even on exit zero.
+Hashes prove integrity, not acceptance. No worker prose triggers verification
+commands, acceptance or integration. This slice has no notification/wait-any
+service or run-filtered dashboard.
+
+Retry requires unchanged definitions, dependency bindings, canonical successful
+session answers/logs, the same clean Git HEAD/workspace path, and the recorded
+provider/model/effort/permission/tool ceilings. Dirty or unknown/non-Git
+revision is inspectable as null and cannot be retried. This does not snapshot
+ignored files, arbitrary external inputs or concurrent edits. Different
+credentials/accounts are not yet fenced by shared admission. Credentials stay
+private in the launch pipe; they are not persisted in DAG metadata. Per-item
+model/effort selection works; a supplied provider must match the resolved job
+provider. Use separate jobs for different providers in this slice.
+
+Native CLI execution works through existing children; host providers keep their
+own loops. SSH does not become a remote durable controller: run the command on
+the remote native host explicitly. Embedded SDK workflows do not implicitly
+acquire native durability or custom-tool portability. wasm keeps the existing
+clean refusal for job execution. See ADR 0136 for workspace and admission call
+points and the remaining #153/#155 delivery gaps.
+
 ## Surfaces
 
 | Surface | Entry point |

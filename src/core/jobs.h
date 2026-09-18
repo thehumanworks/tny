@@ -106,6 +106,15 @@ int tny_jobs_run(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, cha
 int tny_jobs_run_cancel(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,
                         size_t errlen, bool (*cancelled)(void *), void *cancel_ud);
 
+/* Trusted runtime adapter only: parent_session is the currently executing
+ * caller's session, never a value extracted from tool/request JSON. It records
+ * lineage, not authority to inspect/control another session. Ordinary CLI and
+ * embedded callers use run_cancel and record no parent. DAG mode is opt-in
+ * submit JSON: dag:true and per-item depends_on:[stable item indices]. */
+int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,
+                         size_t errlen, bool (*cancelled)(void *), void *cancel_ud,
+                         const char *parent_session);
+
 /* The hidden supervisor entry point: `tny jobs _worker <id>` with the bounded
  * payload on stdin, the acknowledgment pipe on stdout and the live owner lock
  * on descriptor 3. Returns the process exit code. */

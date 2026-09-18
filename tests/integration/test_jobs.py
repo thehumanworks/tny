@@ -222,6 +222,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def chat(self, prompt, after_tool=False):
         state = self.server.state
+        if "DAG_BARRIER" in prompt:
+            state["dag_entered"].set()
+            if not state["dag_release"].wait(timeout=60):
+                self.reply(500, "application/json", b"{}")
+                return
         if "HOLD" in prompt:
             time.sleep(state["hold"])
         if "FAIL" in prompt and state["fail_ask"]:
@@ -870,6 +875,304 @@ class JobsParentWatch(JobsFixture):
         record = self.status(job_id)
         self.assertEqual(record["state"], "interrupted", record)
         self.assertEqual(record["cleanup"], "unknown", record)
+
+
+class JobsDAG(JobsFixture):
+    """Public DAG submission, real worker ownership, barrier-controlled spend."""
+
+    def setUp(self):
+        super().setUp()
+        self.state["dag_entered"] = threading.Event()
+        self.state["dag_release"] = threading.Event()
+        self.addCleanup(self.state["dag_release"].set)
+        for args in (
+            ("init", "-q"),
+            (
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@invalid",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "baseline",
+            ),
+        ):
+            subprocess.run(
+                ["git", "-C", str(self.workspace), *args],
+                check=True,
+                capture_output=True,
+            )
+
+    def tearDown(self):
+        self.state["dag_release"].set()
+        super().tearDown()
+
+    def dag_submit(self, items, **extra):
+        request = dict(kind="ask", dag=True, concurrency=3, items=items)
+        request.update(extra)
+        return self.submit("batch", stdin=json.dumps(request).encode(), check=False)
+
+    def failed_dag(self):
+        run, payload = self.dag_submit(
+            [
+                {"prompt": "DAG_A", "label": "review", "role": "lead"},
+                {"prompt": "FAIL DAG_B", "depends_on": [0]},
+                {"prompt": "DAG_C", "depends_on": [1]},
+            ]
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        record = self.await_terminal(payload["id"])
+        self.assertEqual(
+            [i["state"] for i in record["items"]],
+            ["succeeded", "failed", "failed"],
+            record,
+        )
+        self.assertEqual(record["items"][2]["error_code"], "dependency_blocked")
+        self.assertFalse(any("DAG_C" in r for r in self.ask_requests()))
+        return payload["id"], record
+
+    def test_graph_validation_has_no_spend_or_job_records(self):
+        cases = [
+            ([{"prompt": "x", "depends_on": [0]}], {}),
+            (
+                [
+                    {"prompt": "x", "depends_on": [1]},
+                    {"prompt": "y", "depends_on": [0]},
+                ],
+                {},
+            ),
+            (
+                [
+                    {"prompt": "x"},
+                    {"prompt": "y", "depends_on": [0, 0]},
+                    {"prompt": "z"},
+                ],
+                {},
+            ),
+            ([{"prompt": "x", "depends_on": [-1]}], {}),
+            ([{"prompt": "x", "depends_on": [1.0]}, {"prompt": "y"}], {}),
+            ([{"prompt": "x", "depends_on": [True]}, {"prompt": "y"}], {}),
+            ([{"prompt": "x", "role": "admin"}], {}),
+            ([{"prompt": "x", "provider": "codex"}], {}),
+            ([{"prompt": "x", "persist_request": False}], {}),
+            ([{"prompt": "x", "depends_on": []}], {"dag": False}),
+            ([{"prompt": "x"}], {"dag": "true"}),
+            ([{"prompt": "x"}], {"parent_session_id": "a" * 16}),
+        ]
+        for items, extra in cases:
+            with self.subTest(items=items, extra=extra):
+                run, _ = self.dag_submit(items, **extra)
+                self.assertEqual(run.returncode, 1, run.stdout)
+                self.assertEqual(self.job_dirs(), [])
+                self.assertEqual(self.ask_requests(), [])
+
+    def test_forward_dependencies_and_unverified_lineage(self):
+        run, payload = self.dag_submit(
+            [
+                {"prompt": "DAG_C", "depends_on": [2]},
+                {"prompt": "DAG_A", "label": "review", "role": "lead"},
+                {"prompt": "DAG_B", "depends_on": [1]},
+            ]
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        record = self.await_terminal(payload["id"])
+        self.assertEqual(record["state"], "succeeded", record)
+        self.assertEqual(record["run_id"], payload["id"])
+        self.assertIsNone(record["parent_session_id"])
+        self.assertEqual(record["verification"], "unverified")
+        self.assertEqual(len(record["workspace_revision"]), 40)
+        self.assertEqual(
+            [
+                next(x for x in ("DAG_A", "DAG_B", "DAG_C") if x in r)
+                for r in self.ask_requests()
+            ],
+            ["DAG_A", "DAG_B", "DAG_C"],
+        )
+        for index, item in enumerate(record["items"]):
+            self.assertEqual(item["task_id"], index)
+            self.assertEqual(item["verification"], "unverified")
+            self.assertEqual(len(item["definition_sha256"]), 64)
+            self.assertEqual(len(item["dependency_sha256"]), 64)
+            self.assertTrue(item["session_id"])
+
+    def test_barrier_cancel_and_explicit_retry_carries_a_once(self):
+        run, payload = self.dag_submit(
+            [
+                {"prompt": "DAG_A"},
+                {"prompt": "DAG_BARRIER", "depends_on": [0]},
+                {"prompt": "DAG_C", "depends_on": [1]},
+            ]
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        job_id = payload["id"]
+        self.assertTrue(self.state["dag_entered"].wait(30))
+        before = self.status(job_id)
+        self.assertEqual(before["items"][0]["state"], "succeeded")
+        self.assertEqual(before["items"][1]["state"], "running")
+        self.assertEqual(before["items"][2]["state"], "queued")
+        self.assertFalse(any("DAG_C" in r for r in self.ask_requests()))
+        self.run_tny("jobs", "cancel", job_id, "--items", "1", "--json")
+        first = self.await_terminal(job_id)
+        self.assertEqual(first["items"][1]["state"], "cancelled")
+        self.assertEqual(first["items"][2]["error_code"], "dependency_blocked")
+        self.assertEqual(first["cleanup"], "complete", first)
+        self.state["dag_release"].set()
+        self.run_tny("jobs", "retry", job_id, "--json")
+        final = self.await_terminal(job_id)
+        self.assertEqual(final["state"], "succeeded", final)
+        self.assertEqual(
+            final["items"][0]["session_id"], before["items"][0]["session_id"]
+        )
+        self.assertEqual(sum("DAG_A" in r for r in self.ask_requests()), 1)
+        self.assertEqual(sum("DAG_C" in r for r in self.ask_requests()), 1)
+        self.assertEqual(final["items"][0]["attempt"], 1)
+        self.assertEqual(final["items"][1]["attempt"], 2)
+        self.assertEqual(final["items"][2]["attempt"], 2)
+        snapshot = Path(final["metadata_path"]).parent / "attempt-1.json"
+        saved = snapshot.read_bytes()
+        again = self.run_tny("jobs", "retry", job_id, "--json", check=False)
+        self.assertEqual(again.returncode, 1)
+        self.assertEqual(snapshot.read_bytes(), saved)
+
+    def test_supervisor_loss_preserves_a_but_unknown_cleanup_refuses_retry(self):
+        run, payload = self.dag_submit(
+            [
+                {"prompt": "DAG_A"},
+                {"prompt": "DAG_BARRIER", "depends_on": [0]},
+                {"prompt": "DAG_C", "depends_on": [1]},
+            ]
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue(self.state["dag_entered"].wait(30))
+        job_id = payload["id"]
+        os.kill(self.worker_pid(job_id), signal.SIGKILL)
+        record = self.await_terminal(job_id)
+        self.assertEqual(record["items"][0]["state"], "succeeded")
+        self.assertEqual(record["items"][1]["state"], "interrupted")
+        self.assertEqual(record["cleanup"], "unknown")
+        requests = len(self.ask_requests())
+        for _ in range(2):
+            run = self.run_tny("jobs", "retry", job_id, "--json", check=False)
+            self.assertEqual(run.returncode, 1)
+        self.assertEqual(len(self.ask_requests()), requests)
+        self.assertEqual(sum("DAG_A" in r for r in self.ask_requests()), 1)
+        self.assertFalse(any("DAG_C" in r for r in self.ask_requests()))
+
+    def test_changed_inputs_dependencies_artifacts_and_ceilings_refuse_retry(self):
+        job_id, record = self.failed_dag()
+        path = Path(record["metadata_path"])
+        original = path.read_bytes()
+        requests = len(self.ask_requests())
+        for change in (
+            "definition",
+            "dependencies",
+            "binding",
+            "cleanup",
+            "permission",
+            "tools",
+        ):
+            with self.subTest(change=change):
+                stored = json.loads(original)
+                if change == "definition":
+                    stored["items"][1]["request"]["prompt"] = "new work"
+                elif change == "dependencies":
+                    stored["items"][1]["depends_on"] = []
+                elif change == "binding":
+                    stored["items"][0]["dependency_sha256"] = "0" * 64
+                elif change == "cleanup":
+                    stored["cleanup_hold"] = True
+                    stored["cleanup"] = "unknown"
+                elif change == "permission":
+                    stored["permission_ceiling"] = "ask"
+                else:
+                    stored["tool_ceiling"] = "terminal"
+                path.write_text(json.dumps(stored))
+                run = self.run_tny("jobs", "retry", job_id, "--json", check=False)
+                self.assertNotEqual(run.returncode, 0, run.stdout)
+                self.assertEqual(len(self.ask_requests()), requests)
+        path.write_bytes(original)
+        for flags in (("--permission-mode", "auto"), ("--model", "other-model")):
+            with self.subTest(caller_flags=flags):
+                run = self.run_tny(
+                    *flags, "jobs", "retry", job_id, "--json", check=False
+                )
+                self.assertEqual(run.returncode, 1, run.stdout)
+                self.assertEqual(len(self.ask_requests()), requests)
+        log = Path(record["items"][0]["log_path"])
+        saved_log = log.read_bytes()
+        for deleted in (False, True):
+            if deleted:
+                log.unlink()
+            else:
+                log.write_bytes(b"corrupt")
+            run = self.run_tny("jobs", "retry", job_id, "--json", check=False)
+            self.assertEqual(run.returncode, 2, run.stdout)
+            self.assertEqual(len(self.ask_requests()), requests)
+            log.write_bytes(saved_log)
+        (self.workspace / "dirty").write_text("untracked")
+        run = self.run_tny("jobs", "retry", job_id, "--json", check=False)
+        self.assertEqual(run.returncode, 1, run.stdout)
+        (self.workspace / "dirty").unlink()
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.workspace),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@invalid",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "changed revision",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        run = self.run_tny("jobs", "retry", job_id, "--json", check=False)
+        self.assertEqual(run.returncode, 1, run.stdout)
+        self.assertEqual(len(self.ask_requests()), requests)
+
+    def test_corrupt_dependency_before_launch_blocks_consumer(self):
+        run, payload = self.dag_submit(
+            [
+                {"prompt": "DAG_A"},
+                {"prompt": "DAG_BARRIER", "depends_on": [0]},
+                {"prompt": "DAG_C", "depends_on": [0, 1]},
+            ]
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue(self.state["dag_entered"].wait(30))
+        record = self.status(payload["id"])
+        Path(record["items"][0]["log_path"]).write_bytes(b"corrupt dependency")
+        self.state["dag_release"].set()
+        final = self.await_terminal(payload["id"])
+        self.assertEqual(final["items"][2]["error_code"], "dependency_blocked")
+        self.assertFalse(any("DAG_C" in r for r in self.ask_requests()))
+
+    def test_concurrent_retries_have_one_owner_and_immutable_history(self):
+        job_id, first = self.failed_dag()
+        self.state["fail_ask"] = False
+        contenders = [
+            self.spawn_tny("jobs", "retry", job_id, "--json") for _ in range(2)
+        ]
+        outputs = [p.communicate(timeout=90) for p in contenders]
+        self.assertEqual(sorted(p.returncode for p in contenders), [0, 1], outputs)
+        final = self.await_terminal(job_id)
+        self.assertEqual(final["state"], "succeeded", final)
+        self.assertEqual(final["attempt"], 2)
+        self.assertEqual(sum("DAG_A" in r for r in self.ask_requests()), 1)
+        self.assertEqual(sum("DAG_C" in r for r in self.ask_requests()), 1)
+        snapshot = Path(first["metadata_path"]).parent / "attempt-1.json"
+        self.assertEqual(
+            json.loads(snapshot.read_text())["items"][2]["error_code"],
+            "dependency_blocked",
+        )
+        self.assertFalse((snapshot.parent / "attempt-2.json").exists())
 
 
 class JobsConcurrency(JobsFixture):

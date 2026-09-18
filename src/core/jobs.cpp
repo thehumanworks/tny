@@ -18,6 +18,7 @@ extern "C" {
 #include "core/image_preview.h"
 #include "core/perm.h"
 #include "util/image_io.h"
+#include "util/git.h"
 #include <limits.h>
 #include "core/session.h"
 #include "util/jobs_host.h"
@@ -661,6 +662,7 @@ static void reservations_release_job(tny_ctx *ctx, yyjson_mut_doc *doc, const ch
 
 typedef struct {
     bool image;
+    bool dag;
     int concurrency;
     int n_items;
     /* per item, borrowed from the caller's parsed arguments */
@@ -782,6 +784,73 @@ static yyjson_mut_val *refs_copy(yyjson_mut_doc *doc, yyjson_val *images) {
     return refs;
 }
 
+/* Validate the whole graph before output claims or children exist. Kahn's
+ * bounded scan accepts forward edges but rejects cycles and duplicate edges. */
+static bool dag_validate(yyjson_val *args, char *err, size_t errlen) {
+    yyjson_val *dag = jget(args, "dag");
+    if (dag && !yyjson_is_bool(dag)) {
+        safe_err(err, errlen, "dag must be boolean");
+        return false;
+    }
+    bool enabled = jget_bool(args, "dag", false);
+    yyjson_val *items = jget(args, "items");
+    size_t count = yyjson_arr_size(items);
+    if (!count || count > TNY_JOBS_MAX_ITEMS) return false;
+    bool edges[TNY_JOBS_MAX_ITEMS][TNY_JOBS_MAX_ITEMS] = {};
+    bool done[TNY_JOBS_MAX_ITEMS] = {};
+    for (size_t i = 0; i < count; i++) {
+        yyjson_val *item = yyjson_arr_get(items, i);
+        yyjson_val *deps = jget(item, "depends_on");
+        yyjson_val *label = jget(item, "label");
+        const char *role = jget_str(item, "role");
+        if ((!enabled && (deps || label || jget(item, "role"))) ||
+            (label && !bounded_string(label, 256)) ||
+            (jget(item, "role") &&
+             (!role || (strcmp(role, "lead") != 0 && strcmp(role, "worker") != 0))) ||
+            (deps && (!yyjson_is_arr(deps) || yyjson_arr_size(deps) >= count))) {
+            safe_err(err, errlen,
+                     "invalid DAG metadata (requires dag:true, label, lead/worker role and "
+                     "dependency indices)");
+            return false;
+        }
+        size_t di, dm;
+        yyjson_val *dep;
+        yyjson_arr_foreach(deps, di, dm, dep) {
+            int64_t index = yyjson_get_sint(dep);
+            if (!yyjson_is_int(dep) || index < 0 || (uint64_t)index >= count ||
+                (size_t)index == i || edges[i][index]) {
+                safe_err(err, errlen, "invalid or duplicate dependency index for item %zu", i);
+                return false;
+            }
+            edges[i][index] = true;
+        }
+    }
+    for (size_t pass = 0; pass < count; pass++) {
+        bool progress = false;
+        for (size_t i = 0; i < count; i++) {
+            if (done[i]) continue;
+            bool ready = true;
+            for (size_t j = 0; j < count; j++)
+                if (edges[i][j] && !done[j]) ready = false;
+            if (ready) {
+                done[i] = true;
+                progress = true;
+            }
+        }
+        if (!progress) break;
+    }
+    for (size_t i = 0; i < count; i++)
+        if (!done[i]) {
+            safe_err(err, errlen, "DAG dependencies contain a cycle");
+            return false;
+        }
+    if (jget(args, "parent_session_id") || jget(args, "run_id")) {
+        safe_err(err, errlen, "lineage is captured from trusted caller context, not request IDs");
+        return false;
+    }
+    return true;
+}
+
 static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, char *err,
                               size_t errlen) {
     memset(r, 0, sizeof *r);
@@ -803,6 +872,12 @@ static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, c
         safe_err(err, errlen, "items must be a list of 1 to %d entries", TNY_JOBS_MAX_ITEMS);
         return -1;
     }
+    if (!dag_validate(args, err, errlen)) return -1;
+    r->dag = jget_bool(args, "dag", false);
+    if (r->dag && r->image) {
+        safe_err(err, errlen, "DAG execution currently supports ask items only");
+        return -1;
+    }
     size_t idx, max;
     yyjson_val *item;
     yyjson_arr_foreach(items, idx, max, item) {
@@ -816,6 +891,23 @@ static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, c
             safe_err(err, errlen, "every item in a batch must have the same kind");
             jobs_request_free(r);
             return -1;
+        }
+        if (r->dag) {
+            const char *provider = jget_str(item, "provider");
+            if (provider && strcmp(provider, tny_provider_name(ctx)) != 0) {
+                safe_err(err, errlen,
+                         "DAG worker provider must match the resolved job provider; submit a "
+                         "separate job for another provider");
+                jobs_request_free(r);
+                return -1;
+            }
+            if (!jget_bool(item, "persist_request", true)) {
+                safe_err(err, errlen,
+                         "DAG execution requires persisted definitions; use a batch for privacy "
+                         "opt-out");
+                jobs_request_free(r);
+                return -1;
+            }
         }
         r->items[r->n_items] = item;
         if (r->image) {
@@ -1390,6 +1482,18 @@ static void job_items_json(yyjson_mut_doc *doc, buf_t *out) {
         if (i) buf_appends(out, ",");
         buf_appendf(out, "{\"index\":%d,\"state\":", i);
         jescape(out, jm_str(item, "state"));
+        if (jm_bool(yyjson_mut_doc_get_root(doc), "dag", false)) {
+            buf_appendf(out, ",\"task_id\":%d,\"attempt\":%lld", i,
+                        (long long)jm_int(item, "attempt", 1));
+            static const char *const keys[] = {
+                "label",     "role", "verification", "definition_sha256", "dependency_sha256",
+                "depends_on"};
+            for (size_t k = 0; k < sizeof keys / sizeof keys[0]; k++) {
+                char *json = jwrite_mut_val(yyjson_mut_obj_get(item, keys[k]));
+                buf_appendf(out, ",\"%s\":%s", keys[k], json ? json : "null");
+                free(json);
+            }
+        }
         buf_appends(out, ",\"log_path\":");
         jescape(out, jm_str(item, "log_path"));
         yyjson_mut_val *exit_code = yyjson_mut_obj_get(item, "exit_code");
@@ -1423,6 +1527,19 @@ static void job_json(yyjson_mut_doc *doc, const char *dir, buf_t *out) {
     const char *state = jm_str(root, "state");
     buf_appends(out, "{\"kind\":\"job\",\"schema_version\":1,\"id\":");
     jescape(out, jm_str(root, "id"));
+    if (jm_bool(root, "dag", false)) {
+        buf_appends(out, ",\"dag\":true");
+        static const char *const keys[] = {"run_id",       "parent_session_id",
+                                           "verification", "workspace_revision",
+                                           "provider",     "model",
+                                           "effort",       "permission_ceiling",
+                                           "tool_ceiling"};
+        for (size_t k = 0; k < sizeof keys / sizeof keys[0]; k++) {
+            char *json = jwrite_mut_val(yyjson_mut_obj_get(root, keys[k]));
+            buf_appendf(out, ",\"%s\":%s", keys[k], json ? json : "null");
+            free(json);
+        }
+    }
     buf_appends(out, ",\"job_kind\":");
     jescape(out, jm_str(root, "job_kind"));
     buf_appends(out, ",\"state\":");
@@ -1626,8 +1743,68 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
 
 /* --------------------------------------------------------- record creation */
 
+/* Git runs only outside state.lock. Unknown/dirty workspaces can execute but
+ * cannot carry outputs into another attempt. Managed workspace integration
+ * belongs before launch claim, outside the transaction (ADR 0136). */
+static char *dag_workspace_revision(const char *cwd) {
+    buf_t out;
+    buf_init(&out);
+    const char *status[] = {"status", "--porcelain", "--untracked-files=all", NULL};
+    bool clean = git_run(cwd, status, &out) == 0 && out.len == 0;
+    buf_clear(&out);
+    const char *head[] = {"rev-parse", "--verify", "HEAD", NULL};
+    bool ok = clean && git_run(cwd, head, &out) == 0;
+    while (out.len && (out.data[out.len - 1] == '\n' || out.data[out.len - 1] == '\r'))
+        out.data[--out.len] = 0;
+    char *revision = ok && out.len == 40 ? xstrdup(out.data) : NULL;
+    buf_free(&out);
+    return revision;
+}
+
+/* Canonical persisted request plus graph metadata. Never includes credentials.
+ * Hashes detect stale/corrupt inputs; they are not authorization signatures. */
+static char *dag_definition_hash(yyjson_mut_val *item) {
+    buf_t b;
+    buf_init(&b);
+    static const char *const keys[] = {"request", "depends_on", "label", "role"};
+    for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) {
+        char *json = jwrite_mut_val(yyjson_mut_obj_get(item, keys[i]));
+        if (!json) {
+            buf_free(&b);
+            return NULL;
+        }
+        buf_appends(&b, json);
+        buf_appends(&b, "\n");
+        free(json);
+    }
+    char *hash = buf_oom(&b) ? NULL : sha256_hex_of(b.data, b.len);
+    buf_free(&b);
+    return hash;
+}
+
+static char *dag_dependency_hash(yyjson_mut_doc *doc, yyjson_mut_val *item) {
+    buf_t b;
+    buf_init(&b);
+    yyjson_mut_val *deps = yyjson_mut_obj_get(item, "depends_on");
+    for (size_t i = 0; i < yyjson_mut_arr_size(deps); i++) {
+        int index = (int)yyjson_mut_get_sint(yyjson_mut_arr_get(deps, i));
+        yyjson_mut_val *dep = jm_item(doc, index);
+        const char *result = jm_str(dep, "result_sha256");
+        const char *definition = jm_str(dep, "definition_sha256");
+        if (!result || !definition) {
+            buf_free(&b);
+            return NULL;
+        }
+        buf_appendf(&b, "%d:%lld:%s:%s\n", index, (long long)jm_int(dep, "attempt", 0), definition,
+                    result);
+    }
+    char *hash = buf_oom(&b) ? NULL : sha256_hex_of(b.data ? b.data : "", b.len);
+    buf_free(&b);
+    return hash;
+}
+
 static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, const char *job_id,
-                                  const char *dir) {
+                                  const char *dir, const char *parent_session) {
     yyjson_mut_doc *doc = yyjson_mut_doc_new(jallocator());
     yyjson_mut_val *root = doc ? yyjson_mut_obj(doc) : NULL;
     if (!root) {
@@ -1641,6 +1818,20 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
     jm_set_str(doc, root, "id", job_id);
     jm_set_str(doc, root, "job_kind", request->image ? "image" : "ask");
     jm_set_str(doc, root, "workspace", ctx->cwd);
+    if (request->dag) {
+        jm_set_bool(doc, root, "dag", true);
+        jm_set_str(doc, root, "run_id", job_id);
+        jm_set_str(doc, root, "parent_session_id", parent_session);
+        jm_set_str(doc, root, "verification", "unverified");
+        char *revision = dag_workspace_revision(ctx->cwd);
+        jm_set_str(doc, root, "workspace_revision", revision);
+        free(revision);
+        jm_set_str(doc, root, "provider", tny_provider_name(ctx));
+        jm_set_str(doc, root, "model", ctx->model);
+        jm_set_str(doc, root, "effort", ctx->reasoning_effort);
+        jm_set_str(doc, root, "permission_ceiling", tny_perm_mode_name(ctx->perm_mode));
+        jm_set_str(doc, root, "tool_ceiling", tny_tool_profile_name(ctx->tool_profile));
+    }
     jm_set_str(doc, root, "created", now ? now : "");
     jm_set_str(doc, root, "updated", now ? now : "");
     jm_set_int(doc, root, "revision", 1);
@@ -1659,6 +1850,17 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
         yyjson_mut_val *item = yyjson_mut_obj(doc);
         bool persist = jget_bool(request->items[i], "persist_request", true);
         jm_set_int(doc, item, "index", i);
+        if (request->dag) {
+            jm_set_int(doc, item, "task_id", i);
+            jm_set_str(doc, item, "verification", "unverified");
+            jm_set_str(doc, item, "label", jget_str(request->items[i], "label"));
+            const char *role = jget_str(request->items[i], "role");
+            jm_set_str(doc, item, "role", role ? role : "worker");
+            yyjson_val *deps = jget(request->items[i], "depends_on");
+            yyjson_mut_obj_put(item, yyjson_mut_strcpy(doc, "depends_on"),
+                               deps ? yyjson_val_mut_copy(doc, deps) : yyjson_mut_arr(doc));
+            jm_set_null(doc, item, "dependency_sha256");
+        }
         jm_set_str(doc, item, "state", "queued");
         jm_set_bool(doc, item, "cancel_requested", false);
         jm_set_int(doc, item, "attempt", 1);
@@ -1702,6 +1904,11 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
             yyjson_mut_obj_put(item, yyjson_mut_strcpy(doc, "request"), stored);
         } else {
             jm_set_null(doc, item, "request");
+        }
+        if (request->dag) {
+            char *hash = dag_definition_hash(item);
+            jm_set_str(doc, item, "definition_sha256", hash);
+            free(hash);
         }
         yyjson_mut_arr_append(items, item);
     }
@@ -1810,7 +2017,7 @@ static int submit_finish_failed(const char *dir, int attempt, const char *code,
 }
 
 static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen,
-                       bool (*cancelled)(void *), void *cancel_ud) {
+                       bool (*cancelled)(void *), void *cancel_ud, const char *parent_session) {
     if (!tny_jobs_execution_supported()) {
         safe_err(err, errlen,
                  "durable jobs need a native tny build; this runtime cannot own a child process");
@@ -1858,7 +2065,7 @@ static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
         return 2;
     }
 
-    yyjson_mut_doc *record = record_new(ctx, &request, job_id, dir);
+    yyjson_mut_doc *record = record_new(ctx, &request, job_id, dir, parent_session);
     rc = record ? jobs_record_store(dir, record) : ENOMEM;
     if (rc) {
         yyjson_mut_doc_free(record);
@@ -2491,6 +2698,45 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
             safe_err(err, errlen, "this job has not finished yet");
             goto invalid;
         }
+        if (jm_bool(root, "dag", false)) {
+            char *revision = dag_workspace_revision(ctx->cwd);
+            const char *want = jm_str(root, "workspace_revision");
+            bool same = revision && want && strcmp(revision, want) == 0 &&
+                        jm_str(root, "workspace") &&
+                        strcmp(ctx->cwd, jm_str(root, "workspace")) == 0;
+            free(revision);
+            static const char *const keys[] = {"provider", "model", "effort", "permission_ceiling",
+                                               "tool_ceiling"};
+            const char *values[] = {tny_provider_name(ctx), ctx->model, ctx->reasoning_effort,
+                                    tny_perm_mode_name(ctx->perm_mode),
+                                    tny_tool_profile_name(ctx->tool_profile)};
+            for (size_t k = 0; k < sizeof keys / sizeof keys[0]; k++) {
+                const char *stored = jm_str(root, keys[k]);
+                if ((stored || values[k]) &&
+                    (!stored || !values[k] || strcmp(stored, values[k]) != 0))
+                    same = false;
+            }
+            for (int i = 0; same && i < jm_item_count(doc); i++) {
+                yyjson_mut_val *item = jm_item(doc, i);
+                char *hash = dag_definition_hash(item);
+                const char *stored = jm_str(item, "definition_sha256");
+                same = hash && stored && strcmp(hash, stored) == 0;
+                free(hash);
+                if (same && strcmp(jm_str(item, "state"), "succeeded") == 0) {
+                    hash = dag_dependency_hash(doc, item);
+                    stored = jm_str(item, "dependency_sha256");
+                    same = hash && stored && strcmp(hash, stored) == 0;
+                    free(hash);
+                }
+            }
+            if (!same) {
+                free(owner_path);
+                safe_err(err, errlen,
+                         "DAG inputs, dependencies, clean workspace revision or execution ceilings "
+                         "changed/unverified; submit a new job");
+                goto invalid;
+            }
+        }
         /* What the selection, the verification and the new attempt number are all
          * derived from; the transaction below refuses to commit against anything
          * else. */
@@ -2636,6 +2882,7 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
                 continue;
             }
             jm_set_str(t.doc.get(), item, "state", "queued");
+            if (jm_bool(live, "dag", false)) jm_set_null(t.doc.get(), item, "dependency_sha256");
             jm_set_bool(t.doc.get(), item, "cancel_requested", false);
             jm_set_int(t.doc.get(), item, "attempt", attempt);
             char *log = jobs_item_log(dir, i, attempt);
@@ -2743,17 +2990,25 @@ int tny_jobs_run(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, cha
 
 int tny_jobs_run_cancel(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,
                         size_t errlen, bool (*cancelled)(void *), void *cancel_ud) {
+    return tny_jobs_run_context(ctx, op, args, out, err, errlen, cancelled, cancel_ud, NULL);
+}
+
+int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,
+                         size_t errlen, bool (*cancelled)(void *), void *cancel_ud,
+                         const char *parent_session) {
     if (err && errlen) err[0] = 0;
     if (!ctx || !out) return 1;
     char *root = jobs_root(ctx);
-    int rc = root ? tny_jobs_host_mkdir_private(root) : ENOMEM;
+    /* Submit validates its complete request before creating its private tree. */
+    int rc = op == TNY_JOBS_OP_SUBMIT ? 0 : root ? tny_jobs_host_mkdir_private(root) : ENOMEM;
     free(root);
     if (rc && op != TNY_JOBS_OP_LIST) {
         safe_err(err, errlen, "cannot create the private jobs directory");
         return 2;
     }
     switch (op) {
-    case TNY_JOBS_OP_SUBMIT: return jobs_submit(ctx, args, out, err, errlen, cancelled, cancel_ud);
+    case TNY_JOBS_OP_SUBMIT:
+        return jobs_submit(ctx, args, out, err, errlen, cancelled, cancel_ud, parent_session);
     case TNY_JOBS_OP_STATUS: return jobs_status(ctx, args, out, err, errlen);
     case TNY_JOBS_OP_WAIT: return jobs_wait(ctx, args, out, err, errlen, cancelled, cancel_ud);
     case TNY_JOBS_OP_CANCEL: return jobs_cancel(ctx, args, out, err, errlen);
@@ -3571,11 +3826,65 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
                     dirty = true;
                 } else if (go < 0) slots[i].admission_failed = true;
             }
+            if (slots[i].active && slots[i].released && !slots[i].scope.borrow() &&
+                !jm_str(item, "started")) {
+                char *now = now_iso8601();
+                jm_set_str(doc, item, "started", now ? now : "");
+                free(now);
+                dirty = true;
+            }
             if (slots[i].active || slots[i].launched) continue;
             if (active >= concurrency) continue;
-            if (tny_process_scope_native_jobs()) {
+            if (jm_bool(root, "dag", false)) {
+                char *definition = dag_definition_hash(item);
+                const char *expected = jm_str(item, "definition_sha256");
+                bool valid = definition && expected && strcmp(definition, expected) == 0;
+                free(definition);
+                if (!valid) {
+                    jm_set_str(doc, item, "state", "failed");
+                    jm_set_str(doc, item, "error_code", "definition_changed");
+                    jm_set_str(doc, item, "error",
+                               "task definition integrity is unverified; submit a new job");
+                    dirty = true;
+                    continue;
+                }
+                yyjson_mut_val *deps = yyjson_mut_obj_get(item, "depends_on");
+                bool ready = true, blocked = false;
+                for (size_t k = 0; k < yyjson_mut_arr_size(deps); k++) {
+                    int index = (int)yyjson_mut_get_sint(yyjson_mut_arr_get(deps, k));
+                    yyjson_mut_val *dep = jm_item(doc, index);
+                    const char *dep_state = jm_str(dep, "state");
+                    if (!dep_state || !state_is_terminal(dep_state)) {
+                        ready = false;
+                        continue;
+                    }
+                    if (strcmp(dep_state, "succeeded") != 0 ||
+                        verify_carried_success(ctx, dep, false, err, sizeof err) != 0)
+                        blocked = true;
+                }
+                if (blocked) {
+                    jm_set_str(doc, item, "state", "failed");
+                    jm_set_str(doc, item, "error_code", "dependency_blocked");
+                    jm_set_str(doc, item, "error",
+                               "a dependency failed or its result integrity is unverified; "
+                               "explicit retry required");
+                    jm_set_int(doc, item, "exit_code", 2);
+                    dirty = true;
+                    continue;
+                }
+                if (!ready) continue;
+                char *hash = dag_dependency_hash(doc, item);
+                if (!hash) {
+                    rc = ENOMEM;
+                    break;
+                }
+                jm_set_str(doc, item, "dependency_sha256", hash);
+                free(hash);
+            }
+            if (tny_process_scope_native_jobs() || jm_bool(root, "dag", false)) {
                 /* Persist the claim and count its slot before spawning outside
-                 * this lock. The bootstrap cannot do work until a later GO. */
+                 * this lock. Native scope bootstrap additionally waits for GO;
+                 * POSIX DAG execution starts only after this committed claim. */
                 slots[i].active = true;
                 slots[i].launched = true;
                 slots[i].launch_pending = true;
@@ -3601,6 +3910,7 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
             dirty = true;
         }
 
+        if (rc) break; /* failed write-ahead preparation: never launch */
         /* 3. are we done? */
         bool all_terminal = true;
         for (int i = 0; i < count; i++)
