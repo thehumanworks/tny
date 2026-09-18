@@ -169,6 +169,14 @@ export interface WorkflowDependency {
   readonly name: string;
   /** Append this dependency's output to the consumer prompt. Defaults to true. */
   readonly includeOutput?: boolean;
+  /** Explicit selection. No summarizer or filesystem access is invoked. */
+  readonly context?: "output" | "summary" | "fields" | "artifact";
+  readonly summary?: string;
+  /** Literal top-level JSON keys. */
+  readonly fields?: readonly string[];
+  /** Exact byte range for artifact mode; defaults to an empty read. */
+  readonly offset?: number;
+  readonly length?: number;
 }
 
 export interface WorkflowTaskOptions {
@@ -192,6 +200,7 @@ export interface WorkflowTaskExecutionOptions {
   sessionId?: string;
   stopReason?: TnyStopReason;
   error?: Error;
+  usage?: UsageEvent;
 }
 
 export class WorkflowTaskExecution {
@@ -199,6 +208,7 @@ export class WorkflowTaskExecution {
   readonly sessionId: string;
   readonly stopReason?: TnyStopReason;
   readonly error?: Error;
+  readonly usage?: UsageEvent;
   constructor(options: WorkflowTaskExecutionOptions);
   toJSON(): {
     outputBytes: number;
@@ -216,9 +226,29 @@ export interface WorkflowTaskResultOptions {
   stopReason?: TnyStopReason;
   blockedBy?: readonly string[];
   error?: Error;
+  usage?: UsageEvent;
+}
+
+export interface WorkflowArtifactProvenance {
+  task: string;
+  session_base64: string;
+  sha256: string;
+  bytes: number;
+  storage: "sdk-memory";
+}
+
+export class WorkflowArtifact {
+  readonly task: string;
+  readonly bytes: number;
+  readonly sha256: string;
+  constructor(task: string, sessionId: string, output: string);
+  /** Exact range; rejects over-bound/out-of-range reads. Default bound: 64 KiB. */
+  read(offset: number, length: number, maximumBytes?: number): Uint8Array;
+  provenance(): WorkflowArtifactProvenance;
 }
 
 export class WorkflowTaskResult {
+  readonly artifact: WorkflowArtifact;
   readonly name: string;
   readonly status: WorkflowTaskStatusName;
   readonly output: string;
@@ -226,6 +256,7 @@ export class WorkflowTaskResult {
   readonly stopReason?: TnyStopReason;
   readonly blockedBy: readonly string[];
   readonly error?: Error;
+  readonly usage?: UsageEvent;
   readonly ok: boolean;
   constructor(options: WorkflowTaskResultOptions);
   toJSON(): {
@@ -239,8 +270,17 @@ export class WorkflowTaskResult {
   };
 }
 
+export interface WorkflowUsageSummary {
+  readonly knownTasks: number;
+  readonly unknownTasks: number;
+  readonly inputTokens?: bigint;
+  readonly outputTokens?: bigint;
+  readonly cost?: number;
+}
+
 export class WorkflowResult implements Iterable<readonly [string, WorkflowTaskResult]> {
   readonly results: readonly WorkflowTaskResult[];
+  readonly usage: WorkflowUsageSummary;
   readonly size: number;
   readonly ok: boolean;
   readonly failed: readonly WorkflowTaskResult[];
@@ -275,6 +315,10 @@ export interface WorkflowOptions {
   maxConcurrency?: number;
   /** Maximum combined UTF-8 bytes injected from direct dependencies. Defaults to 1 MiB. */
   maxDependencyBytes?: number;
+  /** Complete UTF-8 input including prompt and framing. Defaults to 2 MiB. */
+  maxInputBytes?: number;
+  /** Maximum JSON source bytes or artifact slice bytes. Defaults to 1 MiB. */
+  maxSelectionBytes?: number;
   /** Replace native execution while retaining DAG scheduling and result semantics. */
   runner?: WorkflowTaskRunner;
   onEvent?: (task: WorkflowTask, event: TnyEvent) => void | Promise<void>;

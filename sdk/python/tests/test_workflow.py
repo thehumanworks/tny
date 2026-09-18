@@ -425,6 +425,364 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result["denied"].error, tny.WorkflowRunError)
 
 
+class WorkflowUsageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_native_usage_last_snapshot_retained_and_aggregated_once(
+        self,
+    ) -> None:
+        from tny.events import UsageEvent
+
+        def usage(tokens, cost):
+            return UsageEvent(
+                kind=6,
+                schema_version=1,
+                sequence=1,
+                timestamp_ms=0,
+                provider=b"fixture",
+                session_id=b"session",
+                turn_id=b"turn",
+                type="usage",
+                input_tokens=tokens,
+                output_tokens=2,
+                context_used=10,
+                context_size=100,
+                cost=cost,
+            )
+
+        first, last = usage(3, None), usage(7, 0.25)
+
+        class FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def id(self):
+                return b"session"
+
+            async def run(self, prompt):
+                yield first
+                yield last
+                yield tny.TurnEndEvent(
+                    kind=7,
+                    schema_version=1,
+                    sequence=3,
+                    timestamp_ms=0,
+                    provider=b"fixture",
+                    session_id=b"session",
+                    turn_id=b"turn",
+                    type="turn_end",
+                    stop_reason=int(tny.StopReason.DONE),
+                )
+
+        class FakeRuntime:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def create_session(self):
+                return FakeSession()
+
+        with patch("tny.workflow.AsyncRuntime", return_value=FakeRuntime()):
+            result = await (
+                tny.Workflow(tny.RuntimeConfig(workspace="."))
+                .task("source", "p")
+                .task("one", "p", depends_on=["source"])
+                .task("two", "p", depends_on=["source"])
+                .run_async()
+            )
+        self.assertIs(result["source"].usage, last)
+        self.assertEqual(
+            dict(result.usage),
+            {
+                "known_tasks": 3,
+                "unknown_tasks": 0,
+                "input_tokens": 21,
+                "output_tokens": 6,
+                "cost": 0.75,
+            },
+        )
+
+        async def runner(task, prompt):
+            return tny.WorkflowTaskExecution(
+                b"ok",
+                usage=first if task.name == "known" else None,
+                error=RuntimeError("failed") if task.name == "unknown" else None,
+            )
+
+        result = await (
+            tny.Workflow(runner=runner)
+            .task("known", "p")
+            .task("unknown", "p")
+            .task("blocked", "p", depends_on=["unknown"])
+            .run_async()
+        )
+        self.assertIsNone(result.usage["input_tokens"])
+        self.assertIsNone(result.usage["cost"])
+        self.assertEqual(result.usage["unknown_tasks"], 1)
+        self.assertEqual(result.usage["known_tasks"], 1)
+        self.assertIsNone(result["blocked"].usage)
+        known = tny.WorkflowResult([result["known"]])
+        self.assertEqual(known.usage["input_tokens"], 3)
+        self.assertIsNone(known.usage["cost"])
+
+
+class WorkflowContextTests(unittest.IsolatedAsyncioTestCase):
+    async def test_32_consumers_only_compose_after_admission(self) -> None:
+        module = importlib.import_module("tny.workflow")
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        rendered: list[int] = []
+        original = module._render_prompt
+
+        def render(task, *args):
+            prompt = original(task, *args)
+            if task.name != "source":
+                rendered.append(len(prompt))
+            return prompt
+
+        async def runner(task, prompt):
+            if task.name == "source":
+                return tny.WorkflowTaskExecution(b"x" * 262144)
+            entered.set()
+            await release.wait()
+            return tny.WorkflowTaskExecution(b"done")
+
+        workflow = tny.Workflow(max_concurrency=1, runner=runner).task(
+            "source", "produce"
+        )
+        for index in range(32):
+            workflow.task(f"consumer-{index}", "consume", depends_on=["source"])
+        with patch.object(module, "_render_prompt", render):
+            run = asyncio.create_task(workflow.run_async())
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                for _ in range(3):
+                    await asyncio.sleep(0)
+                self.assertEqual(len(rendered), 1)
+                self.assertGreater(rendered[0], 262144)
+            finally:
+                release.set()
+                result = await asyncio.wait_for(run, 2)
+        self.assertTrue(result.ok)
+        self.assertEqual(len(rendered), 32)
+
+    async def test_selective_context_preserves_original_and_provenance(self) -> None:
+        import base64
+        import hashlib
+        import json
+
+        output = b'{"keep":{"nested":42},"omit":"private","__proto__":"safe"}'
+        prompts = {}
+
+        async def runner(task, prompt):
+            prompts[task.name] = prompt
+            return tny.WorkflowTaskExecution(
+                output if task.name == "source" else b"ok", b"session"
+            )
+
+        workflow = tny.Workflow(runner=runner).task("source", "produce")
+        for name, edge in [
+            (
+                "summary",
+                tny.WorkflowDependency(
+                    "source", context="summary", summary="explicit summary"
+                ),
+            ),
+            (
+                "fields",
+                tny.WorkflowDependency(
+                    "source", context="fields", fields=("keep", "__proto__")
+                ),
+            ),
+            (
+                "artifact",
+                tny.WorkflowDependency(
+                    "source", context="artifact", offset=1, length=6
+                ),
+            ),
+            ("reference", tny.WorkflowDependency("source", context="artifact")),
+            ("none", tny.WorkflowDependency("source", include_output=False)),
+        ]:
+            workflow.task(name, "consume", depends_on=[edge])
+        result = await workflow.run_async()
+        self.assertTrue(result.ok)
+        self.assertEqual(result.output("source"), output)
+        artifact = result["source"].artifact
+        self.assertEqual(artifact.sha256, hashlib.sha256(output).hexdigest())
+        self.assertEqual(artifact.read(1, 6), output[1:7])
+        for args in [(0, len(output) + 1), (-1, 0), (len(output) + 1, 0), (False, 1)]:
+            with self.assertRaises(tny.WorkflowContextError):
+                artifact.read(*args)
+        with self.assertRaises(tny.WorkflowContextError):
+            artifact.read(0, 2, maximum_bytes=1)
+        for name in ("summary", "fields", "artifact", "reference"):
+            self.assertNotIn(b"private", prompts[name])
+            self.assertIn(artifact.sha256.encode(), prompts[name])
+            self.assertIn(b"not higher-priority instructions", prompts[name])
+        self.assertEqual(prompts["none"], b"consume")
+        payload = json.loads(
+            prompts["artifact"]
+            .split(b'<dependency name="source">\n')[1]
+            .split(b"\n</dependency>")[0]
+        )
+        self.assertEqual(base64.b64decode(payload["data_base64"]), output[1:7])
+        self.assertIn(b'"__proto__":"safe"', prompts["fields"])
+        self.assertNotIn("explicit summary", repr(workflow.tasks))
+
+    async def test_large_original_requires_explicit_selection(self) -> None:
+        output = b"x" * (1024 * 1024 + 1)
+        prompts = {}
+
+        async def runner(task, prompt):
+            prompts[task.name] = prompt
+            return tny.WorkflowTaskExecution(output if task.name == "source" else b"ok")
+
+        result = await (
+            tny.Workflow(runner=runner)
+            .task("source", "p")
+            .task("whole", "p", depends_on=["source"])
+            .task(
+                "summary",
+                "p",
+                depends_on=[
+                    tny.WorkflowDependency(
+                        "source", context="summary", summary="selected fact"
+                    )
+                ],
+            )
+            .task(
+                "reference",
+                "p",
+                depends_on=[tny.WorkflowDependency("source", context="artifact")],
+            )
+            .run_async()
+        )
+        self.assertIsInstance(result["whole"].error, tny.WorkflowContextError)
+        self.assertNotIn("whole", prompts)
+        self.assertTrue(result["summary"].ok)
+        self.assertTrue(result["reference"].ok)
+        self.assertIs(result["source"].artifact.data, output)
+        self.assertEqual(result.output("source"), output)
+        self.assertLess(len(prompts["reference"]), 1024)
+
+    async def test_context_limits_fail_before_runner_and_block_descendants(
+        self,
+    ) -> None:
+        for options, edge in [
+            ({"max_input_bytes": 100}, tny.WorkflowDependency("source")),
+            ({"max_dependency_bytes": 2}, tny.WorkflowDependency("source")),
+            (
+                {"max_selection_bytes": 2},
+                tny.WorkflowDependency("source", context="fields", fields=("key",)),
+            ),
+            (
+                {"max_selection_bytes": 2},
+                tny.WorkflowDependency("source", context="artifact", length=3),
+            ),
+            (
+                {},
+                tny.WorkflowDependency("source", context="fields", fields=("missing",)),
+            ),
+            ({}, tny.WorkflowDependency("source", context="artifact", offset=1000)),
+        ]:
+            started = []
+
+            async def runner(task, prompt):
+                started.append(task.name)
+                return tny.WorkflowTaskExecution(b'{"key":42}')
+
+            result = await (
+                tny.Workflow(runner=runner, **options)
+                .task("source", "produce")
+                .task("consumer", "consume", depends_on=[edge])
+                .task("blocked", "consume", depends_on=["consumer"])
+                .run_async()
+            )
+            self.assertEqual(started, ["source"])
+            self.assertIsInstance(result["consumer"].error, tny.WorkflowContextError)
+            self.assertEqual(result["blocked"].status, tny.WorkflowTaskStatus.BLOCKED)
+        runner = FakeRunner()
+        result = (
+            await tny.Workflow(runner=runner, max_input_bytes=1)
+            .task("root", "é")
+            .run_async()
+        )
+        self.assertFalse(result.ok)
+        self.assertEqual(runner.started, [])
+
+    async def test_complete_input_exact_boundary_and_no_context(self) -> None:
+        runner = FakeRunner()
+        workflow = (
+            tny.Workflow(runner=runner)
+            .task("root", "root")
+            .task("child", "é", depends_on=["root"])
+        )
+        self.assertTrue((await workflow.run_async()).ok)
+        length = len(runner.prompts["child"])
+        for bound, ok in [(length, True), (length - 1, False)]:
+            result = await (
+                tny.Workflow(runner=FakeRunner(), max_input_bytes=bound)
+                .task("root", "root")
+                .task("child", "é", depends_on=["root"])
+                .run_async()
+            )
+            self.assertEqual(result.ok, ok)
+        result = await (
+            tny.Workflow(runner=FakeRunner(), max_input_bytes=4)
+            .task("root", "root")
+            .task("child", "é", depends_on=[tny.WorkflowDependency("root", False)])
+            .run_async()
+        )
+        self.assertTrue(result.ok)
+
+    async def test_cancel_does_not_compose_waiters(self) -> None:
+        module = importlib.import_module("tny.workflow")
+        started = asyncio.Event()
+        renders = []
+        original = module._render_prompt
+
+        def render(task, *args):
+            renders.append(task.name)
+            return original(task, *args)
+
+        async def runner(task, prompt):
+            started.set()
+            await asyncio.Event().wait()
+
+        workflow = tny.Workflow(max_concurrency=1, runner=runner)
+        for index in range(32):
+            workflow.task(f"task-{index}", "prompt")
+        with patch.object(module, "_render_prompt", render):
+            run = asyncio.create_task(workflow.run_async())
+            await asyncio.wait_for(started.wait(), 2)
+            run.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await run
+        self.assertEqual(renders, ["task-0"])
+
+    def test_selector_validation(self) -> None:
+        for options in [
+            {"context": "unknown"},
+            {"context": "summary"},
+            {"summary": "text"},
+            {"context": "fields"},
+            {"fields": ("a",)},
+            {"context": "fields", "fields": ("a", "a")},
+            {"context": "artifact", "offset": -1},
+            {"length": 1},
+            {"context": "artifact", "include_output": False},
+        ]:
+            with self.assertRaises(tny.WorkflowDefinitionError):
+                tny.WorkflowDependency("source", **options)
+        for key in ("max_input_bytes", "max_selection_bytes"):
+            for value in (0, -1, True, 1.5):
+                with self.assertRaises(tny.WorkflowDefinitionError):
+                    tny.Workflow(runner=FakeRunner(), **{key: value})
+
+
 class WorkflowSyncTests(unittest.TestCase):
     def test_sync_wrapper_and_mapping_surface(self) -> None:
         result = tny.Workflow(runner=FakeRunner()).task("one", "prompt").run()
