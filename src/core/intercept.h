@@ -27,7 +27,9 @@ typedef enum {
     TNY_INTERCEPT_IMAGE_EXPORT, /* `tny image export` / `contact-sheet` */
     TNY_INTERCEPT_JOBS,         /* `tny jobs`: durable job service */
     TNY_INTERCEPT_MAILBOX,      /* addressed collaboration through trusted caller */
-    TNY_INTERCEPT_REFUSED,      /* recognised and rejected; `message` says why */
+    TNY_INTERCEPT_TASK_WORKSPACE,
+    TNY_INTERCEPT_TEAM,
+    TNY_INTERCEPT_REFUSED, /* recognised and rejected; `message` says why */
 } tny_intercept_kind;
 
 typedef struct tny_intercept {

@@ -24,29 +24,20 @@ See [ADR 0135](adr/0135-clean-build-variants.md).
 | Artifact | Runner | Notes |
 | --- | --- | --- |
 | `tny-linux-x86_64` | `ubuntu-24.04` | glibc, the whole `make test` natively: ASan unit tests + every integration fixture |
-| `tny-linux-aarch64` | `ubuntu-24.04-arm` | glibc, ASan unit tests, libtny fault/fuzz smoke, size, package; its full suite is the `nix` job ([ADR 0110](adr/0110-one-suite-per-platform.md)) |
+| `tny-linux-aarch64` | `ubuntu-24.04-arm` | glibc, ASan unit tests, libtny fault/fuzz/ownership checks, size and package |
 | `tny-linux-x86_64-musl` | `ubuntu-24.04` + Alpine 3.21 | **static** musl; unit tests + smoke |
 | `tny-linux-aarch64-musl` | `ubuntu-24.04-arm` + Alpine 3.21 | **static** musl; unit tests + smoke |
-| `tny-darwin-arm64` | `macos-15` | Apple Silicon only; ASan unit tests, shell workflows with the system Bash/Zsh, libtny fault/fuzz smoke, size, package; its full suite is the `nix` job, where the Python Cursor bridge fixture keeps its documented Darwin-CI skip |
-| `tny-windows-x86_64.exe` | `windows-2025` + MSYS2 `MSYS` | POSIX via `msys-2.0.dll`; unit, smoke, durable jobs |
+| `tny-darwin-arm64` | `macos-15` | Apple Silicon only; ASan unit tests, shell workflows, libtny fault/fuzz/ownership checks, ImageMagick 7 conversion tests, size and package |
 | `tny-wasm` (`tny.js`+`tny.wasm`, `tny-web.mjs`+`.wasm`) | `ubuntu-24.04` + emsdk 6.0.8 | the SAME openai/acp-ws/codex-profile mock suites with `TNY=build/wasm/tny`, `wasm-size-check`, and a headless-Chromium page smoke ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
 
-The MSYS2 executable uses yyjson's supported `yyjson_api` override with an empty
-annotation. Its POSIX compiler does not define `_WIN32`, and ELF visibility
-attributes are not supported at the Windows LTO link. This configures the
-static dependency; it does not suppress warnings, disable LTO or advertise a
-Windows libtny shared library. GCC native release LTO uses `-flto=auto` and
-Clang keeps `-flto` ([ADR 0119](adr/0119-build-lane-parity-and-exhaustive-fault-proof.md)).
-`test_windows_lto_flags.py` checks both branches and both LTO spellings.
-GCC 15.3 on that lane compiles `src/core/jobs.cpp` alone as a native object:
-its PE `binds_local_p` refuses local binding for public inline one-only
-definitions, and the LTRANS alias pass then asserts in `binds_to_current_def_p`
-while compiling the launcher's IPA-CP clone. Every other object and the link
-keep `-flto=auto`, `-Os`, `-fexceptions` and `-Werror`
-([ADR 0122](adr/0122-msys-gcc-lto-exempt-jobs-module.md)); `make release
-LTO_EXEMPT_CPP=` re-tests a fixed compiler, and `test_cpp_build.py` links a
-real native C++ object into an LTO executable.
-The MSYS2 `gcc` package already ships `g++`; there is no `gcc-c++` package.
+GitHub Actions builds and releases Linux and macOS native artifacts only
+([ADR 0137](adr/0137-linux-macos-ci-and-optional-nix.md)). Windows jobs and
+release assets are retired. Existing MSYS source/build seams remain for local
+experimentation; this is not a deletion of platform code.
+
+GCC native release LTO uses `-flto=auto`; Clang retains `-flto`. Local build
+contract tests still check the optional MSYS flags without starting a Windows
+runner or publishing a Windows artifact.
 
 The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it
 under `assets/wasm/` — the landing terminal is the CI-tested artifact.
@@ -54,13 +45,16 @@ under `assets/wasm/` — the landing terminal is the CI-tested artifact.
 Every glibc/Darwin build lane also runs the sibling `tnytty` app's tests,
 strict warnings and size report from its own Makefile (docs/adr/0045).
 
-Each suite runs once per platform ([ADR 0110](adr/0110-one-suite-per-platform.md)):
-the hosted macOS runner needed over two hours for the fixture suite that the
-sandboxed `nix` job finishes in about twenty minutes on the same runner
-class, and that one job decided when every merge could release. Runs on
-`main` are never cancelled by a newer push — the `ci`, `nix` and `sdk`
-workflows only cancel superseded pull-request runs — because a cancelled
-gate can never turn green for `auto-release`.
+The Linux x86_64 lane runs the full integration suite. Linux aarch64 and
+Darwin arm64 retain unit, fault, ownership and packaging checks; they no longer
+have an additional hermetic full-suite CI lane. The hosted macOS full suite
+previously took over two hours, so this change does not silently move it into
+a short native job. The macOS lane now explicitly requires ImageMagick 7 and
+runs the conversion suite, preserving coverage formerly supplied by Nix.
+
+Runs on `main` are never cancelled by a newer push: the `ci` and `sdk`
+workflows only cancel superseded pull-request runs. Both must succeed on the
+same commit before automatic release.
 
 `make quality` and `make test` verify the vendored Cursor v1.0.30 hashes and
 contract counts before accepting the adapter. Native integration fixtures
@@ -75,18 +69,12 @@ The libtny/Python/TypeScript matrices also exercise Cursor provider creation,
 normalized events, cancellation, custom tools, capabilities, and validation;
 they do not expose the management RPC surface.
 
-A separate `nix` workflow (`.github/workflows/nix.yml`) runs `nix flake check`
-on `ubuntu-24.04` (`x86_64-linux`), `ubuntu-24.04-arm` (`aarch64-linux`), and
-`macos-15` (`aarch64-darwin`). The three entries share one `check` job and the
-same steps: each builds `packages.tny` (whose `checkPhase` is `make size-check`),
-`packages.libtny`, and `checks.tests` — the whole `make test` suite in a
-sandbox — then smokes the built binary, asserts it reports this commit's
-revision, and `nix-instantiate`s `default.nix` / `shell.nix`. A wrap, RUNPATH,
-or sandbox-only breakage on aarch64-linux fails this workflow the same way it
-would on x86_64-linux. The Darwin entry still exits if `uname -m` is not
-`arm64`; do not add `x86_64-darwin`. See [nix.md](nix.md) and
-[ADR 0035](adr/0035-nix-flake-packaging.md). It publishes no artifact; Nix
-users build from source.
+Nix is an **optional developer** workflow, not a GitHub Actions job or release
+gate. `nix flake check` remains available locally for `x86_64-linux`,
+`aarch64-linux` and `aarch64-darwin`; it builds `packages.tny`,
+`packages.libtny` and `checks.tests`. The flake, dev shell, source filters and
+local checks are retained. See [nix.md](nix.md) and
+[ADR 0137](adr/0137-linux-macos-ci-and-optional-nix.md).
 
 The Linux glibc and Darwin jobs also stage active ABI-1 `libtny` plus the
 frozen ABI-0.8 compatibility library/header/pkg-config identity as
@@ -198,8 +186,7 @@ leaks are never suppressed.
 ## Releases (mise / `github:` backend)
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`: the same matrix,
-packaged as `tny-<os>-<arch>[-musl].tar.gz` (Windows: `.zip` with
-`msys-2.0.dll`), plus `libtny1-*` / `libtny0-compat-*`, SDK wheels, npm
+packaged as `tny-<os>-<arch>[-musl].tar.gz` for Linux/macOS, plus `libtny1-*` / `libtny0-compat-*`, SDK wheels, npm
 tarballs, conformance reports, and `SHA256SUMS`, published as a GitHub
 release. The publish job flattens `dist/sdk/*` to the asset root before the
 globs run. Each CLI archive also carries the pure-Python extension host under
@@ -219,14 +206,14 @@ While the repo is private, mise needs `GITHUB_TOKEN` (or
 
 Release flow: merge to `main`. Nothing else — the `auto-release` workflow
 (`.github/workflows/auto-release.yml`, docs/adr/0085) tags and publishes
-every merge once the `ci`, `nix`, and `sdk` workflows are all green on that
-commit. Whichever of the three completes last does the work: it checks the
-other two through the Actions API, runs `scripts/next_release_version.py`,
+every merge once the `ci` and `sdk` workflows are both green on that
+commit. Whichever of the two completes last does the work: it checks the
+other gate through the Actions API, runs `scripts/next_release_version.py`,
 pushes the annotated tag as `github-actions[bot]`, and dispatches
 `release.yml` on the tag ref (a tag pushed with `GITHUB_TOKEN` never fires
 `on: push: tags`, so the dispatch is the trigger, not a fallback). The
 `release` run then builds, packages, certifies the SDK artifacts and
-publishes; it does not repeat the test suite, which the three gates already
+publishes; it does not repeat the test suite, which the two gates already
 ran on that commit ([ADR 0110](adr/0110-one-suite-per-platform.md)), and
 the auto-release job fails loudly if that run does not start.
 
@@ -268,20 +255,13 @@ require symbols newer than glibc 2.34; musl remains unsupported for libtny.
 Do **not** add `macos-15-intel`, `macos-26-intel`, `macos-*-large`, or any
 other x86_64 Mac runner. Intel Mac is not a product target.
 
-## Windows
+## Retired automation
 
-The sources are POSIX (`fork`, `poll`, `termios`, Unix sockets). Native
-Win32 (MSVC / MinGW without a POSIX runtime) is still later.
-
-Windows CI uses the MSYS2 **MSYS** environment so those APIs exist. The
-artifact is `tny-windows-x86_64.exe` plus `msys-2.0.dll`. It is a real
-Windows binary, not a cross-compiled stub; it is not a native Win32 port.
-The native x64 job also runs `test_jobs_msys.py` and
-`test_jobs_cleanup_hold.py`: detached submission, cancellation, supervisor
-loss, separate-session descendants, stopped admission, and uncertain-cleanup
-reservation retention. Compiled fault fixtures use the same source and native
-object inventory in temporary executables. Windows ARM guest checks under x64
-emulation supplement this gate; they do not replace native x64 CI.
+No Windows runner, Windows release archive, or Nix CI job is scheduled.
+Historical releases remain unchanged. Existing MSYS code and optional local
+Nix commands are retained; neither is part of release eligibility. Branch
+protection should require the remaining `ci` and `sdk` checks, not a retired
+Nix check.
 
 ## Size gates
 
@@ -292,7 +272,6 @@ CI fails the job if the stripped binary exceeds the Must column in
 | --- | --- |
 | Linux glibc and musl static | 1.5 MiB (1,572,864 B) |
 | Darwin arm64 | 1.8 MiB (1,887,436 B) |
-| Windows MSYS | 2.0 MiB (2,097,152 B) |
 
 `make size-check` is the local equivalent. Override with `SIZE_MAX=`.
 
@@ -384,4 +363,4 @@ job transactions, failed launches, cleanup holds, checkpoint consumption and
 cancellation authority. `make test-runner-mutation`
 (`tests/mutation/runner_critical.py`) compiles private mutants of those
 sources and requires behavioral kills. Both run in the native CI suite, the
-musl/Windows unit lanes (ownership fixture) and Nix.
+musl unit lanes (ownership fixture) and optional local Nix checks.

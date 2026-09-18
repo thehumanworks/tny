@@ -1,4 +1,4 @@
-# ADR 0141: Thin asynchronous team controls; fail-closed verification gap
+# ADR 0148: Thin asynchronous team controls; fail-closed verification gap
 
 Status: accepted control slice; #153 remains partially delivered
 

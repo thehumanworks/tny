@@ -22,6 +22,8 @@ import time
 import unittest
 from pathlib import Path
 
+from test_jobs import argv_without_runner_binary
+
 ROOT = Path(__file__).resolve().parents[2]
 RUN = "0123456789abcdef0123456789abcdef"
 DRIVER = r"""
@@ -76,6 +78,7 @@ int main(int argc, char **argv) {
         buf_t out = {0};
         if (detail && perm && perm_check(perm, tny_workspace_permission_tool(op), detail) == PERM_ALLOW) {
             tools_env env = {0}; env.ctx = &ctx;
+            env.session_id = "0123456789abcdef"; /* captured runtime identity in this test driver */
             rc = tool_workspace_run(&env, op, args, &out, err, sizeof err);
         }
         if (out.len) fwrite(out.data, 1, out.len, stdout);
@@ -154,7 +157,14 @@ class WorkspaceControl(unittest.TestCase):
         self.env = {
             k: v
             for k, v in os.environ.items()
-            if not k.startswith(("GIT_", "WS_TEST_"))
+            if not k.startswith(("GIT_", "WS_TEST_", "TNY_TEAM_", "TNY_ADMISSION_"))
+            and k
+            not in (
+                "TNY_NESTED",
+                "TNY_NESTED_MODE",
+                "TNY_SESSION_ID",
+                "TNY_SESSION_SOCK",
+            )
         }
         self.env["GIT_CONFIG_NOSYSTEM"] = "1"
         self.env["HOME"] = str(self.root)
@@ -178,6 +188,7 @@ class WorkspaceControl(unittest.TestCase):
             "cleanup": "complete",
             "cleanup_hold": False,
             "verification": "unverified",
+            "parent_session_id": "0123456789abcdef",
             "items": [self.item(0), self.item(1)],
             "secret_fixture": "RECORD_SECRET_MUST_NOT_LEAK",
         }
@@ -241,6 +252,23 @@ class WorkspaceControl(unittest.TestCase):
             str(attempt),
             "--json",
             **kwargs,
+        )
+
+    def test_nested_caller_cannot_claim_operator_authority(self):
+        before = (self.paths[0] / "same.txt").read_bytes()
+        denied = self.control("inspect", extra_env={"TNY_NESTED": "1"})
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("caller", denied.stderr)
+        self.assertEqual((self.paths[0] / "same.txt").read_bytes(), before)
+        self.record["parent_session_id"] = "fedcba9876543210"
+        self.save()
+        denied = self.call(
+            "api",
+            "job_workspace_inspect",
+            json.dumps({"run": RUN, "task": 0, "attempt": 1}),
+        )
+        self.assertNotEqual(
+            denied.returncode, 0, "an unrelated captured session became the parent"
         )
 
     def test_inspect_artifact_and_cli_api_parity(self):
@@ -532,4 +560,4 @@ class WorkspaceControl(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(argv=argv_without_runner_binary())

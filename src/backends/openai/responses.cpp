@@ -195,6 +195,12 @@ char *tny_openai_responses_tools(const char *chat_tools_json) {
                 if (cv) yyjson_mut_obj_put(item, yyjson_mut_strcpy(d, yyjson_get_str(k)), cv);
             }
         }
+        /* Keep Chat Completions' non-strict default (ADR 0136). Responses
+         * otherwise normalizes optional fields into required ones, making
+         * action-dependent tools such as subagent impossible to call. */
+        yyjson_mut_val *strict = yyjson_mut_obj_get(item, "strict");
+        if (!strict || yyjson_mut_is_null(strict))
+            yyjson_mut_obj_put(item, yyjson_mut_strcpy(d, "strict"), yyjson_mut_bool(d, false));
         yyjson_mut_arr_add_val(arr, item);
     }
     char *out = tny_alloc_scope_failed() ? NULL : jwrite(d);

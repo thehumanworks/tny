@@ -82,3 +82,34 @@ mode/rules/grants, including checkpoint recovery and child launch snapshots.
 Worktrees are not sandboxes. Native read commands remain available to terminal
 profiles; arbitrary shell scripts, writes and new child launches are denied.
 Host-owned loops must refuse this policy when they cannot enforce it.
+
+## Integration amendment 3
+
+The implementation preserves the mailbox helper's stricter authority model:
+submitting parent/operator is task -1; all indexed roles, including `role:lead`,
+are descriptive. Explicit `peer_messages:true` enables communication between
+indexed members. This supersedes amendment 2's proposed role-based routing;
+it does not weaken membership or give labels administrative authority. The
+one-lead/two-worker fixture opts into peers explicitly and tests addressed delivery.
+
+## Main reconciliation amendment 4
+
+While implementation ran, main advanced to
+`ab74e2a442b950dfcbc76963813bcedf093da00b`. The lead preserves its terminal task
+completion/observer service, repository-wide agent discovery, Responses optional
+argument fix and Linux/macOS CI policy. Nix is now a developer-only upstream
+check, not a hosted CI promise. Required native gates are repeated on the merged
+candidate; physical power-loss survival is not claimed.
+
+Upstream allocated 0136/0137 concurrently. Our unpublished decisions are renumbered
+without changing upstream decisions: 0136→0143 (DAG), 0137→0144 (context),
+0138→0145 (workspace), 0139→0146 (mailbox), 0140→0147 (admission),
+0141→0148 (control), 0142→0149 (boundaries). Initial contract/brief allocations
+remain historical evidence, not current ADR identifiers.
+
+A focused reviewer established a P1 lifecycle gap: first-party detached terminals
+could outlive writable job workers while POSIX jobs reported complete cleanup.
+Owned job descendants now refuse that launch mode before sandbox/log/fork side
+effects, using the inherited job-parent restriction rather than member identity.
+Ordinary non-job background terminal completion remains unchanged. This does not
+promise containment of arbitrary shell daemonization.

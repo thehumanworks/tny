@@ -2124,7 +2124,7 @@ static char *jobs_execution_scope(tny_ctx *ctx) {
 
 /* Git runs only outside state.lock. Unknown/dirty workspaces can execute but
  * cannot carry outputs into another attempt. Managed workspace integration
- * belongs before launch claim, outside the transaction (ADR 0136). */
+ * belongs before launch claim, outside the transaction (ADR 0143). */
 static char *dag_workspace_revision(const char *cwd) {
     buf_t out;
     buf_init(&out);
@@ -3600,6 +3600,24 @@ static bool jobs_member_valid(tny_ctx *ctx) {
         for (size_t i = 0; i < 64; i++)
             difference |= (unsigned char)expected[i] ^ (unsigned char)hash.get()[i];
     return ok && difference == 0;
+}
+
+int tny_jobs_cancel_member(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen) {
+    const char *run = getenv("TNY_TEAM_RUN"), *target = jget_str(args, "id");
+    bool task_ok = false, attempt_ok = false;
+    long task = jobs_bounded_long(getenv("TNY_TEAM_TASK"), 0, TNY_JOBS_MAX_ITEMS - 1, &task_ok);
+    long attempt = jobs_bounded_long(getenv("TNY_TEAM_ATTEMPT"), 1, INT_MAX, &attempt_ok);
+    yyjson_val *items = jget(args, "items"), *only = yyjson_arr_get(items, 0);
+    if (!ctx || !out || ctx->library_mode || ctx->ssh_host || !tny_jobs_execution_supported() ||
+        !run || !target || strcmp(run, target) != 0 || !task_ok || !attempt_ok ||
+        jget_int(args, "expected_attempt", 0) != attempt || !yyjson_is_arr(items) ||
+        yyjson_arr_size(items) != 1 || !yyjson_is_int(only) || yyjson_get_sint(only) != task ||
+        !jobs_member_valid(ctx)) {
+        safe_err(err, errlen,
+                 "member cancel requires the authenticated current own task and attempt");
+        return 1;
+    }
+    return jobs_cancel(ctx, args, out, err, errlen);
 }
 
 int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,

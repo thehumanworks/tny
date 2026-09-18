@@ -6,8 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Until the lead adds the declaration to cli.h. */
-int cmd_task_workspace(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+/* The CLI and typed tools authorize the same operation identity and detail. */
 int cmd_task_workspace(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     const char *usage = "Usage: tny task-workspace inspect|integrate|cleanup --run ID --task N "
                         "--attempt N [--json]\nPreparation is scheduler-only. No automatic "

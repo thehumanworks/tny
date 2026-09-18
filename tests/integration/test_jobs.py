@@ -1520,10 +1520,6 @@ class JobsEnrollment(JobsDAG):
             "edited",
         )
 
-    @unittest.skipUnless(
-        os.environ.get("TNY_TEST_TEAM_READ_ONLY_ENFORCED"),
-        "requires lead-owned native read-only permission integration",
-    )
     def test_read_only_worker_denies_actual_edit_tool(self):
         self.state["envdump"] = "printf forbidden > forbidden.txt"
         run, payload = self.dag_submit([{"prompt": "ENVDUMP attempt edit"}])

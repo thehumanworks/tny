@@ -123,6 +123,10 @@ int main(int argc, char **argv) {
         rc = cmd_jobs(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "mailbox") == 0) {
         rc = cmd_mailbox(ctx, &g, cargc, cargv);
+    } else if (strcmp(cmd, "task-workspace") == 0) {
+        rc = cmd_task_workspace(ctx, &g, cargc, cargv);
+    } else if (strcmp(cmd, "team") == 0) {
+        rc = cmd_team(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "resume") == 0) {
         rc = cmd_resume(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "acp") == 0) {

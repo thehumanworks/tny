@@ -1,6 +1,7 @@
 /* Shared interactive/noninteractive background-session dashboard. */
 #include "tui/tui.h"
 #include "core/jobs.h"
+#include "mcp/mcp.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,15 +72,25 @@ static void agents_run_refresh(tui *t) {
                           agent_field(run, "state", "unknown"),
                           agent_field(run, "verification", "unverified"),
                           (long long)jget_int(run, "attempt", 0));
+        yyjson_val *usage = jget(run, "usage"), *admission = jget(run, "admission");
+        tui_overlay_linef(t, "Known tokens: %lld in / %lld out; unknown tasks: %lld",
+                          (long long)jget_int(usage, "known_input_tokens", 0),
+                          (long long)jget_int(usage, "known_output_tokens", 0),
+                          (long long)jget_int(usage, "unknown_items", 0));
+        tui_overlay_linef(t, "Admission: %s; cap: %lld; token policy: %s",
+                          admission && yyjson_is_obj(admission) ? "enrolled" : "not enrolled",
+                          (long long)jget_int(admission, "cap", 0),
+                          agent_field(run, "budget_state", "none"));
         int start = t->agent_selected / 8 * 8;
         for (int i = start; i < t->agent_run_count && i < start + 8; i++) {
             yyjson_val *item = yyjson_arr_get(items, (size_t)i);
             char label[257];
             agent_label(item, label);
             tui_overlay_linef(
-                t, "%s +- %d %-6s %-11s %.60s [%s]", i == t->agent_selected ? ">" : " ", i,
+                t, "%s +- %d %-6s %-11s %.45s [%s] %s", i == t->agent_selected ? ">" : " ", i,
                 agent_field(item, "role", "worker"), agent_field(item, "state", "unknown"), label,
-                agent_field(item, "verification", "unverified"));
+                agent_field(item, "verification", "unverified"),
+                agent_field(item, "admission_reason", ""));
         }
     }
     yyjson_doc_free(doc);
@@ -156,6 +167,35 @@ void tui_background_arm(tui *t) {
 void tui_agents_select(tui *t) {
     if (t->agent_selected < 0 || t->agent_selected >= t->n_agents) return;
     session_meta *m = &t->agents[t->agent_selected];
+    if (m->workspace && strcmp(m->workspace, t->ctx->cwd) != 0) {
+        /* Attachment and subsequent turns must use the selected checkout's
+         * storage, settings and permissions, not the dashboard's origin. */
+        tui_prewarm_drop(t);
+        cli_globals next = *t->g;
+        next.cwd = m->workspace;
+        next.ssh = next.ssh_cwd = NULL;
+        tui_raw_begin(t);
+        tny_ctx *ctx = cli_make_ctx(&next);
+        tui_raw_end(t);
+        if (!ctx) {
+            tui_err(t, "cannot load the background session's workspace");
+            return;
+        }
+        if (t->engine) tny_engine_end_session(t->engine, "agents");
+        tui_drop_backend(t);
+        if (t->session) {
+            session_close(t->session);
+            t->session = NULL;
+        }
+        mcp_shutdown_all();
+        perm_free(t->perm);
+        if (t->owns_ctx) tny_ctx_free(t->ctx);
+        t->ctx = ctx;
+        t->owns_ctx = true;
+        t->perm = perm_new(ctx);
+        t->worktree = NULL; /* discovery does not acquire a managed-worktree lock */
+        tui_files_free(t);
+    }
     tny_session_state *session = session_open(t->ctx, m->id);
     if (!session) {
         tui_err(t, "background session disappeared or is unreadable");

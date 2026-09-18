@@ -1,4 +1,4 @@
-# ADR 0138: Managed task workspaces with explicit integration
+# ADR 0145: Managed task workspaces with explicit integration
 
 Status: Accepted helper design; job/CLI integration pending
 

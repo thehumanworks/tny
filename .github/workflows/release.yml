@@ -8,12 +8,12 @@
 # work: mise's github backend resolves versions from GitHub *releases*
 # (not CI artifacts) and picks the asset whose name matches the host
 # OS/arch/libc. Asset names must keep the os-arch[-musl] triples below;
-# mise autodetects from linux/darwin/windows + x86_64/aarch64/arm64 + musl.
+# mise autodetects from linux/darwin + x86_64/aarch64/arm64 + musl.
 #
 # Same build matrix as ci.yml (docs/ci.md, docs/adr/0005). Never add
 # Darwin Intel runners.
 #
-# A tag is only cut once ci, nix and sdk are green on its commit, so this
+# A tag is only cut once ci and sdk are green on its commit, so this
 # workflow builds, certifies the SDK artifacts and publishes; it does not
 # run the test suite a second time (docs/adr/0110). A hand-pushed tag on
 # an unchecked commit gets no safety net here — tag green commits.
@@ -367,53 +367,9 @@ jobs:
           path: dist/tny-${{ matrix.triple }}.tar.gz
           if-no-files-found: error
 
-  windows:
-    name: windows-x86_64
-    needs: version
-    runs-on: windows-2025
-    timeout-minutes: 30
-    defaults:
-      run:
-        shell: msys2 {0}
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: MSYS
-          update: true
-          install: gcc make python zip
-          path-type: minimal
-
-      - name: Build, size, smoke, package
-        run: |
-          set -eu
-          export TNY_VERSION="${GITHUB_REF_NAME#v}"
-          gcc --version
-          g++ --version
-          make -j"$(nproc)" release
-          make size-check
-          make pack TRIPLE=windows-x86_64
-          ./dist/tny-windows-x86_64.exe --version
-          # The MSYS binary needs msys-2.0.dll next to it; zip keeps them
-          # together and is the preferred archive format on Windows.
-          mkdir -p dist/stage/lib/tny/tny_ext dist/stage/share/tny
-          cp dist/tny-windows-x86_64.exe dist/stage/tny.exe
-          cp /usr/bin/msys-2.0.dll dist/stage/
-          cp python/tny_extension_host.py dist/stage/lib/tny/
-          cp python/tny_ext/*.py python/tny_ext/py.typed dist/stage/lib/tny/tny_ext/
-          cp shell/tny-workflows.sh dist/stage/share/tny/
-          (cd dist/stage && zip -r ../tny-windows-x86_64.zip tny.exe msys-2.0.dll lib share)
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: release-tny-windows-x86_64
-          path: dist/tny-windows-x86_64.zip
-          if-no-files-found: error
-
   publish:
     name: publish release
-    needs: [build, musl, windows, validate-registries]
+    needs: [build, musl, validate-registries]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

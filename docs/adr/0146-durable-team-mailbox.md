@@ -1,4 +1,4 @@
-# ADR 0139: Bounded durable collaboration mailboxes over job authority
+# ADR 0146: Bounded durable collaboration mailboxes over job authority
 
 - Status: Proposed / unpublished; mailbox service implemented, public integration pending
 - Date: 2026-09-18

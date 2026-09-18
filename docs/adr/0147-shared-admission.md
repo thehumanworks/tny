@@ -1,4 +1,4 @@
-# ADR 0140: Shared launch admission without new execution authority
+# ADR 0147: Shared launch admission without new execution authority
 
 Status: accepted for the helper slice; scheduler integration pending.
 

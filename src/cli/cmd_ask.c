@@ -16,6 +16,8 @@
 #include "mcp/mcp.h"
 #include "util/tny_poll.h"
 #include "util/process.h"
+#include "core/jobs.h"
+#include <limits.h>
 #include "util/util.h"
 
 #include <pthread.h>
@@ -506,6 +508,20 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (strcmp(argv[k], "--events=jsonl") == 0 ||
             (strcmp(argv[k], "--events") == 0 && k + 1 < argc && strcmp(argv[k + 1], "jsonl") == 0))
             events = true;
+    }
+    if (getenv("TNY_ADMISSION_ENROLLED")) {
+        const char *parent = getenv(TNY_JOB_PARENT_ENV);
+        char *end = NULL;
+        long expected = parent ? strtol(parent, &end, 10) : 0;
+        if (!tny_jobs_execution_supported() || !parent || !*parent || !end || *end ||
+            expected <= 1 || expected > INT_MAX || tny_process_parent_lost()) {
+            ask_diag(events, "nested_enrollment",
+                     "nested asks require a new parent-owned DAG "
+                     "task; shared admission cannot be bypassed by a background ask",
+                     NULL);
+            buf_free(&prompt);
+            return 1;
+        }
     }
 
     int i = 0;

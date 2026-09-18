@@ -301,6 +301,15 @@ class Provider:
             if len(outputs) < len(steps):
                 tool, args = steps[len(outputs)]
                 args = args() if callable(args) else args
+                if wire == "responses" and tool == "subagent":
+                    schema = next(t for t in body["tools"] if t.get("name") == tool)
+                    # Emulate a schema-conforming model after Responses' default
+                    # strict normalization. Optional string fields become required;
+                    # instructions saying "omit id" cannot override that schema.
+                    if schema.get("strict") is not False:
+                        args = dict(args)
+                        for field in ("id", "prompt"):
+                            args.setdefault(field, "")
                 cid = f"call_{scenario}_{len(outputs)}"
                 h._send(200, ctype, frames(call=(cid, tool, json.dumps(args))))
             else:
@@ -364,6 +373,7 @@ def base_env(home, provider, **extra):
     env.update(
         {
             "HOME": home,
+            "XDG_CONFIG_HOME": os.path.join(home, ".config"),
             "TNY_TOOLS": "all",
             "OPENAI_API_KEY": ENV_KEY,
             "OPENAI_BASE_URL": provider.url(),
@@ -526,6 +536,54 @@ def scenario_reproduce(provider, home, workspace):
         provider, "ok2", present=(f"--resume-id {sid}",), absent=(ENV_KEY,)
     )
     return sid
+
+
+def scenario_optional_arguments(provider, home, workspace, wire):
+    """Two durable children, continued independently through every action.
+
+    The model obeys the received schema, including Responses normalization.
+    With the old request, both creates return the reported INVALID_ARGUMENT.
+    """
+    s = "optional-" + wire
+    provider.plan(
+        s,
+        ("subagent", {"action": "create", "prompt": f"child-task:{s}-a x"}),
+        ("subagent", {"action": "create", "prompt": f"child-task:{s}-b x"}),
+    )
+    env = base_env(home, provider)
+    flags = ("--provider", "openai", "--wire-api", wire)
+    before = set(session_dirs(home))
+    payload = run_parent(env, workspace, s, flags=flags)
+    check(
+        statuses(payload) == [("subagent", "success")] * 2,
+        f"{s}: schema-conforming creates failed: {provider.results[s]}",
+    )
+    ids = [provider.created_id(s, i) for i in range(2)]
+    check(len(set(ids)) == 2, f"children share an id: {ids}")
+    check(set(session_dirs(home)) - before == {payload["session_id"], *ids}, payload)
+    for i, sid in enumerate(ids):
+        tag = f"{s}-{'ab'[i]}"
+        check(provider.results[s][i] == success_text(sid, f"CHILD-OK {tag}"), sid)
+        follow = tag + "-follow"
+        provider.plan(
+            follow,
+            (
+                "subagent",
+                {"action": "message", "id": sid, "prompt": f"child-task:{follow} x"},
+            ),
+            ("subagent", {"action": "inspect", "id": sid}),
+            ("subagent", {"action": "lifecycle", "id": sid}),
+        )
+        payload = run_parent(env, workspace, follow, flags=flags)
+        check(statuses(payload) == [("subagent", "success")] * 3, payload)
+        results = provider.results[follow]
+        check(results[0] == success_text(sid, f"CHILD-OK {follow}"), results)
+        check("\nturns: 2\n" in results[1], results)
+        check(results[1].endswith(f"result:\nCHILD-OK {follow}"), results)
+        check("\nstatus: done\nexit_code: 0\nrunning: false\n" in results[2], results)
+        doc = session_doc(home, sid)
+        check(doc["turns"] == 2 and doc["status"] == "done", doc)
+    print(f"ok  subagent optional arguments ({wire}): two children, eight tool calls")
 
 
 def scenario_rejected_ids(provider, home, workspace, existing):
@@ -862,6 +920,8 @@ def run():
             scenario_rejected_ids(provider, home, workspace, sid)
             scenario_flag_credentials(provider, home, workspace)
             scenario_profile(provider, home, workspace)
+            scenario_optional_arguments(provider, home, workspace, "chat")
+            scenario_optional_arguments(provider, home, workspace, "responses")
             scenario_chatgpt_flag(provider, home, workspace)
             scenario_permission_ceiling(provider, home, workspace)
             scenario_step_ceiling(provider, home, workspace)

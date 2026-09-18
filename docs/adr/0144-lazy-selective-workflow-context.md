@@ -1,4 +1,4 @@
-# ADR 0137: Lazy, selective workflow context
+# ADR 0144: Lazy, selective workflow context
 
 - Status: Accepted
 - Date: 2026-09-18

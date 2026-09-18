@@ -15,7 +15,7 @@ import time
 import unittest
 from pathlib import Path
 
-from test_jobs import TNY, Handler, JobsFixture
+from test_jobs import TNY, Handler, JobsFixture, argv_without_runner_binary
 from test_subagent import chat_frames, tool_outputs, user_texts
 
 
@@ -435,4 +435,4 @@ class CapturedParent(JobsFixture):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(argv=argv_without_runner_binary())

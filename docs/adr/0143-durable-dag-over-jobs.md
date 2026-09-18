@@ -1,4 +1,4 @@
-# ADR 0136: Durable DAG execution over existing jobs
+# ADR 0143: Durable DAG execution over existing jobs
 
 Status: accepted foundation; broader team delivery remains incomplete
 

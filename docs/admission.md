@@ -36,9 +36,12 @@ limit, even if they resolve to the same real account. Local job concurrency is a
 additional ceiling, not raised by admission. Independent scopes are independent.
 A batch uses one resolved provider/account; mixed per-item providers are unsupported.
 
-Nested enrolled jobs and subagents reject. A worker cannot use another enrolled
-launch to bypass accounting. This is not an account-wide restriction on unrelated
-processes. Native local execution is supported; wasm, SSH and embedded mutation
+Nested enrolled jobs, subagents and background asks reject. A worker cannot use
+another first-party enrolled launch to bypass accounting. Owned job descendants
+also cannot start `terminal(background:true)`; use a foreground command or ask the
+parent to add a DAG task. Collection of existing terminal handles is separate.
+Arbitrary same-user shell daemonization is not contained, and this is not an
+account-wide restriction on unrelated processes. Native local execution is supported; wasm, SSH and embedded mutation
 are unsupported. Host automatic context injection is not an admission capability.
 
 ## Queue, cleanup and recovery
@@ -85,4 +88,4 @@ The native child step limit is another execution bound, not a token/cost budget.
 Reports should separate launch claims, active/queued capacity, known usage,
 unknown usage, execution state, manual check evidence and verification state.
 Neither successful admission nor reported usage marks work accepted.
-See [ADR 0140](adr/0140-shared-admission.md).
+See [ADR 0147](adr/0147-shared-admission.md).

@@ -6,6 +6,8 @@
 #include "core/image_service.h"
 #include "core/tools_image.h"
 #include "core/tools_jobs.h"
+#include "core/tools_workspace.h"
+#include "core/tools_team.h"
 #include "core/team_runtime.h"
 #include "core/intercept.h"
 #include "core/subagent.h"
@@ -142,11 +144,13 @@ static const char *SCHEMA_JSON =
     "handler.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}}"
     ",\"required\":[\"path\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"terminal\",\"description\":\"Run a shell "
-    "command in the workspace. Args: command, optional timeout_s (default 120), background "
-    "(returns immediately with a log "
-    "path).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\"}"
-    ",\"timeout_s\":{\"type\":\"integer\"},\"background\":{\"type\":\"boolean\"}},\"required\":["
-    "\"command\"]}}},"
+    "command in the workspace. command, optional timeout_s (default 120), background. "
+    "Background returns JSON with task_id and log; inspect with task_id, or wait with "
+    "task_id and wait_s (0-600). Wait timeout/cancellation does not cancel work. Never poll PIDs. "
+    "Do not combine task_id with command/background.\",\"parameters\":{\"type\":\"object\","
+    "\"properties\":{\"command\":{\"type\":\"string\"},\"timeout_s\":{\"type\":\"integer\"},"
+    "\"background\":{\"type\":\"boolean\"},\"task_id\":{\"type\":\"string\"},"
+    "\"wait_s\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":600}}}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"web_fetch\",\"description\":\"HTTP GET a URL "
     "and return the (bounded) body "
     "text.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},"
@@ -180,11 +184,43 @@ static const char *SCHEMA_JSON =
     "\"action\":{\"type\":\"string\",\"enum\":[\"create\",\"message\",\"inspect\",\"lifecycle\"]},"
     "\"id\":{\"type\":\"string\",\"description\":\"Child id returned by create; never set on "
     "create.\"},\"prompt\":{\"type\":\"string\"}},\"required\":[\"action\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"job_workspace_inspect\",\"description\":"
+    "\"Inspect "
+    "a finished isolated task's owned workspace and bounded patch provenance; not acceptance.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{\"run\":{\"type\":\"string\"},"
+    "\"task\":{\"type\":\"integer\"},\"attempt\":{\"type\":\"integer\"}},\"required\":[\"run\","
+    "\"task\",\"attempt\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"job_workspace_integrate\",\"description\":"
+    "\"Explicitly "
+    "integrate a finished isolated task's committed result into its launch branch. Preserve "
+    "conflicts and require separate verification. Never call based only on worker prose.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{\"run\":{\"type\":\"string\"},"
+    "\"task\":{\"type\":\"integer\"},\"attempt\":{\"type\":\"integer\"}},\"required\":[\"run\","
+    "\"task\",\"attempt\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"job_workspace_cleanup\",\"description\":"
+    "\"Explicitly "
+    "remove only a clean proven-owned finished task workspace. Dirty/foreign trees survive.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{\"run\":{\"type\":\"string\"},"
+    "\"task\":{\"type\":\"integer\"},\"attempt\":{\"type\":\"integer\"}},\"required\":[\"run\","
+    "\"task\",\"attempt\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"team_control\",\"description\":\"Explicit "
+    "async "
+    "team controls over jobs. request is the same JSON as tny team --request: start needs "
+    "kind:ask, dag:true and at least two worker items (this captured parent is the lead); "
+    "an optional lead item is descriptive. status needs id; "
+    "collect needs id/item and optional max_bytes; wait-any accepts seen item/attempt pairs "
+    "and timeout_ms (max 30000); cancel requires expected_attempt. verify currently refuses "
+    "execution and reports unverified, never accepted work. No request-supplied caller identity.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\","
+    "\"enum\":[\"start\",\"status\",\"collect\",\"wait-any\",\"cancel\",\"verify\"]},"
+    "\"request\":{\"type\":\"object\"}},\"required\":[\"action\",\"request\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"team_mailbox\",\"description\":\"Send durable "
     "untrusted collaboration context without interrupting a task; inbox/read/ack address only "
     "your own membership. Messages replay until explicit acknowledgment. No sender override.\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\","
-    "\"enum\":[\"send\",\"inbox\",\"read\",\"ack\"]},\"run\":{\"type\":\"string\","
+    "\"enum\":[\"send\",\"inbox\",\"read\",\"ack\",\"retire\"]},\"before_attempt\":{\"type\":"
+    "\"integer\","
+    "\"minimum\":1},\"run\":{\"type\":\"string\","
     "\"pattern\":\"^[0-9a-f]{32}$\"},\"to\":{\"type\":\"integer\",\"minimum\":-1,\"maximum\":63,"
     "\"description\":\"Recipient task index, or -1 for the submitting parent lead.\"},"
     "\"id\":{\"type\":\"string\",\"maxLength\":64},\"text\":{\"type\":\"string\",\"maxLength\":"
@@ -196,7 +232,10 @@ static const char *SCHEMA_JSON =
     "per-item log paths immediately; read it back with "
     "job_status.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":"
     "\"string\",\"enum\":[\"ask\",\"image\"]},\"dag\":{\"type\":\"boolean\"},"
-    "\"peer_messages\":{\"type\":\"boolean\"},\"admission\":{\"type\":\"object\",\"properties\":{"
+    "\"peer_messages\":{\"type\":\"boolean\"},\"budget\":{\"type\":\"object\",\"properties\":{"
+    "\"soft_tokens\":{\"type\":\"integer\",\"minimum\":1},\"unknown_usage\":{\"type\":\"string\","
+    "\"enum\":[\"stop\",\"continue\"]}},\"required\":[\"soft_tokens\"]},"
+    "\"admission\":{\"type\":\"object\",\"properties\":{"
     "\"label\":{\"type\":\"string\"},\"provider_scope\":{\"type\":\"string\"},"
     "\"cap\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":16},"
     "\"queue_cap\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":128},"
@@ -436,6 +475,9 @@ static bool schema_tool_disabled(const tools_env *env, const char *name) {
     /* Jobs own real child processes: the execution tools disappear where none
      * can exist, while bounded record reads remain (docs/adr/0093). */
     if (tool_jobs_is_tool(name)) return !tool_jobs_available(env->ctx, name);
+    if (tool_workspace_op(name) != TNY_WORKSPACE_NONE)
+        return !tool_workspace_available(env->ctx, name);
+    if (strcmp(name, "team_control") == 0) return !tool_team_available(env->ctx);
     if (strcmp(name, "team_mailbox") == 0)
         return env->ctx->library_mode || env->ctx->ssh_host || !tny_jobs_execution_supported();
     if (!env->ctx->library_mode) return false;
@@ -718,6 +760,27 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         call->detail = tool_image_export_detail(
             env, call->args, strcmp(call->name, "image_contact_sheet") == 0, &call->error);
         if (call->error || !call->detail) return -1;
+    } else if (strcmp(call->name, "team_control") == 0) {
+        tny_team_op op = tny_team_op_parse(jget_str(call->args, "action"));
+        const char *permission = tny_team_permission_tool(op);
+        free(call->permission_tool);
+        call->permission_tool = permission ? xstrdup(permission) : NULL;
+        char *why = NULL;
+        call->detail = tool_team_detail(env, op, jget(call->args, "request"), &why);
+        if (!call->permission_tool || !call->detail) {
+            call->error = tool_err("%s", why ? why : "invalid team operation");
+            free(why);
+            return -1;
+        }
+        free(why);
+    } else if (tool_workspace_op(call->name) != TNY_WORKSPACE_NONE) {
+        const char *why = NULL;
+        call->detail =
+            tny_workspace_detail(env->ctx, tool_workspace_op(call->name), call->args, &why);
+        if (!call->detail) {
+            call->error = tool_err("%s", why ? why : "invalid workspace request");
+            return -1;
+        }
     } else if (strcmp(call->name, "team_mailbox") == 0) {
         const char *permission = tny_team_mailbox_permission(call->args);
         free(call->permission_tool);

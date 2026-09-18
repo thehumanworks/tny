@@ -24,6 +24,8 @@
 
 let
   src = (import ./source.nix { inherit lib; }).tests;
+  # Terminal background completion uses only the existing Python/POSIX tools.
+  # Its short-lived detached waiters also use this test runner's adoption.
   # Linux fixture descendants can outlive their direct parent. Adopt and reap
   # them inside the builder even when the host/container init does not reap.
   testRunner = lib.optionalString stdenv.hostPlatform.isLinux "${tini}/bin/tini -s -- ";
@@ -36,7 +38,7 @@ stdenv.mkDerivation {
   # (-dynamiclib on Darwin, -shared on Linux; -ldl for snapshot crash faults).
   # The host C runtime supplies dl; no extra runtime package is used.
   # test_jobs_cleanup_hold.py needs only existing Python/fcntl dependencies.
-  # test_jobs_msys.py skips on Nix hosts; its native Windows CI fixtures use
+  # test_jobs_msys.py skips on Nix hosts; its optional local MSYS fixtures use
   # the existing gcc/make/python toolchain and the Makefile object inventory.
   strictDeps = true;
   nativeBuildInputs = [
@@ -83,6 +85,10 @@ stdenv.mkDerivation {
     # read/write interposer; no network, new package or external test data.
     # test_search_service.py adds stdlib-only HTTP/PTY service fixtures for
     # Codex auth, independent callers, cancellation/refresh and backgrounding.
+    # task_workspace_process_suite remains in ordinary/Valgrind unit runs;
+    # only macOS leaks excludes that fork-based suite. Nonfork workspace tests
+    # and team_runtime_suite remain in the leak gate. Swarm provider fixtures
+    # need only the declared Git, Python, compiler and existing PTY/process tools.
     # test_admission.py and test_team_mailbox.py compile their real C helpers
     # with stdenv's compiler and existing fixtures. Pause/crash/fault tests use
     # stdlib fcntl, signals and subprocesses; no provider or new program is needed.

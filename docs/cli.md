@@ -634,7 +634,10 @@ writer asks there too instead of guessing.
 An interrupt also reaches a `terminal` tool that is still running: the
 command and the processes it started are stopped, the tool result reports
 `exit code: 130` with a cancellation line, and the turn ends `interrupted`
-(exit `130`). A `background: true` terminal command is deliberately detached
+(exit `130`). Background terminal results now provide an opaque `task_id` and
+structured [inspect/wait calls](features/mcp-and-skills.md#background-terminal-completion),
+not a PID to poll. Wait deadlines and observation cancellation do not cancel
+the task. A `background: true` terminal command is deliberately detached
 and keeps running, as it does for any other turn outcome.
 
 **Inside tny**: a foreground `tny ask` typed into the `terminal` tool is
@@ -921,7 +924,16 @@ row and Enter claims its unique owner connection, including halfway through a
 running turn. Another live owner is refused. Completed and stale records remain
 visible honestly; selecting a completed row shows its saved conversation.
 `tny agents --json` (or non-TTY plain output) lists the workspace without
-starting any provider. Unlike `tny cursor agents`, this lists local tny sessions.
+starting any provider. It shows live sessions (including foreground TUI sessions)
+and saved background sessions. In a Git repository, it also includes sessions
+from the main checkout and linked worktrees, including `~/.tny/worktrees`.
+This works from repository subdirectories too. Unrelated repositories are not
+included. Selecting a session switches to its checkout's settings, permissions
+and session storage. A foreground session with an attached owner is listed but
+cannot be taken over; detach its owner first. Finished foreground sessions are
+not retained in this list. Unlike `tny cursor agents`, this lists local tny sessions.
+Outside Git (or when Git is unavailable), listing remains workspace-local;
+wasm remains workspace-local because local Git is unavailable.
 
 `tny agents --run RUN_ID` instead shows the task tree of an opt-in durable DAG
 job. The run ID is the job ID, not an arbitrary session ID. Each row shows its

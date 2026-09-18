@@ -18,7 +18,7 @@ Image generation itself is unaffected there.
 
 ## Opt-in durable DAG (native ask jobs)
 
-[ADR 0136](adr/0136-durable-dag-over-jobs.md) extends the existing supervisor,
+[ADR 0143](adr/0143-durable-dag-over-jobs.md) extends the existing supervisor,
 not a second controller. Submit a lead and two read-only workers through the
 existing batch JSON entry point:
 
@@ -117,7 +117,7 @@ modes before worktree/admission files or child launches. SSH does not become a
 remote durable controller: run the command on
 the remote native host explicitly. Embedded SDK workflows do not implicitly
 acquire native durability or custom-tool portability. wasm keeps the existing
-clean refusal for job execution. See ADR 0136 for workspace and admission call
+clean refusal for job execution. See ADR 0143 for workspace and admission call
 points and the remaining #153/#155 delivery gaps.
 
 ## Managed workspace enrollment

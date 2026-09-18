@@ -137,4 +137,4 @@ mailbox/completion injection is unsupported. Team jobs do not promise mixed
 providers, a global provider limiter, hard token/cost spending bounds, or full
 unattended editing readiness. [Admission](admission.md) only constrains declared
 enrolled jobs; nested enrolled jobs/subagents reject. Unknown usage remains
-unknown. See [ADR 0141](adr/0141-team-control-over-jobs.md) for the service design.
+unknown. See [ADR 0148](adr/0148-team-control-over-jobs.md) for the service design.

@@ -20,11 +20,11 @@ static const char *need_val(int argc, char **argv, int *i, const char *flag, boo
 bool cli_is_command(const char *name) {
     if (strcmp(name, "optimise") == 0) return true;
     static const char *const names[] = {
-        "ask",    "edit",     "speak",       "dictate",   "image",     "ask-user", "resume",
-        "acp",    "sessions", "session",     "provider",  "providers", "backends", "models",
-        "tasks",  "task",     "permissions", "workspace", "status",    "doctor",   "usage",
-        "cursor", "mcp",      "login",       "logout",    "setup",     "agents",   "web",
-        "jobs",   "mailbox",  "help",        NULL};
+        "ask",    "edit",     "speak",          "dictate",   "image",     "ask-user", "resume",
+        "acp",    "sessions", "session",        "provider",  "providers", "backends", "models",
+        "tasks",  "task",     "permissions",    "workspace", "status",    "doctor",   "usage",
+        "cursor", "mcp",      "login",          "logout",    "setup",     "agents",   "web",
+        "jobs",   "mailbox",  "task-workspace", "team",      "help",      NULL};
     for (size_t i = 0; names[i]; i++)
         if (strcmp(name, names[i]) == 0) return true;
     return false;

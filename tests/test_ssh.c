@@ -308,6 +308,53 @@ TEST file_tools_round_trip(void) {
     PASS();
 }
 
+static bool terminal_observer_cancelled(void *ud) { return *(bool *)ud; }
+
+TEST terminal_remote_wait_has_deadline_and_shell_status(void) {
+    tny_ctx *ctx = remote_ctx();
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char *out =
+        tools_execute(&env, "terminal", "{\"command\":\"sleep 2; exit 7\",\"background\":true}");
+    yyjson_doc *launch = jparse(out, strlen(out));
+    free(out);
+    ASSERT(launch);
+    ASSERT_STR_EQ("unknown", jget_str(yyjson_doc_get_root(launch), "state"));
+    const char *id = jget_str(yyjson_doc_get_root(launch), "task_id");
+    char args[128];
+    snprintf(args, sizeof args, "{\"task_id\":\"%s\",\"wait_s\":1}", id);
+    out = tools_execute(&env, "terminal", args);
+    yyjson_doc *done = jparse(out, strlen(out));
+    free(out);
+    ASSERT(done);
+    ASSERT_STR_EQ("timed_out", jget_str(yyjson_doc_get_root(done), "observation"));
+    ASSERT(yyjson_is_null(jget(yyjson_doc_get_root(done), "exit_code")));
+    yyjson_doc_free(done);
+    bool cancelled = true;
+    env.cancelled = terminal_observer_cancelled;
+    env.cancelled_ud = &cancelled;
+    out = tools_execute(&env, "terminal", args);
+    done = jparse(out, strlen(out));
+    free(out);
+    ASSERT(done);
+    ASSERT_STR_EQ("cancelled", jget_str(yyjson_doc_get_root(done), "observation"));
+    yyjson_doc_free(done);
+    env.cancelled = NULL;
+    snprintf(args, sizeof args, "{\"task_id\":\"%s\",\"wait_s\":5}", id);
+    out = tools_execute(&env, "terminal", args);
+    done = jparse(out, strlen(out));
+    free(out);
+    ASSERT(done);
+    ASSERT_STR_EQ("failed", jget_str(yyjson_doc_get_root(done), "state"));
+    ASSERT_STR_EQ("shell_wait", jget_str(yyjson_doc_get_root(done), "status_source"));
+    ASSERT_EQ(7, jget_int(yyjson_doc_get_root(done), "exit_code", -1));
+    yyjson_doc_free(done);
+    yyjson_doc_free(launch);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST terminal_runs_remotely(void) {
     tny_ctx *ctx = remote_ctx();
     perm_engine *perm = perm_new(ctx);
@@ -327,8 +374,21 @@ TEST terminal_runs_remotely(void) {
     ASSERT(strstr(r, "exit code: 0\n(no output)"));
     free(r);
     r = tools_execute(&env, "terminal", "{\"command\":\"echo bg-done\",\"background\":true}");
-    ASSERT(strstr(r, "started in background on alice@example.test: pid "));
-    ASSERT(strstr(r, "log: "));
+    yyjson_doc *launched = jparse(r, strlen(r));
+    ASSERT(launched);
+    const char *id = jget_str(yyjson_doc_get_root(launched), "task_id");
+    ASSERT(id);
+    char collect[128];
+    snprintf(collect, sizeof collect, "{\"task_id\":\"%s\",\"wait_s\":5}", id);
+    free(r);
+    r = tools_execute(&env, "terminal", collect);
+    yyjson_doc *done = jparse(r, strlen(r));
+    ASSERT(done);
+    ASSERT_STR_EQ("completed", jget_str(yyjson_doc_get_root(done), "state"));
+    ASSERT_EQ(0, jget_int(yyjson_doc_get_root(done), "exit_code", -1));
+    ASSERT(jget_str(yyjson_doc_get_root(done), "log"));
+    yyjson_doc_free(done);
+    yyjson_doc_free(launched);
     free(r);
     ctx->tool_profile = TNY_TOOLS_TERMINAL;
     r = tools_execute(
@@ -352,8 +412,18 @@ TEST terminal_runs_remotely(void) {
     free(stored);
     free(r);
     r = tools_execute(&env, "terminal", "{\"command\":\"echo bg-done\",\"background\":true}");
-    ASSERT(strstr(r, "exit: 0\nbytes: "));
-    ASSERT(strstr(r, "started in background on alice@example.test: pid "));
+    launched = jparse(r, strlen(r));
+    ASSERT(launched);
+    id = jget_str(yyjson_doc_get_root(launched), "task_id");
+    ASSERT(id);
+    snprintf(collect, sizeof collect, "{\"task_id\":\"%s\",\"wait_s\":5}", id);
+    free(r);
+    r = tools_execute(&env, "terminal", collect);
+    done = jparse(r, strlen(r));
+    ASSERT(done);
+    ASSERT_EQ(0, jget_int(yyjson_doc_get_root(done), "exit_code", -1));
+    yyjson_doc_free(done);
+    yyjson_doc_free(launched);
     free(r);
     ctx->tool_profile = TNY_TOOLS_ALL;
     /* the permission detail is the remote path, not a local realpath */
@@ -510,6 +580,7 @@ SUITE(ssh_suite) {
     RUN_TEST(run_stdin_timeout_and_cap);
     RUN_TEST(file_tools_round_trip);
     RUN_TEST(terminal_runs_remotely);
+    RUN_TEST(terminal_remote_wait_has_deadline_and_shell_status);
     RUN_TEST(intercepted_edit_follows_the_ssh_host);
     RUN_TEST(local_when_not_attached);
     RUN_TEST(instructions_follow_the_remote_workspace);

@@ -27,6 +27,7 @@ typedef struct {
     const char *run_id;
     int task_index;
     int attempt;
+    const char *capability; /* private runtime member handoff, never request data */
 } tny_team_caller;
 
 #define TNY_TEAM_WAIT_MAX_MS 30000
@@ -42,7 +43,7 @@ tny_team_op tny_team_parse_argv(int argc, char **argv, const char *stdin_text, s
 /* Validate and resolve permission detail without executing work. Returned detail
  * and *error are malloc'd. team_verify includes exact command/cwd/run/task/fence;
  * a team_status/read grant cannot authorize it. Verification is fail-closed until
- * a strict check-process cleanup seam is wired (ADR0141). */
+ * a strict check-process cleanup seam is wired (ADR0148). */
 char *tny_team_detail(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op, yyjson_val *args,
                       char **error);
 /* Already-permitted request, revalidated with current membership. 0: submitted or

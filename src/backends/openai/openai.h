@@ -172,7 +172,8 @@ char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary, const char 
  * item — for a provider view that already starts at the boundary. */
 char *tny_openai_responses_input_with_summary(yyjson_mut_val *msgs, const char *summary);
 /* Nested chat tools ({"type":"function","function":{…}}) → the flat
- * Responses shape ({"type":"function","name":…,"parameters":…}). */
+ * Responses shape ({"type":"function","name":…,"parameters":…}).
+ * Absent/null strict becomes false; explicit booleans and schemas are preserved. */
 char *tny_openai_responses_tools(const char *chat_tools_json);
 /* Chat `response_format` wrapper → the flattened Responses `text.format`
  * object ({"type":"json_schema","name":…,"schema":…}). */

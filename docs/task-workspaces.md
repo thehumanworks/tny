@@ -123,4 +123,4 @@ refused rather than automatically adopted. Inspect residue before choosing a new
 attempt. `result.json` is a bounded snapshot, not verification evidence or an
 acceptance decision. See the
 [review/implement/manual-check template](../examples/swarm/review-implement.md)
-and [ADR 0138](adr/0138-managed-task-workspaces.md).
+and [ADR 0145](adr/0145-managed-task-workspaces.md).

@@ -8,9 +8,6 @@
 #include <string.h>
 #include <unistd.h>
 
-/* Registration/declaration in cli.h is owned by the integration lead. */
-int cmd_team(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
-
 int cmd_team(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     (void)g;
     if (argc == 0 || strcmp(argv[0], "--help") == 0 || strcmp(argv[0], "-h") == 0) {

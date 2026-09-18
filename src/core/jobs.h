@@ -130,6 +130,10 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
  * payload on stdin, the acknowledgment pipe on stdout and the live owner lock
  * on descriptor 3. Returns the process exit code. */
 int tny_jobs_worker_main(tny_ctx *ctx, const char *id, int payload_fd, int ack_fd, int owner_fd);
+/* Dedicated team adapter: validates the private inherited member capability,
+ * exact own item and attempt. Never permits sibling/foreign-run mutation. The
+ * actual cancel write retains the ordinary transaction's attempt fence. */
+int tny_jobs_cancel_member(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen);
 
 /* False in runtimes that cannot own a child process (wasm). Execution
  * operations refuse before any file or provider side effect; reading existing

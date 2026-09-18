@@ -1,5 +1,6 @@
 #include "core/tools_workspace.h"
 #include "core/jobs.h"
+#include "core/team_runtime.h"
 #include "util/jobs_host.h"
 #include "util/git.h"
 #include "util/task_workspace.h"
@@ -82,15 +83,15 @@ tny_workspace_op tny_workspace_parse_argv(int argc, char **argv, char **request_
     task_workspace_id id = {NULL, -1, 0};
     bool json = false;
     for (int i = 1; i < argc; ++i) {
-        if (same(argv[i], "--json") && !json) {
+        if (strcmp(argv[i], "--json") == 0 && !json) {
             json = true;
             continue;
         }
         if (i + 1 >= argc) return TNY_WORKSPACE_NONE;
-        if (same(argv[i], "--run") && !id.run) id.run = argv[++i];
-        else if (same(argv[i], "--task") && id.task < 0) {
+        if (strcmp(argv[i], "--run") == 0 && !id.run) id.run = argv[++i];
+        else if (strcmp(argv[i], "--task") == 0 && id.task < 0) {
             if (!number(argv[++i], 0, TNY_JOBS_MAX_ITEMS - 1, &id.task)) return TNY_WORKSPACE_NONE;
-        } else if (same(argv[i], "--attempt") && !id.attempt) {
+        } else if (strcmp(argv[i], "--attempt") == 0 && !id.attempt) {
             if (!number(argv[++i], 1, INT_MAX, &id.attempt)) return TNY_WORKSPACE_NONE;
         } else return TNY_WORKSPACE_NONE;
     }
@@ -208,8 +209,8 @@ static void result(buf_t *out, tny_workspace_op op, task_workspace_id id, const 
     }
     buf_appendf(out, ",\"conflict\":%s}\n", same(status, "conflict") ? "true" : "false");
 }
-int tny_workspace_run(tny_ctx *ctx, tny_workspace_op op, yyjson_val *args, buf_t *out, char *err,
-                      size_t cap) {
+static int workspace_run(tny_ctx *ctx, const tools_env *actor, tny_workspace_op op,
+                         yyjson_val *args, buf_t *out, char *err, size_t cap) {
     if (err && cap) err[0] = 0;
     const char *why = NULL;
     char *detail = tny_workspace_detail(ctx, op, args, &why);
@@ -265,6 +266,12 @@ int tny_workspace_run(tny_ctx *ctx, tny_workspace_op op, yyjson_val *args, buf_t
         jget_int(root, "revision", -1) != jget_int(view, "revision", -1) ||
         !same(text(root, "state"), text(view, "state")) ||
         !same(text(root, "workspace"), text(view, "workspace")))
+        goto done;
+    tools_env operator_env = {.ctx = ctx};
+    int authority = tny_team_record_authority(actor ? actor : &operator_env, root, actor == NULL);
+    why = "caller is not the recorded parent/operator or this task's current member";
+    if (authority == -2 ||
+        (authority >= 0 && (op != TNY_WORKSPACE_INSPECT || authority != id.task)))
         goto done;
     yyjson_val *item = yyjson_arr_get(jget(root, "items"), (size_t)id.task);
     yyjson_val *policy = jget(item, "workspace");
@@ -351,13 +358,18 @@ done:
     free(caller);
     return rc;
 }
+int tny_workspace_run(tny_ctx *ctx, tny_workspace_op op, yyjson_val *args, buf_t *out, char *err,
+                      size_t cap) {
+    return workspace_run(ctx, NULL, op, args, out, err, cap);
+}
+
 int tool_workspace_run(tools_env *env, tny_workspace_op op, yyjson_val *args, buf_t *out, char *err,
                        size_t cap) {
     if (!env || !env->ctx || (env->cancelled && env->cancelled(env->cancelled_ud))) {
         if (err && cap) snprintf(err, cap, "workspace control unavailable or cancelled");
         return 1;
     }
-    return tny_workspace_run(env->ctx, op, args, out, err, cap);
+    return workspace_run(env->ctx, env, op, args, out, err, cap);
 }
 void tny_workspace_render_human(const char *json, buf_t *out) {
     yyjson_doc *d = json ? jparse(json, strlen(json)) : NULL;

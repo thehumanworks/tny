@@ -9,11 +9,11 @@
 
 #define TEAM_RUNS_MAX     32u
 #define TEAM_RECEIPTS_MAX 2048u
+#define TEAM_LOCK_WAIT_MS 250
 
 typedef struct {
     tools_env *env;
     bool local_operator;
-    const char *token;
     char *dir;
     tny_mailbox_identity identity;
     tny_mailbox_service service;
@@ -28,19 +28,6 @@ static void hex_digest(const uint8_t *bytes, size_t len, char *out) {
     out[2 * len] = 0;
 }
 
-bool tny_team_capability_new(char token[65], char digest[65]) {
-    uint8_t raw[32], hash[32];
-    if (!random_bytes(raw, sizeof raw)) return false;
-    hex_digest(raw, sizeof raw, token);
-    secure_zero(raw, sizeof raw);
-    if (!sha256((const uint8_t *)token, 64, hash)) {
-        secure_zero(token, 65);
-        return false;
-    }
-    hex_digest(hash, sizeof hash, digest);
-    return true;
-}
-
 static bool number(const char *s, uint32_t max, uint32_t *out) {
     if (!s || !*s) return false;
     uint64_t value = 0;
@@ -53,32 +40,49 @@ static bool number(const char *s, uint32_t max, uint32_t *out) {
     return true;
 }
 
+bool tny_team_capability_matches(yyjson_val *root, int task, int attempt, const char *token) {
+    if (!token || strlen(token) != 64 || task < 0 || task >= TNY_JOBS_MAX_ITEMS || attempt < 1 ||
+        jget_int(root, "attempt", 0) != attempt)
+        return false;
+    yyjson_val *item = yyjson_arr_get(jget(root, "items"), (size_t)task);
+    const char *expected = jget_str(item, "mailbox_capability_sha256");
+    uint8_t hash[32];
+    char actual[65];
+    if (!expected || strlen(expected) != 64 || jget_int(item, "attempt", 0) != attempt ||
+        !sha256((const uint8_t *)token, 64, hash))
+        return false;
+    hex_digest(hash, sizeof hash, actual);
+    unsigned difference = 0;
+    for (size_t i = 0; i < 64; i++)
+        difference |= (unsigned char)expected[i] ^ (unsigned char)actual[i];
+    return difference == 0;
+}
+
+int tny_team_record_authority(const tools_env *env, yyjson_val *root, bool local_operator) {
+    if (!env || !env->ctx || !jget_bool(root, "dag", false)) return -2;
+    const char *nested = getenv("TNY_NESTED");
+    if (local_operator && (!nested || strcmp(nested, "1") != 0)) return -1;
+    const char *parent = jget_str(root, "parent_session_id");
+    const char *session = env->session ? env->session->id : env->session_id;
+    if (parent && session && strcmp(parent, session) == 0) return -1;
+    const char *run = getenv("TNY_TEAM_RUN"), *id = jget_str(root, "id");
+    const char *token = getenv("TNY_TEAM_CAPABILITY");
+    uint32_t task = 0, attempt = 0;
+    if (!run || !id || strcmp(run, id) != 0 || !token || strlen(token) != 64 ||
+        !number(getenv("TNY_TEAM_TASK"), TNY_JOBS_MAX_ITEMS - 1, &task) ||
+        !number(getenv("TNY_TEAM_ATTEMPT"), INT_MAX, &attempt) || !attempt ||
+        jget_int(root, "attempt", 0) != attempt)
+        return -2;
+    return tny_team_capability_matches(root, (int)task, (int)attempt, token) ? (int)task : -2;
+}
+
 static bool team_authorize(void *userdata, const tny_mailbox_identity *caller, const char *json,
                            size_t len, bool *peers) {
     team_caller *c = userdata;
     yyjson_doc *doc = jparse(json, len);
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
-    bool allowed = false;
     *peers = jget_bool(root, "peer_messages", false);
-    if (!jget_bool(root, "dag", false)) goto done;
-    if (caller->task == TNY_MAILBOX_LEAD) {
-        const char *parent = jget_str(root, "parent_session_id");
-        const char *session = c->env->session ? c->env->session->id : c->env->session_id;
-        allowed = c->local_operator || (parent && session && strcmp(parent, session) == 0);
-    } else if (c->token && strlen(c->token) == 64) {
-        yyjson_val *item = yyjson_arr_get(jget(root, "items"), (size_t)caller->task);
-        const char *expected = jget_str(item, "mailbox_capability_sha256");
-        uint8_t hash[32];
-        char actual[65];
-        if (expected && strlen(expected) == 64 && sha256((const uint8_t *)c->token, 64, hash)) {
-            hex_digest(hash, sizeof hash, actual);
-            unsigned difference = 0;
-            for (size_t i = 0; i < 64; i++)
-                difference |= (unsigned char)expected[i] ^ (unsigned char)actual[i];
-            allowed = difference == 0;
-        }
-    }
-done:
+    bool allowed = tny_team_record_authority(c->env, root, c->local_operator) == caller->task;
     yyjson_doc_free(doc);
     return allowed;
 }
@@ -131,12 +135,16 @@ static bool caller_init(team_caller *c, tools_env *env, const char *run, bool lo
         }
         c->identity.task = (int)task;
         c->identity.job_attempt = c->identity.task_attempt = attempt;
-        c->token = getenv("TNY_TEAM_CAPABILITY");
+
         c->local_operator = false;
     }
-    char *jobs = path_join(ctx->tny_dir, "jobs");
+    /* Resolve the trusted state-root prefix (/var on Darwin), never a job
+     * leaf. The confined service still rejects symlinked jobs and records. */
+    char *base = path_abs(ctx->tny_dir);
+    char *jobs = base ? path_join(base, "jobs") : NULL;
     c->dir = jobs ? path_join(jobs, run) : NULL;
     free(jobs);
+    free(base);
     if (!c->dir) return false;
     c->service = (tny_mailbox_service){
         .job_dir = c->dir, .native_local = true, .authorize = team_authorize, .userdata = c};
@@ -148,19 +156,61 @@ const char *tny_team_mailbox_permission(yyjson_val *args) {
     if (!action) return NULL;
     if (strcmp(action, "send") == 0) return "team_send";
     if (strcmp(action, "ack") == 0) return "team_ack";
+    if (strcmp(action, "retire") == 0) return "team_retire";
     if (strcmp(action, "inbox") == 0 || strcmp(action, "read") == 0) return "team_inbox";
     return NULL;
+}
+
+static bool mailbox_request_valid(yyjson_val *args) {
+    const char *permission = tny_team_mailbox_permission(args);
+    const char *run = jget_str(args, "run");
+    if (!yyjson_is_obj(args) || !permission || !tny_jobs_valid_id(run) ||
+        yyjson_get_len(jget(args, "run")) != 32)
+        return false;
+    const char *action = jget_str(args, "action");
+    if (strlen(action) != yyjson_get_len(jget(args, "action"))) return false;
+    bool send = strcmp(action, "send") == 0, retire = strcmp(action, "retire") == 0;
+    bool id_required = send || strcmp(action, "read") == 0 || strcmp(action, "ack") == 0;
+    size_t i, n;
+    yyjson_val *key, *value;
+    yyjson_obj_foreach(args, i, n, key, value) {
+        const char *name = yyjson_get_str(key);
+        if (!name || strlen(name) != yyjson_get_len(key) || yyjson_obj_get(args, name) != value)
+            return false;
+        bool allowed = strcmp(name, "action") == 0 || strcmp(name, "run") == 0 ||
+                       (id_required && strcmp(name, "id") == 0) ||
+                       (send && strcmp(name, "text") == 0) ||
+                       ((send || retire) && strcmp(name, "to") == 0) ||
+                       (retire && strcmp(name, "before_attempt") == 0);
+        if (!allowed) return false;
+    }
+    const char *id = jget_str(args, "id"), *text = jget_str(args, "text");
+    if (id_required &&
+        (!id || !*id || strlen(id) > 64 || strlen(id) != yyjson_get_len(jget(args, "id"))))
+        return false;
+    if (send && (!text || strlen(text) != yyjson_get_len(jget(args, "text")) ||
+                 strlen(text) > TNY_MAILBOX_PAYLOAD_MAX))
+        return false;
+    yyjson_val *to = jget(args, "to"), *before = jget(args, "before_attempt");
+    if ((send || retire) && (!yyjson_is_int(to) || yyjson_get_sint(to) < -1 ||
+                             yyjson_get_sint(to) >= TNY_JOBS_MAX_ITEMS))
+        return false;
+    if (retire && (!yyjson_is_int(before) || yyjson_get_sint(before) < 1 ||
+                   yyjson_get_sint(before) > INT_MAX))
+        return false;
+    return true;
 }
 
 char *tny_team_mailbox_detail(yyjson_val *args) {
     const char *permission = tny_team_mailbox_permission(args);
     const char *run = jget_str(args, "run"), *id = jget_str(args, "id");
-    if (!permission || !tny_jobs_valid_id(run)) return NULL;
+    if (!permission || !mailbox_request_valid(args)) return NULL;
     buf_t detail;
     buf_init(&detail);
     buf_appendf(&detail, "%s run=%s to=%lld id=", permission, run,
                 (long long)jget_int(args, "to", -1));
     jescape(&detail, id ? id : "");
+    buf_appendf(&detail, " before_attempt=%lld", (long long)jget_int(args, "before_attempt", 0));
     yyjson_val *text = jget(args, "text");
     if (text && yyjson_is_str(text)) {
         uint8_t hash[32];
@@ -177,7 +227,7 @@ char *tny_team_mailbox_detail(yyjson_val *args) {
 
 char *tny_team_mailbox_parse_argv(int argc, char **argv, char *err, size_t cap) {
     if (argc < 1) goto invalid;
-    const char *run = NULL, *id = NULL, *text = NULL, *to = NULL;
+    const char *run = NULL, *id = NULL, *text = NULL, *to = NULL, *before = NULL;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--json") == 0) continue;
         if (i + 1 >= argc) goto invalid;
@@ -185,16 +235,21 @@ char *tny_team_mailbox_parse_argv(int argc, char **argv, char *err, size_t cap) 
         else if (strcmp(argv[i], "--id") == 0 && !id) id = argv[++i];
         else if (strcmp(argv[i], "--text") == 0 && !text) text = argv[++i];
         else if (strcmp(argv[i], "--to") == 0 && !to) to = argv[++i];
+        else if (strcmp(argv[i], "--before-attempt") == 0 && !before) before = argv[++i];
         else goto invalid;
     }
     if (!tny_jobs_valid_id(run)) goto invalid;
     bool send = strcmp(argv[0], "send") == 0;
     bool inbox = strcmp(argv[0], "inbox") == 0;
-    if (!send && !inbox && strcmp(argv[0], "read") != 0 && strcmp(argv[0], "ack") != 0)
+    bool retire = strcmp(argv[0], "retire") == 0;
+    if (!send && !inbox && !retire && strcmp(argv[0], "read") != 0 && strcmp(argv[0], "ack") != 0)
         goto invalid;
-    if ((send && (!id || !to || !text)) || (inbox && id) || (!send && (to || text)) ||
-        (!inbox && !id))
+    if ((send && (!id || !to || !text)) || (inbox && id) || (!send && text) ||
+        (!send && !retire && to) || (!inbox && !retire && !id) ||
+        (retire && (!to || !before || id)) || (!retire && before))
         goto invalid;
+    uint32_t prior = 0;
+    if (before && (!number(before, INT_MAX, &prior) || !prior)) goto invalid;
     uint32_t recipient = 0;
     if (to && strcmp(to, "lead") != 0 && !number(to, TNY_JOBS_MAX_ITEMS - 1, &recipient))
         goto invalid;
@@ -213,11 +268,13 @@ char *tny_team_mailbox_parse_argv(int argc, char **argv, char *err, size_t cap) 
         jescape(&body, text);
     }
     if (to) buf_appendf(&body, ",\"to\":%d", strcmp(to, "lead") == 0 ? -1 : (int)recipient);
+    if (before) buf_appendf(&body, ",\"before_attempt\":%u", prior);
     buf_appends(&body, "}");
     return buf_detach(&body);
 invalid:
     snprintf(err, cap,
-             "use mailbox send|inbox|read|ack --run ID [--to lead|TASK --id ID --text TEXT]");
+             "use mailbox send|inbox|read|ack|retire --run ID [--to lead|TASK --id ID --text TEXT "
+             "--before-attempt N]");
     return NULL;
 }
 
@@ -227,7 +284,8 @@ static void message_json(buf_t *out, const tny_mailbox_message *message) {
     buf_appendf(out, ",\"sequence\":%llu,\"sender\":%d,\"recipient\":%d,\"attempt\":%u,\"state\":",
                 (unsigned long long)message->sequence, message->sender.task,
                 message->recipient.task, message->sender.job_attempt);
-    jescape(out, message->state == TNY_MAILBOX_ACKED       ? "acknowledged"
+    jescape(out, message->state == TNY_MAILBOX_RETIRED     ? "retired"
+                 : message->state == TNY_MAILBOX_ACKED     ? "acknowledged"
                  : message->state == TNY_MAILBOX_DELIVERED ? "delivered"
                                                            : "queued");
     buf_appends(out, ",\"text\":");
@@ -237,7 +295,7 @@ static void message_json(buf_t *out, const tny_mailbox_message *message) {
 
 int tny_team_mailbox_run(tools_env *env, yyjson_val *args, bool local_operator, buf_t *out,
                          char *err, size_t cap) {
-    if (!env || !env->ctx || !tny_team_mailbox_permission(args)) {
+    if (!env || !env->ctx || !mailbox_request_valid(args)) {
         snprintf(err, cap, "invalid mailbox operation");
         return 1;
     }
@@ -257,7 +315,7 @@ int tny_team_mailbox_run(tools_env *env, yyjson_val *args, bool local_operator, 
     }
     tny_mailbox_message *messages = calloc(TNY_MAILBOX_BATCH_MAX, sizeof *messages);
     tny_mailbox_rc rc = messages ? TNY_MAILBOX_INVALID : TNY_MAILBOX_IO;
-    size_t count = 0;
+    size_t count = 0, retired = 0;
     const char *id = jget_str(args, "id");
     if (!messages) goto done;
     if (strcmp(action, "send") == 0) {
@@ -278,6 +336,14 @@ int tny_team_mailbox_run(tools_env *env, yyjson_val *args, bool local_operator, 
     } else if (strcmp(action, "read") == 0) {
         rc = tny_team_mailbox_read(&caller.service, &caller.identity, id, messages);
         count = rc == TNY_MAILBOX_OK ? 1 : 0;
+    } else if (strcmp(action, "retire") == 0) {
+        yyjson_val *to = jget(args, "to"), *before = jget(args, "before_attempt");
+        int64_t task = yyjson_get_sint(to), prior = yyjson_get_sint(before);
+        if (!yyjson_is_int(to) || task < -1 || task >= TNY_JOBS_MAX_ITEMS ||
+            !yyjson_is_int(before) || prior < 1 || prior > INT_MAX)
+            goto done;
+        rc = tny_team_mailbox_retire(&caller.service, &caller.identity, (int)task, (uint32_t)prior,
+                                     &retired);
     } else rc = tny_team_mailbox_ack(&caller.service, &caller.identity, id);
     /* Explicit inbox/read delivery is at the API boundary; loss of stdout is
      * replayable because delivered records remain in inbox until explicit ack. */
@@ -298,8 +364,12 @@ done:
             if (i) buf_appends(out, ",");
             message_json(out, &messages[i]);
         }
-    buf_appends(out, "]}");
-    if (rc != TNY_MAILBOX_OK) snprintf(err, cap, "%s", tny_team_mailbox_error(rc));
+    buf_appendf(out, "],\"retired\":%zu,\"error\":", retired);
+    if (rc != TNY_MAILBOX_OK) {
+        snprintf(err, cap, "%s", tny_team_mailbox_error(rc));
+        jescape(out, tny_team_mailbox_error(rc));
+    } else buf_appends(out, "null");
+    buf_appends(out, "}");
     free(messages);
     free(caller.dir);
     yyjson_doc_free(doc);
@@ -333,7 +403,15 @@ static int receive_text(tools_env *env, const char *key, const char *text) {
     if (!receipts || yyjson_mut_arr_size(receipts) >= TEAM_RECEIPTS_MAX) return -1;
     session_add_text(env->session, "user", text);
     if (!yyjson_mut_arr_add_strcpy(env->session->doc, receipts, key)) return -1;
-    return session_save(env->session);
+    if (session_save(env->session) != 0) return -1;
+    if (env->ev_cb) {
+        tny_backend_event event = {0};
+        event.kind = TNY_EV_STATUS;
+        event.text = "durable team context delivered";
+        event.text_len = strlen(event.text);
+        env->ev_cb(&event, env->ev_ud);
+    }
+    return 0;
 }
 
 int tny_team_register_run(tools_env *env, const char *run_id) {
@@ -369,6 +447,17 @@ static int advance_cursor(tny_session_state *s, const char *key, uint64_t sequen
     return session_save(s);
 }
 
+/* Only quiescent model-call boundaries use this bounded wait. Pump control
+ * traffic, never the backend, so cancellation stays responsive while a short
+ * job state transaction finishes. Do not POST past an undelivered queued item. */
+static bool delivery_retry(tools_env *env, int64_t deadline) {
+    if (monotonic_ms() >= deadline || (env->cancelled && env->cancelled(env->cancelled_ud)))
+        return false;
+    if (env->control_pump) return env->control_pump(env->control_pump_ud, 5) >= 0;
+    tny_jobs_host_sleep_ms(5);
+    return true;
+}
+
 static int deliver_run(tools_env *env, const char *id, bool member, char *err, size_t cap) {
     yyjson_doc *doc = team_status(env->ctx, id, err, cap);
     if (!doc) {
@@ -396,13 +485,15 @@ static int deliver_run(tools_env *env, const char *id, bool member, char *err, s
     uint64_t cursor = delivery_cursor(env->session, cursor_key);
     tny_mailbox_message *messages = calloc(TNY_MAILBOX_BATCH_MAX, sizeof *messages);
     size_t count = 0;
-    tny_mailbox_rc rc = messages ? tny_team_mailbox_inbox(&caller.service, &caller.identity, cursor,
-                                                          messages, TNY_MAILBOX_BATCH_MAX,
-                                                          TNY_MAILBOX_BATCH_BYTES_MAX, &count)
-                                 : TNY_MAILBOX_IO;
+    tny_mailbox_rc rc = TNY_MAILBOX_IO;
+    int64_t deadline = monotonic_ms() + TEAM_LOCK_WAIT_MS;
+    if (messages) {
+        do {
+            rc = tny_team_mailbox_inbox(&caller.service, &caller.identity, cursor, messages,
+                                        TNY_MAILBOX_BATCH_MAX, TNY_MAILBOX_BATCH_BYTES_MAX, &count);
+        } while (rc == TNY_MAILBOX_BUSY && delivery_retry(env, deadline));
+    }
     int result = 0;
-    /* Contention means defer until another safe boundary, never block tools. */
-    if (rc == TNY_MAILBOX_BUSY) goto done;
     if (rc != TNY_MAILBOX_OK) {
         snprintf(err, cap, "%s", tny_team_mailbox_error(rc));
         result = -1;
@@ -434,8 +525,10 @@ static int deliver_run(tools_env *env, const char *id, bool member, char *err, s
         if (buf_oom(&text) || receive_text(env, key, text.data) != 0) result = -1;
         buf_free(&text);
         if (result) goto done;
-        rc = tny_team_mailbox_mark_delivered(&caller.service, &caller.identity, messages[i].id);
-        if (rc == TNY_MAILBOX_BUSY) break;
+        deadline = monotonic_ms() + TEAM_LOCK_WAIT_MS;
+        do {
+            rc = tny_team_mailbox_mark_delivered(&caller.service, &caller.identity, messages[i].id);
+        } while (rc == TNY_MAILBOX_BUSY && delivery_retry(env, deadline));
         if (rc != TNY_MAILBOX_OK ||
             advance_cursor(env->session, cursor_key, messages[i].sequence) != 0) {
             result = -1;

@@ -24,6 +24,8 @@ import time
 import unittest
 from pathlib import Path
 
+from test_jobs import argv_without_runner_binary
+
 ROOT = Path(__file__).resolve().parents[2]
 RUN = b"0123456789abcdef0123456789abcdef"
 OK, INVALID, UNSUPPORTED, DENIED, STALE, TERMINAL, BUSY = range(7)
@@ -889,4 +891,4 @@ class MailboxTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    unittest.main(argv=argv_without_runner_binary(), verbosity=2)

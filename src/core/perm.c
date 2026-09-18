@@ -179,8 +179,11 @@ perm_verdict perm_check(perm_engine *p, const char *tool, const char *detail) {
      * Collaboration/status may change harness records, never workspace files. */
     if (ctx->workspace_read_only && !perm_tool_is_safe(tool) &&
         !(strcmp(rule_category(tool), "bash") == 0 && read_command(detail)) &&
-        strcmp(tool, "job_status") != 0 && strcmp(tool, "team_send") != 0 &&
-        strcmp(tool, "team_inbox") != 0 && strcmp(tool, "team_ack") != 0)
+        strcmp(tool, "job_status") != 0 && strcmp(tool, "job_workspace_inspect") != 0 &&
+        strcmp(tool, "team_status") != 0 && strcmp(tool, "team_collect") != 0 &&
+        strcmp(tool, "team_wait_any") != 0 && strcmp(tool, "team_cancel") != 0 &&
+        strcmp(tool, "team_send") != 0 && strcmp(tool, "team_inbox") != 0 &&
+        strcmp(tool, "team_ack") != 0)
         return PERM_DENY;
     if (ctx->perm_mode == TNY_MODE_YOLO) return PERM_ALLOW;
 

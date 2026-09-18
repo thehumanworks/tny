@@ -22,7 +22,9 @@ void help_root(void) {
           "  ask-user QUESTION      Ask the owning session frontend (socket-bound)\n"
           "  image                  Generate, edit, export, or attach images\n"
           "  jobs COMMAND           Durable ask/image jobs and bounded DAG batches\n"
-          "  mailbox COMMAND        Durable addressed team messages; send/inbox/read/ack\n"
+          "  mailbox COMMAND        Durable team messages; send/inbox/read/ack/retire\n"
+          "  task-workspace COMMAND Inspect, integrate or clean an owned task worktree\n"
+          "  team COMMAND           Start, inspect, collect or cancel a job-backed team\n"
           "  resume [last|<id>]     Resume a session interactively\n"
           "  acp                    Start an ACP server over stdio (native loop)\n"
           "  agents                 Background agents dashboard; --json lists state\n"
@@ -214,6 +216,7 @@ static const char *jobs_help =
     "\n"
     "Other options:\n"
     "  --items 0,2          Select item indexes for cancel or retry\n"
+    "  --expected-attempt N Required fence for DAG cancellation\n"
     "  --failed             Retry every failed, cancelled or interrupted item\n"
     "  --item N             Item index for logs (default 0)\n"
     "  --max-bytes N        Log tail size (default 16384)\n"
@@ -531,9 +534,10 @@ bool help_for(const char *command) {
             "                                 --size 512x256 --columns 2 --labels numbers\n";
     else if (strcmp(command, "jobs") == 0) text = jobs_help;
     else if (strcmp(command, "mailbox") == 0)
-        text = "Usage: tny mailbox send|inbox|read|ack --run ID [options]\n\n"
+        text = "Usage: tny mailbox send|inbox|read|ack|retire --run ID [options]\n\n"
                "send requires --to lead|TASK --id MESSAGE_ID --text TEXT (at most 16 KiB).\n"
                "read and ack require --id MESSAGE_ID. --json is accepted; output is JSON.\n"
+               "retire requires --to lead|TASK --before-attempt N; parent/operator only.\n"
                "Send persists before returning, without interrupting an active tool. Native\n"
                "members receive untrusted context at their next model-call boundary. Explicit\n"
                "inbox/read marks delivery; ack is separate and messages replay until acked.\n"
@@ -542,10 +546,33 @@ bool help_for(const char *command) {
                "\nExamples:\n  tny mailbox send --run RUN --to 0 --id clarification-1 --text "
                "'Check the parser'\n"
                "  tny mailbox inbox --run RUN\n  tny mailbox ack --run RUN --id reply-1\n";
+    else if (strcmp(command, "team") == 0)
+        text = "Usage: tny team start|status|collect|wait-any|cancel|verify --request FILE|- "
+               "[--json]\n\n"
+               "start requires kind:ask, dag:true, one explicit lead and at least two workers.\n"
+               "Other operations use {id:RUN,...}. collect requires item; wait-any supports\n"
+               "seen item/attempt pairs and timeout_ms up to 30000. Timeout 124 never cancels.\n"
+               "cancel requires expected_attempt. All responses are JSON. verify is currently\n"
+               "unsupported; no check command runs and verification remains unverified.\n"
+               "Native local saved runs only. Agents use the shared typed/terminal adapters.\n"
+               "-h, --help shows this help.\n"
+               "Example: tny team start --request team.json --json\n";
+    else if (strcmp(command, "task-workspace") == 0)
+        text = "Usage: tny task-workspace inspect|integrate|cleanup --run ID --task N --attempt N "
+               "[--json]\n\n"
+               "Preparation belongs to the DAG scheduler. These explicit operations require\n"
+               "a terminal job, known cleanup and proven isolated-workspace ownership.\n"
+               "Integration preserves conflicts; cleanup refuses dirty or foreign trees.\n"
+               "Each operation has a separate permission identity. Native local only;\n"
+               "execution success, integration and verification remain separate states.\n"
+               "-h, --help shows this help.\n"
+               "Example: tny task-workspace inspect --run RUN --task 0 --attempt 1 --json\n";
     else if (strcmp(command, "agents") == 0)
         text = "Usage: tny agents [--run ID] [--json]\n\nOpen the background-session dashboard "
                "without starting a provider. Up/Down select, Enter reattaches. q exits without "
-               "stopping work. Non-TTY prints a list.\n"
+               "stopping work. Lists live sessions and saved background sessions across this "
+               "repository's worktrees. An attached owner cannot be taken over. Non-TTY prints a "
+               "list.\n"
                "--run ID shows the durable DAG task tree instead (status only). JSON includes "
                "the authoritative job record in run; it never infers membership from sessions.\n"
                "\nExamples:\n  tny agents\n  tny agents --json\n"

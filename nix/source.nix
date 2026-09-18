@@ -32,16 +32,12 @@ let
   # suites read the contract itself:
   # test_extension_contract.py against docs/features/, test_site.py by
   # regenerating site/ with scripts/site_build.py and diffing.
-  # test_nix_ci_matrix.py reads the flake systems list, the nix workflow, and
-  # this fileset so a filtered src cannot drop the files that test exists to
-  # keep in lockstep.
+  # test_nix_ci_matrix.py checks Linux/macOS CI, release gates and optional
+  # developer Nix. Include all workflows so filtered local checks enforce the
+  # same absence of Windows runners and Nix CI as an ordinary checkout.
   testFiles = unions [
     buildFiles
-    ../.github/workflows/ci.yml
-    ../.github/workflows/nix.yml
-    # tests/packaging/test_size_budget.py mirrors Linux SIZE_MAX into
-    # both hosted workflows, including the release matrix.
-    ../.github/workflows/release.yml
+    ../.github/workflows
     # tests/integration/test_toolchain_pins.py keeps the mise pins and the CI
     # quality job on the same tool versions (docs/adr/0061).
     ../.mise.toml
@@ -51,6 +47,10 @@ let
     ../docs
     ../examples # tests/extensions/test_examples.py loads every shipped example
     ../flake.nix
+    ../default.nix
+    ../shell.nix
+    ../nix/devshell.nix
+    ../nix/tests.nix
     ../nix/source.nix
     ../nix/package.nix # size-policy tests inspect the installed-payload guard
     ../scripts # includes tidy_cpp.py, which probes stdenv's C++ header paths
@@ -75,6 +75,8 @@ let
     # Runner/job ownership (fixtures/runner_ownership.cpp, fixtures/resource_host_faults.c,
     # mutation/runner_critical.py) uses the same C/C++ compiler and Python.
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
+    # test_terminal_background.py imports test_terminal_cancel.py and runs the
+    # native binary against stdlib loopback fixtures; both are included above.
     # runner_restart_fault.c uses the existing stdenv C compiler for a private
     # read/write interposer; no network, new package or external test data.
     # test_search_service.py adds stdlib-only HTTP/PTY service fixtures for
@@ -129,6 +131,12 @@ let
     # fcntl locks. Native Windows-only test_jobs_msys.py and its two C fixtures
     # (jobs_msys_scope.c/jobs_msys_tree.c) are included by ../tests and skip
     # outside MSYS2; no guest image or generated executable is an input.
+    # examples/swarm supplies checked team request/parent-launch templates.
+    # test_swarm_parent.py uses the same stdlib provider and real CLI under
+    # a fresh HOME/Git checkout; no helper driver or live account is required.
+    # test_swarm_delivery.py adds stdlib provider/barrier and wasm-refusal checks;
+    # test_team_runtime.c covers captured identity/ambiguity in the unit runner.
+    # The swarm-auth mutation focus uses existing compiler/test machinery.
     # Admission/mailbox compile fixtures under tests/fixtures and their C
     # service/host sources under ../src. The managed-workspace unit fixture
     # uses real Git under a private HOME. All inputs are included above.

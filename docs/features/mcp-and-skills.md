@@ -34,7 +34,9 @@ Keep fx names so prompts and muscle memory transfer:
 | Images | `read_image` (png/jpeg/gif/webp via magic bytes; `vision` is an alias). A configured-false `image_input` policy hides and refuses this tool and image attachment; image generation remains independent. Tool result is a short text; the pixels are **captured when the tool runs** and go out as a follow-up user `image_url` message ([ADR 0008](../adr/0008-native-loop-images.md), [ADR 0096](../adr/0096-captured-image-queue-and-preview-lifecycle.md)), so rewriting the file later in the same batch cannot change what is sent. `tny ask --image PATH` attaches the same shape on the first user message (max 16 flags; a 17th is exit 1) |
 | Skills | `skill`, `install_skill` |
 | Subagents | `subagent` (`create`, `message`, `inspect`, `lifecycle`; see [Subagents](#subagents)) |
-| Team messages | `team_mailbox` (`send`, `inbox`, `read`, `ack`): bounded durable collaboration context. Native local only; private member capabilities or the recorded submitting session establish membership, never supplied sender/session IDs. See [mailboxes](../team-mailbox.md) |
+| Team control | `team_control` (`start`, `status`, `collect`, `wait-any`, `cancel`): job-backed async teams with captured parent/member identity and bounded collection. `verify` explicitly refuses; no accepted status is fabricated. Native saved local contexts only. See [team control](../team-control.md) |
+| Team messages | `team_mailbox` (`send`, `inbox`, `read`, `ack`, `retire`): bounded durable collaboration context. Native local only; private member capabilities or the recorded submitting session establish membership, never supplied sender/session IDs. See [mailboxes](../team-mailbox.md) |
+| Task workspaces | `job_workspace_inspect`, `job_workspace_integrate`, `job_workspace_cleanup`: explicit operations with separate permissions on proven-owned, terminal isolated task worktrees. Native local only. See [managed workspaces](../task-workspaces.md) |
 | Jobs | `job_submit`, `job_control` (`cancel`/`retry`/`rm`), `job_status` (`status`/`wait`/`logs`/`list`): durable ask/image work that outlives the turn ([jobs.md](../jobs.md), [ADR 0093](../adr/0093-durable-native-jobs-and-verified-retry.md)). Native only; hidden in embedded runtimes, under `--ssh`, and — for the execution tools — wherever no child process can be owned |
 | MCP | `mcp_search_tools`, `mcp_select_tool`, `mcp_features` only; namespaced `server/tool` names ride a system-prompt catalog, never the tools array ([ADR 0049](../adr/0049-mcp-background-warmup.md)) |
 | Speech | `speak` (text, optional voice): automatic ephemeral playback using the Codex login, independent of the chat provider; advertised only with credentials and a player. [Speech contract](../speech.md) |
@@ -99,7 +101,9 @@ warmed MCP client, and the `--ssh` route:
 | `tny ask-user [--json] QUESTION` | the frontend ask hook, with no socket round trip | `ask_user_question` |
 | `tny jobs submit ask\|image\|batch …` | the durable job service, with the prompt from `--prompt` or a piped producer | `job_submit` + job/items/outputs/request digest |
 | `tny jobs status\|wait\|logs\|list …` | the same service, read-only | `job_status` + job id |
-| `tny mailbox send\|inbox\|read\|ack …` | durable team messaging, with the active trusted caller identity | `team_send`, `team_inbox`, or `team_ack` + run/task/id and payload hash; never a payload or member secret |
+| `tny mailbox send\|inbox\|read\|ack\|retire …` | durable team messaging, with the active trusted caller identity | `team_send`, `team_inbox`, `team_ack`, or `team_retire` + run/task/id and payload hash; never a payload or member secret |
+| `tny team OP --request FILE\|-` | job-backed team service with captured caller identity | separate `team_start`, `team_status`, `team_collect`, `team_wait_any`, `team_cancel`, `team_verify` identities |
+| `tny task-workspace inspect\|integrate\|cleanup …` | proven-owned workspace service, with no automatic merge or removal | separate `job_workspace_inspect`, `job_workspace_integrate`, `job_workspace_cleanup` identities |
 | `tny jobs cancel\|retry\|rm …` | the same service | `job_cancel` / `job_retry` / `job_rm` + job id |
 | `tny jobs …` that does not parse | refused with the reason: never handed to the shell, so the classifier cannot bypass the job identities | — |
 | `tny ask …` (no `-B`) | refused: a foreground nested agent inside a turn | — |
@@ -139,6 +143,31 @@ naming the turn's effective permission mode; a nested tny cannot widen it (see
 wasm: not applicable. `terminal` cannot start a child process in the browser
 and returns its existing clean tool error, so no command reaches the
 recogniser.
+
+### Background terminal completion
+
+`terminal` with `background: true` returns JSON with an opaque `task_id`, a
+`log` path and a `collect` call. Use `terminal` with `{"task_id":"…"}` to
+inspect, or `{"task_id":"…","wait_s":30}` to wait (0–600 seconds). Do not
+combine a task ID with a command. All three tool profiles use the same JSON;
+a launch result is not an `exit: 0` claim about the command.
+
+Only `completed` with `exit_code: 0` proves success. Nonzero exits are `failed`;
+native signal termination is `signalled` with `signal` set and `exit_code`
+null. `launch_failed` records a failed native exec/setup. Missing or abandoned
+results are `unknown`, never success. An observation `timed_out` or `cancelled`
+stops the wait, not the task. Logs alone do not prove completion. No operation
+infers identity or cancellation authority from a PID.
+
+Native waiters reap their own commands and retain results under
+`~/.tny/terminal/`; accepted work survives caller/runner loss and is collectable
+from later turns/sessions. Loss of the waiter leaves an unknown outcome.
+SSH stores logs/status on the remote host under `~/.tny-bg/`; before a final
+record, its POSIX-only observer reports `unknown`, not proven running. Its
+`status_source: shell_wait` reports shell wait codes (signal-vs-explicit-exit
+is ambiguous); native results use `waitpid`. wasm returns unsupported.
+See [ADR 0136](../adr/0136-terminal-background-completion.md) for ownership,
+retention and loss semantics. Foreground timeout/cancellation is unchanged.
 
 ### Web search providers
 
@@ -353,6 +382,13 @@ is not a shared run budget. Zero still means no explicit inherited step cap.
 | `lifecycle` | `id` | `status`, `exit_code`, `running`, `resumable` read from the session and its writer lock |
 
 tny allocates the 16-lowercase-hex id; there is no alias namespace. Any `id` on `create` — a name, or even an existing hex id — is rejected before a child starts rather than silently resuming or overwriting. Other strings, including `last`, are not child ids. Relationship/configure actions and on-disk message queues do not exist; each `message` is one synchronous child turn.
+
+On the Responses wire (including Codex), function definitions explicitly retain
+non-strict optional arguments ([ADR 0136](../adr/0136-preserve-optional-tool-arguments-on-responses.md)).
+Without this setting, provider strict normalization can force `id` on every
+`create` and `prompt` on every `inspect`/`lifecycle`, contradicting the tool's
+contract even after a steer. The fix is in request translation, not a relaxation
+of validation: empty or null `id` is still an argument, not omission.
 
 `lifecycle` reports what is recorded, not a description: a live writer lock is `running` (and not resumable); a stored `running` without a live writer is `stale`; stored `done`, `error` and `interrupted` keep their exit code; a session that never recorded a status (for example one written by an in-process `TNY_ISOLATE=0` turn) is `unknown` with `exit_code: null`, never an invented success.
 

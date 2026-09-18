@@ -97,6 +97,8 @@ int cmd_edit(const cli_globals *g, int argc, char **argv);
  * the hidden supervisor entry point, never a documented verb. */
 int cmd_jobs(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_mailbox(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+int cmd_task_workspace(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+int cmd_team(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

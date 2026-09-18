@@ -107,6 +107,7 @@ int main(void) {
         "TNY_TEAM_ATTEMPT=1",
         "TNY_TEAM_CAPABILITY=SECRET-parent-member",
         "TNY_TEAM_READ_ONLY=0",
+        "TNY_JOB_PARENT_PID=123",
         "TNY_PERMISSION_MODE=yolo",
         "TNY_TEST_ALLOC_SCOPE=subagent-owner",
         fault,
@@ -155,6 +156,7 @@ int main(void) {
                 equal(value(p.envp, "TNY_NESTED_MODE"), tny_perm_mode_name(ctx.perm_mode));
                 equal(value(p.envp, "TNY_TOOLS"), tny_tool_profile_name(ctx.tool_profile));
                 REQUIRE(!value(p.envp, "TNY_PERMISSION_MODE"));
+                equal(value(p.envp, "TNY_JOB_PARENT_PID"), "123");
                 REQUIRE(!value(p.envp, "TNY_TEAM_CAPABILITY"));
                 REQUIRE(!value(p.envp, "TNY_TEAM_RUN"));
                 REQUIRE(!value(p.envp, "TNY_TEAM_TASK"));

@@ -106,4 +106,4 @@ in both all-tools and terminal profiles. Unsupported: wasm/SSH/embedded mutation
 and host-backend automatic context injection. The private identity and worktree
 rules are not an OS sandbox against other programs with the same user's privileges.
 See [team control](team-control.md) and
-[ADR 0139](adr/0139-durable-team-mailbox.md).
+[ADR 0146](adr/0146-durable-team-mailbox.md).

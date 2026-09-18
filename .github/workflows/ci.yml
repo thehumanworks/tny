@@ -4,15 +4,13 @@
 #   linux-x86_64, linux-aarch64          — glibc, GitHub-hosted
 #   linux-x86_64-musl, linux-aarch64-musl — static alpine/musl
 #   darwin-arm64                         — Apple Silicon only (no Intel/x86)
-#   windows-x86_64                       — MSYS2 POSIX (msys-2.0.dll)
 #
 # Never add macos-*-intel / macos-*-large. Darwin Intel is not a product target.
 #
-# Each suite runs once per platform (docs/adr/0110): the linux-x86_64 lane
-# runs the whole `make test` natively, the other native lanes build,
-# unit-test and package, and the hermetic full suite for every platform is
-# the nix workflow. The auto-release gate needs ci, nix and sdk green on the
-# same commit, so a main run is never cancelled by a newer push.
+# Linux/macOS-only CI (docs/adr/0137): linux-x86_64 runs the full suite;
+# other native lanes build, unit-test and package. Nix is developer-only.
+# Auto-release needs ci and sdk green on the same commit, so a main run is
+# never cancelled by a newer push.
 
 name: ci
 
@@ -97,8 +95,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     # `suite: full` is the one native lane that runs every integration
     # fixture; the hosted macOS runner needed over two hours for the same
-    # suite, so the other lanes stop at the unit suite plus packaging and
-    # leave their full run to the sandboxed nix job (docs/adr/0110).
+    # suite, so the other lanes retain unit/ownership/fault checks and packaging.
+    # Full local Nix checks remain an optional developer choice (ADR 0137).
     timeout-minutes: ${{ matrix.suite == 'full' && 60 || 30 }}
     strategy:
       fail-fast: false
@@ -137,9 +135,9 @@ jobs:
 
       # tests/integration/test_image_exports.py (part of the full suite) runs
       # the real optional ImageMagick 7 `magick`; Ubuntu 24.04 ships 6, which
-      # tny refuses on purpose, so that dependency is covered by the nix job
-      # (nix/tests.nix declares it) and the converter-independent cases run
-      # here. tny itself never links or requires it.
+      # tny refuses on purpose. The macOS lane below supplies version 7, while
+      # converter-independent cases run everywhere. tny itself never links
+      # or requires it.
       - name: Install mixed-language quality fixture tools
         if: matrix.suite == 'full'
         run: |
@@ -154,6 +152,8 @@ jobs:
           # links libasan (clang on some images lacks the compiler-rt asan libs).
           if [ "$(uname -s)" = Linux ]; then export CC=gcc CXX=g++; fi
           if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
+          "${CC:-cc}" --version
+          "${CXX:-c++}" --version
           if [ "${{ matrix.suite }}" = full ]; then
             make -j"$jobs" test
           else
@@ -170,6 +170,14 @@ jobs:
           ./dist/tny-${{ matrix.triple }} ask --help >/dev/null
           file ./dist/tny-${{ matrix.triple }} || true
           uname -s -m
+
+      - name: ImageMagick 7 conversion coverage
+        if: matrix.metal
+        run: |
+          set -eu
+          if ! command -v magick >/dev/null 2>&1; then brew install imagemagick; fi
+          magick -version | grep -E '^Version: ImageMagick 7\.'
+          TNY="$PWD/build/tny" python3 tests/integration/test_image_exports.py
 
       # tnytty, the monorepo's sibling terminal app (docs/adr/0045): its own
       # Makefile, tests with ASan/UBSan, strict warnings, and a size report.
@@ -253,59 +261,6 @@ jobs:
           path: dist/tny-${{ matrix.triple }}
           if-no-files-found: error
 
-  windows:
-    name: windows-x86_64
-    runs-on: windows-2025
-    timeout-minutes: 30
-    defaults:
-      run:
-        shell: msys2 {0}
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: MSYS
-          update: true
-          install: gcc make python
-          path-type: minimal
-
-      - name: Build, smoke, size
-        run: |
-          set -eu
-          echo "host=$(uname -s) $(uname -m)"
-          case "$(uname -s)" in
-            MSYS*|MINGW*|CYGWIN*) ;;
-            *) echo "expected an MSYS2 POSIX environment" >&2; exit 1 ;;
-          esac
-          gcc --version
-          g++ --version
-          make -j"$(nproc)" release
-          make size-check
-          make pack TRIPLE=windows-x86_64
-          ./dist/tny-windows-x86_64.exe --version
-          ./dist/tny-windows-x86_64.exe --help >/dev/null
-          ./dist/tny-windows-x86_64.exe ask --help >/dev/null
-          # Unit tests without ASan. PTY/TUI integration stays on Unix CI.
-          make test-unit test-parser-fuzz-smoke test-runner-ownership test-checkpoint-ownership test-subagent-ownership SANITIZE=0
-          # Runtime DLL for a usable artifact outside this runner.
-          cp /usr/bin/msys-2.0.dll dist/
-          ldd dist/tny-windows-x86_64.exe || true
-
-      - name: Native durable jobs and cleanup reservations
-        run: |
-          set -eu
-          env -u TNY_TOOLS TNY="$PWD/build/tny.exe" python3 tests/integration/test_jobs_msys.py "$PWD/build/tny.exe"
-          env -u TNY_TOOLS TNY="$PWD/build/tny.exe" python3 tests/integration/test_jobs_cleanup_hold.py "$PWD/build/tny.exe"
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: tny-windows-x86_64
-          path: |
-            dist/tny-windows-x86_64.exe
-            dist/msys-2.0.dll
-          if-no-files-found: error
-
   wasm:
     # Parity by construction (docs/adr/0017): the wasm binary must pass the
     # SAME openai integration suite against the SAME strict mocks the native
@@ -346,6 +301,8 @@ jobs:
           tests/integration/test_acp_ws.sh "$PWD/build/wasm/tny"
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_codex_chatgpt.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_prompt_cache.py
+          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
+            python3 tests/integration/test_swarm_delivery.py
           # Shared search HTTP/auth/parser paths run on wasm too; only native
           # signal, subprocess override and runner/PTY semantics are excluded.
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
@@ -450,7 +407,7 @@ jobs:
 
   ci:
     name: ci
-    needs: [quality, build, musl, windows, wasm, tsan, fuzz]
+    needs: [quality, build, musl, wasm, tsan, fuzz]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -460,7 +417,6 @@ jobs:
           test "${{ needs.quality.result }}" = "success"
           test "${{ needs.build.result }}" = "success"
           test "${{ needs.musl.result }}" = "success"
-          test "${{ needs.windows.result }}" = "success"
           test "${{ needs.wasm.result }}" = "success"
           test "${{ needs.tsan.result }}" = "success"
           test "${{ needs.fuzz.result }}" = "success"

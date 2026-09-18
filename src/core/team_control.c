@@ -1,4 +1,5 @@
 #include "core/team_control.h"
+#include "core/team_runtime.h"
 #include "core/session.h"
 #include "util/image_io.h"
 #include "util/jobs_host.h"
@@ -78,7 +79,7 @@ static bool team_shape(yyjson_val *root, bool request) {
     yyjson_val *items = jget(root, "items");
     if (!jget_bool(root, "dag", false) ||
         !same(jget_str(root, request ? "kind" : "job_kind"), "ask") || !yyjson_is_arr(items) ||
-        yyjson_arr_size(items) < 3 || yyjson_arr_size(items) > TNY_JOBS_MAX_ITEMS)
+        yyjson_arr_size(items) < 2 || yyjson_arr_size(items) > TNY_JOBS_MAX_ITEMS)
         return false;
     int leads = 0, workers = 0;
     size_t i, max;
@@ -88,7 +89,9 @@ static bool team_shape(yyjson_val *root, bool request) {
         else if (same(jget_str(item, "role"), "worker")) ++workers;
         else return false;
     }
-    return leads == 1 && workers >= 2;
+    return workers >= 2 &&
+           (leads == 1 ||
+            (leads == 0 && (request || session_id_valid(jget_str(root, "parent_session_id")))));
 }
 
 static int validate(tny_team_op op, yyjson_val *args, char *err, size_t n) {
@@ -117,7 +120,7 @@ static int validate(tny_team_op op, yyjson_val *args, char *err, size_t n) {
                         (same(s, "command") || same(s, "cwd") || same(s, "timeout_ms")));
         if (!allowed) return fail(err, n, "unknown field in team request");
     }
-    if (!tny_jobs_valid_id(jget_str(args, "id")) ||
+    if (!tny_jobs_valid_id(jget_str(args, "id")) || yyjson_get_len(jget(args, "id")) != 32 ||
         !uint_field(args, "item", 0, TNY_JOBS_MAX_ITEMS - 1,
                     op == TNY_TEAM_COLLECT || op == TNY_TEAM_VERIFY) ||
         !uint_field(args, "expected_attempt", 1, INT_MAX,
@@ -236,7 +239,9 @@ static int authority(const tny_team_caller *caller, yyjson_val *root, char *err,
     if (!same(caller->run_id, jget_str(root, "id")) || caller->attempt < 1 ||
         jget_int(root, "attempt", 0) != caller->attempt ||
         jget_int(item, "attempt", 0) != caller->attempt ||
-        !same(caller->session_id, jget_str(item, "session_id"))) {
+        (!tny_team_capability_matches(root, caller->task_index, caller->attempt,
+                                      caller->capability) &&
+         !same(caller->session_id, jget_str(item, "session_id")))) {
         fail(err, n, "caller is not the parent or a current fenced member of this run");
         return -2;
     }
@@ -254,7 +259,20 @@ static int preflight(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op
     if (!caller->local_operator && !session_id_valid(caller->session_id))
         return fail(err, n, "a captured runtime session identity is required");
     if (validate(op, args, err, n)) return 1;
-    if (op == TNY_TEAM_START) return 0;
+    if (op == TNY_TEAM_START) {
+        if (caller->local_operator) {
+            size_t i, count;
+            yyjson_val *item;
+            bool lead = false;
+            yyjson_arr_foreach(jget(args, "items"), i, count,
+                               item) if (same(jget_str(item, "role"), "lead")) lead = true;
+            if (!lead)
+                return fail(err, n,
+                            "operator start needs a lead item; worker-only start "
+                            "requires a captured native parent session");
+        }
+        return 0;
+    }
     *record = read_record(ctx, jget_str(args, "id"), err, n);
     if (!*record) return 1;
     yyjson_val *root = yyjson_doc_get_root(*record);
@@ -359,12 +377,13 @@ static int collect(tny_ctx *ctx, yyjson_val *args, yyjson_val *root, buf_t *out,
         buf_free(&log);
         return fail(err, n, "task log integrity changed");
     }
-    const char *workspace = jget_str(root, "workspace");
+    const char *workspace = jget_str(item, "workspace_cwd");
+    if (!workspace) workspace = jget_str(root, "workspace");
     yyjson_val *resolved = jget(item, "workspace");
     if (resolved) {
         workspace = jget_str(resolved, "cwd");
         if (!workspace) workspace = jget_str(resolved, "path");
-    } else if (jget(jget(item, "request"), "workspace")) {
+    } else if (!jget_str(item, "workspace_cwd") && jget(jget(item, "request"), "workspace")) {
         buf_free(&log);
         return fail(err, n, "task workspace policy has no resolved execution cwd");
     }
@@ -512,6 +531,8 @@ int tny_team_run(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op, yy
         char *json = jwrite(d);
         yyjson_doc *request = json ? jparse(json, strlen(json)) : NULL;
         if (!request) rc = fail(err, n, "allocation failed");
+        else if (caller->run_id && caller->capability)
+            rc = tny_jobs_cancel_member(ctx, yyjson_doc_get_root(request), out, err, n);
         else
             rc = tny_jobs_run_cancel(ctx, TNY_JOBS_OP_CANCEL, yyjson_doc_get_root(request), out,
                                      err, n, cancelled, cancel_ud);
@@ -528,8 +549,16 @@ int tny_team_run(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op, yy
         rc = tny_jobs_run_cancel(ctx, TNY_JOBS_OP_STATUS, args, &job, err, n, cancelled, cancel_ud);
         yyjson_doc *status = job.len ? jparse(job.data, job.len) : NULL;
         yyjson_val *root = status ? yyjson_doc_get_root(status) : NULL;
-        if (!root || authority(caller, root, err, n) == -2 ||
-            jget_int(root, "attempt", 0) != fence) {
+        /* The public projection intentionally omits private capability
+         * verifiers. Revalidate against the confined current record, not a
+         * projection that cannot authenticate a still-running member. */
+        yyjson_doc *current = root ? read_record(ctx, jget_str(args, "id"), err, n) : NULL;
+        yyjson_val *private_root = current ? yyjson_doc_get_root(current) : NULL;
+        bool authorized = root && private_root && authority(caller, private_root, err, n) != -2 &&
+                          jget_int(root, "attempt", 0) == fence &&
+                          jget_int(private_root, "attempt", 0) == fence;
+        yyjson_doc_free(current);
+        if (!authorized) {
             yyjson_doc_free(status);
             buf_free(&job);
             return fail(err, n, "team attempt or membership changed while observing");
