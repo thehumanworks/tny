@@ -4138,6 +4138,54 @@ TEST subagent_plan_carries_resolved_config_privately(void) {
     PASS();
 }
 
+TEST subagent_selector_validation(void) {
+    tny_ctx *ctx = subagent_ctx();
+    ASSERT(ctx);
+    tools_env env = {.ctx = ctx};
+    const char *fields[] = {"provider", "model", "effort"};
+    const char *invalid[] = {"null", "false", "3", "[]", "{}", "\"\"", "\"x\\u0000y\""};
+    for (size_t f = 0; f < sizeof fields / sizeof *fields; ++f) {
+        char json[256], want[256];
+        snprintf(want, sizeof want,
+                 "error: SUBAGENT_INVALID_ARGUMENT: %s must be a nonempty UTF-8 string "
+                 "without embedded NUL bytes; omit it to use the default",
+                 fields[f]);
+        for (size_t i = 0; i < sizeof invalid / sizeof *invalid; ++i) {
+            snprintf(json, sizeof json, "{\"action\":\"create\",\"prompt\":\"p\",\"%s\":%s}",
+                     fields[f], invalid[i]);
+            char *error = subagent_prepare(&env, json);
+            ASSERT_STR_EQ(want, error);
+            free(error);
+        }
+        snprintf(json, sizeof json, "{\"action\":\"create\",\"prompt\":\"p\",\"%s\":\"x\"}",
+                 fields[f]);
+        yyjson_doc *doc = jparse(json, strlen(json));
+        ASSERT(doc);
+        yyjson_val *args = yyjson_doc_get_root(doc);
+        ASSERT_EQ(NULL, tny_subagent_prepare_error(&env, args));
+        ((char *)jget_str(args, fields[f]))[0] = (char)0xff;
+        char *error = tny_subagent_prepare_error(&env, args);
+        ASSERT_STR_EQ(want, error);
+        free(error);
+        yyjson_doc_free(doc);
+        const char *actions[] = {"inspect", "lifecycle"};
+        for (size_t i = 0; i < sizeof actions / sizeof *actions; ++i) {
+            snprintf(json, sizeof json,
+                     "{\"action\":\"%s\",\"id\":\"0123456789abcdef\",\"%s\":\"x\"}", actions[i],
+                     fields[f]);
+            error = subagent_prepare(&env, json);
+            ASSERT(error && strstr(error, "takes no provider, model or effort"));
+            free(error);
+        }
+    }
+    char *error = subagent_prepare(
+        &env, "{\"action\":\"create\",\"prompt\":\"p\",\"model\\u0000suffix\":\"x\"}");
+    ASSERT(error && strstr(error, "only action, id, prompt, provider, model and effort"));
+    free(error);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 /* Validation and runtime rejections are exact stable strings produced
  * before the permission gate, extension events or any process; none echoes
  * a supplied value. */
@@ -4188,7 +4236,8 @@ TEST subagent_prepare_rejects_with_exact_codes(void) {
          "lifecycle; relationship, configure and queued messages are not supported. "
          "Example: " SA_CREATE_EXAMPLE},
         {"{\"action\":\"create\",\"prompt\":\"p\",\"SENTINEL\":1}",
-         "error: SUBAGENT_INVALID_ARGUMENT: only action, id and prompt are accepted. "
+         "error: SUBAGENT_INVALID_ARGUMENT: only action, id, prompt, provider, model and "
+         "effort are accepted. "
          "Example: " SA_CREATE_EXAMPLE},
         {"{\"action\":\"create\",\"prompt\":\"\"}",
          "error: SUBAGENT_INVALID_ARGUMENT: create needs a nonempty UTF-8 prompt. "
@@ -4678,20 +4727,15 @@ TEST subagent_stored_state_and_session_guards(void) {
     env.session = NULL;
     session_close(parent);
 
-    /* host-owned transcripts are not converted into native children */
+    /* Host children are resumable through the selected provider's CLI path. */
     s = session_open(ctx, id);
     session_set_host_pointer(s, "thread-SENTINEL");
     session_set_status_finished(s, "done", 0, NULL);
     ASSERT_EQ(0, session_save(s));
     session_close(s);
-    r = subagent_call(&env, "message", id);
-    ASSERT_STR_EQ("error: SUBAGENT_UNSUPPORTED_CONTEXT: that session belongs to a host provider; "
-                  "message continues only native subagent sessions",
-                  r);
-    free(r);
     r = subagent_call(&env, "lifecycle", id);
     snprintf(want, sizeof want,
-             "subagent %s\nstatus: done\nexit_code: 0\nrunning: false\nresumable: false", id);
+             "subagent %s\nstatus: done\nexit_code: 0\nrunning: false\nresumable: true", id);
     ASSERT_STR_EQ(want, r);
     free(r);
     free(id);
@@ -5853,6 +5897,7 @@ SUITE(core_suite) {
     RUN_TEST(image_export_tools_are_local_and_gated);
     RUN_TEST(optimisation_tools_are_read_only_even_in_yolo);
     RUN_TEST(subagent_plan_carries_resolved_config_privately);
+    RUN_TEST(subagent_selector_validation);
     RUN_TEST(subagent_prepare_rejects_with_exact_codes);
     RUN_TEST(subagent_process_outcomes_are_classified);
     RUN_TEST(subagent_child_wind_down_completes_before_forced_kill);

@@ -39,6 +39,16 @@ extern "C" {
  * the previous plan unchanged; success replaces it. No process is started.
  * Build requires stable inputs/environment for the duration of this call. */
 int tny_subagent_plan_build(const tools_env *env, const char *resume_id, tny_subagent_plan *plan);
+/* args is NULL or a validated tool-argument object with optional nonempty
+ * provider/model/effort strings. Omitted selectors preserve parent inheritance.
+ * An exact same-provider selector retains resolved parent configuration; a
+ * different selector delegates configuration/auth to the normal child CLI,
+ * without parent resolved credentials, URL, wire, model or effort. Explicit
+ * model/effort independently override either path (including effort "default").
+ * Ambient user environment remains available; private carriers are replaced.
+ * Ownership, failure atomicity and process availability match build above. */
+int tny_subagent_plan_build_selected(const tools_env *env, const char *resume_id, yyjson_val *args,
+                                     tny_subagent_plan *plan);
 /* Idempotent, allocation-free; clears the handle and both borrowed views. */
 void tny_subagent_plan_free(tny_subagent_plan *plan);
 #ifdef __cplusplus

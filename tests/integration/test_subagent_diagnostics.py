@@ -50,7 +50,8 @@ E_UNSUPPORTED = (
     f"supported. Example: {CREATE_EXAMPLE}"
 )
 E_FIELDS = (
-    "error: SUBAGENT_INVALID_ARGUMENT: only action, id and prompt are accepted. "
+    "error: SUBAGENT_INVALID_ARGUMENT: only action, id, prompt, provider, model and "
+    "effort are accepted. "
     f"Example: {CREATE_EXAMPLE}"
 )
 E_PROMPT = (
@@ -224,6 +225,52 @@ def diag_rejections(provider, home, workspace, log):
     )
     added = set(fx.session_dirs(home)) - before
     check(len(added) == 1 and MISSING_ID not in added, f"sessions created: {added}")
+
+
+def diag_selectors(provider, home, workspace):
+    env = fx.base_env(home, provider)
+    for field in ("provider", "model", "effort"):
+        s = f"reject-{field}"
+        calls = [
+            ("subagent", {"action": "create", "prompt": "unused", field: value})
+            for value in (None, False, 1, [], {}, "", "SENTINEL\u0000suffix")
+        ]
+        calls += [
+            ("subagent", {"action": action, "id": MISSING_ID, field: "SENTINEL"})
+            for action in ("inspect", "lifecycle")
+        ]
+        provider.plan(s, *calls)
+        before = len(provider.requests)
+        payload = fx.run_parent(env, workspace, s)
+        check(fx.statuses(payload) == [("subagent", "error")] * len(calls), payload)
+        for result in provider.results[s]:
+            check(
+                result.startswith("error: SUBAGENT_INVALID_ARGUMENT:")
+                and "SENTINEL" not in result,
+                result,
+            )
+        check(
+            all(r["role"] == "parent" for r in provider.requests[before:]),
+            "invalid selectors launched a child request",
+        )
+    s = "unknown-provider"
+    provider.plan(
+        s,
+        (
+            "subagent",
+            {
+                "action": "create",
+                "prompt": "unused",
+                "provider": "missing-SENTINEL-provider",
+            },
+        ),
+    )
+    fx.run_parent(env, workspace, s)
+    result = provider.results[s][0]
+    check(
+        result.startswith("error: SUBAGENT_CHILD_FAILED:") and "SENTINEL" not in result,
+        result,
+    )
 
 
 def diag_contexts(provider, tmp):
@@ -504,6 +551,7 @@ def run():
             diag_rejections(
                 provider, home, workspace, os.path.join(tmp, "rejections.jsonl")
             )
+            diag_selectors(provider, home, workspace)
             diag_contexts(provider, tmp)
             diag_busy(provider, home, workspace)
             diag_secret_echo(provider, home, workspace, os.path.join(tmp, "echo.jsonl"))

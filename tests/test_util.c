@@ -91,6 +91,20 @@ TEST buf_ops(void) {
     PASS();
 }
 
+TEST buf_failed_growth_never_returns_partial_output(void) {
+    buf_t b;
+    buf_init(&b);
+    buf_appends(&b, "prefix");
+    buf_append(&b, "x", SIZE_MAX);
+    ASSERT(b.oom);
+    ASSERT_STR_EQ("prefix", b.data);
+    buf_appends(&b, "suffix");
+    ASSERT_STR_EQ("prefix", b.data);
+    ASSERT_EQ(NULL, buf_detach(&b));
+    buf_free(&b);
+    PASS();
+}
+
 TEST str_helpers(void) {
     ASSERT(str_starts("git status --short", "git status"));
     ASSERT_FALSE(str_starts("git", "git status"));
@@ -251,6 +265,7 @@ SUITE(util_suite) {
     RUN_TEST(sha1_known_vector);
     RUN_TEST(fnv1a_stable);
     RUN_TEST(buf_ops);
+    RUN_TEST(buf_failed_growth_never_returns_partial_output);
     RUN_TEST(str_helpers);
     RUN_TEST(path_helpers);
 }

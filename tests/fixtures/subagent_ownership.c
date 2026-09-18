@@ -52,6 +52,11 @@ static const char *value(char **envp, const char *name) {
     return result;
 }
 static void equal(const char *a, const char *b) { REQUIRE(a && b && strcmp(a, b) == 0); }
+static const char *option(const tny_subagent_plan *p, const char *name) {
+    for (char **a = p->argv; *a; ++a)
+        if (strcmp(*a, name) == 0) return a[1];
+    return NULL;
+}
 static char fault[64];
 static void fault_at(size_t n) {
     snprintf(fault, sizeof fault, "TNY_TEST_ALLOC_FAIL_AT=%zu", n);
@@ -156,6 +161,65 @@ int main(void) {
         }
     }
 
+    // Explicit selectors are independent snapshots, with exact same-provider
+    // inheritance and a fresh CLI configuration for every different provider.
+    const char *selections[] = {
+        "{}",
+        "{\"provider\":\"fixture-provider\"}",
+        "{\"model\":\"child-model\"}",
+        "{\"effort\":\"default\"}",
+        "{\"provider\":\"fixture-provider\",\"model\":\"child-model\",\"effort\":\"low\"}",
+        "{\"provider\":\"other\"}",
+        "{\"provider\":\"other\",\"model\":\"child-model\",\"effort\":\"default\"}",
+        "{\"provider\":\"acp@fixture\",\"model\":\"child-model\"}",
+        "{\"provider\":\"cursor\",\"effort\":\"provider-token\"}",
+    };
+    for (size_t i = 0; i < sizeof selections / sizeof *selections; ++i) {
+        yyjson_doc *doc = jparse(selections[i], strlen(selections[i]));
+        REQUIRE(doc);
+        yyjson_val *args = yyjson_doc_get_root(doc);
+        const char *pick = jget_str(args, "provider");
+        bool parent = !pick || strcmp(pick, provider) == 0;
+        tny_subagent_plan selected = {0};
+        fault_at(0);
+        REQUIRE(tny_subagent_plan_build_selected(&env, resume, args, &selected) == 0);
+        equal(option(&selected, "--provider"), pick ? pick : provider);
+        const char *picked_model = jget_str(args, "model");
+        const char *picked_effort = jget_str(args, "effort");
+        const char *want_model = picked_model ? picked_model : parent ? model : NULL;
+        const char *want_effort = picked_effort ? picked_effort : parent ? effort : NULL;
+        if (want_model) equal(option(&selected, "--model"), want_model);
+        else REQUIRE(!option(&selected, "--model"));
+        if (want_effort) equal(option(&selected, "--effort"), want_effort);
+        else REQUIRE(!option(&selected, "--effort"));
+        if (parent) {
+            equal(option(&selected, "--wire-api"), "chat");
+            equal(value(selected.envp, TNY_SUBAGENT_KEY_ENV), key);
+            equal(value(selected.envp, TNY_SUBAGENT_URL_ENV), ctx.base_url);
+            equal(value(selected.envp, "CHATGPT_ACCESS_TOKEN"), ctx.chatgpt_token);
+            equal(value(selected.envp, "CHATGPT_ACCOUNT_ID"), ctx.chatgpt_account_id);
+        } else {
+            REQUIRE(!option(&selected, "--wire-api"));
+            REQUIRE(!option(&selected, "--api-key-env"));
+            REQUIRE(!option(&selected, "--base-url-env"));
+            REQUIRE(!value(selected.envp, TNY_SUBAGENT_KEY_ENV));
+            REQUIRE(!value(selected.envp, TNY_SUBAGENT_URL_ENV));
+            equal(value(selected.envp, "CHATGPT_ACCESS_TOKEN"), "SECRET-ambient-token");
+            equal(value(selected.envp, "CHATGPT_ACCOUNT_ID"), "ambient-account");
+        }
+        // Mutating and freeing the tool JSON cannot change the launch snapshot.
+        bool model_override = picked_model != NULL, effort_override = picked_effort != NULL;
+        if (picked_model) ((char *)picked_model)[0] = 'X';
+        if (picked_effort) ((char *)picked_effort)[0] = 'X';
+        yyjson_doc_free(doc);
+        if (model_override) equal(option(&selected, "--model"), "child-model");
+        if (effort_override) REQUIRE(option(&selected, "--effort")[0] != 'X');
+        equal(option(&selected, "--resume-id"), resume);
+        equal(value(selected.envp, "TNY_NESTED"), "1");
+        release(&selected);
+        REQUIRE(tny_alloc_test_owned_live() == live);
+    }
+
     tny_subagent_plan p = {0};
     fault_at(0);
     REQUIRE(tny_subagent_plan_build(&env, resume, &p) == 0);
@@ -227,10 +291,11 @@ int main(void) {
     fault_at(0);
     REQUIRE(tny_subagent_plan_build(&env, NULL, &p) == 0);
     REQUIRE(!value(p.envp, TNY_SUBAGENT_KEY_ENV) && !value(p.envp, TNY_SUBAGENT_URL_ENV));
-    const char *short_args[] = {"--cwd", cwd,   "--provider", provider,  "--permission-mode",
-                                "yolo",  "ask", "--json",     "--stdin", NULL};
+    const char *short_args[] = {"--cwd",    cwd,       "--provider",        provider,
+                                "--effort", "default", "--permission-mode", "yolo",
+                                "ask",      "--json",  "--stdin",           NULL};
     for (size_t i = 0; short_args[i]; ++i) equal(p.argv[i + 1], short_args[i]);
-    REQUIRE(!p.argv[10]);
+    REQUIRE(!p.argv[12]);
     release(&p);
 
     // Both representations of an empty inherited environment are supported.
