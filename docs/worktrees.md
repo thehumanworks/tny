@@ -44,6 +44,24 @@ exit choice applies to the currently selected worktree.
   runner retains the usage lock until it stops. Git and other editors do
   not participate in this lock.
 
+## Agent discovery
+
+Run `tny agents` from the original repository, a subdirectory, or any linked
+checkout to see live sessions and saved background sessions across that
+repository's worktrees. This includes an ordinary `tny --worktree` TUI session
+while its writer is live; an attached owner cannot be taken over.
+`--json` and non-TTY output use the same scope. Interactive selection attaches
+in the session's original workspace; it does not acquire a worktree usage lock
+or offer to merge/remove a checkout that this frontend did not enter.
+
+Previously, discovery scanned only the session bucket keyed by the current
+absolute workspace path. `--worktree` changes that path, so its sessions were
+invisible from the original repository. Discovery now makes one local
+`git worktree list --porcelain -z` call and scans the related checkout buckets,
+without changing session storage or scanning unrelated repositories. NUL-delimited
+records preserve special characters in checkout paths. Normal session listing
+and `resume last` remain checkout-local. No GitHub remote or network is required.
+
 ## Exiting the TUI
 
 After stopping the session, tny asks:

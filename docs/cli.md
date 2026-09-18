@@ -921,7 +921,16 @@ row and Enter claims its unique owner connection, including halfway through a
 running turn. Another live owner is refused. Completed and stale records remain
 visible honestly; selecting a completed row shows its saved conversation.
 `tny agents --json` (or non-TTY plain output) lists the workspace without
-starting any provider. Unlike `tny cursor agents`, this lists local tny sessions.
+starting any provider. It shows live sessions (including foreground TUI sessions)
+and saved background sessions. In a Git repository, it also includes sessions
+from the main checkout and linked worktrees, including `~/.tny/worktrees`.
+This works from repository subdirectories too. Unrelated repositories are not
+included. Selecting a session switches to its checkout's settings, permissions
+and session storage. A foreground session with an attached owner is listed but
+cannot be taken over; detach its owner first. Finished foreground sessions are
+not retained in this list. Unlike `tny cursor agents`, this lists local tny sessions.
+Outside Git (or when Git is unavailable), listing remains workspace-local;
+wasm remains workspace-local because local Git is unavailable.
 
 Quit from a background view or dashboard detaches and leaves work running.
 Ctrl-C explicitly cancels; `tny session stop ID --kill` remains available.

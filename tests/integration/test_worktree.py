@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test_background_agents import until
 from test_tui import BANNER, MOCK, TNY, Term, base_env, clean, free_port
 
 TNY = str(Path(TNY).resolve())
@@ -83,6 +84,131 @@ class Worktrees(unittest.TestCase):
         t.send(choice)
         self.assertEqual(t.wait(), rc, clean(t.buf))
         self.assertTrue(t.restored())
+
+    def saved_agent(self, workspace, number, background=True):
+        # Match checkout-local session storage without starting a provider.
+        value = 0xCBF29CE484222325
+        for byte in str(workspace).encode():
+            value = ((value ^ byte) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+        sid = f"{number:016x}"
+        directory = self.home / ".tny/sessions" / f"{value:016x}" / sid
+        directory.mkdir(parents=True)
+        (directory / "session.json").write_text(
+            json.dumps(
+                {
+                    "id": sid,
+                    "workspace": str(workspace),
+                    "background": background,
+                    "status": "done",
+                    "backend": "openai",
+                    "title": f"agent-{number}",
+                    "updated": f"2026-09-18T00:00:{number:02d}Z",
+                    "messages": [],
+                }
+            )
+        )
+        return sid
+
+    def test_agents_include_related_worktrees_only(self):
+        managed = self.enter()
+        manual = self.root / 'manual "checkout"\nwith newline'
+        self.git(self.repo, "worktree", "add", "-b", "manual", str(manual))
+        other = self.root / "unrelated"
+        self.init_repo(other)
+        other_worktree = self.enter("unrelated", cwd=other)
+        expected = [
+            self.saved_agent(manual, 3),
+            self.saved_agent(managed, 2),
+            self.saved_agent(self.repo, 1),
+        ]
+        self.saved_agent(managed, 4, background=False)
+        self.saved_agent(other_worktree, 5)
+        local = self.saved_agent(self.home, 6)
+        nested = self.repo / "nested"
+        nested.mkdir()
+        for cwd in (self.repo, managed, manual, nested):
+            rows = json.loads(self.cli("agents", "--json", cwd=cwd).stdout)["agents"]
+            self.assertEqual([row["session_id"] for row in rows], expected)
+            self.assertTrue(all(row["status"] == "done" for row in rows))
+            self.assertTrue(all(not row["live"] for row in rows))
+        plain = self.cli("agents").stdout
+        for sid in expected:
+            self.assertIn(sid, plain)
+        rows = json.loads(self.cli("agents", "--json", cwd=self.home).stdout)["agents"]
+        self.assertEqual([row["session_id"] for row in rows], [local])
+
+    def test_agents_discover_foreground_worktree_session(self):
+        agent = Path(__file__).resolve().parent / "fake_acp_agent.py"
+        env = {**self.env, "TNY_ISOLATE": "1"}
+        t = self.term(
+            "foreground", extra=("--provider", "acp", "--agent", str(agent)), env=env
+        )
+        t.send("foreground-worktree\r")
+        t.expect("[asked: foreground-worktree]", timeout=15)
+        rows = json.loads(self.cli("agents", "--json").stdout)["agents"]
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["live"])
+        self.finish(t)
+        self.assertEqual(json.loads(self.cli("agents", "--json").stdout)["agents"], [])
+
+    def test_agents_discover_and_attach_live_worktree_runner(self):
+        agent = Path(__file__).resolve().parent / "fake_acp_agent.py"
+        state = self.root / "acp-state.json"
+        env = {
+            **self.env,
+            "TNY_ISOLATE": "1",
+            "FAKE_ACP_STATE": str(state),
+            "FAKE_ACP_SLOW_MS": "5000",
+        }
+        launched = self.cli(
+            "--worktree=live",
+            "--provider",
+            "acp",
+            "--agent",
+            str(agent),
+            "ask",
+            "-B",
+            "--json",
+            "worktree-runner",
+            env=env,
+        )
+        sid = json.loads(launched.stdout)["session_id"]
+        managed = self.worktrees / "live"
+        self.addCleanup(
+            self.cli, "session", "stop", sid, "--kill", cwd=managed, env=env
+        )
+        rows = json.loads(self.cli("agents", "--json", env=env).stdout)["agents"]
+        self.assertEqual([row["session_id"] for row in rows], [sid])
+        self.assertTrue(rows[0]["live"])
+        self.assertTrue(rows[0]["running"])
+        t = Term([TNY, "--agent", str(agent), "agents"], env, str(self.repo))
+        self.addCleanup(t.close)
+        t.expect("Background agents")
+        t.send("\r")
+        t.expect("Attached " + sid)
+        t.expect("[asked: worktree-runner]", timeout=15)
+        until(lambda: state.exists() and "new_cwd" in json.loads(state.read_text()))
+        self.assertEqual(json.loads(state.read_text())["new_cwd"], str(managed))
+        t.send("/status\r")
+        t.expect(str(managed))
+        t.send("\x04")
+        self.assertEqual(t.wait(), 0, clean(t.buf))
+
+    def test_agents_attach_in_selected_worktree(self):
+        managed = self.enter()
+        sid = self.saved_agent(managed, 1)
+        t = Term([TNY, "agents"], self.env, str(self.repo))
+        self.addCleanup(t.close)
+        t.expect("Background agents")
+        t.expect(sid)
+        t.send("\r")
+        t.expect("Attached " + sid)
+        t.send("/status\r")
+        t.expect(str(managed))
+        t.send("/agents\r")
+        t.expect_next("Background agents")
+        t.send("q")
+        self.assertEqual(t.wait(), 0, clean(t.buf))
 
     def test_create_from_nested_dirty_head_and_reuse(self):
         nested = self.repo / "nested"
