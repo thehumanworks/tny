@@ -20,6 +20,8 @@ static char *fixture(void) {
     if (!p) return NULL;
     if (GIT(p, "init", "-b", "main") || GIT(p, "config", "user.email", "fixture@example.invalid") ||
         GIT(p, "config", "user.name", "Fixture")) {
+        fprintf(stderr, "workspace fixture requires Git init/config: %s\n",
+                output.data ? output.data : "no Git output");
         free(p);
         return NULL;
     }

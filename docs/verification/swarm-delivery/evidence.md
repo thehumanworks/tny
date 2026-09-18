@@ -249,3 +249,13 @@ SDK review b739d967df11861c independently closed the callback-drain and exceptio
 group findings at 100e01c: 31 Python tests and all prior probes passed. SDK-only
 branch a3bb3f9 was published as PR #165 after its fresh in-tree SDK, quality,
 shell and typing gates. Its hosted checks are separate and were pending at launch.
+
+## Hosted CI correction
+
+PR #166's first musl runs failed six new workspace unit tests at Git fixture
+initialization. The Alpine unit-test image did not install Git. This is a test
+closure defect, not an allowed baseline failure: Git is added to that image,
+the toolchain contract checks the dependency, and fixture failures now print an
+actionable init/config diagnostic. No test is skipped. Local policy/actionlint
+checks and all seven workspace tests pass; the hosted musl rerun is required.
+PR #165's independent SDK/Linux checks were green or still running at observation.
