@@ -34,7 +34,12 @@ typedef enum {
     TNY_MAILBOX_CORRUPT,
     TNY_MAILBOX_IO
 } tny_mailbox_rc;
-typedef enum { TNY_MAILBOX_QUEUED = 0, TNY_MAILBOX_DELIVERED, TNY_MAILBOX_ACKED } tny_mailbox_state;
+typedef enum {
+    TNY_MAILBOX_QUEUED = 0,
+    TNY_MAILBOX_DELIVERED,
+    TNY_MAILBOX_ACKED,
+    TNY_MAILBOX_RETIRED /* old-attempt tombstone, never delivery or acknowledgment */
+} tny_mailbox_state;
 typedef struct {
     char run[33]; /* existing job ID, lowercase 32hex */
     uint32_t job_attempt;
@@ -73,7 +78,7 @@ tny_mailbox_rc tny_team_mailbox_send(const tny_mailbox_service *service,
                                      tny_mailbox_recipient recipient, const char *id,
                                      const char *payload, size_t payload_len,
                                      tny_mailbox_message *out);
-/* Pure snapshot of caller's unacked messages INCLUDING delivered ones.
+/* Pure snapshot of caller's queued/delivered messages; retired/acked excluded.
  * after_sequence paginates, never acks; recover from zero. out has capacity
  * slots (1..BATCH_MAX), byte_limit is 1..BATCH_BYTES_MAX. FULL if first pending
  * payload cannot fit: no skipping. count is zero on failure. */
@@ -92,6 +97,18 @@ tny_mailbox_rc tny_team_mailbox_mark_delivered(const tny_mailbox_service *servic
 /* Requires delivered (BAD_STATE otherwise). Repeated ack is idempotent. */
 tny_mailbox_rc tny_team_mailbox_ack(const tny_mailbox_service *service,
                                     const tny_mailbox_identity *caller, const char *id);
+/* Explicit old-attempt abandonment, only authenticated TNY_MAILBOX_LEAD (-1).
+ * Indexed role metadata (including role:"lead") grants no routing authority.
+ * recipient_task must be a member (-1 is the lead). before_job_attempt must be
+ * 1..current job attempt; ONLY queued/delivered records strictly older than it
+ * retire. Current-attempt and acked records cannot change. Tombstones retain
+ * IDs/content/fences/sequence; retirement frees outstanding quota, not history.
+ * *retired is the count changed by THIS call, zero on error or repeated request.
+ * On I/O error publication may have occurred: reconcile/retry, not rollback. */
+tny_mailbox_rc tny_team_mailbox_retire(const tny_mailbox_service *service,
+                                       const tny_mailbox_identity *trusted_caller,
+                                       int recipient_task, uint32_t before_job_attempt,
+                                       size_t *retired);
 const char *tny_team_mailbox_error(tny_mailbox_rc rc);
 #ifdef __cplusplus
 }

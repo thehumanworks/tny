@@ -1,6 +1,6 @@
 # ADR 0139: Bounded durable collaboration mailboxes over job authority
 
-- Status: Accepted for the mailbox service slice; public integration pending
+- Status: Proposed / unpublished; mailbox service implemented, public integration pending
 - Date: 2026-09-18
 - Issue: #156 (parent #152; identity/control #153)
 - Contract: [team-mailbox.md](../team-mailbox.md)
@@ -38,8 +38,18 @@ A caller chooses a stable message ID. Successful send follows persistence.
 An identical retry returns the original receipt; any change to identity, attempt,
 recipient or content conflicts. Run-global sequence orders committed messages.
 Queued, delivered and acked are separate persisted states. Only the recipient can
-read or advance states. Read is pure; mark-delivered follows consumer persistence;
-ack is explicit and requires delivery. No state can regress.
+read or advance delivery/ack states. Read is pure; mark-delivered follows consumer
+persistence; ack is explicit and requires delivery. No state can regress.
+
+After a retry, old-attempt messages cannot be acked by either the stale caller or
+its fenced successor. Add an explicit `tny_team_mailbox_retire` operation restricted
+to the authenticated lead (`task == -1`). An indexed `role:"lead"` remains merely
+descriptive and grants no retirement authority. Require recipient membership and
+a positive cutoff no greater than the current job attempt. Retire only strictly
+older queued/delivered records for that recipient. Retired is a distinct terminal
+state, never an ack or delivery. Keep full ID/content/fences/sequence tombstones
+for dedup. Release outstanding quota only; preserve acked receipts and lifetime
+history. No automatic retirement and no current-attempt abandonment are allowed.
 
 Bound payloads to 16 KiB, outstanding records to 64 per recipient task and total
 retained records to 256 per run. Retain full acked records for exact duplicate and
@@ -67,14 +77,28 @@ execution mutation is unsupported before side effects.
 - A single atomic record keeps updates transactional and easy to inspect, but
   rewrites history while holding the short job lock. The size is bounded; no
   latency/performance improvement is claimed. Contention returns BUSY immediately.
-- File fsync + rename inherits the existing host seam's process-crash guarantees.
-  No parent-directory fsync means power-loss durability is not proved here.
+- Strengthen `jobs_host` publication: temp-file fsync and close, rename (or link
+  and temp unlink for write-once), parent-directory fsync and close before
+  success. Follow the parent-sync pattern in admission's host seam. Parent open,
+  sync or close failure after publication returns an error, not a false success;
+  callers must reconcile because new data can already be visible. Idempotent
+  mailbox mutations and matching write-once snapshot retries re-sync the parent
+  before acknowledging success. Syncing a newly created directory's ancestors
+  remains the creating caller's responsibility. Syscall ordering and injected
+  failures are tested, not physical power-loss survival or hardware flush fidelity.
 
 ## Verification and open integration
 
 Focused tests call real C/host code and inspect actual durable records, with
 SIGKILL/reopen, duplicate/concurrent sends, order/state transitions, capacity,
 capability/member/attempt denial, terminal recipients and lock contention.
+The independent review (`de590ef173142905`) found unrecoverable old-attempt quota
+and missing parent sync. Regression tests now fill attempt 1, retry into blocked
+attempt 2, explicitly retire through the authenticated lead, retain dedup
+tombstones and accept new messages. Tests deny indexed descriptive lead roles,
+cutoffs that would include the current attempt, stale callers and nonmembers.
+Real syscall fault wrappers check file-fsync → publication → parent-fsync ordering and error returns
+after publication, including lost-response retries; no power-loss proof is claimed.
 The callback fixture is not production authentication. The transcript fixture is
 not the native provider loop. Public CLI/tool parity, safe-boundary busy delivery,
 clarification round trip, real persisted-transcript crash dedup and platform
