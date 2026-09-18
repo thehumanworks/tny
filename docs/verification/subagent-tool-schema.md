@@ -122,9 +122,11 @@ changes to tny's build or release flags.
 
 The initial host `make test` completed with failures in credential isolation,
 host-header-dependent C++ fixtures and an unchanged GCC 16 fault-fixture
-warning. The isolated runtime unit suite passes all 574 tests. The isolated
-full suite still needs its supported-toolchain CI result; a host-installed
-`yyjson.h` also shadows the throwaway vendor header in its clang-tidy fixture.
+warning. The isolated runtime unit suite passes all 574 tests. A host-installed `yyjson.h` also shadowed the throwaway vendor header in the
+isolated full suite's clang-tidy fixture. Re-running with
+`CLANG_TIDY='clang-tidy --extra-arg=-nostdinc'` retains the selected C++ driver's
+explicit system-header paths and removes that unintended host-header search.
+The resulting complete `make test` passes; no assertion or warning is disabled.
 Local `make quality` completed its format, lint, strict-warning and clang-tidy
 checks, but the Nix GCC 14 analyzer reported an unchanged `buf_append` path.
 Those local aggregate attempts are **not** claimed as passes. The clean
@@ -137,3 +139,45 @@ JavaScript tests pass locally. Evaluating the optional Nix test source and
 running the policy test from that filtered source also passes. Windows and
 mandatory Nix automation are removed by explicit user request, not as a
 workaround for a subagent test failure.
+
+## Final gates and published artifact
+
+All required gates completed successfully on 2026-09-18 for released commit
+`87f5cfb06005fc8ed1ced2eca1d84d6ac9cbee62`:
+
+| Check | Result |
+| --- | --- |
+| Complete local `make test` | Exit 0; 574 unit tests passed, zero failed/skipped; 73 integration groups, zero failed groups |
+| Scoped Responses mutation run | Two valid mutants, both killed, zero survivors |
+| Local `make leaks` | Exit 0; all unit tests and four CLI smokes; zero definite/indirect leaks or memory errors |
+| CI run `35384412158` | Success: quality, Linux/macOS native builds, musl, Valgrind, TSan, fuzz, wasm/browser and aggregate gate |
+| SDK run `35384412077` | Success: every Python/Node platform matrix entry and aggregate gate |
+| Auto-release run `35389142706` | Success: both remaining gates green on the same commit; tag and dispatch |
+| Release run `35389156075` | Success: five native CLI packages, SDK certification/validation, attestation and publication |
+
+The optional npm/PyPI registry jobs remained disabled by the repository's
+existing configuration. The GitHub release and its downloadable SDK artifacts
+are published; this is not a claim of npm/PyPI publication.
+
+`v0.13.0` was published at **2026-09-18T20:54:51Z**, not as a draft or
+prerelease, with **37 assets** and no Windows artifact. Its tag resolves to
+`87f5cfb`; it contains subagent fix `6eed0be` and separate CI policy commit
+`87f5cfb`. The existing version calculator selected a minor bump because it
+also includes the previously unreleased commits since `v0.12.2`.
+
+The published `tny-linux-x86_64.tar.gz` was downloaded independently after
+publication. `SHA256SUMS` matched; `gh attestation verify --repo
+thehumanworks/tny` succeeded, with the signed subject matching this archive
+and the signed source dependency matching `87f5cfb`. The extracted binary
+reports `0.13.0`, passes `ask --help`, and is **1,051,984 bytes**, below the
+6,000,000-byte ceiling. Both `test_subagent.py` and
+`test_subagent_diagnostics.py` also passed against this downloaded binary.
+
+- Archive SHA-256:
+  `70871b1de4e7db2bbde3644b3728e85dee3bc9cddacfb51529045d39d9af7c3f`.
+- Extracted binary SHA-256:
+  `4fcab2ac05a4e3203a91ecff3e50a72038834c30f778411436ab81ed4021b17c`.
+
+The initial local toolchain failures above remain recorded rather than being
+relabeled as successes. The final isolated runtime suite, supported CI
+quality gate, SDK matrix and published-artifact checks supersede them.

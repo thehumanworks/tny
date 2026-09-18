@@ -69,3 +69,13 @@ This narrows automated platform assurance and future downloads; it does not
 claim Windows or all local Nix configurations are tested or supported by the
 remaining release matrix. The subagent fix and this CI policy are separate
 commits as requested.
+
+## Outcome
+
+CI `35384412158` and SDK `35384412077` passed for policy commit `87f5cfb`.
+Only Linux/macOS runners were scheduled. Auto-release `35389142706` tagged
+that commit after the two gates succeeded, and release `35389156075`
+published `v0.13.0` with no Windows asset. Local policy, release-contract,
+site and filtered optional-Nix-source checks passed. The full evidence and
+published archive verification are in
+`docs/verification/subagent-tool-schema.md`.
