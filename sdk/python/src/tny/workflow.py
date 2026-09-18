@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import builtins
 import hashlib
 import inspect
 import json
 import math
 import os
 import re
+import sys
 from collections import deque
 from collections.abc import (
     Awaitable,
@@ -23,7 +25,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Protocol, TypeVar, cast
 
-from .aio import AsyncRuntime
+from .aio import AsyncRuntime, _close_event_stream
 from .events import (
     AnyEvent,
     ErrorEvent,
@@ -475,14 +477,25 @@ def _render_prompt(
 def _detach_error(error: BaseException | None) -> BaseException | None:
     """Keep diagnostics, not coroutine frames or chained prompt owners."""
     seen: set[int] = set()
-    current = error
-    while current is not None and id(current) not in seen:
+    pending = [error] if error is not None else []
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
         seen.add(id(current))
-        following = current.__cause__ or current.__context__
+        # Only standard exception relationships are traversed. Groups exist
+        # starting in 3.11; keep the supported 3.10 import/runtime path valid.
+        if sys.version_info >= (3, 11) and isinstance(
+            current, builtins.BaseExceptionGroup
+        ):
+            pending.extend(current.exceptions)
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+        if current.__context__ is not None:
+            pending.append(current.__context__)
         current.__traceback__ = None
         current.__cause__ = None
         current.__context__ = None
-        current = following
     return error
 
 
@@ -532,31 +545,35 @@ class _NativeWorkflowRunner:
             async with AsyncRuntime(config, library_path=self._library_path) as runtime:
                 async with await runtime.create_session() as session:
                     session_id = await session.id()
-                    async for event in session.run(prompt):
-                        if isinstance(event, TextDeltaEvent):
-                            output.append(event.text)
-                        elif isinstance(event, ErrorEvent) and stream_error is None:
-                            stream_error = event
-                        elif isinstance(event, TurnEndEvent):
-                            stop_reason = int(event.stop_reason)
-                        elif isinstance(event, UsageEvent):
-                            usage = event
-                            self.report_usage(task.name, event)
+                    stream = session.run(prompt)
+                    try:
+                        async for event in stream:
+                            if isinstance(event, TextDeltaEvent):
+                                output.append(event.text)
+                            elif isinstance(event, ErrorEvent) and stream_error is None:
+                                stream_error = event
+                            elif isinstance(event, TurnEndEvent):
+                                stop_reason = int(event.stop_reason)
+                            elif isinstance(event, UsageEvent):
+                                usage = event
+                                self.report_usage(task.name, event)
 
-                        if self._on_event is not None:
-                            await _resolve(self._on_event(task, event))
-                        if isinstance(event, PermissionRequestEvent):
-                            decision = PermissionDecision.DENY
-                            if self._on_permission is not None:
-                                resolved = await _resolve(
-                                    self._on_permission(task, event)
-                                )
-                                if not isinstance(resolved, PermissionDecision):
-                                    raise WorkflowRunError(
-                                        f"permission handler returned an invalid decision for {task.name!r}"
+                            if self._on_event is not None:
+                                await _resolve(self._on_event(task, event))
+                            if isinstance(event, PermissionRequestEvent):
+                                decision = PermissionDecision.DENY
+                                if self._on_permission is not None:
+                                    resolved = await _resolve(
+                                        self._on_permission(task, event)
                                     )
-                                decision = resolved
-                            await session.respond_permission(event, decision)
+                                    if not isinstance(resolved, PermissionDecision):
+                                        raise WorkflowRunError(
+                                            f"permission handler returned an invalid decision for {task.name!r}"
+                                        )
+                                    decision = resolved
+                                await session.respond_permission(event, decision)
+                    finally:
+                        await _close_event_stream(stream)
         finally:
             last_usage = getattr(session, "last_usage", None)
             if isinstance(last_usage, UsageEvent):
