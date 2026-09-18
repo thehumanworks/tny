@@ -108,9 +108,29 @@ async def async_callback_types(config: tny.RuntimeConfig) -> None:
 async def workflow_types(config: tny.RuntimeConfig) -> None:
     workflow = tny.Workflow(config, max_concurrency=2)
     workflow.task("first", "inspect")
-    workflow.task("second", b"implement", depends_on=("first",))
+    workflow.task(
+        "second",
+        b"implement",
+        depends_on=(
+            tny.WorkflowDependency("first", context="artifact", offset=0, length=0),
+        ),
+    )
     result: tny.WorkflowResult = await workflow.run_async()
     task: tny.WorkflowTaskResult = result["second"]
     output: bytes = result.output("second")
     status: tny.WorkflowTaskStatus = task.status
-    _ = output, status
+    artifact: tny.WorkflowArtifact = task.artifact
+    chunk: bytes = artifact.read(0, 0, maximum_bytes=64)
+    usage: tny.UsageEvent | None = task.usage
+    _ = output, status, chunk, usage, result.usage
+
+
+def workflow_accounting_types(workflow: tny.Workflow, usage: tny.UsageEvent) -> None:
+    total: int | float | None = workflow.partial_usage["input_tokens"]
+    workflow.report_usage("task", usage)
+    _ = total
+
+
+async def session_accounting_types(session: tny.AsyncSession) -> None:
+    snapshot: tny.UsageEvent | None = session.last_usage
+    _ = snapshot

@@ -441,6 +441,69 @@ assert_eq "$(tny_status consumer)" failed
 [ ! -f "$TNY_FAKE_LOG.prompt.consumer" ] || fail "oversized consumer reached tny"
 assert_file_contains "$TNY_WORKFLOW_DIR/run/consumer/stderr" 'exceeds 5 bytes'
 
+# The complete input limit includes UTF-8 task text and dependency framing.
+reset_log "$temporary/scenario-input"
+tny_workflow_begin "$temporary/flow-input" > /dev/null
+tny_task producer -- "TASK producer"
+tny_task consumer --after producer -- "TASK consumer"
+tny_task ordered --after producer --no-context -- "TASK ordered"
+TNY_WORKFLOW_MAX_INPUT_BYTES=64
+export TNY_WORKFLOW_MAX_INPUT_BYTES
+if tny_workflow_run --quiet; then
+    fail "complete input limit was ignored"
+fi
+assert_eq "$(tny_status producer)" success
+assert_eq "$(tny_status consumer)" failed
+assert_eq "$(tny_status ordered)" success
+[ ! -f "$TNY_FAKE_LOG.prompt.consumer" ] || fail "oversized complete input reached tny"
+assert_file_contains "$TNY_WORKFLOW_DIR/run/consumer/stderr" 'complete workflow input exceeds 64 bytes'
+# A root prompt must also fit, even without dependencies.
+reset_log "$temporary/scenario-root-input"
+tny_workflow_begin "$temporary/flow-root-input" > /dev/null
+tny_task root -- "TASK root"
+TNY_WORKFLOW_MAX_INPUT_BYTES=1
+if tny_workflow_run --quiet; then
+    fail "root input limit was ignored"
+fi
+assert_eq "$(tny_status root)" failed
+[ ! -s "$TNY_FAKE_LOG.events" ] || fail "oversized root reached tny"
+TNY_WORKFLOW_MAX_INPUT_BYTES=invalid
+if tny_workflow_run --quiet 2> "$temporary/input-validation.err"; then
+    fail "invalid complete input limit was accepted"
+fi
+assert_file_contains "$temporary/input-validation.err" 'TNY_WORKFLOW_MAX_INPUT_BYTES must be a positive integer'
+unset TNY_WORKFLOW_MAX_INPUT_BYTES
+
+# Real multibyte text: measure the complete framed input, not character count.
+reset_log "$temporary/scenario-multibyte-measure"
+tny_workflow_begin "$temporary/flow-multibyte-measure" > /dev/null
+tny_task producer -- "TASK producer"
+tny_task consumer --after producer -- "TASK consumer
+é界"
+tny_workflow_run --quiet
+input_bytes=$(LC_ALL=C wc -c < "$TNY_FAKE_LOG.prompt.consumer" | tr -d ' ')
+for reduction in 0 1; do
+    reset_log "$temporary/scenario-multibyte-$reduction"
+    tny_workflow_begin "$temporary/flow-multibyte-$reduction" > /dev/null
+    tny_task producer -- "TASK producer"
+    tny_task consumer --after producer -- "TASK consumer
+é界"
+    TNY_WORKFLOW_MAX_INPUT_BYTES=$((input_bytes - reduction))
+    export TNY_WORKFLOW_MAX_INPUT_BYTES
+    if [ "$reduction" = 0 ]; then
+        tny_workflow_run --quiet || fail "exact multibyte input bound rejected"
+        assert_eq "$(tny_status consumer)" success
+        assert_file_contains "$TNY_FAKE_LOG.prompt.consumer" 'é界'
+    else
+        if tny_workflow_run --quiet; then
+            fail "bound-minus-one multibyte input accepted"
+        fi
+        assert_eq "$(tny_status consumer)" failed
+        [ ! -f "$TNY_FAKE_LOG.prompt.consumer" ] || fail "oversized multibyte input reached tny"
+    fi
+done
+unset TNY_WORKFLOW_MAX_INPUT_BYTES
+
 # Definition validation and cleanup avoid ambiguous or destructive state.
 tny_workflow_begin "$temporary/flow-six" > /dev/null
 tny_task once -- "TASK once"

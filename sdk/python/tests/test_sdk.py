@@ -579,6 +579,17 @@ class SDKTests(unittest.TestCase):
             self.assertEqual(result["merge"].stop_reason, int(tny.StopReason.DONE))
             self.assertIn(("first", "text_delta"), seen)
             self.assertIn(("merge", "turn_end"), seen)
+            self.assertEqual(result.usage["known_tasks"], 3)
+            self.assertEqual(result.usage["unknown_tasks"], 0)
+            self.assertEqual(
+                result.usage["input_tokens"],
+                sum(
+                    item.usage.input_tokens
+                    for item in result.values()
+                    if item.usage is not None
+                ),
+            )
+            self.assertIsNotNone(result["merge"].usage)
         finally:
             mock.close()
 

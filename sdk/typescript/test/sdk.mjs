@@ -20,6 +20,7 @@ export const {
   TnyError,
   UnsupportedFeatureError,
   Workflow,
+  WorkflowTask,
   WorkflowContextError,
   WorkflowDefinitionError,
   WorkflowRunError,

@@ -6,7 +6,7 @@ import asyncio
 import os
 import warnings
 import weakref
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from functools import partial
@@ -14,7 +14,13 @@ from typing import TYPE_CHECKING, TypeVar
 
 from ._binding import Library
 from .errors import BadStateError
-from .events import AnyEvent, ErrorEvent, EventStreamError, PermissionRequestEvent
+from .events import (
+    AnyEvent,
+    ErrorEvent,
+    EventStreamError,
+    PermissionRequestEvent,
+    UsageEvent,
+)
 from .runtime import (
     CancellationToken,
     PermissionDecision,
@@ -36,6 +42,21 @@ async def _await_cancellation_immune(awaitable: asyncio.Future[T]) -> T:
             return await asyncio.shield(awaitable)
         except asyncio.CancelledError:
             continue
+
+
+async def _close_event_stream(stream: AsyncGenerator[AnyEvent, None]) -> None:
+    """Finish generator cleanup before its session can close, even on recancel."""
+    closing = asyncio.ensure_future(stream.aclose())
+    try:
+        await asyncio.shield(closing)
+    except asyncio.CancelledError:
+        while not closing.done():
+            try:
+                await asyncio.shield(closing)
+            except asyncio.CancelledError:
+                continue
+        closing.result()
+        raise
 
 
 def _finalize_owner(
@@ -216,6 +237,12 @@ class AsyncSession:
         self._runtime = runtime
         self._sync = sync
         self._token = CancellationToken()
+        self._last_usage: UsageEvent | None = None
+
+    @property
+    def last_usage(self) -> UsageEvent | None:
+        """Last observed usage in this turn, including cancellation drain events."""
+        return self._last_usage
 
     @property
     def closed(self) -> bool:
@@ -226,6 +253,7 @@ class AsyncSession:
 
     async def send(self, prompt: str | bytes) -> None:
         self._token = CancellationToken()
+        self._last_usage = None
         await self._runtime._call(self._sync.send, prompt)
 
     async def steer(self, text: str | bytes) -> None:
@@ -244,16 +272,19 @@ class AsyncSession:
         # Session.cancel serializes against owner-thread close.
         self._sync.cancel()
 
-    async def events(self, *, raise_on_error: bool = False) -> AsyncIterator[AnyEvent]:
+    async def events(
+        self, *, raise_on_error: bool = False
+    ) -> AsyncGenerator[AnyEvent, None]:
         drained = False
         try:
             while True:
 
                 def one_event() -> tuple[bool, AnyEvent | None]:
                     try:
-                        return True, self._sync.next_event(
-                            0.05, cancellation=self._token
-                        )
+                        event = self._sync.next_event(0.05, cancellation=self._token)
+                        if isinstance(event, UsageEvent):
+                            self._last_usage = event
+                        return True, event
                     except StopIteration:
                         return False, None
 
@@ -272,12 +303,16 @@ class AsyncSession:
 
     async def run(
         self, prompt: str | bytes, *, raise_on_error: bool = False
-    ) -> AsyncIterator[AnyEvent]:
+    ) -> AsyncGenerator[AnyEvent, None]:
         send_task = asyncio.create_task(self.send(prompt))
         try:
             await asyncio.shield(send_task)
-            async for event in self.events(raise_on_error=raise_on_error):
-                yield event
+            stream = self.events(raise_on_error=raise_on_error)
+            try:
+                async for event in stream:
+                    yield event
+            finally:
+                await _close_event_stream(stream)
         finally:
             if not send_task.done():
                 try:
@@ -298,7 +333,9 @@ class AsyncSession:
 
             def one_event() -> bool:
                 try:
-                    self._sync.next_event(0.1, cancellation=self._token)
+                    event = self._sync.next_event(0.1, cancellation=self._token)
+                    if isinstance(event, UsageEvent):
+                        self._last_usage = event
                     return True
                 except StopIteration:
                     return False

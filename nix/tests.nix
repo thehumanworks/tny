@@ -74,7 +74,7 @@ stdenv.mkDerivation {
     # native ABI tests add no audio devices, provider keys, or new dependencies.
     # test_prompt_cache.py uses only stdlib loopback providers. The optional
     # bench_prompt_cache.py requires --live and external Codex; never run it here.
-    python3 # test_speech.py also generates a fake MP3 player with this interpreter
+    (python3.withPackages (ps: [ ps.cffi ])) # native Python SDK; fixtures remain local
     # make dictation-fixture/test-dictation reuse the same src/ and stdlib
     # fixtures, with fake xAI/Grok credentials and a test-only loopback URL.
     # test_dictation.py uses stdlib HTTP/WAV/PTY fixtures and generates fake
@@ -100,7 +100,8 @@ stdenv.mkDerivation {
     # flag branches; no cross compiler or additional runtime input is needed.
     zsh # make test also runs the quick-ask widget in real Zsh PTYs
     tmux # test-only terminal screen assertions; never used by the tny runner
-    nodejs # tests/site/test_term.js, driven by test_site.py
+    nodejs # site and native TypeScript SDK tests, no npm registry dependencies
+    (lib.getDev nodejs) # Node-API headers used by the SDK addon build
     openssl.bin # tests/integration/test_https.py mints a throwaway cert
     # shell/tny-workflows.sh launches each task in its own process group so the
     # scheduler can signal the whole tree. It uses setsid, falls back to perl's
@@ -171,6 +172,7 @@ stdenv.mkDerivation {
     # Includes editor metadata-failure and mandatory integration-runner checks;
     # both use the existing stdenv compiler/make, with temporary fixtures only.
     ${testRunner}make -j''${NIX_BUILD_CORES} $makeFlags test
+    TNY_NODE_INCLUDE=${lib.getDev nodejs}/include/node ${testRunner}make $makeFlags test-sdks
     ${testRunner}make $makeFlags test-shell-workflows test-parser-fuzz-smoke test-parser-ownership test-search-ownership test-parser-backend-ownership test-runtime-ownership test-runtime-mutation test-runner-ownership test-runner-mutation test-checkpoint-ownership test-checkpoint-mutation test-subagent-ownership test-subagent-mutation
     runHook postBuild
   '';

@@ -1,0 +1,274 @@
+# ADR 0144: Lazy, selective workflow context
+
+- Status: Accepted
+- Date: 2026-09-18
+- Issue: #159; independent SDK reporting subset of #158
+
+## Decision
+
+Keep Python and Node workflow APIs ephemeral. Durable jobs remain a separate
+API; do not add a checkpoint store, worker daemon, provider loop, or implicit
+paid summarization layer.
+
+Resolve dependency status before admission, but compose input only inside the
+local semaphore slot. Cancellation must not construct waiting inputs. Preserve
+runner signatures, declared edge order, ordering-only edges, default raw-output
+framing, failure isolation, partial results, and blocked descendants.
+
+Add explicit edge selection: caller-supplied summary, top-level JSON fields,
+and content-addressed in-memory artifact references with exact byte slices.
+Keep the complete original in each task result. Provenance identifies task,
+session (when available), original size and SHA-256. It is neither trust nor
+execution verification. Original output and all selected material stay untrusted.
+
+A reference is not a local path that a remote worker is assumed to share.
+Explicit slices are base64-encoded into the prompt; host applications also have
+an exact bounded read API. Metadata-only references are allowed but do not
+install an agent retrieval tool. Applications must supply an explicit tool and
+transport for dynamic retrieval. This limitation is preferable to silently
+inaccessible paths or a new persistent store. Artifact lifetime is the lifetime
+of the SDK result, not a durable run.
+
+Retain the default 1,048,576-byte dependency payload bound and its raw-output
+semantics. Add a positive, separately configurable 2,097,152-byte complete-input
+bound that includes roots, base prompt, metadata and framing. This deliberately
+rejects formerly accepted oversized base prompts. Existing ordinary workflows
+keep byte-identical input; no automatic truncation or fallback occurs. A third
+1,048,576-byte selection-read bound limits JSON parsing and requested artifact
+slices. Public artifact reads default to 65,536 bytes. Token estimates are not
+exposed without a reliable provider tokenizer.
+
+Shell shares the complete-input bound and retains existing output/no-context
+edges and file-backed results. Selection is a native Python/Node SDK feature,
+not a shell flag or browser/wasm feature. Inline slices cross provider/SSH/
+workspace boundaries without assuming shared filesystem visibility.
+
+For the independent #158 subset, retain the last available native usage event
+per task and sum it once per task, never per consuming edge. Absent events and
+absent costs remain unknown. Blocked tasks are excluded. This is reporting, not
+shared admission, durable retry deduplication, cost enforcement or a hard budget.
+Execution and cleanup exceptions retain available usage (see the review
+addendum below); unreported usage stays unknown.
+
+## Evidence and reproduction
+
+Base: `89bcd5918da0e225e1806813a206d007daafac0a`.
+Fixture: one 262,144-byte producer, 32 direct consumers, concurrency one, first
+consumer held at an explicit barrier. No network/provider calls. Python wraps
+`_render_prompt`; JS counts `_prompt()` calls at composition and measures the
+actual admitted prompt's UTF-8 byte length. All consumers use identical input.
+The JS counter does not force waiting V8 rope strings to flatten.
+
+Build prerequisites: `make test-sdk-python test-sdk-typescript` (native libtny,
+cffi, Node addon and SDK conformance; use the pinned project toolchain).
+
+```sh
+base=$(mktemp -d)
+git show 89bcd5918da0e225e1806813a206d007daafac0a:sdk/python/src/tny/workflow.py > "$base/workflow.py"
+cp -R sdk/typescript "$base/typescript"
+git show 89bcd5918da0e225e1806813a206d007daafac0a:sdk/typescript/dist/index.mjs > "$base/typescript/dist/index.mjs"
+# Repeat each command five times, in fresh processes.
+PYTHONPATH=sdk/python/src python3 sdk/python/tests/bench_workflow_context.py "$base/workflow.py"
+PYTHONPATH=sdk/python/src python3 sdk/python/tests/bench_workflow_context.py
+node --expose-gc sdk/typescript/test/bench-workflow-context.mjs "file://$base/typescript/dist/index.mjs"
+node --expose-gc sdk/typescript/test/bench-workflow-context.mjs
+```
+
+Measured on Darwin arm64, Python 3.14.7, Node v26.8.2. Medians of five fresh
+processes (bytes are decimal); Python peak is tracemalloc over the complete
+fixture, JS heap peak is sampled at composition/runner/barrier boundaries, RSS
+is process high-water including native SDK loading. These are not live TTFT
+measurements or tokenizer measurements.
+
+| Metric | Python baseline | Python candidate | JS baseline | JS candidate |
+| --- | ---: | ---: | ---: | ---: |
+| Rendered consumers at barrier | 32 | 1 | 32 | 1 |
+| Composed bytes at barrier | 8,395,008 | 262,344 | 8,395,008 | 262,344 |
+| Total composed bytes | 8,395,008 | 8,395,008 | 8,395,008 | 8,395,008 |
+| Peak traced/sampled heap bytes | 8,739,350 | 607,440 | 11,401,064 | 7,745,744 |
+| Peak RSS bytes | 43,958,272 | 35,012,608 | 72,597,504 | 69,369,856 |
+| Barrier latency ms | 1.892 | 1.489 | 1.606 | 1.541 |
+| Complete fixture latency ms | 2.959 | 3.123 | 3.193 | 3.700 |
+
+Only the admitted consumer is composed while blocked. Python traced memory and
+process RSS decline in this fixture. JS sampled peak heap and process RSS also
+decline; JS **barrier heap does not decline**, since the old implementation can
+retain cheap ropes and the new implementation accounts whole-input bytes.
+Total serialization volume is unchanged. Completion latency is slightly higher
+(Python) and higher (JS), including new hashing/accounting. Do not claim a speedup.
+
+The workflow tests include both 32-consumer barriers, selective context,
+original-artifact retention, provenance, exact/range bounds, UTF-8 accounting,
+framing overhead, no-context, cancellation, failures, and usage unknowns. The
+existing SDK suites cover native fixtures and runner contracts. Shell checks
+cover shared context semantics under Bash and Zsh. Both barrier regression tests
+were also run against the isolated baseline modules: each exited 1 specifically
+on `32 != 1` rendered consumers (not an import/load error).
+
+Final worker checks:
+
+- `make test-sdk-python test-sdk-typescript test-shell-workflows`: exit 0.
+  Python: 93 tests, one installed-wheel test skipped because
+  `TNY_TEST_BUNDLED_WHEEL` was unset. Node: 51 tests, no skips. Both SDK
+  conformance adapters passed. Native libtny and the Node addon were built;
+  cffi 2.1.1 was available. Bash 3.2.57 and Zsh 5.9 passed.
+- `make quality`: exit 0 after correcting Python formatting. Later SDK-only
+  refinements were rechecked with `make format-check lint-py lint-sh
+  lint-workflows lint-js` (exit 0); native inputs were unchanged. GCC analyzer
+  was explicitly skipped on Darwin, as expected.
+- `npx --yes --package typescript tsc --noEmit --strict --target ESNext
+  --module NodeNext sdk/typescript/dist/index.d.ts`: exit 0. An earlier ES2022
+  invocation exited 2 because the existing declarations require AsyncDisposable.
+- `MYPYPATH=sdk/python/src uvx mypy --strict
+  sdk/python/tests/typecheck_usage.py`: exit 0, including artifact and usage types.
+- Both benchmark scripts: five baseline and five candidate fresh-process runs
+  per language, all exit 0. No network calls in the benchmarks.
+- Earlier full SDK run exited 2 because new enumerable JS selector defaults
+  changed the existing public edge shape. The defaults are now non-enumerable;
+  the original compatibility test and final SDK suites pass. An initial command
+  used nonexistent `sdk-python-test`/`sdk-typescript-test` make targets (exit 2);
+  the correct targets above ran successfully. Initial `make quality` exited 2
+  on formatting, corrected before the successful run.
+
+No root `make test`, leak gate, release-size check, Nix build, or live-provider
+performance claim is made by this SDK-only worker. Full integrated gates and
+independent post-integration review remain the lead's responsibility.
+
+Integration must include `sdk/python` and `sdk/typescript` in `nix/source.nix`
+(the existing test fileset includes only `sdk/conformance` and `sdk/schema`).
+Add cffi to the Nix Python environment and verify the native Node headers are
+available to `sdk/typescript/scripts/build.mjs`. Run the existing
+`test-sdk-python` and `test-sdk-typescript` targets from the chosen SDK check;
+no new Make target is needed. Existing workflow tests are already discovered by
+those targets. Shell tests already have Nix source/tool/target registration.
+
+Both new benchmark scripts live inside those SDK directories and need explicit
+invocations if they are part of a Nix check; they are not default test discovery
+entries. A baseline comparison in a sandbox needs the pre-exported baseline
+module as an input, not an assumed Git object database or network access. The
+delivery lead owns these build/Nix changes and full integrated native/leak/
+platform gates. No such registration is claimed in this branch.
+
+## Review addendum: accounting and retained input (2026-09-19)
+
+Review of base `31051923fdd44fb75afba6726ce662a0497a79a7` reproduced lost
+usage on native failure, Python acceptance of omitted nonfinite JSON, and
+runner traceback retention of 32 composed inputs. The SDK hardening follows
+these rules:
+
+- Keep an owned per-task cumulative accounting snapshot outside execution
+  results. Execution and close failures cannot discard it. Async session
+  drains retain their last usage, including events not yielded to the caller.
+  Expose aggregate `partial_usage` / `partialUsage` after cancellation without
+  changing cancellation into successful resolution. Count each admitted task
+  once; missing reports stay unknown. Reset only when a new run starts.
+- Detach Python traceback frames and chains from returned failure diagnostics.
+  Preserve exception type/message; release composed input on all runner exits.
+  Exception messages and application-defined attributes are not sanitized.
+- Validate whole-source finite JSON before fields selection. Reject nonfinite
+  numeric tokens even in omitted or duplicate-overwritten fields. Last duplicate
+  key wins. Limit the resulting object to 128 container levels. Python integer
+  precision and JS IEEE-754 precision differ beyond the exact shared integer
+  range ±(2^53-1); identifiers outside that range must be strings.
+- Keep inline base64 slices as the portable bounded model-access mechanism.
+  Metadata alone is not model-dereferenceable. No automatic isolated-workspace
+  or SSH fetch and no retrieval tool is installed. The native HTTP fixture
+  records the actual consumer request from a distinct workspace and verifies
+  the slice and original artifact hash in that request.
+
+Regression tests cover late cleanup snapshots, stream/close failures,
+cancellation rejection, 32 failing consumers with weak-reference liveness and
+retained allocation bounds, whole-source JSON policy, mixed selection fan-in,
+and exact complete-input bounds with framing/provenance/base64. Shell tests use
+real multibyte input at the exact bound and one byte below it. These remain
+SDK reporting and ephemeral context guarantees, not shared admission, durable
+billing, dynamic retrieval, or remote transport conformance claims.
+
+Measured failure-retention regression on macOS arm64, Python 3.14.7:
+
+| Metric | Base `31051923` | Hardened SDK |
+| --- | ---: | ---: |
+| Retained traced Python bytes | 8,734,876 | 308,435 |
+| Peak traced Python bytes | 8,746,426 | 583,431 |
+| Live runner-local weak references | 32 | 0 |
+| Distinct composed bytes retained by traceback frames | 8,394,816 | 0 |
+
+Reproduce with `sdk/python/tests/bench_workflow_failure.py`, setting
+`PYTHONPATH` to each revision's `sdk/python/src`. The fixture retains the result
+while measuring 32 sequential failing consumers of one 256 KiB original. These
+are allocation/liveness measurements, not process RSS or provider latency.
+The base passes its original Python/JS workflow suites but fails the added
+hardening regressions. The candidate passes both original and added tests.
+Native request evidence uses a producer and consumer with distinct configured
+workspaces and records the consumer's HTTP request, not only an SDK renderer.
+SDK native tests reuse existing ABI artifacts; rebuilding headers, integrated
+root gates, Nix packaging, SSH and wasm verification remain with the lead.
+
+### Follow-up: generator lifetime and exception groups
+
+Independent follow-up at `9cf38cfd3e33a9685f59a86a30c98c9c461a39fb` found two
+remaining Python ownership gaps. Callback exits could defer generator cleanup
+until after the session closed, losing late usage. Group children could retain
+prompt-bearing tracebacks even after the group's own traceback was detached.
+
+The workflow now explicitly finalizes `session.run()` inside the open session
+context. `AsyncSession.run()` also finalizes its nested `events()` generator.
+Shielded cleanup finishes before session close even on repeated cancellation;
+cancellation continues to raise. The existing bounded drain policy is unchanged.
+Tests retain the real AsyncRuntime owner executor, AsyncSession and generators,
+replacing only the synchronous transport. Event and permission callback errors,
+invalid permission decisions, cancellation and repeated cancellation assert
+`usage7 → cancel → usage9 → close`, followed by partial accounting of 9.
+
+Error detachment now traverses both cause/context links and, on Python 3.11+,
+stdlib exception-group children. An iterative identity-visited walk handles
+shared children and cyclic chains without recursion. It preserves the original
+group objects, topology, exception types and messages. It does not inspect or
+traverse arbitrary application attributes. The version guard preserves Python
+3.10 support. Tests retain results for 32 failing consumers with nested raised
+ExceptionGroups and returned mixed BaseExceptionGroups, checking child frames,
+chains and weak-reference liveness. The ordinary failure allocation benchmark
+continues to retain 308,435 traced bytes, zero live runner locals, and zero
+composed bytes in traceback frames on the same Python 3.14.7 fixture.
+
+## Independent SDK PR integration
+
+The unpublished context decision is numbered 0144 because upstream used 0137
+for Linux/macOS CI and optional developer Nix. The feature branch locally merges
+`fff9791b3fde04cdeedac489656d55a48a9e5fa6` without changing that CI policy.
+Only the SDK test closure is added: the two SDK source directories, Python cffi,
+Node development headers, and `make test-sdks`. `TNY_NODE_INCLUDE` selects the
+separate Nix header prefix; the existing non-Nix default remains unchanged.
+
+The final branch gates build libtny and the Node addon in this worktree, rather
+than reusing the lead's artifacts as the earlier review did. Pinned
+`make quality`, `make test-sdks` and `make test-shell-workflows` pass. SDK results
+are 103 Python tests (one unstaged bundled-wheel skip), 57 JS tests, and both
+protocol conformance adapters. Explicit workflow reruns pass 31 Python and 22
+JS tests; strict mypy (including the Python 3.10 target) and TypeScript checks
+also pass. The Node-header fixture exercises an alternate prefix and a missing
+header error. Nix remains developer-only; no hermetic Nix build was run because
+Nix is not installed on this host. Darwin's quality gate explicitly skips GCC
+`-fanalyzer`; the existing Linux CI owns that check.
+
+Fresh context benchmark medians below use the final SDK implementation and
+`fff9791b3fde04cdeedac489656d55a48a9e5fa6` as baseline. They are a separate rerun,
+not replacements for the earlier measurements. The commands in “Evidence and
+reproduction” apply with this baseline SHA, five fresh processes per variant,
+Python 3.14.7 and Node 26.8.2 on Darwin arm64. Both JS variants load this
+worktree's freshly built native addon; neither makes a provider call.
+
+| Metric | Python baseline | Python final | JS baseline | JS final |
+| --- | ---: | ---: | ---: | ---: |
+| Rendered consumers at barrier | 32 | 1 | 32 | 1 |
+| Composed bytes at barrier | 8,395,008 | 262,344 | 8,395,008 | 262,344 |
+| Total composed bytes | 8,395,008 | 8,395,008 | 8,395,008 | 8,395,008 |
+| Peak traced/sampled heap bytes | 8,739,350 | 607,768 | 11,402,136 | 7,750,784 |
+| Peak RSS bytes | 43,843,584 | 35,078,144 | 73,007,104 | 68,648,960 |
+| Barrier latency ms | 1.759 | 1.297 | 1.601 | 1.545 |
+| Complete fixture ms | 2.693 | 2.833 | 3.109 | 3.629 |
+
+The complete fixture still composes every consumer and can take longer. This
+is bounded admission-time context ownership, not a general latency improvement.
+The final ordinary-failure benchmark also retains the earlier result: zero live
+runner locals and zero composed bytes in traceback frames.

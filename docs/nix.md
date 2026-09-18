@@ -71,7 +71,7 @@ The overlay is the form to use with `environment.systemPackages` on NixOS or
 | `apps.<system>.tny` (`default`) | `nix run` entry point |
 | `overlays.default` | `tny` and `libtny` for any nixpkgs instance |
 | `devShells.<system>.default` | toolchain for `make`, `make test`, `make bench` |
-| `checks.<system>` | the package builds, the whole `make test` suite, and Bash/Zsh workflow tests |
+| `checks.<system>` | the package builds, `make test`, native Python/TypeScript SDK tests, and Bash/Zsh workflow tests |
 | `formatter.<system>` | `nix fmt` for the Nix files |
 
 ## Without flakes
@@ -181,6 +181,17 @@ direnv allow               # .envrc enters the dev shell on cd
 On Linux, its existing test and shell-workflow commands run under the declared
 test-only `tini -s` reaper, so orphan cleanup does not depend on the host init.
 Darwin keeps the ordinary command invocation.
+
+The test derivation also runs `make test-sdks`, building libtny and the Node-API
+addon in the sandbox before the Python/TypeScript suites and protocol conformance
+fixtures. Its source fileset includes `sdk/python` and `sdk/typescript`. Python
+has `cffi`; Node supplies both the runtime and its development headers. The build
+sets `TNY_NODE_INCLUDE=${lib.getDev nodejs}/include/node` rather than assuming
+headers are beside the Node executable. Outside Nix, that override is optional
+and the SDK keeps its existing adjacent-header default. These are test-only
+inputs, not new dependencies of the shipped CLI or a restored Nix CI gate.
+SDK context benchmarks remain explicit developer commands, not timed assertions
+in `nix flake check` (see [ADR 0144](adr/0144-lazy-selective-workflow-context.md)).
 
 Two things the suite normally borrows from the host are spelled out for the
 builder, whose PATH holds only its own inputs. `tests/integration/test_tui.py`
