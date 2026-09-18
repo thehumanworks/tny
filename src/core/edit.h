@@ -40,6 +40,8 @@ typedef struct {
  * replace_all is true. The destination is untouched unless the match policy,
  * allocation, and complete replacement construction all succeed. Existing
  * symlinks are resolved so the target is edited without replacing the link.
+ * Preserve the target's rwx permission bits (not set-ID/sticky bits); metadata
+ * failure before rename leaves the destination unchanged (ADR 0134).
  * hooks->before_write runs after all fallible preparation and immediately
  * before the atomic temp-file write; the file tool uses it to record undo
  * state. hooks->interrupted aborts before the atomic rename commit point. */

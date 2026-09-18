@@ -180,6 +180,7 @@ TEST edit_symlink_updates_target_without_replacing_link(void) {
     char *target = edit_path(dir, "target.txt");
     char *link = edit_path(dir, "link.txt");
     ASSERT_EQ(0, file_write_atomic(target, "old\n", 4));
+    ASSERT_EQ(0, chmod(target, 0750));
     if (symlink("target.txt", link) != 0) {
         unlink(target);
         rmdir(dir);
@@ -193,6 +194,8 @@ TEST edit_symlink_updates_target_without_replacing_link(void) {
     struct stat st;
     ASSERT_EQ(0, lstat(link, &st));
     ASSERT(S_ISLNK(st.st_mode));
+    ASSERT_EQ(0, stat(target, &st));
+    ASSERT_EQ(0750, st.st_mode & 0777);
     char *data = read_file(target);
     ASSERT_STR_EQ("new\n", data);
     free(data);
@@ -249,7 +252,35 @@ TEST edit_interrupt_before_atomic_write_leaves_file_unchanged(void) {
     PASS();
 }
 
+TEST edit_preserves_permission_bits_under_restrictive_umask(void) {
+    char *dir = edit_temp_dir();
+    char *path = edit_path(dir, "script.sh");
+    const mode_t modes[] = {0600, 0640, 0644, 0750, 0755};
+    for (size_t i = 0; i < sizeof modes / sizeof *modes; ++i) {
+        ASSERT_EQ(0, file_write_atomic(path, "old", 3));
+        ASSERT_EQ(0, chmod(path, modes[i]));
+        tny_edit_result result = {0};
+        mode_t previous_umask = umask(0077);
+        tny_edit_status status = tny_edit_file_exact(path, "old", "new", false, NULL, &result);
+        umask(previous_umask);
+        ASSERT_EQ(TNY_EDIT_OK, status);
+        struct stat st;
+        ASSERT_EQ(0, stat(path, &st));
+        ASSERT_EQ(modes[i], st.st_mode & 0777);
+        char *data = read_file(path);
+        ASSERT_STR_EQ("new", data);
+        free(data);
+        tny_edit_result_free(&result);
+    }
+    unlink(path);
+    rmdir(dir);
+    free(path);
+    free(dir);
+    PASS();
+}
+
 SUITE(edit_suite) {
+    RUN_TEST(edit_preserves_permission_bits_under_restrictive_umask);
     RUN_TEST(edit_one_match);
     RUN_TEST(edit_zero_reports_nearest_unique_context);
     RUN_TEST(edit_multiple_is_ambiguous_and_does_not_write);

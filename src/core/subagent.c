@@ -23,8 +23,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-extern char **environ;
-
 #define SUBAGENT_OUT_MAX         (8u * 1024u * 1024u) /* child --json stdout */
 #define SUBAGENT_CANCEL_GRACE_MS (TNY_PROCESS_CANCEL_GRACE_MS + 1000)
 #define SUBAGENT_DRAIN_MS        1000 /* stdout still held by a descendant */
@@ -139,121 +137,6 @@ char *tny_subagent_prepare_error(const tools_env *env, yyjson_val *args) {
                             SA_NAMES[action], SA_EXAMPLES[action]);
     }
     return NULL;
-}
-
-/* ---- launch plan: argv selectors + private environment ---- */
-
-static bool env_named(const char *entry, const char *name) {
-    size_t n = strlen(name);
-    return strncmp(entry, name, n) == 0 && entry[n] == '=';
-}
-
-static int plan_assign(tny_subagent_plan *plan, const char *name, const char *value) {
-    if (plan->n_owned >= (int)(sizeof plan->owned / sizeof plan->owned[0])) return -1;
-    buf_t b;
-    buf_init(&b);
-    buf_appendf(&b, "%s=", name);
-    buf_appends(&b, value);
-    char *entry = buf_detach(&b);
-    if (!entry) return -1;
-    plan->owned[plan->n_owned++] = entry;
-    return 0;
-}
-
-void tny_subagent_plan_free(tny_subagent_plan *plan) {
-    if (!plan) return;
-    free(plan->argv[0]);
-    for (int i = 0; i < plan->n_owned; i++) secure_free(plan->owned[i]);
-    free(plan->envp);
-    memset(plan, 0, sizeof *plan);
-}
-
-int tny_subagent_plan_build(const tools_env *env, const char *resume_id, tny_subagent_plan *plan) {
-    memset(plan, 0, sizeof *plan);
-    const tny_ctx *ctx = env->ctx;
-    char *exe = tny_process_self_path();
-    if (!exe) return -1;
-    bool key = ctx->api_key && *ctx->api_key;
-    bool url = ctx->base_url && *ctx->base_url;
-    bool token = ctx->chatgpt_token && *ctx->chatgpt_token;
-    bool account = ctx->chatgpt_account_id && *ctx->chatgpt_account_id;
-
-    int n = 0;
-    char **argv = plan->argv;
-    argv[n++] = exe;
-    argv[n++] = (char *)"--cwd";
-    argv[n++] = ctx->cwd;
-    /* The resolved provider travels with the child: re-resolving from
-     * settings would let a remembered host last_provider re-route it. */
-    argv[n++] = (char *)"--provider";
-    argv[n++] = (char *)tny_provider_name(ctx);
-    if (key) {
-        argv[n++] = (char *)"--api-key-env";
-        argv[n++] = (char *)TNY_SUBAGENT_KEY_ENV;
-    }
-    if (url) {
-        argv[n++] = (char *)"--base-url-env";
-        argv[n++] = (char *)TNY_SUBAGENT_URL_ENV;
-    }
-    if (ctx->wire_api) {
-        argv[n++] = (char *)"--wire-api";
-        argv[n++] = (char *)(tny_wire_is_chat(ctx->wire_api) ? "chat" : "responses");
-    }
-    if (ctx->model) {
-        argv[n++] = (char *)"--model";
-        argv[n++] = ctx->model;
-    }
-    if (ctx->reasoning_effort && *ctx->reasoning_effort) {
-        argv[n++] = (char *)"--effort";
-        argv[n++] = ctx->reasoning_effort;
-    }
-    /* children cannot raise permission mode above the creator */
-    argv[n++] = (char *)"--permission-mode";
-    argv[n++] = (char *)tny_perm_mode_name(ctx->perm_mode);
-    if (ctx->no_save) argv[n++] = (char *)"--ephemeral";
-    argv[n++] = (char *)"ask";
-    argv[n++] = (char *)"--json";
-    argv[n++] = (char *)"--stdin";
-    if (resume_id) {
-        argv[n++] = (char *)"--resume-id";
-        argv[n++] = (char *)resume_id;
-    }
-    argv[n] = NULL;
-
-    /* Private carriers, then ceilings: TNY_NESTED clamps the child's settings
-     * to the parent's mode and TNY_TOOLS pins its profile. An inherited
-     * TNY_PERMISSION_MODE is dropped; the explicit flag above replaces it. */
-    int rc = 0;
-    if (key) rc |= plan_assign(plan, TNY_SUBAGENT_KEY_ENV, ctx->api_key);
-    if (url) rc |= plan_assign(plan, TNY_SUBAGENT_URL_ENV, ctx->base_url);
-    if (token) rc |= plan_assign(plan, "CHATGPT_ACCESS_TOKEN", ctx->chatgpt_token);
-    if (account) rc |= plan_assign(plan, "CHATGPT_ACCOUNT_ID", ctx->chatgpt_account_id);
-    rc |= plan_assign(plan, "TNY_NESTED", "1");
-    rc |= plan_assign(plan, "TNY_NESTED_MODE", tny_perm_mode_name(ctx->perm_mode));
-    rc |= plan_assign(plan, "TNY_TOOLS", tny_tool_profile_name(ctx->tool_profile));
-    size_t count = 0;
-    while (environ && environ[count]) count++;
-    plan->envp = rc == 0 ? calloc(count + (size_t)plan->n_owned + 1, sizeof *plan->envp) : NULL;
-    if (!plan->envp) {
-        tny_subagent_plan_free(plan);
-        return -1;
-    }
-    size_t used = 0;
-    for (size_t i = 0; i < count; i++) {
-        const char *e = environ[i];
-        /* A flag-selected ChatGPT token wins over the environment in the
-         * parent; the child gets exactly that token and account. */
-        if (env_named(e, TNY_SUBAGENT_KEY_ENV) || env_named(e, TNY_SUBAGENT_URL_ENV) ||
-            env_named(e, "TNY_NESTED") || env_named(e, "TNY_NESTED_MODE") ||
-            env_named(e, "TNY_TOOLS") || env_named(e, "TNY_PERMISSION_MODE") ||
-            (token && env_named(e, "CHATGPT_ACCESS_TOKEN")) ||
-            ((token || account) && env_named(e, "CHATGPT_ACCOUNT_ID")))
-            continue;
-        plan->envp[used++] = environ[i];
-    }
-    for (int i = 0; i < plan->n_owned; i++) plan->envp[used++] = plan->owned[i];
-    plan->envp[used] = NULL;
-    return 0;
 }
 
 /* ---- one child process ---- */
@@ -575,7 +458,7 @@ char *tny_subagent_execute(tools_env *env, yyjson_val *args) {
         return tool_err("SUBAGENT_AUTH_UNAVAILABLE: the parent provider has no resolved "
                         "credential to hand a child; configure its key (for example "
                         "--api-key-env NAME, tny login or tny provider setup) and retry");
-    tny_subagent_plan plan;
+    tny_subagent_plan plan = {0};
     if (tny_subagent_plan_build(env, id, &plan) != 0) {
         sa_proc failed = {.spawn_error = errno == ENOTSUP ? ENOTSUP : ENOENT};
         return sa_outcome(env, action, id, &failed);

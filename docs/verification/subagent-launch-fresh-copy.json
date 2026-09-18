@@ -1,0 +1,38 @@
+[
+  {
+    "artifact": "baseline",
+    "copy": 0,
+    "first_ms": 159.068958,
+    "second_ms": 4.528
+  },
+  {
+    "artifact": "candidate",
+    "copy": 0,
+    "first_ms": 223.4915,
+    "second_ms": 3.906334
+  },
+  {
+    "artifact": "baseline",
+    "copy": 1,
+    "first_ms": 46.302584,
+    "second_ms": 4.134042
+  },
+  {
+    "artifact": "candidate",
+    "copy": 1,
+    "first_ms": 46.134208,
+    "second_ms": 4.156542
+  },
+  {
+    "artifact": "baseline",
+    "copy": 2,
+    "first_ms": 42.368959,
+    "second_ms": 3.925
+  },
+  {
+    "artifact": "candidate",
+    "copy": 2,
+    "first_ms": 44.850958,
+    "second_ms": 3.938917
+  }
+]

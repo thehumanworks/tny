@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -51,6 +52,53 @@ class EditCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("replaced 1 occurrence", result.stdout)
         self.assertEqual(path.read_text(), "alpha\nnew line\nomega\n")
+
+    def test_permissions_survive_cli_edit(self) -> None:
+        path = self.directory / "script.sh"
+        for mode in (0o600, 0o640, 0o644, 0o750, 0o755):
+            with self.subTest(mode=oct(mode)):
+                path.write_text("old\n")
+                path.chmod(mode)
+                result = self.run_edit(
+                    path, "*** SEARCH\nold\n*** REPLACE\nnew\n*** END\n"
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(path.stat().st_mode & 0o777, mode)
+                self.assertEqual(path.read_text(), "new\n")
+
+    def test_metadata_failure_does_not_commit_or_leak(self) -> None:
+        binary = self.directory / "edit-mode-failure"
+        command = [
+            *shlex.split(os.environ.get("CC", "cc")),
+            "-std=c11",
+            "-D_DEFAULT_SOURCE",
+            "-D_DARWIN_C_SOURCE",
+            "-Dyyjson_api=",
+            "-Dfchmod=tny_test_fchmod",
+            "-Isrc",
+            "-Ithird_party/yyjson",
+            "src/core/edit.c",
+            "src/util/util.c",
+            "src/util/alloc.c",
+            "src/json/json.c",
+            "third_party/yyjson/yyjson.c",
+            "tests/fixtures/edit_mode_failure.c",
+            "-o",
+            str(binary),
+        ]
+        build = subprocess.run(
+            command, cwd=ROOT, capture_output=True, text=True, timeout=60
+        )
+        self.assertEqual(build.returncode, 0, build.stderr)
+        result = subprocess.run(
+            [str(binary)],
+            cwd=self.directory,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("preserves content/mode", result.stdout)
 
     def test_custom_marker(self) -> None:
         path = self.directory / "marker.txt"

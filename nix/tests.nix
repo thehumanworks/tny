@@ -166,8 +166,10 @@ stdenv.mkDerivation {
         exit 1
       }
     done
+    # Includes editor metadata-failure and mandatory integration-runner checks;
+    # both use the existing stdenv compiler/make, with temporary fixtures only.
     ${testRunner}make -j''${NIX_BUILD_CORES} $makeFlags test
-    ${testRunner}make $makeFlags test-shell-workflows test-parser-fuzz-smoke test-parser-ownership test-search-ownership test-parser-backend-ownership test-runtime-ownership test-runtime-mutation test-runner-ownership test-runner-mutation test-checkpoint-ownership test-checkpoint-mutation
+    ${testRunner}make $makeFlags test-shell-workflows test-parser-fuzz-smoke test-parser-ownership test-search-ownership test-parser-backend-ownership test-runtime-ownership test-runtime-mutation test-runner-ownership test-runner-mutation test-checkpoint-ownership test-checkpoint-mutation test-subagent-ownership test-subagent-mutation
     runHook postBuild
   '';
 

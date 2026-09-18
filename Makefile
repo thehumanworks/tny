@@ -539,6 +539,9 @@ debug: $(TEST_BIN)
 
 test-unit: $(TEST_BIN) $(BIN)
 	./$(TEST_BIN)
+	# Regression: running from inside a restricted harness must not hide fixture tools.
+	TNY_TOOLS=terminal ./$(TEST_BIN) -s core_suite -t grep_files_fanout_matches_serial_scan
+	TNY_TOOLS=terminal+edit ./$(TEST_BIN) -s web_search_suite -t schema_includes_default_search
 
 test-event-schema:
 	python3 sdk/schema/check.py
@@ -772,6 +775,31 @@ test-search-ownership: $(SEARCH_OWNER_BIN)
 .PHONY: test-search-ownership
 -include $(SEARCH_OWNER_OBJ:.o=.d)
 
+# Launch-plan C facade; only this isolated plan object observes secret wiping.
+SUBAGENT_OBJ_ROOT := $(BUILD)/subagent-ownership/obj
+SUBAGENT_PLAN_OBJ := $(SUBAGENT_OBJ_ROOT)/src/core/subagent_plan.cpp.o
+SUBAGENT_TEST_OBJ := $(OWNER_OBJ_ROOT)/tests/fixtures/subagent_ownership.o
+SUBAGENT_TEST_BIN := $(BUILD)/subagent-ownership/ownership-test
+SUBAGENT_TEST_OBJS := $(filter-out $(OWNER_OBJ_ROOT)/src/core/subagent_plan.cpp.o,$(OWNER_LIB_OBJS)) $(SUBAGENT_PLAN_OBJ)
+SUBAGENT_CXXFLAGS := $(OWNER_CXXFLAGS) -Dsecure_zero=tny_subagent_test_secure_zero
+$(SUBAGENT_PLAN_OBJ): src/core/subagent_plan.cpp | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CXX) $(SUBAGENT_CXXFLAGS) -MMD -MP -c -o $@ $<
+$(SUBAGENT_TEST_BIN): $(SUBAGENT_TEST_OBJ) $(SUBAGENT_TEST_OBJS)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(DBG_LDFLAGS)
+test-subagent-ownership: $(SUBAGENT_TEST_BIN)
+	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
+	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(SUBAGENT_TEST_BIN)
+test-subagent-mutation: test-subagent-ownership
+	python3 tests/mutation/subagent_ownership.py --cxx '$(CXX)' \
+		--flags='$(SUBAGENT_CXXFLAGS)' --ldflags='$(DBG_LDFLAGS)' \
+		--object-root '$(SUBAGENT_OBJ_ROOT)' --test-object '$(SUBAGENT_TEST_OBJ)' \
+		--baseline '$(SUBAGENT_TEST_BIN)' --work-dir '$(BUILD)/subagent-mutations' \
+		$(SUBAGENT_TEST_OBJS)
+.PHONY: test-subagent-ownership test-subagent-mutation
+-include $(SUBAGENT_TEST_OBJ:.o=.d) $(SUBAGENT_PLAN_OBJ:.o=.d)
+
 # Checkpoint C facade, complete fault-injected object graph (ADR0126).
 CHECKPOINT_OWNER_OBJ := $(OWNER_OBJ_ROOT)/tests/fixtures/checkpoint_ownership.o
 CHECKPOINT_OWNER_BIN := $(BUILD)/checkpoint-ownership/checkpoint-test
@@ -961,7 +989,7 @@ test-libtny-tsan:
 endif
 
 test: dictation-fixture test-unit test-event-schema test-conformance-contract test-cursor-sdk-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
-	@if [ -x tests/integration/run.sh ]; then tests/integration/run.sh; fi
+	tests/integration/run.sh
 
 size: release
 	@wc -c $(BIN)

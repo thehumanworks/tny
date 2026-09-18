@@ -334,6 +334,12 @@ it. In the TUI a builtin slash command always wins over a same-named skill.
 
 Durable child **native** sessions ([ADR 0087](../adr/0087-explicit-subagent-contract-and-private-launch.md)). Each child is an ordinary workspace session run by a separate `tny ask` process; the parent receives only the child's final answer, never its transcript. Host backends own their own loops: tny never spawns native subagents for them and shows host task events only where the adapter supplies them (e.g. Cursor `cursor/task`).
 
+Launch configuration is an owned snapshot, not a set of retained context or
+environment pointers ([ADR 0133](../adr/0133-owned-subagent-launch-snapshots.md)).
+Construction must succeed completely before the snapshot is used. Credentials
+remain in the private child environment, never argv, and all copied environment
+storage is wiped on release. This does not change scheduling or remote support.
+
 | Action | Arguments | Result |
 | --- | --- | --- |
 | `create` | `prompt` (nonempty UTF-8); **omit `id`** | Runs one child turn and returns `subagent ID finished.` with the new durable id and the answer |

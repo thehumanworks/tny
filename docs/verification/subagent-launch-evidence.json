@@ -1,0 +1,254 @@
+{
+  "schema": 1,
+  "baseline_revision": "14bc82802c717ed7083c208ab88b64c27318f9f8",
+  "scope": "Private subagent launch snapshots; edit rwx preservation; fixture isolation and mandatory integration execution",
+  "code_test_build_sha256": {
+    ".github/workflows/ci.yml": "ade977ae18fddbb23bbc21a8cbe6be7fc7e368e5bcc44a3a2dd3215bc0fda11a",
+    "Makefile": "a38f21d1fa337728b93966d4c63d270e27219ced124eb43d23cb33495e487ef7",
+    "nix/source.nix": "a246aadf7a326d8871880503825860b75c0e13dec6b400560be0fb55c5b1786f",
+    "nix/tests.nix": "d2eb4b2060c7f63b32ebc2fa80f4b61de1df899872e485d9d4f1f7172585bad3",
+    "src/core/edit.c": "d14a6ff232a882b4dd8cad3ca98be541a6905a65075cc369bbb0ec8e5ee6bd31",
+    "src/core/edit.h": "2c1f7d10be2cbbb3011f202c00c1fce5bdbf03b2775d60a979c91a0618f3d99c",
+    "src/core/subagent.c": "76e29938ad526b0213db6ac8783a7f948f3593f723ecdf4727d0c7624d53bbf6",
+    "src/core/subagent.h": "2f4273ed11b5724716c26058a085b88fadfcb4e9f567e35461c58ce64cebe6bf",
+    "src/core/subagent_plan.cpp": "406446924d37c875c16444867aabe6cc34262d59ce2a08f4710fa25cad721b99",
+    "tests/fixtures/edit_mode_failure.c": "4b4a830de2a498bd1c52ee7814e2ab4993865de41235a9b9b0c4655f93448fda",
+    "tests/fixtures/subagent_ownership.c": "b15e1b463814b21f8d4dc9719bbc0836255c4b92b5a3b895ded428b4c5ba22a1",
+    "tests/integration/run.sh": "cdd713bad1d28e93d7a87a48998ee4d65a47abdd9489d840b3c8be8c00392348",
+    "tests/integration/test_edit.py": "889405e9b0833d01d1416522f4c1480cd19dc69a6a573ba85b31b7eff5ea9922",
+    "tests/integration/test_make_contract.py": "0d7df4bee3785ebb0edce01f0f20d713711accc0c6ccf0026c5c538cc92853cb",
+    "tests/integration/test_provider_setup.sh": "a2e906aa174811547ba7e595ef27aa3d7b50bba9d1d70a1e90608768607686f6",
+    "tests/mutation/mutate.py": "d8c34a884b83da5b6aa5e2e251d4fe6f52a8ae3737ad4d73fc1ba69a68014a8f",
+    "tests/mutation/open_issues_20260911.py": "7ebc6af3fd2a8ff7199c070537e97e0552721ce8cc3e9b82efcff8b8c17cf204",
+    "tests/mutation/subagent_ownership.py": "755dea99e15d1b7a636400afcaf02eb79d9770bb177aca30109006d93460d137",
+    "tests/test_core.c": "4ce5e3c12ba1fee2474233e1f61784df2ce00061c26ad93278cfbfb8515e807d",
+    "tests/test_edit.c": "07de073823aa6ea132f98b09e410d5fdcfa48f650d2fa4622e7a59a6b3df39d5",
+    "tests/test_main.c": "916bcbc0177aadcaa004984ac114063183fa71fac181c5ff00cdec87f217b450"
+  },
+  "existing_adrs_unchanged": true,
+  "logs": {
+    "test-complete": {
+      "exit": 0,
+      "sha256": "abd59dc34e76df43627c5ec151f7f78fb20a29d7baf3a11a46a190c9b39dd4eb",
+      "path": "/tmp/tny-subagent-ownership.Tlft0F/test-complete.log"
+    },
+    "quality-complete": {
+      "exit": 0,
+      "sha256": "4423bbdf7d9f1488d931afe86d0dfcf3711dab5f6b77f0752610d228fc28099b",
+      "path": "/tmp/tny-subagent-ownership.Tlft0F/quality-complete.log"
+    },
+    "leaks-complete": {
+      "exit": 0,
+      "sha256": "f21cbb46aaf6fffacf09cae38bdde6091f55fa9efa4fc5d94b8ecc15508635c3",
+      "path": "/tmp/tny-subagent-ownership.Tlft0F/leaks-complete.log"
+    },
+    "ownership-complete": {
+      "exit": 0,
+      "sha256": "b2c936fbe57990926b2c98a6f2096e08f0d23546655eee270c534c4581ac5be8",
+      "path": "/tmp/tny-subagent-ownership.Tlft0F/ownership-complete.log"
+    },
+    "leaks-final": {
+      "exit": 0,
+      "sha256": "06cf4d627c4efc4d348207249872c3389e368b7b8421920367d6d9df257d9ccb",
+      "path": "/tmp/tny-subagent-ownership.Tlft0F/leaks-final.log"
+    },
+    "gcc-scoped": {
+      "exit": 0,
+      "sha256": "95c0e322b4c505a2f3409e6ff5ac70da7064a05cff8107edc4c704d4656c41e6",
+      "path": "/tmp/tny-subagent-ownership.Tlft0F/gcc-scoped.log"
+    },
+    "gcc-edit": {
+      "exit": 0,
+      "sha256": "54f54f00ce4c2d6f325c66fb779264e22f4f10bfa5c3571459d7a4530e5ab10c",
+      "path": "/tmp/tny-subagent-ownership.Tlft0F/gcc-edit.log"
+    },
+    "startup-final": {
+      "exit": 0,
+      "sha256": "957d9688efd82fb1da669c30014a96d7e1a085ebdd94d61f55d377dc6d5fb1e9",
+      "path": "/tmp/tny-subagent-ownership.Tlft0F/startup-final.log"
+    },
+    "ttft-final": {
+      "exit": 0,
+      "sha256": "865e94de70d7367eb57ba7c85353eebd9c720e127483eca0fbf4ec3f37569002",
+      "path": "/tmp/tny-subagent-ownership.Tlft0F/ttft-final.log"
+    },
+    "clean-release-diagnostics": {
+      "exit": 0,
+      "path": "/tmp/tny-subagent-ownership.Tlft0F/clean-release-diagnostics.log",
+      "sha256": "cccd2f8475652cd6c4c217cdb5e3a38fbfbc9d77734a401c9719044ab6eebcd5"
+    }
+  },
+  "full_test": {
+    "unit_passed": 573,
+    "unit_failed": 0,
+    "integration_groups": 73,
+    "integration_failed": 0
+  },
+  "owner_mutations": [
+    {
+      "name": "borrowed-selector",
+      "killed": true,
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": -6
+    },
+    {
+      "name": "borrowed-environment",
+      "killed": true,
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": 1
+    },
+    {
+      "name": "missing-wipe",
+      "killed": true,
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": 1
+    },
+    {
+      "name": "first-string-only-wipe",
+      "killed": true,
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": 1
+    },
+    {
+      "name": "destroy-before-proof",
+      "killed": true,
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": 1
+    },
+    {
+      "name": "leak-replaced-owner",
+      "killed": true,
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": 1
+    },
+    {
+      "name": "permission-escalation",
+      "killed": true,
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": 1
+    },
+    {
+      "name": "wrong-provider",
+      "killed": true,
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": 1
+    },
+    {
+      "name": "missing-key",
+      "killed": true,
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": 1
+    },
+    {
+      "name": "ambient-account-paired-with-selected-token",
+      "killed": true,
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": 1
+    },
+    {
+      "name": "oom-reported-as-success",
+      "killed": true,
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": 1
+    }
+  ],
+  "legacy_mutations": [
+    {
+      "id": "M123.1",
+      "verdict": "KILLED_BEHAVIOR"
+    },
+    {
+      "id": "M123.2a",
+      "verdict": "KILLED_BEHAVIOR"
+    },
+    {
+      "id": "M123.2b",
+      "verdict": "KILLED_BEHAVIOR"
+    },
+    {
+      "id": "M123.2c",
+      "verdict": "KILLED_BEHAVIOR"
+    },
+    {
+      "id": "M123.3",
+      "verdict": "KILLED_BEHAVIOR"
+    },
+    {
+      "id": "M123.4",
+      "verdict": "KILLED_BEHAVIOR"
+    },
+    {
+      "id": "M123.5",
+      "verdict": "KILLED_BEHAVIOR"
+    },
+    {
+      "id": "M123.6",
+      "verdict": "KILLED_BEHAVIOR"
+    }
+  ],
+  "edit_mutations": {
+    "source_sha256": "d14a6ff232a882b4dd8cad3ca98be541a6905a65075cc369bbb0ec8e5ee6bd31",
+    "baseline_passed": true,
+    "mutants": [
+      {
+        "name": "omit-mode",
+        "compile_exit": 0,
+        "link_exit": 0,
+        "run_exit": 1,
+        "killed": true
+      },
+      {
+        "name": "ignore-mode-error",
+        "compile_exit": 0,
+        "run_exit": 1,
+        "killed": true
+      }
+    ],
+    "passed": true
+  },
+  "artifacts": {
+    "baseline": {
+      "path": "/private/tmp/tny-subagent-ownership.Tlft0F/baseline/build/tny",
+      "sha256": "741b3bdd1494ddb9db0ba213336a3c9527dc218dedd3733b2710fe1bd839e47a",
+      "bytes": 1121376
+    },
+    "candidate": {
+      "path": "/private/tmp/tny-subagent-ownership.Tlft0F/candidate-release/tny",
+      "sha256": "8b798560cdbad171677a2ae64e9d337ee705cafa89999584783198bea1acf366",
+      "bytes": 1121376
+    }
+  },
+  "runtime_dependencies": [
+    "/usr/lib/libc++.1.dylib",
+    "/usr/lib/libSystem.B.dylib"
+  ],
+  "review_sessions": [
+    "a7298d0c1044225f",
+    "26276127132f0cb9",
+    "9ed33a7f15fb9ef7"
+  ],
+  "not_verified_locally": [
+    "Linux runtime/full analyzer",
+    "MSYS runtime",
+    "wasm/browser runtime",
+    "Nix execution"
+  ],
+  "process_limit": "Post-implementation experiment record, not a pre-registered goal-linked contract",
+  "clean_release_flows": {
+    "editor_tests_passed": 8,
+    "subagent_sessions": "PASS",
+    "diagnostics": "PASS with existing Python extension host in archive layout",
+    "initial_bare_binary_diagnostics": "FAIL: missing extension events; corrected experiment packaging, unchanged binary"
+  }
+}

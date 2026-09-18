@@ -508,15 +508,15 @@ TARGETS = [
     ("src/core/tools_ssh.c", None, None),
     # Private native child plans and stable outcomes replace the old shell
     # command/stderr-tail helpers (ADR 0087). Never relay raw child errors.
+    # Launch construction moved to C++; test-subagent-mutation covers it.
     (
         "src/core/subagent.c",
         [
             "tny_subagent_prepare_error",
-            "tny_subagent_plan_build",
             "sa_outcome",
             "sa_state",
         ],
-        r"action == SA_CREATE && id|bool key =|bool exited0 =|reported_ok|strcmp\(st, \"running\"\)",
+        r"action == SA_CREATE && id|bool exited0 =|reported_ok|strcmp\(st, \"running\"\)",
         "tests/integration/test_subagent_diagnostics.py",
         "open-issues-2026-09-11",
     ),

@@ -179,3 +179,7 @@ in
 
 # The existing ../tests fileset includes native_ownership.py and the optional
 # tests/bench/bench_requests.{c,py,mk} overlay; no new source root is needed.
+# It also includes fixtures/subagent_ownership.c and mutation/subagent_ownership.py
+# for test-subagent-ownership / test-subagent-mutation (no new runtime tools).
+# tests/integration/test_edit.py compiles fixtures/edit_mode_failure.c with the
+# existing native C compiler; test_make_contract.py reads the included Makefile.

@@ -4020,7 +4020,7 @@ TEST subagent_plan_carries_resolved_config_privately(void) {
     setenv("TNY_NESTED", "parent-sentinel", 1);
     tools_env env = {.ctx = ctx};
 
-    tny_subagent_plan plan;
+    tny_subagent_plan plan = {0};
     ASSERT_EQ(0, tny_subagent_plan_build(&env, "0123456789abcdef", &plan));
     ASSERT(plan.argv[0] && plan.argv[0][0] == '/' && access(plan.argv[0], X_OK) == 0);
     const char *want[] = {"--cwd",
