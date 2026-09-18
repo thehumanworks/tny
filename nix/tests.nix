@@ -36,7 +36,7 @@ stdenv.mkDerivation {
   # (-dynamiclib on Darwin, -shared on Linux; -ldl for snapshot crash faults).
   # The host C runtime supplies dl; no extra runtime package is used.
   # test_jobs_cleanup_hold.py needs only existing Python/fcntl dependencies.
-  # test_jobs_msys.py skips on Nix hosts; its native Windows CI fixtures use
+  # test_jobs_msys.py skips on Nix hosts; its optional local MSYS fixtures use
   # the existing gcc/make/python toolchain and the Makefile object inventory.
   strictDeps = true;
   nativeBuildInputs = [

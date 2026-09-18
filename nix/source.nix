@@ -32,16 +32,12 @@ let
   # suites read the contract itself:
   # test_extension_contract.py against docs/features/, test_site.py by
   # regenerating site/ with scripts/site_build.py and diffing.
-  # test_nix_ci_matrix.py reads the flake systems list, the nix workflow, and
-  # this fileset so a filtered src cannot drop the files that test exists to
-  # keep in lockstep.
+  # test_nix_ci_matrix.py checks Linux/macOS CI, release gates and optional
+  # developer Nix. Include all workflows so filtered local checks enforce the
+  # same absence of Windows runners and Nix CI as an ordinary checkout.
   testFiles = unions [
     buildFiles
-    ../.github/workflows/ci.yml
-    ../.github/workflows/nix.yml
-    # tests/packaging/test_size_budget.py mirrors Linux SIZE_MAX into
-    # both hosted workflows, including the release matrix.
-    ../.github/workflows/release.yml
+    ../.github/workflows
     # tests/integration/test_toolchain_pins.py keeps the mise pins and the CI
     # quality job on the same tool versions (docs/adr/0061).
     ../.mise.toml
@@ -51,6 +47,10 @@ let
     ../docs
     ../examples # tests/extensions/test_examples.py loads every shipped example
     ../flake.nix
+    ../default.nix
+    ../shell.nix
+    ../nix/devshell.nix
+    ../nix/tests.nix
     ../nix/source.nix
     ../nix/package.nix # size-policy tests inspect the installed-payload guard
     ../scripts # includes tidy_cpp.py, which probes stdenv's C++ header paths

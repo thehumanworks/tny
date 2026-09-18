@@ -148,7 +148,8 @@ Vendored deps (yyjson, picohttpparser, wslay, greatest) are pinned in
 
 CI (`.github/workflows/ci.yml`) builds the stripped binary on Linux
 x86_64 and aarch64 (glibc + musl static), Darwin arm64 (Apple Silicon
-only — not Intel x86), and Windows x86_64 (MSYS2). See [docs/ci.md](docs/ci.md).
+only — not Intel x86). Nix remains an optional local developer workflow, not
+a CI or release gate. See [docs/ci.md](docs/ci.md).
 
 ## SDKs
 
