@@ -33,8 +33,9 @@ done
 grep -q "ready" "$TMP/mock.out" ||
     fail "openai mock did not start ($(tail -3 "$TMP/mock.err" 2> /dev/null))"
 
-# every run below must resolve the key from settings.json, never the shell
-unset OPENAI_API_KEY OPENAI_BASE_URL || true
+# Every run below must resolve the fixture's key/URL from settings.json,
+# never a developer's real default or named-provider credentials/endpoint.
+unset OPENAI_API_KEY OPENAI_BASE_URL OPENCODE_API_KEY OPENCODE_BASE_URL || true
 
 # ---- setup writes the profile, makes it the default, chmods 0600 --------
 OUT=$(HOME="$TMP/home" "$TNY" provider setup opencode \

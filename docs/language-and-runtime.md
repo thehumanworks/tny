@@ -19,6 +19,8 @@ allocation-free provider settlement those owners rely on.
 and durable-job resource aggregates; platform process operations stay in C.
 [ADR 0126](adr/0126-checkpoint-context-ownership.md) adds checked checkpoint
 serialization and context recovery, with scoped temporary secret cleanup.
+[ADR 0133](adr/0133-owned-subagent-launch-snapshots.md) adds private sub-agent
+launch snapshots with failure-atomic replacement and full secret-block wiping.
 Private facades
 expose opaque owners and synchronous borrowed views, never standard-library
 types.

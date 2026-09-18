@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 TARGET = "src/core/subagent.c"
+PLAN_TARGET = "src/core/subagent_plan.cpp"
 PLAN_TEST = "subagent_plan_carries_resolved_config_privately"
 PREPARE_TEST = "subagent_prepare_rejects_with_exact_codes"
 OUTCOME_TEST = "subagent_process_outcomes_are_classified"
@@ -31,20 +32,20 @@ FAULTS = [
     ),
     (
         "M123.2a",
-        "argv[n++] = (char *)tny_provider_name(ctx);",
-        'argv[n++] = (char *)"openai";',
+        "arg(tny_provider_name(&ctx));",
+        'arg("openai");',
         PLAN_TEST,
     ),
     (
         "M123.2b",
-        "bool key = ctx->api_key && *ctx->api_key;",
-        "bool key = false;",
+        "const bool key = ctx.api_key && *ctx.api_key;",
+        "const bool key = false;",
         PLAN_TEST,
     ),
     (
         "M123.2c",
-        'plan_assign(plan, "TNY_NESTED_MODE", tny_perm_mode_name(ctx->perm_mode))',
-        'plan_assign(plan, "TNY_NESTED_MODE", "yolo")',
+        '{"TNY_NESTED_MODE", tny_perm_mode_name(ctx.perm_mode)}',
+        '{"TNY_NESTED_MODE", "yolo"}',
         PLAN_TEST,
     ),
     (
@@ -134,12 +135,19 @@ def command(root, artifacts, name, argv, env, timeout=120):
         "seconds": round(time.monotonic() - t0, 3),
         "log": log.name,
         "log_sha256": sha(log.read_bytes()),
-        "target_sha256": sha((root / TARGET).read_bytes()),
+        "target_sha256": {
+            p: sha((root / p).read_bytes()) for p in (TARGET, PLAN_TARGET)
+        },
     }
     binary = root / "build/tny-test"
-    obj = root / "build/dbg/src/core/subagent.o"
+    objects = [
+        root / "build/dbg/src/core/subagent.o",
+        root / "build/dbg/src/core/subagent_plan.cpp.o",
+    ]
     record["binary_sha256"] = sha(binary.read_bytes()) if binary.exists() else None
-    record["object_sha256"] = sha(obj.read_bytes()) if obj.exists() else None
+    record["object_sha256"] = {
+        str(obj): sha(obj.read_bytes()) if obj.exists() else None for obj in objects
+    }
     store(artifacts / (name + ".json"), record)
     return record, text
 
@@ -170,7 +178,11 @@ def rebuild(root, artifacts, name, env):
     # second-granularity trap without depending on future file timestamps.
     # Rebuilding an object is insufficient: old make may see the new object
     # and the old executable within one second and omit the final link.
-    for path in (root / "build/dbg/src/core/subagent.o", root / "build/tny-test"):
+    for path in (
+        root / "build/dbg/src/core/subagent.o",
+        root / "build/dbg/src/core/subagent_plan.cpp.o",
+        root / "build/tny-test",
+    ):
         if path.exists():
             path.unlink()
     record, _ = command(
@@ -202,15 +214,17 @@ def main():
         symlinks=True,
         ignore=shutil.ignore_patterns(".git", "build", "__pycache__", "node_modules"),
     )
-    original = (root / TARGET).read_text()
+    original = {p: (root / p).read_text() for p in (TARGET, PLAN_TARGET)}
     plan = [
         {
             "id": mid,
-            "path": TARGET,
+            "path": PLAN_TARGET if test == PLAN_TEST else TARGET,
             "before": old,
             "after": new,
             "test": test,
-            "replacement_count": original.count(old),
+            "replacement_count": original[
+                PLAN_TARGET if test == PLAN_TEST else TARGET
+            ].count(old),
         }
         for mid, old, new, test in FAULTS
     ]
@@ -250,8 +264,8 @@ def main():
                     "unmodified build/test or exact fault mapping did not pass"
                 )
             else:
-                (root / TARGET).write_text(
-                    original.replace(case["before"], case["after"], 1)
+                (root / case["path"]).write_text(
+                    original[case["path"]].replace(case["before"], case["after"], 1)
                 )
                 if not rebuild(root, artifacts, mid + "-build", env):
                     outcome["verdict"] = "INVALID_OR_BUILD_TIMEOUT"
@@ -268,17 +282,20 @@ def main():
                     )
                     outcome["test_record"] = record["name"] + ".json"
             outcomes.append(outcome)
-            (root / TARGET).write_text(original)
+            (root / case["path"]).write_text(original[case["path"]])
             print(json.dumps(outcome), flush=True)
     finally:
-        (root / TARGET).write_text(original)
+        for path, text in original.items():
+            (root / path).write_text(text)
     restored = rebuild(root, artifacts, "restored-build", env)
     if restored:
         for index, test in enumerate(tests):
             passed, _, _ = one_test(root, artifacts, f"restored-{index}", test, env)
             restored = passed and restored
     source_unchanged = manifest(source) == before
-    restored_bytes = (root / TARGET).read_text() == original
+    restored_bytes = all(
+        (root / path).read_text() == text for path, text in original.items()
+    )
     complete = (
         original_ok
         and restored

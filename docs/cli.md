@@ -427,7 +427,11 @@ tny never *writes* the effort back to settings — a scripted
 
 `tny edit FILE` replaces an exact string only when it occurs once. The search
 and replacement travel on stdin, never in argv. The default fence form is
-convenient from a shell or another coding harness:
+convenient from a shell or another coding harness. Local replacement preserves
+read/write/execute permission bits, including executable scripts, independently
+of umask. It does not copy set-ID/sticky bits, ownership, ACLs or extended
+attributes. A metadata error leaves the original untouched
+([ADR 0134](adr/0134-preserve-edit-permissions-and-require-integration-tests.md)):
 
 ```sh
 cat <<'TNY_EDIT' | tny edit src/example.c

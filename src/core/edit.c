@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define EDIT_CONTEXT_COMPARE_MAX 512u
@@ -99,10 +100,13 @@ static bool edit_is_interrupted(const tny_edit_hooks *hooks) {
     return hooks && hooks->interrupted && hooks->interrupted(hooks->interrupted_userdata);
 }
 
-/* Same temp-file + rename contract as file_write_atomic, with cancellation
- * checks before every write and before the commit point. */
+/* Keep replacement bytes private until written, then restore the destination's
+ * rwx bits before commit. Do not propagate set-ID/sticky bits to edited content.
+ * Cancellation and any metadata failure leave the destination unchanged. */
 static int write_atomic_checked(const char *path, const void *data, size_t len,
                                 const tny_edit_hooks *hooks) {
+    struct stat st;
+    if (stat(path, &st) != 0) return -1;
     char tmp[PATH_MAX];
     if (snprintf(tmp, sizeof tmp, "%s.tmp.%d", path, getpid()) >= (int)sizeof tmp) return -1;
     int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0600);
@@ -140,6 +144,13 @@ static int write_atomic_checked(const char *path, const void *data, size_t len,
         close(fd);
         unlink(tmp);
         return 1;
+    }
+    if (fchmod(fd, st.st_mode & 0777) != 0) {
+        int saved = errno;
+        close(fd);
+        unlink(tmp);
+        errno = saved;
+        return -1;
     }
     if (close(fd) != 0) {
         int saved = errno;

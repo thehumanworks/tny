@@ -129,3 +129,5 @@ files in this directory are the complete record.
 - [0131 — Consistent native C++ release graph on Windows GCC](0131-windows-gcc-private-cpp-lto-boundary.md)
 
 - [0132 — Bounded fan-out for independent per-file work](0132-bounded-fan-out-for-independent-file-work.md)
+- [0133 — Owned sub-agent launch snapshots](0133-owned-subagent-launch-snapshots.md)
+- [0134 — Preserve edit permissions and require integration tests](0134-preserve-edit-permissions-and-require-integration-tests.md)

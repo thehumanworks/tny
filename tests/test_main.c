@@ -1,5 +1,6 @@
 /* test_main.c — greatest runner; suites live in the other test files. */
 #include "greatest.h"
+#include <stdlib.h>
 
 GREATEST_MAIN_DEFS();
 
@@ -36,6 +37,10 @@ SUITE_EXTERN(dictation_suite);
 SUITE_EXTERN(image_service_suite);
 
 int main(int argc, char **argv) {
+    /* The harness running this suite may itself use a restricted tool profile.
+     * Tests select their own profiles explicitly; ambient TNY_TOOLS must not
+     * hide fixture tools, including when leaks runs one suite per process. */
+    unsetenv("TNY_TOOLS");
     GREATEST_MAIN_BEGIN();
     RUN_SUITE(image_service_suite);
     RUN_SUITE(speech_suite);

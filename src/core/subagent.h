@@ -20,20 +20,30 @@ char *tny_subagent_prepare_error(const tools_env *env, yyjson_val *args);
 /* Execute create|message|inspect|lifecycle. malloc'd tool result. */
 char *tny_subagent_execute(tools_env *env, yyjson_val *args);
 
-/* One child launch: argv holds only non-secret selectors (argv[0] is this
- * executable, owned); envp is the inherited environment plus the private
- * carriers and ceilings. Exposed for unit tests. */
+/* Private C facade. Zero-initialize; do not copy an owning plan. argv/envp
+ * are borrowed views into one C++ owner, valid until free or successful
+ * replacement. All strings are snapshots, including inherited environment
+ * and selectors. No caller/context/environment storage is retained.
+ * Credentials stay in envp, never argv; all snapshot bytes are wiped on free. */
 typedef struct {
-    char *argv[32];
+    char **argv;
     char **envp;
-    char *owned[8]; /* "NAME=value" entries added for this child; wiped on free */
-    int n_owned;
+    struct tny_subagent_plan_owner *owner;
 } tny_subagent_plan;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* 0 ok; -1 when this executable's path or memory is unavailable (errno
- * ENOTSUP when this build cannot start processes at all). */
+ * ENOTSUP when this build cannot start processes at all). Failure leaves
+ * the previous plan unchanged; success replaces it. No process is started.
+ * Build requires stable inputs/environment for the duration of this call. */
 int tny_subagent_plan_build(const tools_env *env, const char *resume_id, tny_subagent_plan *plan);
+/* Idempotent, allocation-free; clears the handle and both borrowed views. */
 void tny_subagent_plan_free(tny_subagent_plan *plan);
+#ifdef __cplusplus
+}
+#endif
 
 /* Run one child to completion (prompt on stdin, bounded stdout, parent
  * cancellation owns the process tree) and classify its outcome for

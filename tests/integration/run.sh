@@ -8,6 +8,10 @@ cd "$(dirname "$0")/../.." || exit 1
 # variables, but never forward unusable jobserver tokens or recursion state.
 unset MAKEFLAGS MFLAGS MAKELEVEL
 
+# A parent tny harness may use terminal-only tools. Fixtures choose their own
+# profiles; do not let the caller hide tools from unrelated integration tests.
+unset TNY_TOOLS
+
 TNY="${TNY:-$PWD/build/tny}"
 if [ ! -x "$TNY" ]; then
     echo "run.sh: $TNY not found — run 'make release' first" >&2

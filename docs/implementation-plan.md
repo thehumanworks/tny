@@ -78,7 +78,7 @@ single `tny_poll` seam ([ADR 0033](adr/0033-libtny-multi-runtime-cancel.md)).
 
 ## Hard rules during implementation
 
-- Private C++20 ownership/decoding sources only in the areas authorized by [ADR 0114](adr/0114-private-cpp20-ownership-boundaries.md) and [ADR 0126](adr/0126-checkpoint-context-ownership.md); all other existing C stays C11.
+- Private C++20 ownership/decoding sources only in the areas authorized by [ADR 0114](adr/0114-private-cpp20-ownership-boundaries.md), [ADR 0126](adr/0126-checkpoint-context-ownership.md), and [ADR 0133](adr/0133-owned-subagent-launch-snapshots.md); all other existing C stays C11.
 - No new dependency without updating [language-and-runtime.md](language-and-runtime.md) and the size budget.
 - No secrets in the repo. Tests use fixtures, not live keys, unless the user opted in.
 - Do not implement exploit/PoC code for any system.

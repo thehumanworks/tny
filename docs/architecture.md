@@ -201,6 +201,10 @@ ordinary parent tool results for checkpoint/reattach purposes. See
 C++20 modules for stream decoding, retained events/async tools, and
 runner/job resources. [ADR 0126](adr/0126-checkpoint-context-ownership.md) extends
 this boundary to checkpoint encoding and independently owned context recovery.
+[ADR 0133](adr/0133-owned-subagent-launch-snapshots.md) adds independent
+sub-agent launch snapshots: selectors and environment share one owned, wiped
+block; failed construction preserves the previous plan. Process control stays
+in C and no new scheduling or OS seam is introduced.
 The C-facing adapters retain scheduling, public
 ABI and OS operations in their existing owners. Synchronous views are
 borrowed; retained records own their data. Exceptions never escape to C.
