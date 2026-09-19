@@ -4,10 +4,11 @@
 import json
 import signal
 import subprocess
-import time
 import threading
+import time
 import unittest
-from test_jobs import Handler, JobsFixture, TNY
+
+from test_jobs import TNY, Handler, JobsFixture
 from test_subagent import chat_frames, tool_outputs, user_texts
 from test_swarm_parent import payload
 
@@ -139,9 +140,7 @@ class CapAcceptance(JobsFixture):
                     item
                 ) or "queued_fifo" in json.dumps(item)
 
-            record = self.await_state(
-                self.runs[-1], queued, timeout=8, what="shared cap queue"
-            )
+            self.await_state(self.runs[-1], queued, timeout=8, what="shared cap queue")
             assert "worker2-0" not in self.bodies, "second run exceeded active cap1"
             self.release.set()
             return self.call(

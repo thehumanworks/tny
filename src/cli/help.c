@@ -64,7 +64,6 @@ void help_root(void) {
           "  --system-prompt TEXT   Custom system prompt. openai-compatible providers\n"
           "                         carry it on the system/instructions field.\n"
           "  --swarm[=N]           Collective mode; optional cap 1..16 (lead excluded)\n"
-          "  --swarm[=N]         Collective mode; omitted count lets the lead decide\n"
           "  --task NAME            Apply a named task preset (review, optimizer,\n"
           "                         document, retro, task-creation, self-improve, or\n"
           "                         a discovered .tny/tasks NAME.md)\n"
@@ -156,6 +155,7 @@ static const char *ask_help =
     "  --auto               Auto-review unresolved permissions (native loop)\n"
     "  --yolo               Disable permission checks and sandbox (the default)\n"
     "  --resume-id ID       Compatibility alias for --resume ID\n"
+    "  --swarm[=N]         Collective mode; optional cap 1..16, lead excluded\n"
     "  --task NAME          Apply a runtime task preset (global or ask-local)\n"
     "  --                   Treat every following argument as prompt text\n"
     "\n"
@@ -501,8 +501,11 @@ bool help_for(const char *command) {
             "                                 --size 512x256 --columns 2 --labels numbers\n";
     else if (strcmp(command, "jobs") == 0) text = jobs_help;
     else if (strcmp(command, "mailbox") == 0)
-        text = "Usage: tny mailbox send|inbox|read|ack|retire --run ID [options]\n\n"
+        text = "Usage: tny mailbox send|publish|wait|inbox|read|ack|retire --run ID [options]\n\n"
                "send requires --to lead|TASK --id MESSAGE_ID --text TEXT (at most 16 KiB).\n"
+               "publish requires --id (max 48 bytes) and --text; atomically snapshots peers.\n"
+               "wait requires --timeout-ms 0..30000; native directory events, no inbox polling.\n"
+               "Empty/deadline/terminal observations exit 0; cancellation 130; failures nonzero.\n"
                "read and ack require --id MESSAGE_ID. --json is accepted; output is JSON.\n"
                "retire requires --to lead|TASK --before-attempt N; parent/operator only.\n"
                "Send persists before returning, without interrupting an active tool. Native\n"

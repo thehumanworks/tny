@@ -90,7 +90,10 @@ static bool team_shape(yyjson_val *root, bool request) {
         else if (same(jget_str(item, "role"), "worker")) ++workers;
         else return false;
     }
-    return workers >= 1 &&
+    const char *label = jget_str(jget(root, "admission"), "label");
+    bool single_swarm_worker =
+        workers == 1 && leads == 0 && (request || (label && str_starts(label, "swarm_")));
+    return (workers >= 2 || single_swarm_worker) &&
            (leads == 1 ||
             (leads == 0 && (request || session_id_valid(jget_str(root, "parent_session_id")))));
 }
@@ -261,6 +264,8 @@ static int preflight(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op
         return fail(err, n, "a captured runtime session identity is required");
     if (validate(op, args, err, n)) return 1;
     if (op == TNY_TEAM_START) {
+        if (yyjson_arr_size(jget(args, "items")) == 1 && !ctx->swarm_cap)
+            return fail(err, n, "one-worker team start requires a captured swarm lead");
         if (caller->local_operator) {
             size_t i, count;
             yyjson_val *item;

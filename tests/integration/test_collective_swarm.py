@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """Collective mode public CLI/tools with synthetic localhost provider credentials."""
 
+import fcntl
 import json
 import os
-import fcntl
 import pty
 import select
+import shlex
 import signal
 import struct
 import subprocess
 import termios
-import time
-import shlex
 import threading
+import time
 import unittest
 from pathlib import Path
 
-from test_jobs import JobsFixture, Handler, TNY
+from test_jobs import TNY, Handler, JobsFixture
 from test_subagent import chat_frames, tool_outputs, user_texts
 
 
@@ -117,6 +117,32 @@ class ModeAcceptance(JobsFixture):
             self.assertNotEqual(
                 self.run_tny(*args, "must-not-run", check=False).returncode, 0
             )
+        self.assertEqual(self.state["bodies"], [])
+
+    def test_ask_local_swarm_refuses_ssh_before_connection(self):
+        # A fake SSH command is evidence that no remote setup was attempted.
+        bin_dir = self.home / "bin"
+        bin_dir.mkdir()
+        marker = self.home / "ssh-was-run"
+        executable = bin_dir / "ssh"
+        executable.write_text(
+            "#!/bin/sh\ntouch " + shlex.quote(str(marker)) + "\nexit 99\n"
+        )
+        executable.chmod(0o700)
+        env = dict(self.env, PATH=str(bin_dir) + os.pathsep + self.env["PATH"])
+        result = self.run_tny(
+            "--ssh",
+            "fixture.invalid",
+            "ask",
+            "--swarm=1",
+            "no effects",
+            env=env,
+            check=False,
+            timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"swarm requires", result.stderr)
+        self.assertFalse(marker.exists())
         self.assertEqual(self.state["bodies"], [])
 
     def test_enable_existing_session_then_restore_stable_policy(self):
@@ -223,6 +249,8 @@ class CollectiveFlow(JobsFixture):
         self.requests, self.errors = {}, []
         self.run_id = None
         self.submitted = threading.Event()
+        self.release = threading.Event()
+        self.worker_started = threading.Event()
         self.profile = "all"
         self.scenario = "peers"
         self.env["PATH"] = (
@@ -236,6 +264,10 @@ class CollectiveFlow(JobsFixture):
             + os.pathsep
             + self.env["PATH"]
         )
+
+    def tearDown(self):
+        self.release.set()
+        super().tearDown()
 
     def call(self, name, tool, args):
         return (name, tool, json.dumps(args)), None
@@ -281,6 +313,9 @@ class CollectiveFlow(JobsFixture):
         step = len(outputs)
         if tag != "lead":
             assert self.submitted.wait(10), "missing parent receipt"
+            if self.scenario == "adopt":
+                self.worker_started.set()
+                assert self.release.wait(15), "old work was not released"
             if self.scenario != "peers":
                 return None, "ONE-COLLABORATOR-DONE"
         if tag == "lead":
@@ -303,6 +338,9 @@ class CollectiveFlow(JobsFixture):
                 self.run_id = first.get("run_id") or first.get("id")
                 assert self.run_id, first
                 self.submitted.set()
+            if self.scenario == "adopt":
+                assert self.worker_started.wait(5), "old worker never ran"
+                return None, "LEGACY-STARTED"
             if step <= (1 if self.scenario == "one" else 2):
                 seen = [payload(o)["cursor"] for o in outputs[1:]]
                 return self.team(
@@ -322,9 +360,18 @@ class CollectiveFlow(JobsFixture):
                     "proposal",
                     "publish",
                     id="proposal",
-                    text='{"topic":"design","thread":"a","type":"proposal","body":"proposal-evidence"}',
+                    text=json.dumps(
+                        {
+                            "topic": "design",
+                            "thread": "a",
+                            "type": "proposal",
+                            "body": "proposal-evidence" + "x" * 16000,
+                        }
+                    ),
                 )
             if step == 1:
+                assert len(outputs[0]) < 1024, "publication echoed fanout bodies"
+                assert all("text" not in m for m in payload(outputs[0])["messages"])
                 return self.mail("challenge-wait", "wait", timeout_ms=10000)
             if step == 2:
                 assert "peer-counterexample" in outputs[-1], outputs
@@ -406,6 +453,38 @@ class CollectiveFlow(JobsFixture):
                 receipts = session.get("team_receipts", [])
                 self.assertEqual(len(receipts), len(set(receipts)))
 
+    def test_enable_refuses_preexisting_active_owned_work(self):
+        self.scenario = "adopt"
+        self.env["TNY_TOOLS"] = "all"
+        original = self.run_tny("ask", "COLLECTIVE lead", timeout=20)
+        self.assertIn(b"LEGACY-STARTED", original.stdout)
+        parents = [
+            p
+            for p in (self.home / ".tny").rglob("session.json")
+            if self.run_id in json.loads(p.read_text()).get("team_runs", [])
+        ]
+        self.assertEqual(len(parents), 1)
+        before = len(self.requests["lead"])
+        refused = self.run_tny(
+            "--swarm=1",
+            "--resume",
+            parents[0].parent.name,
+            "ask",
+            "must-not-run",
+            check=False,
+        )
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn(b"active or uncertain owned work", refused.stderr)
+        self.assertEqual(len(self.requests["lead"]), before)
+        self.assertEqual(json.loads(parents[0].read_text())["swarm_cap"], 0)
+        self.release.set()
+        self.assertEqual(self.await_terminal(self.run_id)["state"], "succeeded")
+        for bodies in self.requests.values():
+            self.assertNotIn("Collective collaboration policy", json.dumps(bodies))
+        retry = self.run_tny("--swarm=1", "jobs", "retry", self.run_id, check=False)
+        self.assertNotEqual(retry.returncode, 0)
+        self.assertIn(b"legacy retry cannot bypass admission", retry.stderr)
+
     def test_typed_peer_challenge_convergence(self):
         self.exercise("peers")
 
@@ -414,6 +493,7 @@ class CollectiveFlow(JobsFixture):
 
     def test_one_collaborator_is_valid(self):
         self.exercise("one")
+        self.assertEqual(self.await_terminal(self.run_id)["state"], "succeeded")
         refused = self.run_tny(
             "mailbox",
             "publish",

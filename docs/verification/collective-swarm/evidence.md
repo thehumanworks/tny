@@ -24,7 +24,7 @@ messaging checkpoint. Full functional verification is pending. Overall INCOMPLET
 commit. All commands ran from the assigned worktree, native Darwin arm64, pinned
 mise tools, synthetic localhost credentials only.
 
-- `make -j4`: PASS exit 0 (build-formatted.log). Native Release 1,128,608 bytes
+- `make -j4`: PASS exit 0 (build-formatted.log). Native Release 1,120,816 bytes
   before final policy wording; final footprint to be measured again.
 - `make test-unit -j4`: PASS exit 0 (unit1.log), including strict swarm count and
   failed task/session reconcile cap rollback regression.
@@ -66,3 +66,64 @@ mutations and remaining focused regressions are still pending. No cache-hit or
 real-model convergence/quality claim. Primary assistant will own full `make test`
 and frozen wasm checks per coordination file; this process owns quality/leaks and
 focused followups. Overall verification gate remains INCOMPLETE.
+
+## Followup checkpoint and final focused results
+
+Post-a97f330 product-source corrections are limited to:
+1. `team_control.c`: scope one-worker compatibility to captured swarm leads;
+   ordinary operator/team validation remains unchanged.
+2. CLI help: advertise ask --swarm and mailbox --timeout-ms/publish/wait, remove
+   duplicated root entry.
+3. `cli_swarm_preflight` before workspace/SSH setup: ask-local mode refuses SSH,
+   ephemeral/unsupported contexts before connecting or creating a worktree.
+
+Current focused results (working-tree input manifest in artifacts/input-manifest.json):
+
+| Command | Exit/status | Evidence |
+| --- | --- | --- |
+| `make -j4` | 0 PASS | build-help.log |
+| `make test-help-flags` | 0 PASS, 4 tests | help-final.log |
+| `make test-unit -j4` | 0 PASS, before final CLI preflight addition | unit3.log; final rerun follows |
+| `python3 tests/integration/test_collective_swarm.py` | 0 PASS, 13 tests, 10.302s | collective-final5.log |
+| `python3 tests/integration/test_collective_cap.py` | 0 PASS, 1 test, 1.663s | cap-final.log |
+| `python3 tests/integration/test_team_control.py` | 0 PASS, 7 tests, 27.360s | team-control-final.log |
+| `python3 tests/integration/test_swarm_delivery.py` | 0 PASS, 5 native cases; 1 wasm case skipped | delivery.log |
+| `python3 tests/mutation/collective_mailbox.py` | 0 PASS, baseline/restored 33 mailbox cases; 3/3 behavioral kills | artifacts/mutations.json; mutations2.log |
+| `make leaks` | 0 PASS, native leaks clean at a97f330 | leaks1.log |
+| `make quality -j4` | 2 FAIL: pre-existing Python formatting only after local lint fixes | quality-final.log |
+
+Logs named above are under `/tmp/tny-collective-0qjnf5vp/`; durable mutation detail
+and the input manifest are committed here. Mutation1 initially survived because
+payload length also changed; a same-length conflicting body now kills removal of
+content comparison. Other killed guards: exact outstanding capacity and replacing
+notification-driven wait with periodic resnapshot. No mutant touched live sources.
+
+The 13 public cases now additionally prove SSH is never invoked on ask-local
+unsupported mode, old live parent work prevents adoption, non-swarm teams keep
+their ordinary prefix, old jobs cannot be retried around admission, maximum-sized
+publication bodies return compact parseable receipts, and restored/finalized run
+observations use actual terminal state. Unit additions cover timeout schema and
+checkpoint cap/explicit selection. A new unit compile initially failed on intentional
+adjacent string literals; parenthesized and passed unit3. A first terminal assertion
+ran before run finalization (item completion is earlier); fixed to observe terminal
+run state. Old-work refusal test now counts lead requests rather than racing an
+already-authorized second legacy worker. Failed logs remain visible.
+
+Quality's remaining failure is unchanged `tests/integration/test_worktree.py:460`
+(Ruff wants its long assert split). `git show 1ca48b3:tests/integration/test_worktree.py`
+piped to `ruff format --check --stdin-filename tests/integration/test_worktree.py -`
+also exits 1. It is unrelated and unchanged. No blanket exclusion or weakened gate.
+Final source-specific lint/static checks and unit rerun follow this checkpoint.
+
+Coordinator evidence inspected: frozen a97f330 full `make -j4 test` exited 2 at
+help alignment before integration; the corrected help gate now passes. Frozen
+Emscripten 6.0.8 Node/browser build plus Node mode/mailbox refusal exited 0, zero
+HTTP and zero jobs. Browser runtime and Linux inotify remain unverified. Primary
+assistant owns a new frozen full-suite/platform reconciliation, not this process.
+
+Toolchain observed: Darwin arm64, Apple clang 21.0.0 (clang-2100.3.27.1),
+clang-format 23.1.0, Ruff 0.16.6. Stripped native release: 1,120,816 bytes;
+`otool -L` lists libc++.1.dylib and libSystem.B.dylib only. This is measurement,
+not a before/after performance claim. Only fresh ADR 0156 differs from research
+baseline; pre-existing ADRs are unchanged (pre-existing 0153/0154 duplicate numbers
+are not modified). No live provider inference, push, PR, merge or release.

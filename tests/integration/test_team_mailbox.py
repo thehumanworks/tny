@@ -20,8 +20,8 @@ import shlex
 import signal
 import subprocess
 import tempfile
-import time
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -295,7 +295,7 @@ class MailboxTests(unittest.TestCase):
         self.assertTrue(all(m.publication == b"proposal" for m in receipts))
         self.assertEqual(len(self.record()["messages"]), 5)
         self.assertEqual(
-            self.publish(text=b"different", sender=identity(0))[0], CONFLICT
+            self.publish(text=b"changed!", sender=identity(0))[0], CONFLICT
         )
         self.assertEqual(self.publish(sender=identity(1))[0], CONFLICT)
         self.assertEqual(self.send(b"proposal")[0], CONFLICT)
@@ -344,6 +344,47 @@ class MailboxTests(unittest.TestCase):
         self.assertEqual(self.send(b"proposal.p1")[0], OK)
         self.assertEqual(self.publish()[0], CONFLICT)
         self.assertEqual(len(self.record()["messages"]), 1)
+
+    def test_collective_uncertain_publication_reconciles_original_set(self):
+        self.lib = self.fault_lib
+        self.job["fixture_peers"] = True
+        self.write_job()
+        self.fault(b"S")
+        self.assertEqual(self.publish()[0], IO)
+        original = self.record()["messages"]
+        self.assertEqual(len(original), 5)
+        self.job["items"][2]["state"] = "succeeded"
+        self.write_job()
+        self.fault()
+        rc, receipts = self.publish()
+        self.assertEqual(rc, OK)
+        self.assertEqual([m.id.decode() for m in receipts], [m["id"] for m in original])
+        self.assertEqual(len(self.record()["messages"]), 5)
+
+    def test_event_wait_wakes_for_terminal_and_directory_loss(self):
+        for deleted in (False, True):
+            with self.subTest(deleted=deleted):
+                self.job["state"] = "running"
+                self.write_job()
+                # Precreate lock so it is not the readiness event under test.
+                self.assertEqual(self.wait_mail(timeout=0)[0], EMPTY)
+                result = []
+                thread = threading.Thread(
+                    target=lambda: result.append(self.wait_mail(timeout=2000))
+                )
+                thread.start()
+                time.sleep(0.04)
+                if deleted:
+                    moved = self.directory.with_name(self.directory.name + "-moved")
+                    self.directory.rename(moved)
+                else:
+                    self.job["state"] = "succeeded"
+                    self.write_job()
+                thread.join(3)
+                if deleted:
+                    moved.rename(self.directory)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(result[0][0], IO if deleted else TERMINAL)
 
     def test_event_wait_queued_timeout_cancel_and_terminal(self):
         self.assertEqual(self.wait_mail(timeout=0)[0], EMPTY)

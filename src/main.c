@@ -54,6 +54,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "tny: unknown command '%s'\n", cmd);
         goto done;
     }
+    if (cli_swarm_preflight(&g, cmd, cargc, cargv) != 0) goto done;
     if (g.worktree) {
         if (g.ssh) {
             fputs("tny: --worktree is local and cannot be combined with --ssh\n", stderr);

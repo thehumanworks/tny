@@ -5432,6 +5432,8 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ctx->model = xstrdup("grok-4.6");
     ctx->perm_mode = TNY_MODE_ASK;
     ctx->max_steps = 7;
+    ctx->swarm_cap = 3;
+    ctx->swarm_explicit = true;
     ctx->no_self_improve = true;
     ctx->tool_profile = TNY_TOOLS_TERMINAL;
     ctx->extensions_enabled = false;
@@ -5453,6 +5455,8 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT_STR_EQ(json, again);
     ASSERT_EQ(TNY_MODE_ASK, restored->perm_mode);
     ASSERT_EQ(7, restored->max_steps);
+    ASSERT_EQ(3, restored->swarm_cap);
+    ASSERT(restored->swarm_explicit);
     ASSERT(restored->no_self_improve);
     tny_ctx_free(restored);
     /* Public recovery stores effective selection but no credential/settings
@@ -5474,6 +5478,8 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT(recovered);
     ASSERT_EQ(TNY_MODE_ASK, recovered->perm_mode);
     ASSERT_EQ(7, recovered->max_steps);
+    ASSERT_EQ(3, recovered->swarm_cap);
+    ASSERT(recovered->swarm_explicit);
     ASSERT(recovered->no_self_improve);
     ASSERT_STR_EQ("private-runtime-key", recovered->api_key);
     tny_ctx_free(recovered);

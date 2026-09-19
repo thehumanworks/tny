@@ -56,6 +56,8 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g);
 bool cli_is_command(const char *name);
 /* Quiet grammar-only command lookup; frees all temporary parser allocations. */
 int cli_command_index(int argc, char **argv);
+/* Reject unsupported swarm execution before workspace/SSH setup. */
+int cli_swarm_preflight(const cli_globals *g, const char *command, int argc, char **argv);
 
 /* --ssh TARGET: open the remote tool runtime on ctx (docs/adr/0022). Prints
  * its own error; 0 ok. Shared by cli_make_ctx and the TUI /ssh command. */
