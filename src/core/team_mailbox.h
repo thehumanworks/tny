@@ -32,7 +32,10 @@ typedef enum {
     TNY_MAILBOX_NOT_FOUND,
     TNY_MAILBOX_BAD_STATE,
     TNY_MAILBOX_CORRUPT,
-    TNY_MAILBOX_IO
+    TNY_MAILBOX_IO,
+    TNY_MAILBOX_EMPTY,
+    TNY_MAILBOX_DEADLINE,
+    TNY_MAILBOX_CANCELLED
 } tny_mailbox_rc;
 typedef enum {
     TNY_MAILBOX_QUEUED = 0,
@@ -69,6 +72,7 @@ typedef struct {
     tny_mailbox_state state;
     size_t payload_len;
     char payload[TNY_MAILBOX_PAYLOAD_MAX + 1]; /* untrusted UTF-8 user context */
+    char publication[65]; /* empty for direct sends; stable channel publication ID */
 } tny_mailbox_message;
 /* All calls try the lock once. Send OK follows atomic private persistence.
  * IDs are run-global across attempts. Exact duplicate returns original receipt;
@@ -78,6 +82,20 @@ tny_mailbox_rc tny_team_mailbox_send(const tny_mailbox_service *service,
                                      tny_mailbox_recipient recipient, const char *id,
                                      const char *payload, size_t payload_len,
                                      tny_mailbox_message *out);
+/* Atomic channel snapshot: all currently active peers plus lead, excluding sender.
+ * Publication IDs are 1..48 valid ID bytes. Output has 64 slots. Retry returns
+ * the original recipient set, even after terminal outcomes. Quotas are per
+ * receipt, and no receipt is accepted unless the entire transaction commits. */
+tny_mailbox_rc tny_team_mailbox_publish(const tny_mailbox_service *service,
+                                        const tny_mailbox_identity *caller, const char *id,
+                                        const char *payload, size_t payload_len,
+                                        tny_mailbox_message *out, size_t *count);
+/* Subscribe before snapshot. No periodic durable reads. Timeout 0 is a snapshot;
+ * 1..30000ms waits on kernel hints. cancel may also pump native control traffic. */
+tny_mailbox_rc tny_team_mailbox_wait(const tny_mailbox_service *service,
+                                     const tny_mailbox_identity *caller, int timeout_ms,
+                                     bool (*cancelled)(void *), void *userdata,
+                                     tny_mailbox_message *out, size_t *count);
 /* Pure snapshot of caller's queued/delivered messages; retired/acked excluded.
  * after_sequence paginates, never acks; recover from zero. out has capacity
  * slots (1..BATCH_MAX), byte_limit is 1..BATCH_BYTES_MAX. FULL if first pending

@@ -1,3 +1,5 @@
+# Collective swarm tests reuse the existing stdlib/PTY/compiler closure;
+# test_collective_{swarm,cap}.py and mailbox helpers are included under tests.
 # `make test` as a derivation: the greatest unit suite under ASan/UBSan, the
 # event-schema and conformance-contract checks, and the fixture-driven
 # integration suite for native HTTP profiles. No live keys, no network (AGENTS.md).

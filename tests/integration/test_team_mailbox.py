@@ -20,6 +20,7 @@ import shlex
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -30,6 +31,8 @@ ROOT = Path(__file__).resolve().parents[2]
 RUN = b"0123456789abcdef0123456789abcdef"
 OK, INVALID, UNSUPPORTED, DENIED, STALE, TERMINAL, BUSY = range(7)
 FULL, HISTORY_FULL, CONFLICT, NOT_FOUND, BAD_STATE, CORRUPT, IO = range(7, 14)
+EMPTY, DEADLINE, CANCELLED = range(14, 17)
+Cancel = c.CFUNCTYPE(c.c_bool, c.c_void_p)
 QUEUED, DELIVERED, ACKED, RETIRED = range(4)
 SECRET = b"private-fixture-capability-not-a-real-secret"
 
@@ -56,6 +59,7 @@ class Message(c.Structure):
         ("state", c.c_int),
         ("payload_len", c.c_size_t),
         ("payload", c.c_char * 16385),
+        ("publication", c.c_char * 65),
     ]
 
 
@@ -96,6 +100,20 @@ def load_library(path):
         c.c_char_p,
         c.c_size_t,
         c.POINTER(Message),
+    ]
+    lib.tny_team_mailbox_publish.argtypes = base + [
+        c.c_char_p,
+        c.c_char_p,
+        c.c_size_t,
+        c.POINTER(Message),
+        c.POINTER(c.c_size_t),
+    ]
+    lib.tny_team_mailbox_wait.argtypes = base + [
+        c.c_int,
+        Cancel,
+        c.c_void_p,
+        c.POINTER(Message),
+        c.POINTER(c.c_size_t),
     ]
     lib.tny_team_mailbox_inbox.argtypes = base + [
         c.c_uint64,
@@ -240,8 +258,195 @@ class MailboxTests(unittest.TestCase):
             c.cast(self.secret, c.c_void_p),
         )
 
+    def publish(self, name=b"proposal", text=b"evidence", sender=None):
+        messages, count = (Message * 64)(), c.c_size_t()
+        rc = self.lib.tny_team_mailbox_publish(
+            c.byref(self.service),
+            c.byref(sender or identity()),
+            name,
+            text,
+            len(text),
+            messages,
+            c.byref(count),
+        )
+        return rc, list(messages[: count.value])
+
+    def wait_mail(self, caller=None, timeout=100, cancel=None):
+        messages, count = (Message * 16)(), c.c_size_t()
+        callback = Cancel(cancel or (lambda _: False))
+        rc = self.lib.tny_team_mailbox_wait(
+            c.byref(self.service),
+            c.byref(caller or identity(0)),
+            timeout,
+            callback,
+            None,
+            messages,
+            c.byref(count),
+        )
+        return rc, list(messages[: count.value])
+
+    def test_collective_publication_is_atomic_and_recipient_replayable(self):
+        self.job["fixture_peers"] = True
+        self.write_job()
+        rc, receipts = self.publish(sender=identity(0))
+        self.assertEqual(rc, OK)
+        self.assertEqual([m.recipient.task for m in receipts], [-1, 1, 2, 3, 4])
+        self.assertEqual(len({m.id for m in receipts}), 5)
+        self.assertTrue(all(m.publication == b"proposal" for m in receipts))
+        self.assertEqual(len(self.record()["messages"]), 5)
+        self.assertEqual(
+            self.publish(text=b"changed!", sender=identity(0))[0], CONFLICT
+        )
+        self.assertEqual(self.publish(sender=identity(1))[0], CONFLICT)
+        self.assertEqual(self.send(b"proposal")[0], CONFLICT)
+        self.assertEqual(
+            self.send(receipts[0].id, recipient=-1, recipient_attempt=0)[0], CONFLICT
+        )
+        # Recipient ack does not consume any other member's receipt.
+        member = identity(1)
+        self.assertEqual(
+            self.lib.tny_team_mailbox_mark_delivered(
+                c.byref(self.service), c.byref(member), receipts[1].id
+            ),
+            OK,
+        )
+        self.assertEqual(
+            self.lib.tny_team_mailbox_ack(
+                c.byref(self.service), c.byref(member), receipts[1].id
+            ),
+            OK,
+        )
+        self.job["state"] = "succeeded"
+        for item in self.job["items"]:
+            item["state"] = "succeeded"
+        self.write_job()
+        retry_rc, retry = self.publish(sender=identity(0))
+        self.assertEqual(retry_rc, OK)
+        self.assertEqual([m.id for m in retry], [m.id for m in receipts])
+        self.assertEqual(retry[1].state, ACKED)
+        self.assertEqual(self.publish(b"new", sender=identity(0))[0], TERMINAL)
+        self.assertEqual(len(self.record()["messages"]), 5)
+
+    def test_collective_full_recipient_aborts_every_receipt(self):
+        self.job["fixture_peers"] = True
+        self.write_job()
+        for i in range(64):
+            self.assertEqual(self.send(f"full{i}".encode(), recipient=3)[0], OK)
+        before = (self.directory / "mailbox.json").read_bytes()
+        self.assertEqual(self.publish()[0], FULL)
+        self.assertEqual((self.directory / "mailbox.json").read_bytes(), before)
+        self.assertEqual(self.inbox(identity(0))[1], [])
+
+    def test_collective_derived_id_collision_and_peers_permission(self):
+        self.assertEqual(self.publish()[0], DENIED)
+        self.job["fixture_peers"] = True
+        self.write_job()
+        self.assertEqual(self.send(b"proposal.p1")[0], OK)
+        self.assertEqual(self.publish()[0], CONFLICT)
+        self.assertEqual(len(self.record()["messages"]), 1)
+
+    def test_collective_uncertain_publication_reconciles_original_set(self):
+        self.lib = self.fault_lib
+        self.job["fixture_peers"] = True
+        self.write_job()
+        self.fault(b"S")
+        self.assertEqual(self.publish()[0], IO)
+        original = self.record()["messages"]
+        self.assertEqual(len(original), 5)
+        self.job["items"][2]["state"] = "succeeded"
+        self.write_job()
+        self.fault()
+        rc, receipts = self.publish()
+        self.assertEqual(rc, OK)
+        self.assertEqual([m.id.decode() for m in receipts], [m["id"] for m in original])
+        self.assertEqual(len(self.record()["messages"]), 5)
+
+    def test_event_wait_wakes_for_terminal_and_directory_loss(self):
+        for deleted in (False, True):
+            with self.subTest(deleted=deleted):
+                self.job["state"] = "running"
+                self.write_job()
+                # Precreate lock so it is not the readiness event under test.
+                self.assertEqual(self.wait_mail(timeout=0)[0], EMPTY)
+                result = []
+                thread = threading.Thread(
+                    target=lambda: result.append(self.wait_mail(timeout=2000))
+                )
+                thread.start()
+                time.sleep(0.04)
+                if deleted:
+                    moved = self.directory.with_name(self.directory.name + "-moved")
+                    self.directory.rename(moved)
+                else:
+                    self.job["state"] = "succeeded"
+                    self.write_job()
+                thread.join(3)
+                if deleted:
+                    moved.rename(self.directory)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(result[0][0], IO if deleted else TERMINAL)
+
+    def test_event_wait_queued_timeout_cancel_and_terminal(self):
+        self.assertEqual(self.wait_mail(timeout=0)[0], EMPTY)
+        start = time.monotonic()
+        self.assertEqual(self.wait_mail(timeout=80)[0], DEADLINE)
+        self.assertGreaterEqual(time.monotonic() - start, 0.06)
+        self.assertEqual(self.wait_mail(cancel=lambda _: True)[0], CANCELLED)
+        self.assertEqual(self.send()[0], OK)
+        self.assertEqual(self.wait_mail()[1][0].id, b"m1")
+        self.assertEqual(self.wait_mail()[1][0].id, b"m1")
+        self.assertEqual(self.wait_mail(identity(1, attempt=2))[0], STALE)
+        self.job["items"][1]["state"] = "succeeded"
+        self.write_job()
+        self.assertEqual(self.wait_mail(identity(1))[0], TERMINAL)
+
+    def test_event_wait_quiet_has_one_snapshot_and_no_periodic_rescans(self):
+        self.assertEqual(self.wait_mail(timeout=0)[0], EMPTY)
+        reads = []
+        original = self.authorize
+
+        @Authorize
+        def counted(*args):
+            reads.append(1)
+            return original(*args)
+
+        self.service.authorize = counted
+        self.assertEqual(self.wait_mail(timeout=220)[0], DEADLINE)
+        self.assertEqual(len(reads), 1)
+
+    def test_event_wait_subscribe_race_and_atomic_replacement(self):
+        entered = threading.Event()
+        original = self.authorize
+
+        @Authorize
+        def counted(*args):
+            entered.set()
+            return original(*args)
+
+        self.service.authorize = counted
+        result = []
+        thread = threading.Thread(
+            target=lambda: result.append(self.wait_mail(timeout=2000))
+        )
+        thread.start()
+        self.assertTrue(entered.wait(1))
+        # Sender races the first snapshot/lock release; retry only BUSY.
+        end = time.monotonic() + 1
+        while True:
+            rc, _ = self.send()
+            if rc != BUSY or time.monotonic() > end:
+                break
+            time.sleep(0.001)
+        thread.join(3)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(rc, OK)
+        self.assertEqual(result[0][0], OK)
+        self.assertEqual(result[0][1][0].id, b"m1")
+
     def write_job(self):
-        (self.directory / "job.json").write_text(json.dumps(self.job))
+        temp = self.directory / "job.next"
+        temp.write_text(json.dumps(self.job))
+        temp.replace(self.directory / "job.json")
 
     def record(self):
         return json.loads((self.directory / "mailbox.json").read_text())

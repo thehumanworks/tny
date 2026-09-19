@@ -110,6 +110,12 @@ static bool load_message(yyjson_val *v, const char *run, size_t index, tny_mailb
         yyjson_get_len(payload) > TNY_MAILBOX_PAYLOAD_MAX ||
         memchr(yyjson_get_str(payload), 0, yyjson_get_len(payload)))
         return false;
+    const char *publication = jget_str(v, "publication");
+    if (jget(v, "publication") &&
+        (!publication || (*publication && (!valid_id(publication) || strlen(publication) > 48)) ||
+         strlen(publication) != yyjson_get_len(jget(v, "publication"))))
+        return false;
+    if (publication) memcpy(m->publication, publication, strlen(publication) + 1);
     memcpy(m->sender.run, run, 33);
     memcpy(m->id, id, strlen(id) + 1);
     m->sequence = index + 1;
@@ -233,6 +239,8 @@ static tny_mailbox_rc store(mailbox_txn *t, const char *run) {
                     m->sender.task, m->sender.task_attempt, m->recipient.task,
                     m->recipient.task_attempt, (int)m->state);
         jescape(&b, m->payload);
+        buf_appends(&b, ",\"publication\":");
+        jescape(&b, m->publication);
         buf_append(&b, "}", 1);
     }
     buf_append(&b, "]}", 2);
@@ -279,10 +287,17 @@ tny_mailbox_rc tny_team_mailbox_send(const tny_mailbox_service *s,
         rc = TNY_MAILBOX_DENIED;
         goto done;
     }
+    for (size_t i = 0; i < t.count; i++) {
+        if (strcmp(t.messages[i].publication, id) == 0) {
+            rc = TNY_MAILBOX_CONFLICT;
+            goto done;
+        }
+    }
     tny_mailbox_message *m = find(&t, id);
     if (m) {
-        if (m->sender.job_attempt != caller->job_attempt || m->sender.task != caller->task ||
-            m->sender.task_attempt != caller->task_attempt || m->recipient.task != recipient.task ||
+        if (*m->publication || m->sender.job_attempt != caller->job_attempt ||
+            m->sender.task != caller->task || m->sender.task_attempt != caller->task_attempt ||
+            m->recipient.task != recipient.task ||
             m->recipient.task_attempt != recipient.task_attempt || m->payload_len != payload_len ||
             memcmp(m->payload, payload, payload_len) != 0)
             rc = TNY_MAILBOX_CONFLICT;
@@ -328,6 +343,96 @@ done:
     txn_end(&t);
     return rc;
 }
+tny_mailbox_rc tny_team_mailbox_publish(const tny_mailbox_service *s,
+                                        const tny_mailbox_identity *caller, const char *id,
+                                        const char *payload, size_t payload_len,
+                                        tny_mailbox_message *out, size_t *count) {
+    if (count) *count = 0;
+    if (!out || !count || !valid_id(id) || strlen(id) > 48 || !valid_payload(payload, payload_len))
+        return TNY_MAILBOX_INVALID;
+    mailbox_txn t = {.lock = -1};
+    tny_mailbox_rc rc = txn_begin(s, caller, &t);
+    if (rc != TNY_MAILBOX_OK) goto done;
+    if (!t.peers) {
+        rc = TNY_MAILBOX_DENIED;
+        goto done;
+    }
+    if (find(&t, id)) {
+        rc = TNY_MAILBOX_CONFLICT;
+        goto done;
+    }
+    for (size_t i = 0; i < t.count; i++) {
+        tny_mailbox_message *m = &t.messages[i];
+        if (strcmp(m->publication, id) != 0) continue;
+        if (m->sender.job_attempt != caller->job_attempt || m->sender.task != caller->task ||
+            m->sender.task_attempt != caller->task_attempt || m->payload_len != payload_len ||
+            memcmp(m->payload, payload, payload_len) != 0) {
+            rc = TNY_MAILBOX_CONFLICT;
+            goto done;
+        }
+        if (*count >= MAILBOX_TASK_MAX) {
+            rc = TNY_MAILBOX_CORRUPT;
+            goto done;
+        }
+        out[(*count)++] = *m;
+    }
+    if (*count) {
+        rc = sync_receipt(&t);
+        goto done;
+    }
+    yyjson_val *root = yyjson_doc_get_root(t.job);
+    if (!active(root) || jget_bool(root, "cancel_requested", false) ||
+        member_check(root, caller->task, caller->task_attempt, true) != TNY_MAILBOX_OK) {
+        rc = TNY_MAILBOX_TERMINAL;
+        goto done;
+    }
+    size_t members = yyjson_arr_size(jget(root, "items"));
+    for (int task = TNY_MAILBOX_LEAD; task < (int)members; task++) {
+        if (task == caller->task) continue;
+        yyjson_val *item = task >= 0 ? yyjson_arr_get(jget(root, "items"), (size_t)task) : NULL;
+        uint32_t attempt = task >= 0 ? (uint32_t)jget_int(item, "attempt", 0) : 0;
+        if (member_check(root, task, attempt, true) != TNY_MAILBOX_OK) continue;
+        tny_mailbox_message *m = &out[(*count)++];
+        memset(m, 0, sizeof *m);
+        snprintf(m->id, sizeof m->id, "%s.p%d", id, task + 1);
+        memcpy(m->publication, id, strlen(id) + 1);
+        m->sender = *caller;
+        m->recipient = (tny_mailbox_recipient){task, attempt};
+        m->payload_len = payload_len;
+        memcpy(m->payload, payload, payload_len);
+        size_t pending = 0;
+        for (size_t j = 0; j < t.count; j++) {
+            const tny_mailbox_message *prior = &t.messages[j];
+            if (!strcmp(prior->id, m->id) || !strcmp(prior->publication, m->id)) {
+                rc = TNY_MAILBOX_CONFLICT;
+                goto done;
+            }
+            if (prior->recipient.task == task && outstanding(prior)) pending++;
+        }
+        if (pending >= TNY_MAILBOX_OUTSTANDING_MAX) {
+            rc = TNY_MAILBOX_FULL;
+            goto done;
+        }
+    }
+    if (!*count) {
+        rc = TNY_MAILBOX_TERMINAL;
+        goto done;
+    }
+    if (t.count + *count > TNY_MAILBOX_HISTORY_MAX) {
+        rc = TNY_MAILBOX_HISTORY_FULL;
+        goto done;
+    }
+    for (size_t i = 0; i < *count; i++) {
+        out[i].sequence = t.count + 1;
+        t.messages[t.count++] = out[i];
+    }
+    rc = store(&t, caller->run);
+done:
+    if (rc != TNY_MAILBOX_OK) *count = 0;
+    txn_end(&t);
+    return rc;
+}
+
 tny_mailbox_rc tny_team_mailbox_inbox(const tny_mailbox_service *s,
                                       const tny_mailbox_identity *caller, uint64_t after_sequence,
                                       tny_mailbox_message *out, size_t capacity, size_t byte_limit,
@@ -354,6 +459,81 @@ tny_mailbox_rc tny_team_mailbox_inbox(const tny_mailbox_service *s,
     txn_end(&t);
     return rc;
 }
+tny_mailbox_rc tny_team_mailbox_wait(const tny_mailbox_service *s,
+                                     const tny_mailbox_identity *caller, int timeout_ms,
+                                     bool (*cancelled)(void *), void *userdata,
+                                     tny_mailbox_message *out, size_t *count) {
+    if (count) *count = 0;
+    if (!s || !s->job_dir || !out || !count || timeout_ms < 0 || timeout_ms > 30000)
+        return TNY_MAILBOX_INVALID;
+    if (!s->native_local || !tny_jobs_host_execution_supported()) return TNY_MAILBOX_UNSUPPORTED;
+    tny_jobs_watch watch;
+    if (tny_jobs_host_watch_open(s->job_dir, &watch))
+        return errno == ENOTSUP ? TNY_MAILBOX_UNSUPPORTED : TNY_MAILBOX_IO;
+    int64_t deadline = monotonic_ms() + timeout_ms;
+    tny_mailbox_rc rc = TNY_MAILBOX_OK;
+    for (;;) {
+        if (cancelled && cancelled(userdata)) {
+            rc = TNY_MAILBOX_CANCELLED;
+            break;
+        }
+        /* Drain first: a publication racing the following snapshot remains
+         * pending in the kernel until next(), closing read-to-sleep loss. */
+        if (tny_jobs_host_watch_drain(&watch)) {
+            rc = TNY_MAILBOX_IO;
+            break;
+        }
+        mailbox_txn t = {.lock = -1};
+        int64_t lock_deadline = monotonic_ms() + 250;
+        do {
+            rc = txn_begin(s, caller, &t);
+            if (rc != TNY_MAILBOX_BUSY || monotonic_ms() >= lock_deadline ||
+                monotonic_ms() >= deadline)
+                break;
+            txn_end(&t);
+            memset(&t, 0, sizeof t);
+            t.lock = -1;
+            if (cancelled && cancelled(userdata)) {
+                rc = TNY_MAILBOX_CANCELLED;
+                break;
+            }
+            /* Bounded transaction-lock contention, not inbox polling: no
+             * mailbox is loaded until the one snapshot acquires state.lock. */
+            tny_jobs_host_sleep_ms(1);
+        } while (true);
+        if (rc == TNY_MAILBOX_OK) {
+            size_t bytes = 0;
+            for (size_t i = 0; i < t.count && *count < TNY_MAILBOX_BATCH_MAX; i++) {
+                tny_mailbox_message *m = &t.messages[i];
+                if (!addressed(m, caller) || !outstanding(m)) continue;
+                if (bytes + m->payload_len > TNY_MAILBOX_BATCH_BYTES_MAX) break;
+                out[(*count)++] = *m;
+                bytes += m->payload_len;
+            }
+            yyjson_val *root = yyjson_doc_get_root(t.job);
+            if (!*count &&
+                (!active(root) || jget_bool(root, "cancel_requested", false) ||
+                 member_check(root, caller->task, caller->task_attempt, true) != TNY_MAILBOX_OK))
+                rc = TNY_MAILBOX_TERMINAL;
+        }
+        txn_end(&t);
+        if (rc != TNY_MAILBOX_OK || *count) break;
+        int64_t remaining = deadline - monotonic_ms();
+        if (remaining <= 0) {
+            rc = timeout_ms ? TNY_MAILBOX_DEADLINE : TNY_MAILBOX_EMPTY;
+            break;
+        }
+        int event = tny_jobs_host_watch_next(&watch, (int)remaining, cancelled, userdata);
+        if (event == 1) continue;
+        rc = event == 0    ? TNY_MAILBOX_DEADLINE
+             : event == -2 ? TNY_MAILBOX_CANCELLED
+                           : TNY_MAILBOX_IO;
+        break;
+    }
+    tny_jobs_host_watch_close(&watch);
+    return rc;
+}
+
 static tny_mailbox_rc access_message(const tny_mailbox_service *s,
                                      const tny_mailbox_identity *caller, const char *id,
                                      int transition, tny_mailbox_message *out) {
@@ -436,6 +616,7 @@ const char *tny_team_mailbox_error(tny_mailbox_rc rc) {
         "MAILBOX_OK",           "MAILBOX_INVALID",  "MAILBOX_UNSUPPORTED", "MAILBOX_DENIED",
         "MAILBOX_STALE",        "MAILBOX_TERMINAL", "MAILBOX_BUSY",        "MAILBOX_FULL",
         "MAILBOX_HISTORY_FULL", "MAILBOX_CONFLICT", "MAILBOX_NOT_FOUND",   "MAILBOX_BAD_STATE",
-        "MAILBOX_CORRUPT",      "MAILBOX_IO"};
+        "MAILBOX_CORRUPT",      "MAILBOX_IO",       "MAILBOX_EMPTY",       "MAILBOX_DEADLINE",
+        "MAILBOX_CANCELLED"};
     return (unsigned)rc < sizeof(names) / sizeof(names[0]) ? names[rc] : "MAILBOX_UNKNOWN";
 }

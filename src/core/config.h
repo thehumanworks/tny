@@ -133,6 +133,8 @@ typedef struct tny_ctx {
      * credential).  The complete body is persisted alongside metadata. */
     char task_digest[TNY_TASK_DIGEST_HEX_LEN + 1];
     bool task_explicit;
+    int swarm_cap; /* 0 off, -1 lead decides, positive collaborator ceiling */
+    bool swarm_explicit;
 
     /* reasoning effort (all providers). Canonical levels are
      * TNY_EFFORT_LEVELS; other tokens are provider-advertised values passed

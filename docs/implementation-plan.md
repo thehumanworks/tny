@@ -24,3 +24,9 @@ OS seams stay C11. No public event or C ABI layout changes. wasm builds share
 the native HTTP tool loop through fetch and `tny_poll`. Streaming decoders must
 retain split-boundary tests. Use fixtures and synthetic credentials, never
 live inference without authorization. Nix invokes the same Makefile.
+
+## Collective swarm extension (ADR 0156)
+
+Mode, shared admission, atomic run publications and native mailbox waits extend the
+existing team infrastructure. Acceptance status and remaining platform/gate evidence
+are tracked in [collective-swarm evidence](verification/collective-swarm/evidence.md).

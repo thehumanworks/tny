@@ -1216,3 +1216,10 @@ are never modified, and the result is a derived artifact recorded as such. Run
 `tny image export --help` for the full option set. See
 [images.md](images.md) for flags, result schema, limits, permissions and platform
 behavior, and `tny image --help` for examples.
+
+### Collective mode
+
+`--swarm[=N]` (global or ask-local) and interactive `/swarm [N]` select collective
+facilitation. N is 1..16 collaborators excluding the lead; omission lets the lead
+choose. See [collective swarm](collective-swarm.md) for persistence, admission,
+`mailbox publish`, bounded `mailbox wait --timeout-ms`, and platform limits.

@@ -198,3 +198,8 @@ preserves the source. Async invalidation, cancellation deferral, continuation,
 consumed tool indices and persistence remain explicit C transitions. Destructors
 only release resources. See [ADR 0127](adr/0127-native-provider-request-owners.md)
 and the [ownership inventory](verification/issue-144/ownership.md).
+
+[Collective swarm mode](collective-swarm.md) composes a stable facilitation policy
+with existing session checkpoints, shared launch admission and durable run mailboxes.
+Directory notifications in `util/jobs_host` drive bounded native mailbox waits
+(ADR 0156); no second agent loop, scheduler or broker owns task state.

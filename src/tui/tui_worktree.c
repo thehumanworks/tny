@@ -49,6 +49,7 @@ void tui_worktree_enter(tui *t, const char *name) {
                      : t->ctx->perm_mode == TNY_MODE_AUTO ? "auto"
                                                           : "yolo";
     next.task = t->ctx->task_name;
+    next.swarm_cap = t->ctx->swarm_cap;
     next.fast = false;
     tui_raw_begin(t);
     tny_ctx *ctx = cli_make_ctx(&next);

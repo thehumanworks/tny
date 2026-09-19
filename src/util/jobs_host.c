@@ -19,6 +19,12 @@
 #include <sys/wait.h>
 #endif
 
+#if defined(__APPLE__)
+#include <sys/event.h>
+#elif defined(__linux__)
+#include <sys/inotify.h>
+#endif
+
 #ifndef O_NOFOLLOW
 #define O_NOFOLLOW 0
 #endif
@@ -416,4 +422,103 @@ void tny_jobs_host_detach_session(void) {
     signal(SIGPIPE, SIG_IGN);
     if (getpgrp() != getpid()) setsid();
 #endif
+}
+
+bool tny_jobs_host_watch_supported(void) {
+#if defined(__APPLE__) || defined(__linux__)
+    return true;
+#else
+    return false;
+#endif
+}
+void tny_jobs_host_watch_close(tny_jobs_watch *watch) {
+    if (watch->fd >= 0) close(watch->fd);
+    if (watch->directory_fd >= 0) close(watch->directory_fd);
+    watch->fd = watch->directory_fd = -1;
+}
+int tny_jobs_host_watch_open(const char *directory, tny_jobs_watch *watch) {
+    watch->fd = watch->directory_fd = -1;
+#if defined(__APPLE__)
+    watch->directory_fd = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (watch->directory_fd < 0) return -1;
+    watch->fd = kqueue();
+    if (watch->fd < 0) goto failed;
+    if (tny_jobs_host_set_cloexec(watch->fd)) goto failed;
+    struct kevent event;
+    EV_SET(&event, (uintptr_t)watch->directory_fd, EVFILT_VNODE, EV_ADD | EV_CLEAR,
+           NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_REVOKE, 0, NULL);
+    if (kevent(watch->fd, &event, 1, NULL, 0, NULL) < 0) goto failed;
+    return 0;
+#elif defined(__linux__)
+    watch->fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    if (watch->fd < 0) return -1;
+    if (inotify_add_watch(watch->fd, directory,
+                          IN_CREATE | IN_MOVED_TO | IN_DELETE | IN_DELETE_SELF | IN_MOVE_SELF |
+                              IN_ONLYDIR | IN_DONT_FOLLOW) < 0)
+        goto failed;
+    return 0;
+#else
+    (void)directory;
+    errno = ENOTSUP;
+    return -1;
+#endif
+#if defined(__APPLE__) || defined(__linux__)
+failed:
+    {
+        int saved = errno;
+        tny_jobs_host_watch_close(watch);
+        errno = saved;
+        return -1;
+    }
+#endif
+}
+int tny_jobs_host_watch_drain(tny_jobs_watch *watch) {
+#if defined(__APPLE__)
+    struct kevent event;
+    struct timespec zero = {0};
+    int rc = 0;
+    unsigned batches = 0;
+    while (batches++ < 16 && (rc = kevent(watch->fd, NULL, 0, &event, 1, &zero)) > 0) {
+        if ((event.flags & EV_ERROR) ||
+            (event.fflags & (NOTE_DELETE | NOTE_RENAME | NOTE_REVOKE))) {
+            errno = EIO;
+            return -1;
+        }
+    }
+    return rc < 0 ? -1 : 0;
+#elif defined(__linux__)
+    char bytes[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+    ssize_t n = 0;
+    unsigned batches = 0;
+    while (batches++ < 16 && (n = read(watch->fd, bytes, sizeof bytes)) > 0) {
+        for (size_t i = 0; i < (size_t)n;) {
+            struct inotify_event *event = (struct inotify_event *)(void *)(bytes + i);
+            if (event->mask & (IN_IGNORED | IN_DELETE_SELF | IN_MOVE_SELF)) {
+                errno = EIO;
+                return -1;
+            }
+            i += sizeof *event + event->len;
+        }
+    }
+    return n > 0 || (n < 0 && errno == EAGAIN) ? 0 : -1;
+#else
+    (void)watch;
+    errno = ENOTSUP;
+    return -1;
+#endif
+}
+int tny_jobs_host_watch_next(tny_jobs_watch *watch, int timeout_ms, bool (*cancelled)(void *),
+                             void *userdata) {
+    int64_t deadline = monotonic_ms() + timeout_ms;
+    for (;;) {
+        if (cancelled && cancelled(userdata)) return -2;
+        int64_t remaining = deadline - monotonic_ms();
+        if (remaining <= 0) return 0;
+        int slice = (int)(remaining > 50 ? 50 : remaining);
+        struct pollfd fd = {watch->fd, POLLIN, 0};
+        int rc = tny_poll(&fd, 1, slice);
+        if (rc < 0 && errno == EINTR) continue;
+        if (rc < 0 || (fd.revents & (POLLERR | POLLHUP | POLLNVAL))) return -1;
+        if (rc > 0) return 1;
+    }
 }

@@ -1,4 +1,5 @@
 #include "core/session.h"
+#include "core/swarm.h"
 #include "core/tasks.h"
 #include "util/util.h"
 #include "util/process.h"
@@ -170,8 +171,9 @@ void session_task_clear(tny_session_state *s) {
     s->task_body = NULL;
 }
 
-int session_task_reconcile(tny_session_state *s, char *err, size_t errsz) {
+static int session_task_reconcile_impl(tny_session_state *s, char *err, size_t errsz) {
     if (!s || !s->ctx) return -1;
+    if (tny_swarm_restore(s, err, errsz) != 0) return -1;
     yyjson_mut_val *task = yyjson_mut_obj_get(root_of(s), "task");
     if (!task) {
         if (s->ctx->task_explicit && session_turns(s) > 0) {
@@ -248,6 +250,14 @@ int session_task_reconcile(tny_session_state *s, char *err, size_t errsz) {
     return 0;
 }
 
+int session_task_reconcile(tny_session_state *s, char *err, size_t errsz) {
+    if (!s || !s->ctx) return -1;
+    int previous_cap = s->ctx->swarm_cap;
+    int rc = session_task_reconcile_impl(s, err, errsz);
+    if (rc) s->ctx->swarm_cap = previous_cap;
+    return rc;
+}
+
 tny_session_state *session_new(tny_ctx *ctx) {
     tny_session_state *s = calloc(1, sizeof *s);
     if (!s) return NULL;
@@ -283,6 +293,10 @@ tny_session_state *session_new(tny_ctx *ctx) {
     if (!turns_key || !turns || !messages_key || !messages ||
         !yyjson_mut_obj_put(root_of(s), turns_key, turns) ||
         !yyjson_mut_obj_put(root_of(s), messages_key, messages)) {
+        session_close(s);
+        return NULL;
+    }
+    if (tny_swarm_bind(s) != 0) {
         session_close(s);
         return NULL;
     }

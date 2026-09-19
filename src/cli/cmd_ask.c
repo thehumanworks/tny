@@ -12,6 +12,7 @@
 #include "core/runner.h"
 #include "core/runtime.h"
 #include "core/tasks.h"
+#include "core/swarm.h"
 #include "backends/openai/openai.h"
 #include "mcp/mcp.h"
 #include "util/tny_poll.h"
@@ -563,7 +564,15 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 quiet = strcmp(value, "none") == 0;
             } else if (strcmp(a, "--auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
             else if (strcmp(a, "--yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
-            else if (strcmp(a, "--task") == 0) {
+            else if (strcmp(a, "--swarm") == 0 || str_starts(a, "--swarm=")) {
+                ctx->swarm_cap = tny_swarm_option(argc, argv, &i);
+                ctx->swarm_explicit = true;
+                if (!ctx->swarm_cap) {
+                    ask_diag(events, "invalid_option", "--swarm count must be 1..16", NULL);
+                    buf_free(&prompt);
+                    return 1;
+                }
+            } else if (strcmp(a, "--task") == 0) {
                 if (i + 1 >= argc) {
                     ask_diag(events, "invalid_option", "ask: --task requires a value",
                              "tny ask --task review \"inspect the current diff\"");
@@ -672,6 +681,11 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         return 1;
     }
     ctx->no_save = ephemeral;
+    if (ctx->swarm_cap && !tny_swarm_supported(ctx)) {
+        ask_diag(events, "unsupported", "swarm requires a saved native local lead session", NULL);
+        buf_free(&prompt);
+        return 1;
+    }
     ctx->json_out = json;
 
     /* The event stream is this process's own engine: the detached runner

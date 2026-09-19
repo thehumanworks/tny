@@ -107,3 +107,10 @@ and host-backend automatic context injection. The private identity and worktree
 rules are not an OS sandbox against other programs with the same user's privileges.
 See [team control](team-control.md) and
 [ADR 0146](adr/0146-durable-team-mailbox.md).
+
+## Collective channel and wait
+
+[Collective swarm](collective-swarm.md) adds atomic `publish` and event-driven
+`wait` to these same authenticated mailboxes. Publications share one stable ID
+and retain independent recipient receipt/ack state in the existing bounded file.
+See ADR 0156 for notification, retry, terminal and capacity semantics.

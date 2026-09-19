@@ -143,6 +143,8 @@ int tny_jobs_cancel_member(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err
  * operations refuse before any file or provider side effect; reading existing
  * records stays available and never claims process ownership. */
 bool tny_jobs_execution_supported(void);
+/* Refuse mode adoption over pre-existing owned work or uncertain cleanup. */
+bool tny_jobs_swarm_transition_safe(tny_ctx *ctx, const char *session);
 
 /* 32 lowercase hex, no path separators. */
 bool tny_jobs_valid_id(const char *id);

@@ -288,10 +288,11 @@ static bool caller_init(team_caller *c, tools_env *env, const char *run, bool lo
 const char *tny_team_mailbox_permission(yyjson_val *args) {
     const char *action = jget_str(args, "action");
     if (!action) return NULL;
-    if (strcmp(action, "send") == 0) return "team_send";
+    if (strcmp(action, "send") == 0 || strcmp(action, "publish") == 0) return "team_send";
     if (strcmp(action, "ack") == 0) return "team_ack";
     if (strcmp(action, "retire") == 0) return "team_retire";
-    if (strcmp(action, "inbox") == 0 || strcmp(action, "read") == 0) return "team_inbox";
+    if (strcmp(action, "inbox") == 0 || strcmp(action, "read") == 0 || strcmp(action, "wait") == 0)
+        return "team_inbox";
     return NULL;
 }
 
@@ -303,8 +304,9 @@ static bool mailbox_request_valid(yyjson_val *args) {
         return false;
     const char *action = jget_str(args, "action");
     if (strlen(action) != yyjson_get_len(jget(args, "action"))) return false;
+    bool publish = strcmp(action, "publish") == 0, wait = strcmp(action, "wait") == 0;
     bool send = strcmp(action, "send") == 0, retire = strcmp(action, "retire") == 0;
-    bool id_required = send || strcmp(action, "read") == 0 || strcmp(action, "ack") == 0;
+    bool id_required = send || publish || strcmp(action, "read") == 0 || strcmp(action, "ack") == 0;
     size_t i, n;
     yyjson_val *key, *value;
     yyjson_obj_foreach(args, i, n, key, value) {
@@ -313,7 +315,8 @@ static bool mailbox_request_valid(yyjson_val *args) {
             return false;
         bool allowed = strcmp(name, "action") == 0 || strcmp(name, "run") == 0 ||
                        (id_required && strcmp(name, "id") == 0) ||
-                       (send && strcmp(name, "text") == 0) ||
+                       ((send || publish) && strcmp(name, "text") == 0) ||
+                       (wait && strcmp(name, "timeout_ms") == 0) ||
                        ((send || retire) && strcmp(name, "to") == 0) ||
                        (retire && strcmp(name, "before_attempt") == 0);
         if (!allowed) return false;
@@ -322,9 +325,12 @@ static bool mailbox_request_valid(yyjson_val *args) {
     if (id_required &&
         (!id || !*id || strlen(id) > 64 || strlen(id) != yyjson_get_len(jget(args, "id"))))
         return false;
-    if (send && (!text || strlen(text) != yyjson_get_len(jget(args, "text")) ||
-                 strlen(text) > TNY_MAILBOX_PAYLOAD_MAX))
+    if ((send || publish) && (!text || strlen(text) != yyjson_get_len(jget(args, "text")) ||
+                              strlen(text) > TNY_MAILBOX_PAYLOAD_MAX))
         return false;
+    yyjson_val *timeout = jget(args, "timeout_ms");
+    if (wait && (!yyjson_is_uint(timeout) || yyjson_get_uint(timeout) > 30000)) return false;
+    if (publish && strlen(id) > 48) return false;
     yyjson_val *to = jget(args, "to"), *before = jget(args, "before_attempt");
     if ((send || retire) && (!yyjson_is_int(to) || yyjson_get_sint(to) < -1 ||
                              yyjson_get_sint(to) >= TNY_JOBS_MAX_ITEMS))
@@ -341,10 +347,12 @@ char *tny_team_mailbox_detail(yyjson_val *args) {
     if (!permission || !mailbox_request_valid(args)) return NULL;
     buf_t detail;
     buf_init(&detail);
-    buf_appendf(&detail, "%s run=%s to=%lld id=", permission, run,
-                (long long)jget_int(args, "to", -1));
+    buf_appendf(&detail, "%s action=%s run=%s to=%lld id=", permission, jget_str(args, "action"),
+                run, (long long)jget_int(args, "to", -1));
     jescape(&detail, id ? id : "");
-    buf_appendf(&detail, " before_attempt=%lld", (long long)jget_int(args, "before_attempt", 0));
+    buf_appendf(&detail, " before_attempt=%lld timeout_ms=%lld",
+                (long long)jget_int(args, "before_attempt", 0),
+                (long long)jget_int(args, "timeout_ms", 0));
     yyjson_val *text = jget(args, "text");
     if (text && yyjson_is_str(text)) {
         uint8_t hash[32];
@@ -361,7 +369,7 @@ char *tny_team_mailbox_detail(yyjson_val *args) {
 
 char *tny_team_mailbox_parse_argv(int argc, char **argv, char *err, size_t cap) {
     if (argc < 1) goto invalid;
-    const char *run = NULL, *id = NULL, *text = NULL, *to = NULL, *before = NULL;
+    const char *run = NULL, *id = NULL, *text = NULL, *to = NULL, *before = NULL, *timeout = NULL;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--json") == 0) continue;
         if (i + 1 >= argc) goto invalid;
@@ -369,19 +377,25 @@ char *tny_team_mailbox_parse_argv(int argc, char **argv, char *err, size_t cap) 
         else if (strcmp(argv[i], "--id") == 0 && !id) id = argv[++i];
         else if (strcmp(argv[i], "--text") == 0 && !text) text = argv[++i];
         else if (strcmp(argv[i], "--to") == 0 && !to) to = argv[++i];
+        else if (strcmp(argv[i], "--timeout-ms") == 0 && !timeout) timeout = argv[++i];
         else if (strcmp(argv[i], "--before-attempt") == 0 && !before) before = argv[++i];
         else goto invalid;
     }
     if (!tny_jobs_valid_id(run)) goto invalid;
+    bool publish = strcmp(argv[0], "publish") == 0, wait = strcmp(argv[0], "wait") == 0;
     bool send = strcmp(argv[0], "send") == 0;
     bool inbox = strcmp(argv[0], "inbox") == 0;
     bool retire = strcmp(argv[0], "retire") == 0;
-    if (!send && !inbox && !retire && strcmp(argv[0], "read") != 0 && strcmp(argv[0], "ack") != 0)
+    if (!publish && !wait && !send && !inbox && !retire && strcmp(argv[0], "read") != 0 &&
+        strcmp(argv[0], "ack") != 0)
         goto invalid;
-    if ((send && (!id || !to || !text)) || (inbox && id) || (!send && text) ||
-        (!send && !retire && to) || (!inbox && !retire && !id) ||
-        (retire && (!to || !before || id)) || (!retire && before))
+    if ((send && (!id || !to || !text)) || (publish && (!id || !text || to)) ||
+        ((inbox || wait) && id) || (!send && !publish && text) || (!send && !retire && to) ||
+        (!inbox && !wait && !retire && !id) || (retire && (!to || !before || id)) ||
+        (!retire && before) || (wait && !timeout) || (!wait && timeout))
         goto invalid;
+    uint32_t duration = 0;
+    if (timeout && !number(timeout, 30000, &duration)) goto invalid;
     uint32_t prior = 0;
     if (before && (!number(before, INT_MAX, &prior) || !prior)) goto invalid;
     uint32_t recipient = 0;
@@ -402,19 +416,23 @@ char *tny_team_mailbox_parse_argv(int argc, char **argv, char *err, size_t cap) 
         jescape(&body, text);
     }
     if (to) buf_appendf(&body, ",\"to\":%d", strcmp(to, "lead") == 0 ? -1 : (int)recipient);
+    if (timeout) buf_appendf(&body, ",\"timeout_ms\":%u", duration);
     if (before) buf_appendf(&body, ",\"before_attempt\":%u", prior);
     buf_appends(&body, "}");
     return buf_detach(&body);
 invalid:
     snprintf(err, cap,
-             "use mailbox send|inbox|read|ack|retire --run ID [--to lead|TASK --id ID --text TEXT "
-             "--before-attempt N]");
+             "use mailbox send|publish|wait|inbox|read|ack|retire --run ID [--to lead|TASK --id ID "
+             "--text TEXT "
+             "--before-attempt N --timeout-ms 0..30000]");
     return NULL;
 }
 
-static void message_json(buf_t *out, const tny_mailbox_message *message) {
+static void message_json(buf_t *out, const tny_mailbox_message *message, bool receipt) {
     buf_appends(out, "{\"id\":");
     jescape(out, message->id);
+    buf_appends(out, ",\"publication\":");
+    jescape(out, message->publication);
     buf_appendf(out, ",\"sequence\":%llu,\"sender\":%d,\"recipient\":%d,\"attempt\":%u,\"state\":",
                 (unsigned long long)message->sequence, message->sender.task,
                 message->recipient.task, message->sender.job_attempt);
@@ -422,9 +440,19 @@ static void message_json(buf_t *out, const tny_mailbox_message *message) {
                  : message->state == TNY_MAILBOX_ACKED     ? "acknowledged"
                  : message->state == TNY_MAILBOX_DELIVERED ? "delivered"
                                                            : "queued");
-    buf_appends(out, ",\"text\":");
-    jescape(out, message->payload);
+    if (!receipt) {
+        buf_appends(out, ",\"text\":");
+        jescape(out, message->payload);
+    }
     buf_appends(out, "}");
+}
+
+static bool delivery_retry(tools_env *env, int64_t deadline);
+
+static bool mailbox_cancelled(void *userdata) {
+    tools_env *env = userdata;
+    if (env->control_pump && env->control_pump(env->control_pump_ud, 0) < 0) return true;
+    return env->cancelled && env->cancelled(env->cancelled_ud);
 }
 
 int tny_team_mailbox_run(tools_env *env, yyjson_val *args, bool local_operator, buf_t *out,
@@ -447,44 +475,63 @@ int tny_team_mailbox_run(tools_env *env, yyjson_val *args, bool local_operator, 
         yyjson_doc_free(doc);
         return 1;
     }
-    tny_mailbox_message *messages = calloc(TNY_MAILBOX_BATCH_MAX, sizeof *messages);
+    tny_mailbox_message *messages = calloc(TNY_JOBS_MAX_ITEMS, sizeof *messages);
     tny_mailbox_rc rc = messages ? TNY_MAILBOX_INVALID : TNY_MAILBOX_IO;
     size_t count = 0, retired = 0;
     const char *id = jget_str(args, "id");
     if (!messages) goto done;
-    if (strcmp(action, "send") == 0) {
-        yyjson_val *to = jget(args, "to"), *text = jget(args, "text");
-        int64_t task = yyjson_get_sint(to);
-        if (!yyjson_is_int(to) || task < -1 || task >= TNY_JOBS_MAX_ITEMS || !yyjson_is_str(text))
-            goto done;
-        tny_mailbox_recipient recipient = {.task = (int)task};
-        if (task >= 0)
-            recipient.task_attempt = (uint32_t)jget_int(
-                yyjson_arr_get(jget(status, "items"), (size_t)task), "attempt", 0);
-        rc = tny_team_mailbox_send(&caller.service, &caller.identity, recipient, id,
-                                   yyjson_get_str(text), yyjson_get_len(text), messages);
-        count = rc == TNY_MAILBOX_OK ? 1 : 0;
-    } else if (strcmp(action, "inbox") == 0) {
-        rc = tny_team_mailbox_inbox(&caller.service, &caller.identity, 0, messages,
-                                    TNY_MAILBOX_BATCH_MAX, TNY_MAILBOX_BATCH_BYTES_MAX, &count);
-    } else if (strcmp(action, "read") == 0) {
-        rc = tny_team_mailbox_read(&caller.service, &caller.identity, id, messages);
-        count = rc == TNY_MAILBOX_OK ? 1 : 0;
-    } else if (strcmp(action, "retire") == 0) {
-        yyjson_val *to = jget(args, "to"), *before = jget(args, "before_attempt");
-        int64_t task = yyjson_get_sint(to), prior = yyjson_get_sint(before);
-        if (!yyjson_is_int(to) || task < -1 || task >= TNY_JOBS_MAX_ITEMS ||
-            !yyjson_is_int(before) || prior < 1 || prior > INT_MAX)
-            goto done;
-        rc = tny_team_mailbox_retire(&caller.service, &caller.identity, (int)task, (uint32_t)prior,
-                                     &retired);
-    } else rc = tny_team_mailbox_ack(&caller.service, &caller.identity, id);
+    int64_t lock_deadline = monotonic_ms() + TEAM_LOCK_WAIT_MS;
+    do {
+        if (strcmp(action, "send") == 0) {
+            yyjson_val *to = jget(args, "to"), *text = jget(args, "text");
+            int64_t task = yyjson_get_sint(to);
+            if (!yyjson_is_int(to) || task < -1 || task >= TNY_JOBS_MAX_ITEMS ||
+                !yyjson_is_str(text))
+                goto done;
+            tny_mailbox_recipient recipient = {.task = (int)task};
+            if (task >= 0)
+                recipient.task_attempt = (uint32_t)jget_int(
+                    yyjson_arr_get(jget(status, "items"), (size_t)task), "attempt", 0);
+            rc = tny_team_mailbox_send(&caller.service, &caller.identity, recipient, id,
+                                       yyjson_get_str(text), yyjson_get_len(text), messages);
+            count = rc == TNY_MAILBOX_OK ? 1 : 0;
+        } else if (strcmp(action, "publish") == 0) {
+            yyjson_val *text = jget(args, "text");
+            rc = tny_team_mailbox_publish(&caller.service, &caller.identity, id,
+                                          yyjson_get_str(text), yyjson_get_len(text), messages,
+                                          &count);
+        } else if (strcmp(action, "wait") == 0) {
+            rc = tny_team_mailbox_wait(&caller.service, &caller.identity,
+                                       (int)jget_int(args, "timeout_ms", 0), mailbox_cancelled, env,
+                                       messages, &count);
+        } else if (strcmp(action, "inbox") == 0) {
+            rc = tny_team_mailbox_inbox(&caller.service, &caller.identity, 0, messages,
+                                        TNY_MAILBOX_BATCH_MAX, TNY_MAILBOX_BATCH_BYTES_MAX, &count);
+        } else if (strcmp(action, "read") == 0) {
+            rc = tny_team_mailbox_read(&caller.service, &caller.identity, id, messages);
+            count = rc == TNY_MAILBOX_OK ? 1 : 0;
+        } else if (strcmp(action, "retire") == 0) {
+            yyjson_val *to = jget(args, "to"), *before = jget(args, "before_attempt");
+            int64_t task = yyjson_get_sint(to), prior = yyjson_get_sint(before);
+            if (!yyjson_is_int(to) || task < -1 || task >= TNY_JOBS_MAX_ITEMS ||
+                !yyjson_is_int(before) || prior < 1 || prior > INT_MAX)
+                goto done;
+            rc = tny_team_mailbox_retire(&caller.service, &caller.identity, (int)task,
+                                         (uint32_t)prior, &retired);
+        } else rc = tny_team_mailbox_ack(&caller.service, &caller.identity, id);
+    } while (rc == TNY_MAILBOX_BUSY && strcmp(action, "wait") != 0 &&
+             delivery_retry(env, lock_deadline));
     /* Explicit inbox/read delivery is at the API boundary; loss of stdout is
      * replayable because delivered records remain in inbox until explicit ack. */
-    if (rc == TNY_MAILBOX_OK && (strcmp(action, "inbox") == 0 || strcmp(action, "read") == 0)) {
+    if (rc == TNY_MAILBOX_OK && (strcmp(action, "inbox") == 0 || strcmp(action, "read") == 0 ||
+                                 strcmp(action, "wait") == 0)) {
         for (size_t i = 0; i < count; i++) {
             if (messages[i].state != TNY_MAILBOX_QUEUED) continue;
-            rc = tny_team_mailbox_mark_delivered(&caller.service, &caller.identity, messages[i].id);
+            lock_deadline = monotonic_ms() + TEAM_LOCK_WAIT_MS;
+            do {
+                rc = tny_team_mailbox_mark_delivered(&caller.service, &caller.identity,
+                                                     messages[i].id);
+            } while (rc == TNY_MAILBOX_BUSY && delivery_retry(env, lock_deadline));
             if (rc != TNY_MAILBOX_OK) break;
             messages[i].state = TNY_MAILBOX_DELIVERED;
         }
@@ -496,7 +543,7 @@ done:
     if (rc == TNY_MAILBOX_OK)
         for (size_t i = 0; i < count; i++) {
             if (i) buf_appends(out, ",");
-            message_json(out, &messages[i]);
+            message_json(out, &messages[i], strcmp(action, "publish") == 0);
         }
     buf_appendf(out, "],\"retired\":%zu,\"error\":", retired);
     if (rc != TNY_MAILBOX_OK) {
@@ -507,7 +554,13 @@ done:
     free(messages);
     free(caller.dir);
     yyjson_doc_free(doc);
-    return rc == TNY_MAILBOX_OK && !buf_oom(out) ? 0 : 1;
+    if (rc == TNY_MAILBOX_CANCELLED) return 130;
+    return (rc == TNY_MAILBOX_OK || (strcmp(action, "wait") == 0 &&
+                                     (rc == TNY_MAILBOX_EMPTY || rc == TNY_MAILBOX_DEADLINE ||
+                                      rc == TNY_MAILBOX_TERMINAL))) &&
+                   !buf_oom(out)
+               ? 0
+               : 1;
 }
 
 static yyjson_mut_val *session_array(tny_session_state *s, const char *name) {

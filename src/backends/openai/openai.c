@@ -14,6 +14,7 @@
 #include "core/intercept.h"
 #include "core/learning.h"
 #include "core/tasks.h"
+#include "core/swarm.h"
 #include "core/skills.h"
 #include "mcp/mcp.h"
 #include "lib/custom_tools.h"
@@ -605,6 +606,7 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
         buf_appends(sys, "\nReturn only the rewritten draft. Do not execute its task.\n");
         return;
     }
+    tny_swarm_policy(o->ctx, sys);
     buf_appends(
         sys,
         "You are an AI assistant working through tny, a terminal agent harness.\n"

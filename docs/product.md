@@ -100,3 +100,6 @@ same ABI ([SDK contract](sdks.md)); they do not contain provider-wire logic.
 No vendor agent binary is a runtime dependency.
 Dated bake-off numbers versus fx v0.0.3 live in
 [size-and-speed.md](size-and-speed.md) as historical measurements.
+
+Opt-in [collective swarm mode](collective-swarm.md) adds peer proposals, challenges,
+shared-channel publication and bounded event-driven mailbox waits over durable teams.

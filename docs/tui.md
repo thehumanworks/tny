@@ -307,3 +307,6 @@ to make no local conversation write.
 ## Permissions UI
 
 Permission prompts expose **Yes** / **Yes, and don’t ask again** / **No**, mapped to `y` / `a` / `n`. The native loop owns these gates for every provider.
+`/swarm [N]` enables [collective mode](collective-swarm.md) in an idle saved local
+conversation, preserving history and rebinding its runner. N optionally caps
+collaborators (1..16, lead excluded); `/new` permits another cap.

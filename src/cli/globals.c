@@ -1,6 +1,8 @@
 /* Pure leading-argument grammar shared by the CLI and tool interception.
  * No settings, provider resolution, workspace creation or execution here. */
 #include "cli/cli.h"
+#include "core/swarm.h"
+#include "util/jobs_host.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -69,6 +71,12 @@ static int parse_globals(int argc, char **argv, cli_globals *g, bool diagnostics
         } else if (strcmp(a, "--system-prompt") == 0) {
             if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
             g->system_prompt = v;
+        } else if (strcmp(a, "--swarm") == 0 || str_starts(a, "--swarm=")) {
+            g->swarm_cap = tny_swarm_option(argc, argv, &i);
+            if (!g->swarm_cap) {
+                if (diagnostics) fputs("tny: --swarm count must be 1..16\n", stderr);
+                return -1;
+            }
         } else if (strcmp(a, "--task") == 0) {
             if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
             g->task = v;
@@ -171,4 +179,33 @@ int cli_command_index(int argc, char **argv) {
     int index = parse_globals(argc, argv, &parsed, false);
     free(parsed.add_dirs);
     return index;
+}
+
+int cli_swarm_preflight(const cli_globals *g, const char *command, int argc, char **argv) {
+    bool requested = g->swarm_cap != 0, ephemeral = g->ephemeral;
+    if (command && strcmp(command, "ask") == 0) {
+        for (int i = 0; i < argc; i++) {
+            const char *a = argv[i];
+            if (strcmp(a, "--") == 0) break;
+            if (strcmp(a, "--swarm") == 0 || str_starts(a, "--swarm=")) {
+                if (!tny_swarm_option(argc, argv, &i)) {
+                    fputs("tny: --swarm count must be 1..16\n", stderr);
+                    return -1;
+                }
+                requested = true;
+            } else if (strcmp(a, "--ephemeral") == 0 || strcmp(a, "--no-save") == 0)
+                ephemeral = true;
+            else if (strcmp(a, "--task") == 0 || strcmp(a, "--resume") == 0 ||
+                     strcmp(a, "--resume-id") == 0 || strcmp(a, "--output-schema") == 0 ||
+                     strcmp(a, "--image") == 0 || strcmp(a, "--events") == 0 ||
+                     strcmp(a, "--progress") == 0)
+                ++i;
+        }
+    }
+    if (requested && (ephemeral || g->ssh || getenv("TNY_TEAM_RUN") ||
+                      !tny_jobs_host_execution_supported() || !tny_jobs_host_watch_supported())) {
+        fputs("tny: swarm requires a saved native local lead session\n", stderr);
+        return -1;
+    }
+    return 0;
 }
