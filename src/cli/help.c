@@ -65,7 +65,7 @@ void help_root(void) {
           "                         carry it on the system/instructions field.\n"
           "  --swarm[=N]           Collective mode; optional cap 1..16 (lead excluded)\n"
           "  --swarm[=N]         Collective mode; omitted count lets the lead decide\n"
-    "  --task NAME            Apply a named task preset (review, optimizer,\n"
+          "  --task NAME            Apply a named task preset (review, optimizer,\n"
           "                         document, retro, task-creation, self-improve, or\n"
           "                         a discovered .tny/tasks NAME.md)\n"
           "  --add-dir DIR          Extra workspace directory; repeatable, process-only\n"

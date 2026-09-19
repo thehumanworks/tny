@@ -102,4 +102,18 @@ void tny_jobs_host_sleep_ms(int ms);
 /* Detach from the invoking session so the supervisor outlives its submitter. */
 void tny_jobs_host_detach_session(void);
 
+/* Directory notifications survive atomic record replacement. Subscribe before
+ * snapshot; drain BEFORE each snapshot. Events/overflow are only hints.
+ * next: 1 hint, 0 deadline, -1 error, -2 cancellation. No durable reads here. */
+typedef struct {
+    int fd;
+    int directory_fd;
+} tny_jobs_watch;
+bool tny_jobs_host_watch_supported(void);
+int tny_jobs_host_watch_open(const char *directory, tny_jobs_watch *watch);
+int tny_jobs_host_watch_drain(tny_jobs_watch *watch);
+int tny_jobs_host_watch_next(tny_jobs_watch *watch, int timeout_ms, bool (*cancelled)(void *),
+                             void *userdata);
+void tny_jobs_host_watch_close(tny_jobs_watch *watch);
+
 #endif

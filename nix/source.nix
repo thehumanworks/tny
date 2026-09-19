@@ -1,3 +1,5 @@
+# Collective swarm tests reuse the existing stdlib/PTY/compiler closure;
+# test_collective_{swarm,cap}.py and mailbox helpers are included under tests.
 # Source filters shared by every tny derivation.
 #
 # Nix hashes the whole source tree, so an unfiltered `src = ../.` would rebuild

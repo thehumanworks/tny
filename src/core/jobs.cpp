@@ -3274,6 +3274,46 @@ static int jobs_list(tny_ctx *ctx, buf_t *out, char *err, size_t errlen) {
 #endif
 }
 
+bool tny_jobs_swarm_transition_safe(tny_ctx *ctx, const char *session) {
+#ifdef __EMSCRIPTEN__
+    (void)ctx;
+    (void)session;
+    return false;
+#else
+    tny::c_string root(jobs_root(ctx));
+    if (!root || !session) return false;
+    DIR *directory = opendir(root.get());
+    if (!directory) return errno == ENOENT;
+    bool safe = true;
+    size_t count = 0;
+    struct dirent *entry;
+    while (safe && (entry = readdir(directory))) {
+        if (!tny_jobs_valid_id(entry->d_name)) continue;
+        if (++count > JOBS_LIST_MAX) {
+            safe = false;
+            break;
+        }
+        tny::c_string dir(path_join(root.get(), entry->d_name));
+        yyjson_mut_doc *doc = dir ? jobs_record_load(dir.get(), entry->d_name, NULL, 0) : NULL;
+        if (!doc) {
+            safe = false;
+            break;
+        }
+        yyjson_mut_val *record = yyjson_mut_doc_get_root(doc);
+        const char *parent = jm_str(record, "parent_session_id");
+        if (parent && strcmp(parent, session) == 0) {
+            tny::c_string owner(path_join(dir.get(), "owner.lock"));
+            safe = state_is_terminal(jm_str(record, "state")) &&
+                   !jm_bool(record, "cleanup_hold", false) && owner &&
+                   tny_jobs_host_owner_state(owner.get()) == TNY_JOBS_OWNER_FREE;
+        }
+        yyjson_mut_doc_free(doc);
+    }
+    closedir(directory);
+    return safe;
+#endif
+}
+
 static int jobs_rm(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen) {
     char *dir = NULL;
     yyjson_mut_doc *doc = NULL;
@@ -3926,6 +3966,12 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
                          const char *parent_session) {
     if (err && errlen) err[0] = 0;
     if (!ctx || !out) return 1;
+    if (ctx->swarm_cap && op == TNY_JOBS_OP_RETRY) {
+        safe_err(
+            err, errlen,
+            "swarm retries require new parent-owned tasks; legacy retry cannot bypass admission");
+        return 1;
+    }
     if (getenv("TNY_TEAM_RUN") && tny_jobs_op_is_sensitive(op)) {
         safe_err(
             err, errlen, "%s",
@@ -3958,17 +4004,21 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
         int cap = ctx->swarm_cap < 0 ? 16 : ctx->swarm_cap;
         yyjson_val *items = jget(args, "items");
         if (!parent_session || strlen(parent_session) != 16 || ctx->no_save ||
-            !jget_bool(args, "dag", false) || (!jget_str(args, "kind") || strcmp(jget_str(args, "kind"), "ask") != 0) ||
+            !jget_bool(args, "dag", false) ||
+            (!jget_str(args, "kind") || strcmp(jget_str(args, "kind"), "ask") != 0) ||
             !yyjson_is_arr(items) || yyjson_arr_size(items) < 1 ||
             yyjson_arr_size(items) > (size_t)cap || jget(args, "admission")) {
-            safe_err(err, errlen, "swarm requires parent-owned worker DAG tasks within the collaborator cap; admission is runtime-owned");
+            safe_err(err, errlen,
+                     "swarm requires parent-owned worker DAG tasks within the collaborator cap; "
+                     "admission is runtime-owned");
             return 1;
         }
         size_t i, n;
         yyjson_val *item;
         yyjson_arr_foreach(items, i, n, item) {
             if ((!jget_str(item, "role") || strcmp(jget_str(item, "role"), "worker") != 0)) {
-                safe_err(err, errlen, "swarm collaborators must be workers; the current session is the lead");
+                safe_err(err, errlen,
+                         "swarm collaborators must be workers; the current session is the lead");
                 return 1;
             }
         }
@@ -3977,8 +4027,8 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
         yyjson_mut_val *admission = d ? yyjson_mut_obj(d) : nullptr;
         char label[64];
         snprintf(label, sizeof label, "swarm_%s", parent_session);
-        bool ok = r && admission &&
-            yyjson_mut_obj_add_strcpy(d, admission, "label", label) &&
+        bool ok =
+            r && admission && yyjson_mut_obj_add_strcpy(d, admission, "label", label) &&
             yyjson_mut_obj_add_strcpy(d, admission, "provider_scope", "swarm") &&
             yyjson_mut_obj_add_int(d, admission, "cap", cap) &&
             yyjson_mut_obj_add_int(d, admission, "queue_cap", 128) &&
@@ -3989,7 +4039,8 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
         char *json = ok ? jwrite(d) : nullptr;
         yyjson_doc *request = json ? jparse(json, strlen(json)) : nullptr;
         int result = request ? jobs_submit(ctx, yyjson_doc_get_root(request), out, err, errlen,
-                                          cancelled, cancel_ud, parent_session) : 1;
+                                           cancelled, cancel_ud, parent_session)
+                             : 1;
         if (!request) safe_err(err, errlen, "swarm request allocation failed");
         yyjson_doc_free(request);
         free(json);
@@ -4269,7 +4320,7 @@ static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *
     /* Exactly one side of the split supplies these, never both. */
     const char *token = image ? jget_str(image_creds, "token") : jget_str(chat, "token");
     const char *account = image ? jget_str(image_creds, "account") : jget_str(chat, "account");
-    char **owned = static_cast<char **>(tny_alloc_calloc(53, sizeof *owned));
+    char **owned = static_cast<char **>(tny_alloc_calloc(54, sizeof *owned));
     if (!owned) return NULL;
     int n = 0;
     buf_t entry;
@@ -4318,6 +4369,9 @@ static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *
         owned[n++] = buf_detach(&entry);
     }
     if (jget(payload, "admission")) owned[n++] = xstrdup("TNY_ADMISSION_ENROLLED=1");
+    const char *scope_label = jget_str(jget(payload, "admission"), "label");
+    if (scope_label && str_starts(scope_label, "swarm_"))
+        owned[n++] = xstrdup("TNY_TEAM_COLLECTIVE=1");
     const char *policy = jget_str(item, "workspace_policy");
     if (jget_bool(payload, "read_only", false) ||
         (policy && strcmp(policy, "shared_read_only") == 0))

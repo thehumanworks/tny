@@ -19,7 +19,7 @@ typedef struct {
     const char *model;                    /* --model */
     const char *effort;                   /* --effort | --reasoning-effort */
     const char *system_prompt;            /* --system-prompt */
-    int swarm_cap; /* --swarm[=N], -1 means lead decides */
+    int swarm_cap;                        /* --swarm[=N], -1 means lead decides */
     const char *task;                     /* --task NAME */
     const char *perm_mode;                /* --permission-mode | --yolo | --auto */
     const char *max_steps;                /* --max-steps N|unlimited (0 = no cap) */
