@@ -75,7 +75,7 @@ void tui_hist_add(tui *t, const char *line) {
     t->hist[t->n_hist++] = xstrdup(line);
     t->hist_pos = t->n_hist;
 
-    if (t->ctx->no_save) return;
+    if (t->ctx->no_save || t->session_readonly || t->background_view) return;
     char *dir = path_tny_dir();
     mkdir_p(dir);
     free(dir);

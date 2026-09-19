@@ -113,7 +113,7 @@ void tui_agents_refresh(tui *t) {
     free(selected);
     if (t->agent_selected >= t->n_agents) t->agent_selected = t->n_agents ? t->n_agents - 1 : 0;
     tui_overlay_clear(t);
-    tui_overlay_linef(t, "Background agents — Enter reattaches; q exits (work keeps running)");
+    tui_overlay_linef(t, "Background agents — Enter opens; q exits (work keeps running)");
     if (!t->n_agents) tui_overlay_linef(t, "No background sessions in this workspace.");
     int start = t->agent_selected / 8 * 8;
     for (int i = start; i < t->n_agents && i < start + 8; i++) {
@@ -135,11 +135,18 @@ void tui_agents_open(tui *t) {
         tui_background_arm(t);
         return;
     }
+    /* Composer setup belongs to the previous foreground context. Never carry
+     * its writable input route into a dashboard or saved session replica. */
+    tui_wizard_cancel(t);
     if (t->rc) tui_runner_drop(t, "dashboard");
-    else tui_prewarm_drop(t);
+    if (t->engine) tny_engine_end_session(t->engine, "agents");
+    tui_drop_backend(t); /* release an idle in-process engine before its session */
     t->turn_active = t->turn_done = false;
     t->cancel_ms = 0;
     t->background_view = false;
+    t->session_readonly = false;
+    t->rc_restart_pending = false;
+    tui_queue_clear(t);
     if (t->session) {
         session_close(t->session);
         t->session = NULL;
@@ -165,90 +172,171 @@ void tui_background_arm(tui *t) {
     t->dirty = true; /* the runner acknowledges the armed state once */
 }
 
+/* Replace local display/execution context without saving the read replica. */
+static void agents_context(tui *t, tny_ctx *ctx) {
+    if (t->engine) tny_engine_end_session(t->engine, "agents");
+    tui_drop_backend(t);
+    mcp_shutdown_all();
+    perm_free(t->perm);
+    if (t->owns_ctx) tny_ctx_free(t->ctx);
+    t->ctx = ctx;
+    t->owns_ctx = true;
+    t->perm = perm_new(ctx);
+    t->worktree = NULL; /* discovery does not acquire a managed-worktree lock */
+    tui_files_free(t);
+}
+
+static bool agents_checkpoint(const tui *t) {
+    return t->session &&
+           yyjson_mut_obj_get(yyjson_mut_doc_get_root(t->session->doc), "continuation");
+}
+
 void tui_agents_select(tui *t) {
     if (t->agent_selected < 0 || t->agent_selected >= t->n_agents) return;
     session_meta *m = &t->agents[t->agent_selected];
-    if (m->backend &&
-        (strcmp(m->backend, "cursor") == 0 || strcmp(m->backend, "acp") == 0 ||
-         strncmp(m->backend, "acp@", 4) == 0 || strncmp(m->backend, "acp:", 4) == 0)) {
-        tui_err(t, "cannot attach: this session uses a removed provider");
+    cli_globals next = *t->g;
+    next.cwd = m->workspace ? m->workspace : t->ctx->cwd;
+    next.ssh = next.ssh_cwd = NULL;
+    /* Even /agents entered from a normal TUI must skip provider resolution.
+     * Missing profiles, expired OAuth and removed providers cannot hide text. */
+    next.agents_dashboard = true;
+    tui_raw_begin(t);
+    tny_ctx *ctx = cli_make_ctx(&next);
+    tui_raw_end(t);
+    if (!ctx) {
+        tui_err(t, "cannot load the background session's workspace");
         return;
     }
-    if (m->workspace && strcmp(m->workspace, t->ctx->cwd) != 0) {
-        /* Attachment and subsequent turns must use the selected checkout's
-         * storage, settings and permissions, not the dashboard's origin. */
-        tui_prewarm_drop(t);
-        cli_globals next = *t->g;
-        next.cwd = m->workspace;
-        next.ssh = next.ssh_cwd = NULL;
-        tui_raw_begin(t);
-        tny_ctx *ctx = cli_make_ctx(&next);
-        tui_raw_end(t);
-        if (!ctx) {
-            tui_err(t, "cannot load the background session's workspace");
-            return;
-        }
-        if (tny_resolve_backend(ctx, m->backend ? m->backend : "openai") < 0) {
-            tny_ctx_free(ctx);
-            tui_err(t, "cannot attach: provider configuration is unavailable");
-            return;
-        }
-        if (t->engine) tny_engine_end_session(t->engine, "agents");
-        tui_drop_backend(t);
-        if (t->session) {
-            session_close(t->session);
-            t->session = NULL;
-        }
-        mcp_shutdown_all();
-        perm_free(t->perm);
-        if (t->owns_ctx) tny_ctx_free(t->ctx);
-        t->ctx = ctx;
-        t->owns_ctx = true;
-        t->perm = perm_new(ctx);
-        t->worktree = NULL; /* discovery does not acquire a managed-worktree lock */
-        tui_files_free(t);
-    }
-    tui_prewarm_drop(t);
-    if (tny_resolve_backend(t->ctx, m->backend ? m->backend : "openai") < 0) {
-        tui_err(t, "cannot attach: provider configuration is unavailable");
-        return;
-    }
-    tny_session_state *session = session_open(t->ctx, m->id);
+    tny_session_state *session = session_open(ctx, m->id);
     if (!session) {
+        tny_ctx_free(ctx);
         tui_err(t, "background session disappeared or is unreadable");
         return;
     }
-    bool running = session_is_running(t->ctx, m->id);
-    if (running && !tui_runner_attach(t, session)) {
-        session_close(session);
-        tui_err(t, "cannot reattach: another owner is attached or the runner is unreachable");
-        return;
-    }
     if (t->session) session_close(t->session);
+    t->session = NULL;
+    agents_context(t, ctx);
     t->session = session;
     t->background_view = true;
+    t->session_readonly = true;
     t->agents_dashboard = false;
     t->background_armed = false;
+    t->turn_active = t->turn_done = false;
+    /* Display selectors only. Actual execution resolves a fresh context from
+     * the locked snapshot, never credentials from this viewing context. */
+    free(ctx->provider_name);
+    ctx->provider_name = xstrdup(session_backend(session) ? session_backend(session) : "openai");
+    free(ctx->model);
+    ctx->model = xstrdup(
+        yyjson_mut_get_str(yyjson_mut_obj_get(yyjson_mut_doc_get_root(session->doc), "model")));
+    session_get_usage(session, &t->in_tok, &t->out_tok);
+    bool running = session_is_running(ctx, session->id);
+    if (running && tui_runner_attach(t, session)) t->session_readonly = false;
     tui_overlay_clear(t);
-    /* A live runner retains its exact configuration. The local context is
-     * only its display/next-turn selection, never a provider startup here. */
-    free(t->ctx->model);
-    t->ctx->model = m->model ? xstrdup(m->model) : NULL;
-    tui_sysf(t, "Attached %s (%s); /agents returns to the list; quit detaches", m->id,
-             agent_status(m));
-    tui_command(t, "/transcript");
-    if (!running) {
-        char err[192];
-        if (session_task_reconcile(session, err, sizeof err) != 0) tui_err(t, err);
-        if (yyjson_mut_obj_get(yyjson_mut_doc_get_root(session->doc), "continuation")) {
-            if (!tui_runner_mode(t))
-                tui_err(t, "checkpoint recovery requires a native session runner");
-            else if (tui_runner_ensure(t, false) == 0) t->turn_active = true;
-        }
+    if (!t->session_readonly)
+        tui_sysf(t, "Attached %s (%s); /agents returns to the list; quit detaches", session->id,
+                 agent_status(m));
+    else {
+        tui_sysf(t, "Saved read-only %s (%s); /agents returns to the list; quit detaches",
+                 session->id, agent_status(m));
+        if (running) tui_sys(t, "Owner unavailable or another owner is attached; saved text only.");
+        tui_sys(t, "Submit a prompt or /continue to request ownership; retry when the writer "
+                   "is available. No takeover.");
+        if (agents_checkpoint(t))
+            tui_sys(t, "Saved checkpoint: /continue explicitly recovers retained work; prompts "
+                       "are not submitted or queued before recovery.");
     }
+    tui_sysf(t, "Workspace: %s", ctx->cwd);
+    tui_command(t, "/transcript");
     if (!running && (!m->status || strcmp(m->status, "running") == 0))
         tui_sys(t, "Stale: its writer is gone. Saved transcript is available; no work is running.");
     t->dirty = true;
+}
+
+/* Explicit execution intent only. A failed handshake is never authority to
+ * bind a replacement listener. Keep ADR0104's lock through reload and fork. */
+bool tui_agents_continue(tui *t, bool prompt) {
+    if (!t->background_view || !t->session) return false;
+    if (t->rc) return true;
+    t->session_readonly = true;
+    if (session_is_running(t->ctx, t->session->id)) {
+        if (!tui_runner_attach(t, t->session)) {
+            tui_err(t, "Still read-only: owner unavailable or another owner is attached; "
+                       "retry /continue when ownership is available. No prompt was submitted.");
+            return false;
+        }
+        t->session_readonly = false;
+        tui_sysf(t, "Attached %s; continuing the existing runner", t->session->id);
+        return true;
+    }
+    if (!tny_isolation_enabled(t->ctx)) {
+        tui_err(t, "Still read-only: continuation requires a native session runner "
+                   "(unavailable in wasm or in-process mode)");
+        return false;
+    }
+    if (session_lock_acquire(t->session) != 0) {
+        tui_err(t, "Still read-only: session is locked; retry /continue when ownership is "
+                   "available. No prompt was submitted.");
+        return false;
+    }
+    bool ok = false;
+    char err[256];
+    if (session_reload_locked(t->session, err, sizeof err) != 0) {
+        tui_err(t, err);
+        goto done;
+    }
+    bool checkpoint = agents_checkpoint(t);
+    if (prompt && checkpoint) {
+        tui_err(t, "Saved checkpoint: use /continue to explicitly recover retained work. "
+                   "Your prompt was not submitted or queued.");
+        goto done;
+    }
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(t->session->doc);
+    const char *workspace = yyjson_mut_get_str(yyjson_mut_obj_get(root, "workspace"));
+    if (workspace && strcmp(workspace, t->ctx->cwd) != 0) {
+        tui_err(t, "saved workspace changed; reopen the session from /agents");
+        goto done;
+    }
+    cli_globals next = *t->g;
+    next.agents_dashboard = false;
+    next.cwd = t->ctx->cwd;
+    next.ssh = next.ssh_cwd = NULL;
+    next.backend = session_backend(t->session);
+    if (!next.backend) next.backend = "openai";
+    next.model = yyjson_mut_get_str(yyjson_mut_obj_get(root, "model"));
+    tui_raw_begin(t);
+    tny_ctx *ctx = cli_make_ctx(&next);
+    tui_raw_end(t);
+    if (!ctx) {
+        tui_err(t, "Still read-only: execution configuration is unavailable; restore the "
+                   "selected provider's configuration and retry /continue");
+        goto done;
+    }
+    if (!tny_isolation_enabled(ctx)) {
+        tny_ctx_free(ctx);
+        tui_err(t, "Still read-only: continuation requires a native session runner");
+        goto done;
+    }
+    t->session->ctx = ctx;
+    if (session_task_reconcile(t->session, err, sizeof err) != 0) {
+        t->session->ctx = t->ctx;
+        tny_ctx_free(ctx);
+        tui_err(t, err);
+        goto done;
+    }
+    agents_context(t, ctx);
+    if (tui_runner_ensure(t, false) != 0) goto done;
+    t->session_readonly = false;
+    t->turn_active = checkpoint;
+    tui_sysf(t, "Continuing %s%s", t->session->id,
+             checkpoint ? ": recovering saved work (no new prompt)" : "; ready for a prompt");
+    ok = true;
+done:
+    /* The child inherited the same open description. The UI must not pin it
+     * after the child exits, even on a failed connection. */
+    session_lock_release(t->session);
+    t->dirty = true;
+    return ok;
 }
 
 int cmd_agents(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {

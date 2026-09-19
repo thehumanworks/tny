@@ -4,6 +4,10 @@
 #include <string.h>
 
 void tui_optimise_start(tui *t, const char *arg) {
+    if (t->session_readonly || t->background_view) {
+        tui_err(t, "read-only session replica: submit a prompt or use /continue for execution");
+        return;
+    }
     if (!t->tty || t->approval || t->wiz_step || t->turn_active || t->dictation || t->optimise) {
         tui_err(t, "optimisation needs an idle interactive prompt; use tny optimise for scripts");
         return;

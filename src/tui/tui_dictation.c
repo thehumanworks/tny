@@ -4,6 +4,10 @@
 #include <string.h>
 
 void tui_dictation_start(tui *t, const char *provider) {
+    if (t->session_readonly || t->background_view) {
+        tui_err(t, "read-only session replica: submit a prompt or use /continue for execution");
+        return;
+    }
     if (t->dictation) {
         tny_dictation_finish(t->dictation);
         return;

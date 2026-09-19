@@ -120,20 +120,76 @@ Typing while a turn runs never writes a note into the transcript: a steered mess
 
 Menus are **transient overlays** ([ADR 0003](adr/0003-transient-menu-overlay.md)): the palette and `/help` draw inside the redrawn bottom block, esc hides them, and the next submit clears them — they never enter the scrollback. Without a tty, menu output degrades to plain transcript lines.
 
+## Background session inspection and continuation
+
 The background dashboard also opens directly with `tny agents`, without provider
-prewarm. Up/Down selects running, completed or stale background sessions; Enter
-reattaches to a live turn as its owner, without another prompt. `/agents` returns
-to the list. A live owner elsewhere refuses reattachment. Quit from this view
-or the dashboard detaches; Ctrl-C still cancels explicitly. Handoff-origin pending
-permissions retain the runner's mode and wait for an owner (five-minute bound).
-A no-tool turn finishes before opening the list. Handoff requires a saved native
-runner; host, wasm, ephemeral and in-process turns report an explicit error.
+resolution or prewarm. Up/Down selects a row; Enter attaches as owner when the
+live runner accepts the unique owner handshake, including an idle completed
+runner. This preserves the ongoing turn, permission mode, pending decision,
+model and workspace; it does not repost a prompt.
+
+Otherwise Enter opens the saved transcript, clearly labeled **read-only**, with
+continuation guidance. This includes completed/unlocked sessions and sessions
+whose writer is held by another owner or unreachable. Inspection does not resolve
+a provider, refresh credentials, start a runner, activate a saved checkpoint, or
+save session/settings/auth stores. Missing provider configuration does not hide
+saved text. A stored `done` status does not establish writer-lock freedom.
+
+From a view without a saved checkpoint, submitting a prompt explicitly
+requests continuation of the **selected session**, retaining its ID and history.
+`/continue` in a background view also acquires or attaches that same session,
+not `last`. A held lock permits only an owner-handshake attempt: a rival owner or
+unreachable runner refuses execution and leaves the saved view retryable. There
+is no lock stealing or socket replacement. With the writer lock acquired, tny
+reloads the saved conversation under that lock and resolves its provider, model
+and workspace before a new runner executes. The old runner keeps ownership
+through its final save and socket removal ([ADR 0104](adr/0104-runner-quiescence-ownership.md)).
+
+New execution uses the selected session's saved provider/model/workspace with
+current settings and launch flags for the remaining options. Legacy missing
+metadata uses the [existing fallbacks](features/sessions.md#explicit-continuation-and-ownership),
+not reconstruction of old permissions, effort, credentials or other configuration
+that was never saved.
+A provider or configuration error leaves inspection available. Live attachment
+keeps the existing runner's effective configuration instead.
+
+**Checkpoint recovery is an explicit action.** Opening a saved row never
+activates its saved continuation. A typed prompt is refused while a saved
+checkpoint is present, including consumed or invalid checkpoints: it is **not
+submitted or queued**. Use `/continue` to validate the checkpoint through existing
+recovery; consumed or invalid work is rejected. Recovering valid unconsumed work
+adds no new user message and may release retained tool calls and other effects,
+not just display more text. CLI `tny resume ID` retains its existing explicit
+recovery behavior. Outside a background view, `/continue` still resumes the
+latest workspace session.
+
+The saved read-only view allows only `/help`, `/clear`, `/transcript`, `/copy`,
+`/trace`, `/agents`, `/quit`, `/exit` and `/continue`. `/clear` clears the display,
+not the saved conversation. `/cancel` is available only when attached to a
+runner. Session mutations (`/new`, `/reset`, `/resume`, `/rename`, `/compact`,
+`/undo`), settings/provider switches and auth commands are blocked. The same
+direct-mutation restrictions apply to an attached background replica: turn,
+steering, permission and cancellation controls go through its owner connection,
+never local replica saves. Read-only/save guards are separate from detach-on-exit.
+
+`/agents` and Ctrl-X return to the list immediately without restarting work.
+Quit from a background view or dashboard detaches without saving the replica;
+Ctrl-C can explicitly cancel an attached turn, but a saved read-only view has no
+cancellation authority. Ordinary foreground quit/interrupt behavior is unchanged.
+Handoff-origin pending permissions retain the runner's mode and wait for an owner
+(five-minute bound). A no-tool turn finishes before opening the list.
+
+Handoff and starting a new runner from a saved background view require native
+runner support. wasm and in-process modes reject continuation before mutation,
+not by starting an unlocked in-process writer; ephemeral mode cannot open saved
+sessions. An already successful live attachment remains usable where supported,
+even if starting a replacement runner is unavailable.
 [ADR 0107](adr/0107-tool-boundary-restart-and-agents-dashboard.md) defines the
-checkpoint and fresh-process boundary.
-[ADR 0108](adr/0108-checkpoint-recovery-and-hosted-tool-boundaries.md) adds safe
-unconsumed-checkpoint recovery and hosted search boundaries. A hosted search waits
+checkpoint and fresh-process boundary; [ADR 0108](adr/0108-checkpoint-recovery-and-hosted-tool-boundaries.md)
+defines recovery validation and hosted search boundaries. A hosted search waits
 for its provider response to finish, then checkpoints before the first local tool.
-`/agents` and Ctrl-X detach immediately from a background view without restarting it.
+[ADR 0154](adr/0154-agents-session-inspection-and-continuation.md) separates
+saved-row inspection from explicit continuation and checkpoint activation.
 
 Each interactive dashboard entry clears the visible screen and terminal scrollback
 and paints the list from the top-left corner, separate from the chat or shell

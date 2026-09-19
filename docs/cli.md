@@ -795,17 +795,38 @@ it opens the completed list instead. Nonempty drafts, idle Left and focused
 modal/question/permission inputs retain ordinary cursor editing.
 
 A successful handoff opens the same dashboard as `tny agents`. Up/Down selects a
-row and Enter claims its unique owner connection, including halfway through a
-running turn. Another live owner is refused. Completed and stale records remain
-visible honestly; selecting a completed row shows its saved conversation.
+row. Enter attaches when a live runner accepts the unique owner handshake,
+including halfway through a turn or while idle after completion; the active turn
+is not reposted. Otherwise it opens a labeled **saved read-only transcript**, even
+when a rival owns the connection or a held-lock runner is unreachable. Completed
+unlocked rows also open read-only. Opening the saved view does not resolve a
+provider, refresh credentials, start a runner, activate a checkpoint, or save
+session/settings/auth stores. Unavailable provider configuration does not prevent
+inspection.
+
+Without a saved checkpoint, submit a prompt to explicitly continue the selected
+session with its existing ID and history. `/continue` in that background view
+acquires/attaches the same session. A held lock permits an owner-handshake attempt,
+not takeover; a rival or unreachable owner refuses execution and leaves inspection
+retryable. New execution requires acquiring the writer lock, reloading the saved
+conversation under it, and resolving the selected provider/model/workspace.
+Stored completion is not
+writer quiescence ([ADR 0104](adr/0104-runner-quiescence-ownership.md)). Saved
+checkpoints require `/continue`, not a typed prompt, as described below.
+
 `tny agents --json` (or non-TTY plain output) lists the workspace without
 starting any provider. It shows live sessions (including foreground TUI sessions)
 and saved background sessions. In a Git repository, it also includes sessions
 from the main checkout and linked worktrees, including `~/.tny/worktrees`.
 This works from repository subdirectories too. Unrelated repositories are not
-included. Selecting a session switches to its checkout's settings, permissions
-and session storage. A foreground session with an attached owner is listed but
-cannot be taken over; detach its owner first. Finished foreground sessions are
+included. Inspection uses the selected session's saved text, without provider
+resolution. Live attachment retains the runner's permission mode, pending decision,
+model and workspace. New execution uses the saved provider/model/workspace plus
+current settings and launch flags for other options; legacy missing metadata uses
+the [existing fallbacks](features/sessions.md#explicit-continuation-and-ownership),
+not reconstructed historical configuration. A foreground session with an attached
+owner can be inspected but not taken over; detach its
+owner first to make owner attachment available. Finished foreground sessions are
 not retained in this list. This lists local tny sessions.
 Outside Git (or when Git is unavailable), listing remains workspace-local;
 wasm remains workspace-local because local Git is unavailable.
@@ -819,23 +840,40 @@ run active; Enter does not launch or resume a task. With `--json`, the result is
 record. Ordinary batches and invalid IDs are refused. The existing unfiltered
 session dashboard and JSON shape are unchanged. See [durable jobs](jobs.md).
 
-Quit from a background view or dashboard detaches and leaves work running.
-Ctrl-C explicitly cancels; `tny session stop ID --kill` remains available.
+The saved read-only view allows only `/help`, `/clear`, `/transcript`, `/copy`,
+`/trace`, `/agents`, `/quit`, `/exit` and `/continue`; `/cancel` requires an attached
+runner. Other commands, including session mutations, settings/provider switches
+and auth commands, are blocked. Attached background replicas also block direct
+mutations; authorized turn controls use the runner connection instead. `/clear`
+only clears the display. Quit from a background view or dashboard detaches without
+saving the replica and leaves work running. Ctrl-C explicitly cancels only an
+attached turn; `tny session stop ID --kill` remains a separate CLI operation.
 Handoff-origin ask/auto permissions wait up to five minutes for owner
 reattachment, then report timeout/denial. Ordinary unattended `tny ask -B`
-continues to deny an unanswered permission promptly. Handoff is unavailable for host-managed providers,
-wasm, ephemeral and in-process turns, with an explicit message. Foreground exit
-continues to stop an ordinary active foreground turn.
-See [ADR 0107](adr/0107-tool-boundary-restart-and-agents-dashboard.md).
+continues to deny an unanswered permission promptly. Foreground exit/interrupt
+behavior is unchanged. Handoff and new-runner continuation from a saved background
+view are unavailable in wasm and in-process modes, with refusal before mutation;
+there is no unlocked in-process fallback. A successful live attachment can remain
+usable when starting a replacement runner is unavailable. Ephemeral mode cannot
+open saved sessions. See [ADR 0107](adr/0107-tool-boundary-restart-and-agents-dashboard.md).
 
-An unconsumed handoff checkpoint can be resumed with `tny resume ID` or selected
-from `tny agents`, without an extra prompt. Recovery requires the original
-provider configuration and refuses already-activated checkpoints after an arbitrary
-crash. `agents --json` reports `running` for active work and `live` for an available
-writer, so a completed live runner still reports `status:"done"`.
+**Selecting a saved handoff checkpoint does not activate it.** While a saved
+checkpoint is present, including consumed or invalid checkpoints, a typed prompt
+is refused: it is **not submitted or queued**. Use `/continue` in that background
+view to validate the checkpoint through existing recovery; consumed or invalid
+work is rejected. Recovering valid unconsumed work adds no new user message and
+may release retained tool calls and other effects. Recovery requires compatible
+original configuration. CLI `tny resume ID` is unchanged: it remains an explicit
+recovery entry point without an extra prompt.
+Outside a background view, `/continue` still resumes the latest workspace session.
+`agents --json` reports `running` for active work and `live` for a held writer,
+not a guarantee that its owner slot is available; a completed live runner still
+reports `status:"done"`.
 
 See [ADR 0108](adr/0108-checkpoint-recovery-and-hosted-tool-boundaries.md) for
-recovery and hosted-tool boundary details.
+recovery validation and hosted-tool boundaries, and [ADR 0154](adr/0154-agents-session-inspection-and-continuation.md)
+for the explicit inspection/continuation boundary. No force-takeover control or
+new background daemon is added.
 
 ## `tny web search|fetch`
 

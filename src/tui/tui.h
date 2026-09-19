@@ -80,6 +80,7 @@ typedef struct tui {
     tny_runner_client *rc;
     pid_t rc_pid;
     bool agents_dashboard, background_view, background_armed;
+    bool session_readonly; /* saved agents view without an owner; never save or execute locally */
     session_meta *agents;
     int n_agents, agent_selected, agent_run_count;
     int64_t agents_refresh;
@@ -191,6 +192,7 @@ int tui_queue_image(tui *t, const char *path);
 void tui_agents_open(tui *t);
 void tui_agents_refresh(tui *t);
 void tui_agents_select(tui *t);
+bool tui_agents_continue(tui *t, bool prompt);
 void tui_background_arm(tui *t);
 bool tui_runner_attach(tui *t, tny_session_state *session);
 

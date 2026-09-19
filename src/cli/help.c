@@ -532,15 +532,20 @@ bool help_for(const char *command) {
                "-h, --help shows this help.\n"
                "Example: tny task-workspace inspect --run RUN --task 0 --attempt 1 --json\n";
     else if (strcmp(command, "agents") == 0)
-        text = "Usage: tny agents [--run ID] [--json]\n\nOpen the background-session dashboard "
-               "without starting a provider. Up/Down select, Enter reattaches. q exits without "
-               "stopping work. Lists live sessions and saved background sessions across this "
-               "repository's worktrees. An attached owner cannot be taken over. Non-TTY prints a "
-               "list.\n"
-               "--run ID shows the durable DAG task tree instead (status only). JSON includes "
-               "the authoritative job record in run; it never infers membership from sessions.\n"
-               "\nExamples:\n  tny agents\n  tny agents --json\n"
-               "  tny agents --run RUN_ID --json\n";
+        text =
+            "Usage: tny agents [--run ID] [--json]\n\nOpen the background-session dashboard "
+            "without starting a provider. Up/Down select, Enter attaches or opens saved read-only "
+            "text. q exits without "
+            "stopping work. Lists live sessions and saved background sessions across this "
+            "repository's worktrees. An attached owner cannot be taken over. Non-TTY prints a "
+            "list.\n"
+            "A prompt or /continue requests ownership of the selected session. Saved checkpoints "
+            "require /continue; rejected prompts are not queued. Unavailable owners are never "
+            "taken over. New continuation requires a native isolated runner.\n"
+            "--run ID shows the durable DAG task tree instead (status only). JSON includes "
+            "the authoritative job record in run; it never infers membership from sessions.\n"
+            "\nExamples:\n  tny agents\n  tny agents --json\n"
+            "  tny agents --run RUN_ID --json\n";
     else if (strcmp(command, "web") == 0)
         text = "Usage: tny web search|fetch TEXT [--json]\n\nSearch uses explicit overrides, else "
                "the Codex login for any provider/model; without that login, DuckDuckGo. "

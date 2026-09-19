@@ -518,6 +518,10 @@ static char *queue_pop(tui *t) {
 /* ---- session / backend ---- */
 
 void tui_new_session(tui *t, bool clear_screen) {
+    if (t->session_readonly || t->background_view) {
+        tui_err(t, "saved session view: return to /agents or start a separate TUI for /new");
+        return;
+    }
     if (t->turn_active) {
         tui_sys(t, "finish the turn first");
         return;
@@ -654,6 +658,10 @@ void tui_submit(tui *t, const char *text) {
     tui_overlay_clear(t); /* the menu interaction is over */
     const char *s = text;
     while (*s == ' ' || *s == '\t') s++;
+    /* Defense in depth: stale wizard state must not bypass replica guards or
+     * consume /continue as a setup answer, even if a future transition forgets
+     * to cancel the foreground wizard. */
+    if (t->session_readonly || t->background_view) tui_wizard_cancel(t);
     if (t->wiz_step) {
         tui_wizard_feed(t, s);
         return;
@@ -678,6 +686,7 @@ void tui_submit(tui *t, const char *text) {
             return;
         }
     }
+    if (t->background_view && !t->rc && !tui_agents_continue(t, true)) return;
     if (t->turn_active) {
         tui_hist_add(t, s);
         char err[256];
@@ -736,8 +745,9 @@ void tui_submit(tui *t, const char *text) {
         if (rc != 0) {
             /* the idle runner may have exited (e.g. SIGKILL): one respawn */
             tui_runner_drop(t, "rebind");
-            if (tui_runner_ensure(t, false) != 0 ||
-                tny_runner_client_turn(t->rc, s, imgs, false) != 0) {
+            bool ready = t->background_view ? tui_agents_continue(t, true)
+                                            : tui_runner_ensure(t, false) == 0;
+            if (!ready || t->turn_active || tny_runner_client_turn(t->rc, s, imgs, false) != 0) {
                 buf_clear(&t->note);
                 tui_err(t, "cannot reach the session runner");
                 t->dirty = true;
@@ -970,7 +980,8 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     if (t.engine) tny_engine_end_session(t.engine, "exit");
     tui_drop_backend(&t);
     if (t.session) {
-        if (!had_runner && !t.background_view && t.session->lock_fd >= 0) session_save(t.session);
+        if (!had_runner && !t.background_view && !t.session_readonly && t.session->lock_fd >= 0)
+            session_save(t.session);
         session_close(t.session);
     }
     mcp_shutdown_all();

@@ -1045,7 +1045,7 @@ TEST render_partial_line_at_the_margin_does_not_duplicate(void) {
     PASS();
 }
 
-TEST agents_reject_legacy_provider_before_context_changes(void) {
+TEST agents_unreadable_workspace_preserves_context(void) {
     const char *names[] = {"cursor", "acp", "acp@fixture", "acp:fixture"};
     for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
         tui t;
@@ -1056,6 +1056,8 @@ TEST agents_reject_legacy_provider_before_context_changes(void) {
         session_meta meta = {0};
         meta.backend = (char *)names[i];
         meta.workspace = "/must-not-load";
+        cli_globals g = {0};
+        t.g = &g;
         t.ctx = &ctx;
         t.agents = &meta;
         t.n_agents = 1;
@@ -1064,14 +1066,51 @@ TEST agents_reject_legacy_provider_before_context_changes(void) {
         ASSERT_STR_EQ("gateway", ctx.provider_name);
         ASSERT_STR_EQ("fixture-key", ctx.api_key);
         ASSERT_EQ(NULL, t.session);
-        ASSERT(t.out.data && strstr(t.out.data, "removed provider"));
+        ASSERT(t.out.data && strstr(t.out.data, "cannot load the background session's workspace"));
+        free_tui(&t);
+    }
+    PASS();
+}
+
+/* The dashboard transition cancels setup; submission must also fail closed
+ * if another transition ever leaves a stale wizard in either kind of replica. */
+TEST saved_view_discards_stale_provider_wizard(void) {
+    for (int attached = 0; attached < 2; attached++) {
+        tui t;
+        mk_tui(&t, 24);
+        tny_ctx ctx = {0};
+        ctx.provider_name = "fixture";
+        ctx.model = "saved-model";
+        ctx.api_key = "synthetic-only";
+        t.ctx = &ctx;
+        t.session_readonly = !attached;
+        t.background_view = attached;
+        t.wiz_step = 2;
+        t.wiz_name = xstrdup("wizard-leak");
+        t.wiz_base = xstrdup("http://127.0.0.1:1/v1");
+        t.wiz_key_env = xstrdup("WIZARD_LEAK_API_KEY");
+        t.wiz_model = xstrdup("wizard-leak-model");
+
+        tui_submit(&t, "/continue");
+        ASSERT_EQ(0, t.wiz_step);
+        ASSERT_EQ(NULL, t.wiz_name);
+        ASSERT_EQ(NULL, t.wiz_base);
+        ASSERT_EQ(NULL, t.wiz_key_env);
+        ASSERT_EQ(NULL, t.wiz_model);
+        ASSERT_STR_EQ("fixture", ctx.provider_name);
+        ASSERT_STR_EQ("saved-model", ctx.model);
+        ASSERT_STR_EQ("synthetic-only", ctx.api_key);
+        ASSERT_EQ(1, t.n_hist); /* reached command routing, not the wizard */
+        ASSERT_STR_EQ("/continue", t.hist[0]);
+        tui_hist_free(&t);
         free_tui(&t);
     }
     PASS();
 }
 
 SUITE(tui_suite) {
-    RUN_TEST(agents_reject_legacy_provider_before_context_changes);
+    RUN_TEST(agents_unreadable_workspace_preserves_context);
+    RUN_TEST(saved_view_discards_stale_provider_wizard);
     RUN_TEST(push_ansi_plain_truncates);
     RUN_TEST(push_ansi_sgr_is_zero_width);
     RUN_TEST(push_ansi_reset_survives_the_cut);

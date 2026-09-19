@@ -273,6 +273,9 @@ def base_env(home, extra=None):
     env = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": home,
+        "XDG_CONFIG_HOME": os.path.join(home, ".config"),
+        "XDG_CACHE_HOME": os.path.join(home, ".cache"),
+        "XDG_DATA_HOME": os.path.join(home, ".local/share"),
         "TERM": "xterm-256color",
         "LANG": "en_US.UTF-8",
     }

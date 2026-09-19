@@ -166,6 +166,7 @@ static void row_sep(buf_t *b, int *rows) {
 void tui_status_row(tui *t, buf_t *b, int maxw) {
     buf_t s;
     buf_init(&s);
+    if (t->session_readonly) buf_appends(&s, "read-only  ");
     buf_appendf(&s, "%s  %s  %s", tny_provider_name(t->ctx),
                 t->ctx->model ? t->ctx->model : "default", tny_perm_mode_name(t->ctx->perm_mode));
     if (t->session) buf_appendf(&s, "  %s", t->session->id);

@@ -34,6 +34,10 @@ int tui_runner_fd(const tui *t) { return t->rc ? tny_runner_client_fd(t->rc) : -
 
 int tui_runner_ensure(tui *t, bool quiet) {
     if (t->rc) return 0;
+    if (t->background_view && (!t->session || t->session->lock_fd < 0)) {
+        if (!quiet) tui_err(t, "saved view requires explicit ownership via /continue");
+        return -1;
+    }
     /* Reap runners that ended earlier (provider switches, /new, bye). In
      * runner mode this shell's only children are runners and inline-waited
      * editor spawns, so a WNOHANG sweep cannot steal anyone's status. */
@@ -45,7 +49,7 @@ int tui_runner_ensure(tui *t, bool quiet) {
     }
     /* A live writer elsewhere (background child, another shell's runner)
      * owns this session: binding our own runner would hijack its socket. */
-    if (session_is_running(t->ctx, t->session->id)) {
+    if (t->session->lock_fd < 0 && session_is_running(t->ctx, t->session->id)) {
         if (!quiet)
             tui_err(t, "session is running in another process (tny session stop to stop it)");
         return -1;
@@ -77,6 +81,10 @@ void tui_runner_drop(tui *t, const char *reason) {
     tny_runner_client_close(t->rc);
     t->rc = NULL;
     t->rc_pid = 0;
+    if (t->background_view) {
+        t->session_readonly = true;
+        t->dirty = true;
+    }
 }
 
 /* The runner finalized a turn into session.json; our copy is behind. */
@@ -92,6 +100,10 @@ static void runner_gone(tui *t) {
     tny_runner_client_close(t->rc);
     t->rc = NULL;
     t->rc_pid = 0;
+    if (t->background_view) {
+        t->session_readonly = true;
+        t->dirty = true;
+    }
 }
 
 bool tui_runner_stop(tui *t, bool force) {
@@ -115,6 +127,21 @@ bool tui_runner_stop(tui *t, bool force) {
     t->turn_done = true;
     t->stop = TNY_STOP_INTERRUPTED;
     return true;
+}
+
+/* HELLO is the live runner's display authority, not the saved row metadata. */
+static void runner_hello(tui *t, const tny_runner_msg *m) {
+    t->rc_pid = m->pid;
+    t->ctx->perm_mode = m->perm_mode;
+    if (m->turn_active) t->turn_active = true;
+    if (m->provider) {
+        free(t->ctx->provider_name);
+        t->ctx->provider_name = xstrdup(m->provider);
+    }
+    if (m->model) {
+        free(t->ctx->model);
+        t->ctx->model = xstrdup(m->model);
+    }
 }
 
 void tui_runner_dispatch(tui *t) {
@@ -168,11 +195,7 @@ void tui_runner_dispatch(tui *t) {
             t->background_armed = false;
             tui_agents_open(t);
             break;
-        case TNY_RMSG_HELLO:
-            t->rc_pid = m->pid;
-            t->ctx->perm_mode = m->perm_mode;
-            if (m->turn_active) t->turn_active = true;
-            break;
+        case TNY_RMSG_HELLO: runner_hello(t, m); break;
         case TNY_RMSG_BYE: runner_gone(t); break;
         }
         tny_runner_msg_free(m);
@@ -203,9 +226,8 @@ bool tui_runner_attach(tui *t, tny_session_state *session) {
             bool ok = hello->kind == TNY_RMSG_HELLO;
             if (ok) {
                 t->rc = client;
-                t->rc_pid = hello->pid;
                 t->turn_active = hello->turn_active;
-                t->ctx->perm_mode = hello->perm_mode;
+                runner_hello(t, hello);
             }
             tny_runner_msg_free(hello);
             if (ok) return true;

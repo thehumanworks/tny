@@ -27,7 +27,7 @@ static const struct {
     {"new", "start a new session"},
     {"reset", "new session and clear the screen"},
     {"resume", "/resume [id|last]"},
-    {"continue", "resume the latest session"},
+    {"continue", "continue selected agent (recover checkpoint); otherwise resume latest"},
     {"rename", "/rename TITLE"},
     {"compact", "condense the transcript now"},
     {"quit", "leave tny"},
@@ -43,7 +43,7 @@ static const struct {
     {"status", "provider, auth, workspace, subscription usage"},
     {"usage", "token usage for this workspace"},
     {"sessions", "list sessions for this workspace"},
-    {"agents", "background agents dashboard; select and reattach"},
+    {"agents", "background agents dashboard; attach or inspect saved text"},
     {"mcp", "list configured MCP servers"},
     {"skills", "list discovered skills"},
     {"workspace", "/workspace [add|remove DIR]"},
@@ -519,6 +519,30 @@ void tui_command(tui *t, const char *line) {
         arg = str_trim(sp + 1);
     }
     const char *c = copy;
+
+    /* A background replica is never a local writer, even while attached.
+     * Keep a small read-only allowlist: future mutating commands fail closed. */
+    if (t->session_readonly || t->background_view) {
+        static const char *READ_COMMANDS[] = {"",     "help",     "clear",  "transcript",
+                                              "copy", "trace",    "agents", "quit",
+                                              "exit", "continue", NULL};
+        bool allowed = t->rc && strcmp(c, "cancel") == 0;
+        for (const char **r = READ_COMMANDS; *r; r++)
+            if (strcmp(c, *r) == 0) allowed = true;
+        if (!allowed) {
+            tui_err(t, "read-only session replica: command unavailable; use /continue or a "
+                       "prompt for execution, /agents to return");
+            free(copy);
+            return;
+        }
+        if (strcmp(c, "continue") == 0) {
+            if (arg && *arg) tui_err(t, "use /continue without arguments for this session");
+            else if (tui_agents_continue(t, false) && t->rc)
+                tui_sys(t, "Owner attached; retained work may run. Submit a prompt when ready.");
+            free(copy);
+            return;
+        }
+    }
 
     /* commands that swap the session or backend must not race a live turn */
     static const char *LOCKED[] = {"new",     "reset",    "resume", "continue", "compact",

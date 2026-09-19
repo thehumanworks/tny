@@ -139,7 +139,7 @@ class Worktrees(unittest.TestCase):
         rows = json.loads(self.cli("agents", "--json", cwd=self.home).stdout)["agents"]
         self.assertEqual([row["session_id"] for row in rows], [local])
 
-    def provider_env(self, slow=0):
+    def provider_env(self, slow=0, **mock_options):
         port = free_port()
         env = {
             **self.env,
@@ -147,6 +147,7 @@ class Worktrees(unittest.TestCase):
             "MOCK_SLOW_MS": str(slow),
             "OPENAI_BASE_URL": f"http://127.0.0.1:{port}/v1",
             "OPENAI_API_KEY": "fixture",
+            **mock_options,
         }
         proc = subprocess.Popen(
             [sys.executable, MOCK, str(port)],
@@ -210,18 +211,32 @@ class Worktrees(unittest.TestCase):
     def test_agents_attach_in_selected_worktree(self):
         managed = self.enter()
         sid = self.saved_agent(managed, 1)
-        t = Term([TNY, "agents"], self.env, str(self.repo))
+        # Current source instructions must not leak into selected-checkout execution.
+        (self.repo / "AGENTS.md").write_text("SOURCE-ONLY-INSTRUCTIONS\n")
+        env = self.provider_env(
+            MOCK_CUSTOM_TOOL="terminal",
+            MOCK_CUSTOM_ARGUMENTS=json.dumps({"command": "pwd > continued-cwd.txt"}),
+            MOCK_EXPECT_INSTRUCTIONS="WORKTREE-INSTRUCTIONS",
+            MOCK_REJECT_INSTRUCTIONS="SOURCE-ONLY-INSTRUCTIONS",
+        )
+        t = Term([TNY, "agents"], env, str(self.repo))
         self.addCleanup(t.close)
         t.expect("Background agents")
         t.expect(sid)
         t.send("\r")
-        t.expect("Attached " + sid)
-        t.send("/status\r")
+        t.expect("Saved read-only " + sid)
         t.expect(str(managed))
+        t.send("continue in selected workspace\r")
+        t.expect("MOCK-OK")
+        self.assertEqual(
+            (managed / "continued-cwd.txt").read_text().strip(), str(managed)
+        )
+        self.assertFalse((self.repo / "continued-cwd.txt").exists())
         t.send("/agents\r")
         t.expect_next("Background agents")
         t.send("q")
         self.assertEqual(t.wait(), 0, clean(t.buf))
+        self.cli("session", "stop", sid, "--kill", cwd=managed, env=env)
 
     def test_create_from_nested_dirty_head_and_reuse(self):
         nested = self.repo / "nested"
