@@ -66,8 +66,9 @@ fails. Sessions persist for the tab (MEMFS); OPFS is later and unpromised.
   needs COOP/COEP headers GitHub Pages cannot set. **Asyncify** it is,
   with broad instrumentation first. Measured cost: a minimal fetch loop
   grew 6.8 k → 17.4 k wasm (~2.5× on a toy); the full binary lands at
-  ~695 k js+wasm — under half the 1.5 MiB Linux budget, so no narrowing
-  was needed.
+  ~695 k js+wasm — under half the then-current 1.5 MiB Linux budget, so no
+  narrowing was needed (that numeric ceiling is historical;
+  [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)).
 - **node as CI runtime.** An emcc fetch loop streams from
   `mock_openai.py` under node 22 unmodified; argv/stdout/exit codes behave
   with a plain `-o tny.js` script build (a `.mjs` build is a factory that
@@ -128,8 +129,9 @@ fails. Sessions persist for the tab (MEMFS); OPFS is later and unpromised.
   a provider wire.
 - CI gains a `wasm-node` job (emsdk 6.0.8): builds both artifacts, runs
   the openai/acp-ws/codex-attach suites with `TNY=build/wasm/tny`, guards
-  the artifact size (`wasm-size-check`, budget = the 1.5 MiB Linux
-  budget), and runs the Playwright page smoke.
+  the artifact size (`wasm-size-check`; the 1.5 MiB Linux budget is
+  historical, [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)),
+  and runs the Playwright page smoke.
 - Pages CI builds `tny-web.mjs` and publishes it under `assets/wasm/`;
   the artifact is never committed to `site/` (gitignored), but the CI
   mirror into `docs/assets/wasm/` **is** committed — Pages deploys from

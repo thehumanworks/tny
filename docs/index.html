@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-  <title>tny — Tiny C11 coding-agent harness</title>
-  <meta name="description" content="Tiny, open, native coding-agent harness. A C11 CLI and TUI that drives Cursor, Codex, ACP, and OpenAI-compatible providers.">
+  <title>tny — C11 coding-agent harness</title>
+  <meta name="description" content="Open, native coding-agent harness for agents. A C11 CLI and TUI that drives Cursor, Codex, ACP, and OpenAI-compatible providers.">
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <link rel="canonical" href="https://thehumanworks.github.io/tny/">
-  <meta property="og:title" content="tny — Tiny C11 coding-agent harness">
-  <meta property="og:description" content="Tiny, open, native coding-agent harness. A C11 CLI and TUI that drives Cursor, Codex, ACP, and OpenAI-compatible providers.">
+  <meta property="og:title" content="tny — C11 coding-agent harness">
+  <meta property="og:description" content="Open, native coding-agent harness for agents. A C11 CLI and TUI that drives Cursor, Codex, ACP, and OpenAI-compatible providers.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
   <meta name="twitter:card" content="summary_large_image">
@@ -40,7 +40,7 @@
 <main class="landing">
   <div class="landing-hero">
     <div>
-      <p class="tagline">Tiny C11 coding-agent harness.</p>
+      <p class="tagline">A C11 harness for agents, focused on the agent.</p>
       <p class="install-line">
         <button type="button" data-copy="git clone https://github.com/thehumanworks/tny && cd tny && make" aria-label="Copy install command">
           <span class="prompt">$ </span><code>git clone https://github.com/thehumanworks/tny && cd tny && make</code>
@@ -51,7 +51,7 @@
       <p class="meta">
         <span>v0.3.0</span>
         <span aria-hidden="true"> · </span>
-        <span>0.71mib</span>
+        <span>agent-first</span>
         <span aria-hidden="true"> · </span>
         status: <span class="status">experimental</span>
         <span class="info">
@@ -73,8 +73,8 @@
       </div>
     </div>
     <div class="prose">
-      <p><span class="name">tny</span> is a coding agent harness and CLI written in C11, built to beat <a href="https://fx.sh">fx</a> on size and startup while keeping a Unix-shell UI.</p>
-      <p>It focuses on a thin multiplexed frontend over host agents, plus a native OpenAI-compatible loop for BYOK providers. The stripped binary is 0.71mib.</p>
+      <p><span class="name">tny</span> is a C11 coding-agent harness for agents, built by agents, focused on the agent. User constraints and tasks are the goal. The UI is a Unix shell, not an IDE.</p>
+      <p>It is a thin multiplexed frontend over host agents, plus a native OpenAI-compatible loop for BYOK providers. Artifact size and runtime dependencies are measured per platform, without a fixed size ceiling or competitor target.</p>
       <p>The terminal on this page is the real <span class="name">tny</span> binary compiled to WebAssembly — the same sources and the same CI test suite as the native CLI. Pass <code>OPENAI_API_KEY</code> (and optionally <code>OPENAI_BASE_URL</code>) in the URL hash or paste them at the prompt. Keys stay in this tab and go only to the provider you set — never to GitHub. Your provider must allow browser (CORS) calls; <code>api.openai.com</code> does not.</p>
       <p>For end users, the form factor aims to be closer to a Unix shell than a heavy "IDE in the terminal" TUI.</p>
       <p>It's open source, model-agnostic, and suitable for local models, subscriptions, and cloud inference.</p>
@@ -83,7 +83,7 @@
     <button type="button" class="scroll-hint" data-scroll="features" aria-label="Scroll to features">***</button>
   </div>
   <section class="features" id="features">
-    <div><h2>Tiny 0.71mb binary</h2><p>Nine times smaller than fx on macOS. Designed for instant installation and embedding in resource-constrained environments and agent sandboxes.</p></div><div><h2>Instant time to prompt</h2><p>The interactive shell first-paints in <span class="hi">3–4ms</span> and does no backend I/O before accepting input. Host processes are pre-warmed after first paint so Enter is not a spawn.</p></div><div><h2>Four first-class backends</h2><p>Cursor via the complete public SDK Bridge v1.0.30, Codex subscriptions via the ChatGPT Responses backend, other agents via <a href="docs/backends.html">ACP</a>, and a native OpenAI-compatible tool loop.</p></div><div><h2>Minimal memory footprint</h2><p>About 2.1 MiB RSS for <code>--version</code>. Pack many instances on one machine without dragging a runtime along.</p></div><div><h2>Shell-like UI and ergonomics</h2><p>A Unix shell, not an IDE in the terminal. Append-only transcript, a pinned composer, slash commands, and sparing use of paints.</p></div><div><h2>Context efficient</h2><p>Minimal system prompt and lazy tool catalogs, so token cost and time-to-first-token stay on the model — not the harness.</p></div><div><h2>Host processes stay external</h2><p><code>cursor-sdk-bridge</code> and ACP agents are spawned or attached, never embedded; a Codex login is plain HTTPS. The tny binary does not ship Node, Bun, or Rust.</p></div><div><h2>Model and provider agnostic</h2><p>Local models, OpenRouter, Groq, Azure, Cursor, Codex subscriptions, or any <a href="docs/backends.html">ACP</a> agent.</p></div>
+    <div><h2>Small measured binary</h2><p>The historical v0.3.0 macOS arm64 build measured 0.71mib. Size is reported, not a ceiling. Designed for instant installation and embedding in agent sandboxes.</p></div><div><h2>Instant time to prompt</h2><p>The interactive shell first-paints in <span class="hi">3–4ms</span> and does no backend I/O before accepting input. Host processes are pre-warmed after first paint so Enter is not a spawn.</p></div><div><h2>Four first-class backends</h2><p>Cursor via the complete public SDK Bridge v1.0.30, Codex subscriptions via the ChatGPT Responses backend, other agents via <a href="docs/backends.html">ACP</a>, and a native OpenAI-compatible tool loop.</p></div><div><h2>Minimal memory footprint</h2><p>About 2.1 MiB RSS for <code>--version</code>. Pack many instances on one machine without dragging a runtime along.</p></div><div><h2>Shell-like UI and ergonomics</h2><p>A Unix shell, not an IDE in the terminal. Append-only transcript, a pinned composer, slash commands, and sparing use of paints.</p></div><div><h2>Effective context</h2><p>The agent gets the instructions, tools and results the task needs. Lazy catalogs keep unused tools off the wire; required context is not stripped to save tokens.</p></div><div><h2>Host processes stay external</h2><p><code>cursor-sdk-bridge</code> and ACP agents are spawned or attached, never embedded; a Codex login is plain HTTPS. The tny binary does not ship Node, Bun, or Rust.</p></div><div><h2>Model and provider agnostic</h2><p>Local models, OpenRouter, Groq, Azure, Cursor, Codex subscriptions, or any <a href="docs/backends.html">ACP</a> agent.</p></div>
   </section>
 </main>
 <script src="assets/site.js"></script>

@@ -7,9 +7,12 @@
 > and a REST HTTP API for scripting and session sharing. See
 > [`tnytty/docs/`](tnytty/docs/README.md).
 
-A tiny C11 coding-agent harness: an interactive TUI shell and a
-noninteractive-first CLI that drive four kinds of agent backends through one
-normalized event loop.
+A C11 coding-agent harness for agents, built by agents, focused on the
+agent: an interactive TUI shell and a noninteractive-first CLI that drive
+four kinds of agent backends through one normalized event loop. User
+constraints and tasks are the goal. Keep it fast, portable and small
+through measurement; there is no binary-size ceiling
+([ADR 0150](docs/adr/0150-agent-first-harness-and-measured-footprint.md)).
 
 ```text
 tny                          # interactive shell (lazy backend, ~4 ms first paint)
@@ -52,13 +55,13 @@ All four normalize onto one event set (text/thinking/tool/permission/plan/
 usage/turn-end) rendered by the same TUI and CLI. See
 [docs/architecture.md](docs/architecture.md).
 
-## Benchmark vs fx
+## Historical bake-off vs fx (not a product goal)
 
-tny exists to beat [vercel-labs/fx](https://github.com/vercel-labs/fx) on size
-and startup while keeping its Unix-shell feature set. Measured against the real
-fx v0.0.3 binary, macOS arm64, hyperfine, same machine (fx 2026-08-19,
+Dated measurements against the real [vercel-labs/fx](https://github.com/vercel-labs/fx)
+v0.0.3 binary, macOS arm64, hyperfine, same machine (fx 2026-08-19,
 tny 2026-08-20). The binary-size row is refreshed for v0.3.0; startup and RSS
-rows retain that historical v0.1.0 bake-off until they are remeasured:
+rows retain that historical v0.1.0 bake-off until they are remeasured. These
+numbers are evidence, not a goal to beat fx ([ADR 0150](docs/adr/0150-agent-first-harness-and-measured-footprint.md)):
 
 | Metric | fx 0.0.3 | tny | Result |
 | --- | --- | --- | --- |
@@ -171,6 +174,6 @@ tnytty's user-facing pages start at
 
 The implementation contract lives in [docs/](docs/README.md): product scope,
 architecture, CLI/TUI specs, per-backend protocol notes,
-sessions/permissions/skills/MCP behavior, and the size/speed budgets.
+sessions/permissions/skills/MCP behavior, and measured size/speed.
 tnytty's contract is [`tnytty/docs/`](tnytty/docs/README.md). Update
 both the contract and `site/` when behavior changes (`make site`).

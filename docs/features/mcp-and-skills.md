@@ -23,7 +23,7 @@ Native loop only, unless noted.
 
 ## Built-in tools
 
-Keep fx names so prompts and muscle memory transfer:
+Keep tool names stable so task prompts and agent integrations transfer:
 
 | Area | Tools |
 | --- | --- |
@@ -43,6 +43,32 @@ Keep fx names so prompts and muscle memory transfer:
 | Runtime | `ask_user_question`, `memory`, `read_tool_result` |
 
 Large results: bounded preview + session handle; `read_tool_result` reads a byte range or literal search. Background commands persist pid, cwd, log path, detected URL.
+
+### Exact-edit recovery evidence
+
+Local `edit_file` still requires an exact, unambiguous `old_string` (or explicit
+`replace_all`). A failed match never writes the file or updates undo state.
+When the shared editor identifies a uniquely nearest line, the failure also
+returns its one-based line number and a bounded snippet:
+
+```text
+error: old_string not found in /workspace/config.c
+Advisory (first nonempty search line only), line 42: const int retries = 3;
+```
+
+This is **evidence, not an accepted fuzzy match**. Similarity considers only the
+first nonempty line of the search text, not an entire multiline replacement.
+Inspect surrounding context when needed and retry with exact current text.
+Tied or missing candidates produce no advisory. The snippet is at most 300
+UTF-8 bytes, never cuts a code point, and explicitly marks truncation. Invalid
+UTF-8 prefixes are omitted. File text remains untrusted tool data, not an
+instruction or a grant of authority.
+
+Native and wasm local tools share this behavior. The separate `--ssh`
+`edit_file` path is unchanged; the `tny edit` CLI retains its existing diagnostic
+format. No new tool schema or additional model-request context is needed on
+successful edits. See [ADR 0151](../adr/0151-actionable-exact-edit-failures.md)
+for the measured comparison and its limits.
 
 ### Native tool profiles
 

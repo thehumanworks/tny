@@ -1,0 +1,12 @@
+generated 4 mutants
+  1/4  killed:u  src/core/tools_fs.c:583 [== -> !=]
+  2/4  killed:u  src/core/tools_fs.c:590 [< -> <=]
+  3/4  killed:u  src/core/tools_fs.c:583 [&& -> ||]
+  4/4  killed:u  src/core/tools_fs.c:586 [&& -> ||]
+
+== mutation results (45s) ==
+valid mutants : 4 (invalid/uncompilable: 0)
+killed by unit: 4
+killed by int : 0
+survived      : 0
+kill ratio    : 100.0%

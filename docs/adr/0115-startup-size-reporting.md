@@ -6,9 +6,12 @@ series performance comparison. Language policy is allocated ADR 0114.
 
 ## Decision
 
-Retain every existing native and wasm hard size ceiling and the automated
-`size-check` / `wasm-size-check` gates. No ceiling is relaxed until a measured,
-same-target migration delta justifies a separately documented policy decision.
+Retain every then-existing native and wasm hard size ceiling and the
+automated `size-check` / `wasm-size-check` gates. Those numeric ceilings
+are historical;
+[ADR 0150](0150-agent-first-harness-and-measured-footprint.md) removes them.
+No ceiling was relaxed in this series until a measured, same-target
+migration delta justified a separately documented policy decision.
 A language change alone supplies no such justification. Report both file size
 and the size of a stripped temporary copy, SHA-256, dynamic dependencies, and
 explicit libc++/libstdc++ matches. Never strip the benchmark input in place.

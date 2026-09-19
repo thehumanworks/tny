@@ -10,7 +10,8 @@ The GitHub Pages landing page (`site/index.html`, same chrome as [fx.sh](https:/
 shipped a static terminal mock. Visitors asked to type in it. Embedding the C
 harness as WASM is a documented non-goal (`docs/product.md`). A server-side
 proxy would see API keys and contradict "host processes stay external" plus
-the size budget (no Node on our side).
+the size budget then in force (no Node on our side; the numeric ceiling is
+historical, [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)).
 
 ## Decision
 
@@ -37,7 +38,8 @@ tny itself.
 - Slash commands that need a workspace (`@`, `$`, `/mcp`, host providers)
   degrade to "not available in the browser demo". The native tool loop here
   is `lookup_docs` plus conversation.
-- This is **not** WASM tny and does not change the C size budget.
+- This is **not** WASM tny and does not change the then-current C size
+  budget (historical; [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)).
 - API keys are sanitized at intake (`sanitizeApiKey` in `term-core.js`):
   whitespace and invisible characters (NBSP, zero-width, bidi marks, BOM) are
   stripped; any remaining non-printable-ASCII character is rejected with a

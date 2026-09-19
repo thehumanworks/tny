@@ -1,9 +1,12 @@
 # Architecture
 
-tny is a **frontend + native loop**, not a fourth coding agent. Host backends
-already own planning, tools, and sandboxing. The native OpenAI-compatible
-backend owns the general tny tool loop; explicitly registered Cursor custom
-tools are the narrow callback exception.
+tny is a **frontend + native loop**, not a fourth coding agent: a harness for
+agents, built by agents, focused on the agent
+([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)). Host
+backends already own planning, tools, and sandboxing. The native
+OpenAI-compatible backend owns the general tny tool loop; explicitly
+registered Cursor custom tools are the narrow callback exception. Keep the
+binary small by measuring it; there is no artifact-size ceiling.
 
 ```text
                     +-------------------------------------+

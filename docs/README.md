@@ -2,9 +2,9 @@
 
 Research and implementation contract for **tny**: a C11 TUI + CLI agent harness.
 
-The public static site (Geist Mono, same shape as [fx.sh](https://fx.sh)) is generated from `scripts/site_build.py` into [`site/`](../site/) and published by GitHub Pages. Rebuild with `make site`. The landing terminal is a client-side BYOK preview ([ADR 0005](adr/0005-client-side-landing-terminal.md)), not WASM tny. User-facing pages live there, including [tnytty](https://thehumanworks.github.io/tny/docs/tnytty.html); this tree remains the harness implementation contract. tnytty's contract is [`tnytty/docs/`](../tnytty/docs/README.md).
+The public static site (Geist Mono) is generated from `scripts/site_build.py` into [`site/`](../site/) and published by GitHub Pages. Rebuild with `make site`. The landing terminal is the real CLI compiled to wasm ([ADR 0017](adr/0017-wasm-browser-parity.md)); BYOK intake rules from [ADR 0005](adr/0005-client-side-landing-terminal.md) still apply. User-facing pages live there, including [tnytty](https://thehumanworks.github.io/tny/docs/tnytty.html); this tree remains the harness implementation contract. tnytty's contract is [`tnytty/docs/`](../tnytty/docs/README.md).
 
-Do not start product code until you have read this index and the files it names. The goal is to beat [fx](https://github.com/vercel-labs/fx) on size and speed, keep its user-facing functionality, and add Cursor SDK Bridge, Codex subscriptions (ChatGPT Responses backend), ACP, and OpenAI-compatible providers.
+Do not start product code until you have read this index and the files it names. tny is a harness for agents, built by agents, focused on the agent ([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)). Keep user-facing functionality, add Cursor SDK Bridge, Codex subscriptions (ChatGPT Responses backend), ACP, and OpenAI-compatible providers. Stay fast, portable and small through measurement; there is no binary-size ceiling and no competitor-size target.
 
 ## Read first
 
@@ -13,7 +13,7 @@ Do not start product code until you have read this index and the files it names.
 | [product.md](product.md) | Goal, non-goals, success metrics |
 | [architecture.md](architecture.md) | Process model, event bus, backend roles |
 | [language-and-runtime.md](language-and-runtime.md) | Why C11, library bill of materials |
-| [size-and-speed.md](size-and-speed.md) | fx baseline and tny budgets |
+| [size-and-speed.md](size-and-speed.md) | Measured footprint, speed budgets, historical bake-off |
 | [implementation-plan.md](implementation-plan.md) | Ordered phases and acceptance gates |
 | [ci.md](ci.md) | GitHub Actions: Linux arches and Darwin arm64; automatic tagged releases after green CI and SDK gates; Nix is developer-only |
 | [nix.md](nix.md) | The flake: `nix run`, overlay, dev shell, TLS/version specifics, native CI on x86_64-linux / aarch64-linux / aarch64-darwin |

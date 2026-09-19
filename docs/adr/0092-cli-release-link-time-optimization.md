@@ -2,7 +2,9 @@
 
 Date: 2026-09-12
 Status: proposed; final integrated verification pending
-Requirements: I-G1, I-G4 and the unchanged executable size gates; canonical verification contract A10.
+Requirements: I-G1, I-G4 and the then-current executable size gates
+(historical; [ADR 0150](0150-agent-first-harness-and-measured-footprint.md));
+canonical verification contract A10.
 
 ## Decision
 
@@ -10,7 +12,9 @@ Apply generic -flto to the native CLI's release object compilation and executabl
 
 ## Alternatives and consequences
 
-Raising the1MiB Linux budget would weaken a product invariant. Applying LTO to REL_CFLAGS would expand scope into libraries/sanitizers and require avoidable compatibility work. CLI-only LTO uses existing object separation, introduces no runtime dependency, and recovers size through cross-translation-unit optimization while retaining every requested behavior. A prior disposable GCC -flto=auto result justified measuring this choice but does not verify the production generic spelling. Compile/link time can increase. No unmeasured latency/throughput improvement is claimed.
+Raising the then-current 1 MiB Linux budget would have weakened a product
+invariant (that numeric gate is historical;
+[ADR 0150](0150-agent-first-harness-and-measured-footprint.md)). Applying LTO to REL_CFLAGS would expand scope into libraries/sanitizers and require avoidable compatibility work. CLI-only LTO uses existing object separation, introduces no runtime dependency, and recovers size through cross-translation-unit optimization while retaining every requested behavior. A prior disposable GCC -flto=auto result justified measuring this choice but does not verify the production generic spelling. Compile/link time can increase. No unmeasured latency/throughput improvement is claimed.
 
 ## Validation
 

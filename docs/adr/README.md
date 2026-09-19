@@ -7,6 +7,7 @@ files in this directory are the complete record.
 
 | ADR | Decision |
 | --- | --- |
+| [0150](0150-agent-first-harness-and-measured-footprint.md) | Agent-first harness: effective context, no binary-size ceiling, no competitor-size target |
 | [0136](0136-terminal-background-completion.md) | Owned background terminal completion, bounded observation and no PID polling |
 | [0001](0001-run-all-agents-in-yolo-mode.md) | All agents run in yolo mode by default |
 | [0002](0002-tui-provider-prewarm.md) | The TUI pre-warms the provider's host at startup |
@@ -60,7 +61,7 @@ files in this directory are the complete record.
 | [0050](0050-complete-cursor-sdk-v1.md) | Implement the complete public Cursor SDK Bridge v1.0.30 contract while retaining the external host and rejecting private agent.v1 |
 | [0051](0051-mcp-streamable-http.md) | Remote MCP uses POST-only Streamable HTTP with legacy sessions and stateless 2026-07-28 negotiation; GET/SSE and SSE responses fail actionably; wasm is remote-only |
 | [0052](0052-mcp-import-from-harnesses.md) | Opt-in `mcp.import_from` reads documented user/project MCP configs from Codex, Claude Code, Grok Build, and cursor-agent; `~/.tny/mcp.json` wins; remote entries are skipped behind a transport capability seam; TOML uses a bounded subset parser |
-| [0053](0053-forked-turn-isolation.md) | Every turn runs in a detached session-runner process (no tmux): the caller renders an NDJSON stream from `<session>/sock`, caller death detaches instead of killing the agent, `session attach` watches live runs, the Linux size gate tightens to 1 MiB; wasm/`--ephemeral`/`TNY_ISOLATE=0` stay in-process |
+| [0053](0053-forked-turn-isolation.md) | Every turn runs in a detached session-runner process (no tmux): the caller renders an NDJSON stream from `<session>/sock`, caller death detaches instead of killing the agent, `session attach` watches live runs; wasm/`--ephemeral`/`TNY_ISOLATE=0` stay in-process. The Linux 1 MiB size gate named here is historical ([0150](0150-agent-first-harness-and-measured-footprint.md)). |
 | [0054](0054-terminal-size-probe-and-no-autowrap-block.md) | The TUI asks the terminal for its real size (`DSR 6` after `CUP 999;999`) at startup and on `SIGWINCH`, and paints the bottom block with DECAWM off so a pty whose winsize lies (sandbox shells, web consoles) clips rows instead of duplicating the status row on every repaint |
 | [0055](0055-web-search-gating-and-command-provider.md) | `web_search` is advertised only when settings name a provider; a new `web_search_command` template (run through the `terminal` path) beats `web_search_url`; both accept `{query}` and `{{query}}` and always receive the percent-encoded query; wasm keeps the URL provider and cleanly refuses the command one |
 | [0056](0056-skill-mention-injection.md) | A `/name` or `$name` whole-token mention puts that SKILL.md in a `<skill>` block ahead of the user text for every backend (system prompt stays cacheable); a `skill_injections` session record keeps the typed text for transcripts and stops re-sending a body still in the verbatim window |
@@ -105,9 +106,9 @@ files in this directory are the complete record.
 
 - [0119 — Build-lane parity and exhaustive ownership-fault proof](0119-build-lane-parity-and-exhaustive-fault-proof.md)
 
-- [0120 — Measured Linux aarch64 C++ artifact budget](0120-measured-linux-aarch64-cpp-artifact-budget.md)
+- [0120 — Measured Linux aarch64 C++ artifact budget](0120-measured-linux-aarch64-cpp-artifact-budget.md) (historical; superseded)
 
-- [0121 — Maintainable C++ and the six-megabyte ceiling](0121-maintainable-cpp-and-six-megabyte-ceiling.md)
+- [0121 — Maintainable C++ and the six-megabyte ceiling](0121-maintainable-cpp-and-six-megabyte-ceiling.md) (numeric ceiling superseded by 0150)
 
 - [0123 — Reconcile the two C++ migration histories](0123-reconcile-the-two-cpp-migration-histories.md)
 
@@ -144,3 +145,5 @@ files in this directory are the complete record.
 - [0147 — Shared launch admission](0147-shared-admission.md)
 - [0148 — Thin asynchronous team controls](0148-team-control-over-jobs.md)
 - [0149 — Native team boundaries and safe delivery](0149-native-team-boundaries.md)
+- [0150 — Agent-first harness and measured footprint](0150-agent-first-harness-and-measured-footprint.md)
+- [0151 — Actionable exact-edit failures](0151-actionable-exact-edit-failures.md)

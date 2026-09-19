@@ -1,6 +1,11 @@
 # ADR 0120: Measured Linux aarch64 C++ artifact budget
 
-Date: 2026-09-16. Status: accepted before final candidate acceptance.
+Date: 2026-09-16. Status: superseded by
+[ADR 0121](0121-maintainable-cpp-and-six-megabyte-ceiling.md), itself
+superseded for numeric ceilings by
+[ADR 0150](0150-agent-first-harness-and-measured-footprint.md). The
+measured sizes in this file remain historical evidence. Originally accepted
+before final candidate acceptance.
 
 ## Context and authority
 
@@ -25,7 +30,7 @@ function-body bytes, but does not reduce the stripped file. Those speculative
 changes are not adopted. Dropping exception handling, unwinding, CPU erratum
 mitigation, RELRO or supported page sizes is not an acceptable budget fix.
 
-## Decision (frozen)
+## Decision (frozen at the time; numeric ceilings superseded by ADR 0150)
 
 Set the **Linux aarch64/arm64 dynamic executable ceiling to 1,052,672 bytes**:
 one MiB plus 4 KiB. This changes only that architecture's ceiling by 0.39%,

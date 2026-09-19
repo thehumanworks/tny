@@ -1,0 +1,538 @@
+{
+  "baseline_revision": "72bafe6e6c3e863f0e3f15cfa2626d7bc140b7c8",
+  "compiler": "cc (GCC) 16.2.1 20260810",
+  "platform": "Linux-7.1.9-arch1-2-x86_64-with-glibc2.44",
+  "measurement": "scripted recovery result bytes and evidence calls, not tokens or latency",
+  "corpus_sha256": {
+    "src/core/tools_fs.c": "3ae40a03c28b6bfb708ffe2373e216a299d93806b3ae038d23d8cf31ad4309fa",
+    "src/core/tools.c": "67e505ff1f6114c69250f8430b969cd8ee98a40a198ccd32cd1d6fa84ae120b1",
+    "src/core/tools_ext.c": "130b57f3aefd2c485d90a085ddbffc5909f5fcc474b984907a38c74db404a08f",
+    "src/core/edit.c": "d14a6ff232a882b4dd8cad3ca98be541a6905a65075cc369bbb0ec8e5ee6bd31",
+    "tests/test_edit.c": "07de073823aa6ea132f98b09e410d5fdcfa48f650d2fa4622e7a59a6b3df39d5",
+    "docs/features/mcp-and-skills.md": "3c38775afe9b48198d7b18f3d8696eaf85285930655059e0c9b17e8209bc77bb"
+  },
+  "sources_sha256": {
+    "src/core/tools.c": "67e505ff1f6114c69250f8430b969cd8ee98a40a198ccd32cd1d6fa84ae120b1",
+    "src/core/edit.c": "d14a6ff232a882b4dd8cad3ca98be541a6905a65075cc369bbb0ec8e5ee6bd31",
+    "src/core/image.c": "e82cb10be7f48cd3d982520d1ee81b2e3c4d9efd0558a08a763b26318f3c46c1",
+    "src/util/util.c": "bfd87209525251257344cecdcbc5d56ca07ec192bfbc35fdf69d504775d5d7e6",
+    "src/util/alloc.c": "2649a134ad37d07d879928224d3819cd3a2284ed0f2d51a34c84ea46c7a58cf5",
+    "src/util/parallel.c": "967398d3c37231e8e435e1940c5fd1e40f2796032830403bea51bcf71051e953",
+    "src/json/json.c": "e0073778180b50a7ad67f72e37d0043bbb9ef90a47a8c7ddf77d65236869de22",
+    "third_party/yyjson/yyjson.c": "ac2e9bbb2e2d9149d90878d40506a1d624fa0b33c979a11b61075c54782c6d6a"
+  },
+  "harness_sha256": {
+    "tests/bench/bench_edit_feedback.py": "9c44f69e3a90e0430b8bd080c941e0acd350be6cf6bfdc995b0bbb44b8a5ef56",
+    "tests/bench/bench_edit_feedback.c": "0eb6bdbdc1a3e3e7b7b0a21856194ccec29f32e8cb05f6e498dfca61912c7138"
+  },
+  "variant_sha256": {
+    "baseline": "3ae40a03c28b6bfb708ffe2373e216a299d93806b3ae038d23d8cf31ad4309fa",
+    "A": "c1728e57a4d1f56e7504da92399ff6dd6851e69de97301ac93fac45b4f32e038",
+    "B": "84f7f771d40ae15e5241518c5e51c4c9c9043a5e4300f239e54941cbe6e8d4bb"
+  },
+  "builds": [
+    {
+      "arm": "baseline",
+      "command": [
+        "cc",
+        "-O2",
+        "-std=c11",
+        "-D_DEFAULT_SOURCE",
+        "-D_DARWIN_C_SOURCE",
+        "-Dyyjson_api=",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-Isrc",
+        "-Iinclude",
+        "-Ithird_party/yyjson",
+        "-DTNY_BENCH_TOOLS_FS=\"/tmp/tny-edit-feedback-7buy6xgg/baseline_tools_fs.c\"",
+        "tests/bench/bench_edit_feedback.c",
+        "src/core/tools.c",
+        "src/core/edit.c",
+        "src/core/image.c",
+        "src/util/util.c",
+        "src/util/alloc.c",
+        "src/util/parallel.c",
+        "src/json/json.c",
+        "third_party/yyjson/yyjson.c",
+        "-pthread",
+        "-Wl,--gc-sections",
+        "-o",
+        "/tmp/tny-edit-feedback-7buy6xgg/baseline"
+      ],
+      "binary_sha256": "a8f04662824c50f1e6531b6bcd3b9c627e4e320c7c7efaf8da3feedc8397fbba"
+    },
+    {
+      "arm": "A",
+      "command": [
+        "cc",
+        "-O2",
+        "-std=c11",
+        "-D_DEFAULT_SOURCE",
+        "-D_DARWIN_C_SOURCE",
+        "-Dyyjson_api=",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-Isrc",
+        "-Iinclude",
+        "-Ithird_party/yyjson",
+        "-DTNY_BENCH_TOOLS_FS=\"/tmp/tny-edit-feedback-7buy6xgg/A_tools_fs.c\"",
+        "tests/bench/bench_edit_feedback.c",
+        "src/core/tools.c",
+        "src/core/edit.c",
+        "src/core/image.c",
+        "src/util/util.c",
+        "src/util/alloc.c",
+        "src/util/parallel.c",
+        "src/json/json.c",
+        "third_party/yyjson/yyjson.c",
+        "-pthread",
+        "-Wl,--gc-sections",
+        "-o",
+        "/tmp/tny-edit-feedback-7buy6xgg/A"
+      ],
+      "binary_sha256": "40100bcb49012c58102d1b7286d72325d5921d6de90abf76259c5a309bef6ce0"
+    },
+    {
+      "arm": "B",
+      "command": [
+        "cc",
+        "-O2",
+        "-std=c11",
+        "-D_DEFAULT_SOURCE",
+        "-D_DARWIN_C_SOURCE",
+        "-Dyyjson_api=",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-Isrc",
+        "-Iinclude",
+        "-Ithird_party/yyjson",
+        "-DTNY_BENCH_TOOLS_FS=\"/tmp/tny-edit-feedback-7buy6xgg/B_tools_fs.c\"",
+        "tests/bench/bench_edit_feedback.c",
+        "src/core/tools.c",
+        "src/core/edit.c",
+        "src/core/image.c",
+        "src/util/util.c",
+        "src/util/alloc.c",
+        "src/util/parallel.c",
+        "src/json/json.c",
+        "third_party/yyjson/yyjson.c",
+        "-pthread",
+        "-Wl,--gc-sections",
+        "-o",
+        "/tmp/tny-edit-feedback-7buy6xgg/B"
+      ],
+      "binary_sha256": "d04f5cfda53eb41da00ec2cc7671fbadc37c26c4638ff8005a5dc1bd761518ef"
+    }
+  ],
+  "cases": [
+    {
+      "name": "real-0-0",
+      "source_sha256": "3ae40a03c28b6bfb708ffe2373e216a299d93806b3ae038d23d8cf31ad4309fa",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-0-0.txt",
+          "recovery": "real-0-0.txt:209:static char *t_list_files(tools_env *env, yyjson_val *args) {\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-0-0.txt\nAdvisory (first nonempty search line only), line 209: static char *t_list_files(tools_env *env, yyjson_val *args) {",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-0-0.txt\nAdvisory (first nonempty search line only), line 209; read current context before retrying.",
+          "recovery": "static char *t_list_files(tools_env *env, yyjson_val *args) {\n"
+        }
+      }
+    },
+    {
+      "name": "real-0-1",
+      "source_sha256": "3ae40a03c28b6bfb708ffe2373e216a299d93806b3ae038d23d8cf31ad4309fa",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-0-1.txt",
+          "recovery": "real-0-1.txt:447:    bool ci = jget_bool(args, \"case_insensitive\", false);\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-0-1.txt\nAdvisory (first nonempty search line only), line 447:     bool ci = jget_bool(args, \"case_insensitive\", false);",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-0-1.txt\nAdvisory (first nonempty search line only), line 447; read current context before retrying.",
+          "recovery": "    bool ci = jget_bool(args, \"case_insensitive\", false);\n"
+        }
+      }
+    },
+    {
+      "name": "real-0-2",
+      "source_sha256": "3ae40a03c28b6bfb708ffe2373e216a299d93806b3ae038d23d8cf31ad4309fa",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-0-2.txt",
+          "recovery": "real-0-2.txt:645:        else buf_appendf(&out, \"error: rename %s -> %s failed\", src, dst);\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-0-2.txt\nAdvisory (first nonempty search line only), line 645:         else buf_appendf(&out, \"error: rename %s -> %s failed\", src, dst);",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-0-2.txt\nAdvisory (first nonempty search line only), line 645; read current context before retrying.",
+          "recovery": "        else buf_appendf(&out, \"error: rename %s -> %s failed\", src, dst);\n"
+        }
+      }
+    },
+    {
+      "name": "real-1-0",
+      "source_sha256": "67e505ff1f6114c69250f8430b969cd8ee98a40a198ccd32cd1d6fa84ae120b1",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-1-0.txt",
+          "recovery": "real-1-0.txt:272:    \"\\\"type\\\":\\\"string\\\"},\\\"operation\\\":{\\\"type\\\":\\\"string\\\",\\\"enum\\\":[\\\"generate\\\",\\\"edit\\\"]},\"\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-1-0.txt\nAdvisory (first nonempty search line only), line 272:     \"\\\"type\\\":\\\"string\\\"},\\\"operation\\\":{\\\"type\\\":\\\"string\\\",\\\"enum\\\":[\\\"generate\\\",\\\"edit\\\"]},\"",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-1-0.txt\nAdvisory (first nonempty search line only), line 272; read current context before retrying.",
+          "recovery": "    \"\\\"type\\\":\\\"string\\\"},\\\"operation\\\":{\\\"type\\\":\\\"string\\\",\\\"enum\\\":[\\\"generate\\\",\\\"edit\\\"]},\"\n"
+        }
+      }
+    },
+    {
+      "name": "real-1-1",
+      "source_sha256": "67e505ff1f6114c69250f8430b969cd8ee98a40a198ccd32cd1d6fa84ae120b1",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-1-1.txt",
+          "recovery": "real-1-1.txt:536:    size_t base_len = strlen(base), custom_len = strlen(custom);\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-1-1.txt\nAdvisory (first nonempty search line only), line 536:     size_t base_len = strlen(base), custom_len = strlen(custom);",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-1-1.txt\nAdvisory (first nonempty search line only), line 536; read current context before retrying.",
+          "recovery": "    size_t base_len = strlen(base), custom_len = strlen(custom);\n"
+        }
+      }
+    },
+    {
+      "name": "real-1-2",
+      "source_sha256": "67e505ff1f6114c69250f8430b969cd8ee98a40a198ccd32cd1d6fa84ae120b1",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-1-2.txt",
+          "recovery": "real-1-2.txt:837:            if (call->intercept->kind == TNY_INTERCEPT_REFUSED) {\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-1-2.txt\nAdvisory (first nonempty search line only), line 837:             if (call->intercept->kind == TNY_INTERCEPT_REFUSED) {",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-1-2.txt\nAdvisory (first nonempty search line only), line 837; read current context before retrying.",
+          "recovery": "            if (call->intercept->kind == TNY_INTERCEPT_REFUSED) {\n"
+        }
+      }
+    },
+    {
+      "name": "real-2-0",
+      "source_sha256": "130b57f3aefd2c485d90a085ddbffc5909f5fcc474b984907a38c74db404a08f",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-2-0.txt",
+          "recovery": "real-2-0.txt:81:    if (!env->session) return tool_err(\"no session\");\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-2-0.txt\nAdvisory (first nonempty search line only), line 81:     if (!env->session) return tool_err(\"no session\");",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-2-0.txt\nAdvisory (first nonempty search line only), line 81; read current context before retrying.",
+          "recovery": "    if (!env->session) return tool_err(\"no session\");\n"
+        }
+      }
+    },
+    {
+      "name": "real-2-1",
+      "source_sha256": "130b57f3aefd2c485d90a085ddbffc5909f5fcc474b984907a38c74db404a08f",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-2-1.txt",
+          "recovery": "real-2-1.txt:149:static char *t_speak(tools_env *env, yyjson_val *args) {\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-2-1.txt\nAdvisory (first nonempty search line only), line 149: static char *t_speak(tools_env *env, yyjson_val *args) {",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-2-1.txt\nAdvisory (first nonempty search line only), line 149; read current context before retrying.",
+          "recovery": "static char *t_speak(tools_env *env, yyjson_val *args) {\n"
+        }
+      }
+    },
+    {
+      "name": "real-2-2",
+      "source_sha256": "130b57f3aefd2c485d90a085ddbffc5909f5fcc474b984907a38c74db404a08f",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-2-2.txt",
+          "recovery": "real-2-2.txt:211:    if (strcmp(name, \"image_generate\") == 0 || strcmp(name, \"image_edit\") == 0)\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-2-2.txt\nAdvisory (first nonempty search line only), line 211:     if (strcmp(name, \"image_generate\") == 0 || strcmp(name, \"image_edit\") == 0)",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-2-2.txt\nAdvisory (first nonempty search line only), line 211; read current context before retrying.",
+          "recovery": "    if (strcmp(name, \"image_generate\") == 0 || strcmp(name, \"image_edit\") == 0)\n"
+        }
+      }
+    },
+    {
+      "name": "real-3-0",
+      "source_sha256": "d14a6ff232a882b4dd8cad3ca98be541a6905a65075cc369bbb0ec8e5ee6bd31",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-3-0.txt",
+          "recovery": "real-3-0.txt:174:void tny_edit_result_free(tny_edit_result *result) {\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-3-0.txt\nAdvisory (first nonempty search line only), line 174: void tny_edit_result_free(tny_edit_result *result) {",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-3-0.txt\nAdvisory (first nonempty search line only), line 174; read current context before retrying.",
+          "recovery": "void tny_edit_result_free(tny_edit_result *result) {\n"
+        }
+      }
+    },
+    {
+      "name": "real-3-1",
+      "source_sha256": "d14a6ff232a882b4dd8cad3ca98be541a6905a65075cc369bbb0ec8e5ee6bd31",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-3-1.txt",
+          "recovery": "real-3-1.txt:307:        (all_value && !yyjson_is_bool(all_value))) {\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-3-1.txt\nAdvisory (first nonempty search line only), line 307:         (all_value && !yyjson_is_bool(all_value))) {",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-3-1.txt\nAdvisory (first nonempty search line only), line 307; read current context before retrying.",
+          "recovery": "        (all_value && !yyjson_is_bool(all_value))) {\n"
+        }
+      }
+    },
+    {
+      "name": "real-3-2",
+      "source_sha256": "d14a6ff232a882b4dd8cad3ca98be541a6905a65075cc369bbb0ec8e5ee6bd31",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-3-2.txt",
+          "recovery": "real-3-2.txt:396:        if (marker_line(input, start, line_len, marker, \"END\")) {\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-3-2.txt\nAdvisory (first nonempty search line only), line 396:         if (marker_line(input, start, line_len, marker, \"END\")) {",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-3-2.txt\nAdvisory (first nonempty search line only), line 396; read current context before retrying.",
+          "recovery": "        if (marker_line(input, start, line_len, marker, \"END\")) {\n"
+        }
+      }
+    },
+    {
+      "name": "real-4-0",
+      "source_sha256": "07de073823aa6ea132f98b09e410d5fdcfa48f650d2fa4622e7a59a6b3df39d5",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-4-0.txt",
+          "recovery": "real-4-0.txt:87:TEST edit_multiple_is_ambiguous_and_does_not_write(void) {\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-4-0.txt\nAdvisory (first nonempty search line only), line 87: TEST edit_multiple_is_ambiguous_and_does_not_write(void) {",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-4-0.txt\nAdvisory (first nonempty search line only), line 87; read current context before retrying.",
+          "recovery": "TEST edit_multiple_is_ambiguous_and_does_not_write(void) {\n"
+        }
+      }
+    },
+    {
+      "name": "real-4-1",
+      "source_sha256": "07de073823aa6ea132f98b09e410d5fdcfa48f650d2fa4622e7a59a6b3df39d5",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-4-1.txt",
+          "recovery": "real-4-1.txt:164:    char *path = edit_path(dir, \"missing.txt\");\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-4-1.txt\nAdvisory (first nonempty search line only), line 164:     char *path = edit_path(dir, \"missing.txt\");",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-4-1.txt\nAdvisory (first nonempty search line only), line 164; read current context before retrying.",
+          "recovery": "    char *path = edit_path(dir, \"missing.txt\");\n"
+        }
+      }
+    },
+    {
+      "name": "real-4-2",
+      "source_sha256": "07de073823aa6ea132f98b09e410d5fdcfa48f650d2fa4622e7a59a6b3df39d5",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-4-2.txt",
+          "recovery": "real-4-2.txt:237:    char *path = edit_path(dir, \"interrupt.txt\");\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-4-2.txt\nAdvisory (first nonempty search line only), line 237:     char *path = edit_path(dir, \"interrupt.txt\");",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-4-2.txt\nAdvisory (first nonempty search line only), line 237; read current context before retrying.",
+          "recovery": "    char *path = edit_path(dir, \"interrupt.txt\");\n"
+        }
+      }
+    },
+    {
+      "name": "real-5-0",
+      "source_sha256": "3c38775afe9b48198d7b18f3d8696eaf85285930655059e0c9b17e8209bc77bb",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-5-0.txt",
+          "recovery": "real-5-0.txt:129:`echo` no backslash, because shells disagree about those.\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-5-0.txt\nAdvisory (first nonempty search line only), line 129: `echo` no backslash, because shells disagree about those.",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-5-0.txt\nAdvisory (first nonempty search line only), line 129; read current context before retrying.",
+          "recovery": "`echo` no backslash, because shells disagree about those.\n"
+        }
+      }
+    },
+    {
+      "name": "real-5-1",
+      "source_sha256": "3c38775afe9b48198d7b18f3d8696eaf85285930655059e0c9b17e8209bc77bb",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-5-1.txt",
+          "recovery": "real-5-1.txt:256:version on later requests. For MCP `2026-07-28`, a successful `server/discover`\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-5-1.txt\nAdvisory (first nonempty search line only), line 256: version on later requests. For MCP `2026-07-28`, a successful `server/discover`",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-5-1.txt\nAdvisory (first nonempty search line only), line 256; read current context before retrying.",
+          "recovery": "version on later requests. For MCP `2026-07-28`, a successful `server/discover`\n"
+        }
+      }
+    },
+    {
+      "name": "real-5-2",
+      "source_sha256": "3c38775afe9b48198d7b18f3d8696eaf85285930655059e0c9b17e8209bc77bb",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/real-5-2.txt",
+          "recovery": "real-5-2.txt:373:A positive effective parent step limit is forwarded as `--max-steps` on both\n"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/real-5-2.txt\nAdvisory (first nonempty search line only), line 373: A positive effective parent step limit is forwarded as `--max-steps` on both",
+          "recovery": ""
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/real-5-2.txt\nAdvisory (first nonempty search line only), line 373; read current context before retrying.",
+          "recovery": "A positive effective parent step limit is forwarded as `--max-steps` on both\n"
+        }
+      }
+    },
+    {
+      "name": "tie",
+      "source_sha256": "8e6775adfe0612ab2394b30c7d311448dc483a92c8762827d9c3d4222e02f61b",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/tie.txt"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/tie.txt"
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/tie.txt"
+        }
+      }
+    },
+    {
+      "name": "multiline",
+      "source_sha256": "7c2402f47f17e4855d8bb46e381f91b1614fe724c7e6e3350e166f3c8c95a7ec",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/multiline.txt"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/multiline.txt\nAdvisory (first nonempty search line only), line 2: first line"
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/multiline.txt\nAdvisory (first nonempty search line only), line 2; read current context before retrying."
+        }
+      }
+    },
+    {
+      "name": "long",
+      "source_sha256": "869f304334831c77bd3fa4ef5d96eadcdad6d4764035cdaf9d5af8a860d2d7a5",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string not found in /scratch/long.txt"
+        },
+        "A": {
+          "failure": "error: old_string not found in /scratch/long.txt\nAdvisory (first nonempty search line only), line 1: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx [truncated]"
+        },
+        "B": {
+          "failure": "error: old_string not found in /scratch/long.txt\nAdvisory (first nonempty search line only), line 1; read current context before retrying."
+        }
+      }
+    },
+    {
+      "name": "ambiguous",
+      "source_sha256": "6c410bf644e88ba5f897dfe31d304850d89b7aa9469ccd5ff31b99feea9cb3ac",
+      "outputs": {
+        "baseline": {
+          "failure": "error: old_string occurs 2 times in /scratch/ambiguous.txt; pass replace_all or a longer match"
+        },
+        "A": {
+          "failure": "error: old_string occurs 2 times in /scratch/ambiguous.txt; pass replace_all or a longer match"
+        },
+        "B": {
+          "failure": "error: old_string occurs 2 times in /scratch/ambiguous.txt; pass replace_all or a longer match"
+        }
+      }
+    }
+  ],
+  "summary": {
+    "cases": 22,
+    "recovery_cases": 18,
+    "arms": {
+      "baseline": {
+        "recovery_bytes": 2398,
+        "evidence_calls": 18,
+        "failed_files_preserved": 22,
+        "exact_retries_verified": 18
+      },
+      "A": {
+        "recovery_bytes": 3064,
+        "evidence_calls": 0,
+        "failed_files_preserved": 22,
+        "exact_retries_verified": 18
+      },
+      "B": {
+        "recovery_bytes": 3748,
+        "evidence_calls": 18,
+        "failed_files_preserved": 22,
+        "exact_retries_verified": 18
+      }
+    }
+  }
+}

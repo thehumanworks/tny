@@ -202,3 +202,8 @@ in
 # for test-subagent-ownership / test-subagent-mutation (no new runtime tools).
 # tests/integration/test_edit.py compiles fixtures/edit_mode_failure.c with the
 # existing native C compiler; test_make_contract.py reads the included Makefile.
+
+# Agent-first edit feedback: tests/bench/bench_edit_feedback.{c,py} uses the
+# existing C compiler and Python. Its paired corpus needs Git history, so run
+# the experiment outside the filtered Nix source. The edit-feedback mutation
+# focus uses the existing mutation runner; core/edit suites cover the behavior.

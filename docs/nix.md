@@ -157,8 +157,10 @@ Linux x86_64, that costs about 0.3 ms of the 5 ms `--version` budget
 the binary to inherit your environment untouched, use
 `packages.<system>.tny-unwrapped`.
 
-Both variants retain `make size-check` before fixup and check the actual installed
-tny payload against the Makefile's platform budget afterward. For a wrapped
+Both variants can still run `make size-check` before fixup and measure the
+actual installed tny payload afterward; that reports stripped bytes, it does
+not enforce a product byte ceiling
+([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)). For a wrapped
 package, the latter measures `.tny-wrapped`, not the small launcher. Linux package
 install checks also run the maintained HTTPS fixture against the installed binary
 without `LD_LIBRARY_PATH`: trusted streaming/tool turns must work and untrusted

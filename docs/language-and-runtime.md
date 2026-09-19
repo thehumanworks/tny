@@ -98,10 +98,11 @@ file transcription and cleanly reject microphone capture. See
 
 ## Current optimization priorities
 
-[ADR 0121](adr/0121-maintainable-cpp-and-six-megabyte-ceiling.md) supersedes
-old per-platform executable ceilings with a strictly-below-6,000,000-byte
-artifact guardrail. Prefer readable, explicit ownership and maintainable
-extension boundaries over byte-saving tricks. Latency, throughput, memory,
-fault recovery and ABI gates remain mandatory and independently measured.
+[ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md) removes
+numeric artifact ceilings. Prefer readable, explicit ownership and
+maintainable extension boundaries over byte-saving tricks. Measure stripped
+size and runtime dependencies; do not fail a product gate on a byte maximum.
+Latency, throughput, memory, fault recovery and ABI gates remain mandatory
+and independently measured.
 
 Implementation guide: [Extending the private C++ ownership layer](cpp-ownership.md).

@@ -1,11 +1,11 @@
 # tny
 
-tny is a C11 TUI + CLI coding-agent harness. It beats vercel-labs/fx on binary size and startup, keeps a Unix-shell UI, and drives four backends through one event loop.
+tny is a C11 TUI + CLI coding-agent harness for agents, built by agents, focused on the agent. User constraints and tasks are the goal. It keeps a Unix-shell UI and drives four backends through one event loop. There is no binary-size ceiling and no competitor-size target.
 
 - Site: https://thehumanworks.github.io/tny/
 - Source: https://github.com/thehumanworks/tny
 - Version: 0.3.0
-- Size: 749,264 bytes (~0.71 MiB) stripped (macOS arm64)
+- Historical size (v0.3.0): 749,264 bytes (~0.71 MiB) stripped (macOS arm64). Measure each release; no fixed ceiling.
 - License: see the repository
 
 ## Install
@@ -107,7 +107,7 @@ an SSH key.
 - /docs/tui.html — shell
 - /docs/backends.html — protocols
 - /docs/architecture.html — process model
-- /docs/size.html — bake-off vs fx
+- /docs/size.html — measured size and speed (historical bake-off is dated evidence)
 - /docs/tnytty.html — tnytty, the tiny terminal
 - /docs/tnytty-cli.html — tnytty command tree
 - /docs/tnytty-config.html — tnytty config file

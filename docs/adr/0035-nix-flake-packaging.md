@@ -49,8 +49,10 @@ Ship `flake.nix` plus `nix/*.nix` in this repository and build from source.
 - **The default binary is wrapped** with `python3` on PATH (`execlp("python3")`
   in the extension host) and a CA-bundle default, using `makeBinaryWrapper`
   rather than a shell wrapper. `packages.tny-unwrapped` skips it.
-- **The size budget is enforced in `checkPhase`** (`make size-check`), so a Nix
-  build cannot quietly exceed docs/size-and-speed.md.
+- **Size was enforced in `checkPhase`** (`make size-check`) against the
+  then-current docs/size-and-speed.md ceilings. Those numeric gates are
+  historical ([ADR 0150](0150-agent-first-harness-and-measured-footprint.md));
+  measurement remains.
 - `checks.tests` runs the entire `make test` suite hermetically, so
   `nix flake check` is a real gate rather than a build smoke test.
 - Systems are `x86_64-linux`, `aarch64-linux`, `aarch64-darwin`. Intel Mac is
@@ -65,11 +67,11 @@ and ACP agents are not inputs of this package.
 Linux x86_64, this flake against nixpkgs 26.11, `hyperfine -N`, 300 runs after
 20 warmups:
 
-| Metric | value | budget |
+| Metric | value | note |
 | --- | ---: | ---: |
-| stripped `tny` from `nix build` | 604,880 B | 1,572,864 B |
-| `tny --version`, wrapped (default) | 0.73 ms ± 0.12 | < 5 ms |
-| `tny --version`, `tny-unwrapped` | 0.42 ms ± 0.10 | < 5 ms |
+| stripped `tny` from `nix build` | 604,880 B | measured; 1,572,864 B was the then-current ceiling (historical, [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)) |
+| `tny --version`, wrapped (default) | 0.73 ms ± 0.12 | < 5 ms remains the speed budget |
+| `tny --version`, `tny-unwrapped` | 0.42 ms ± 0.10 | < 5 ms remains the speed budget |
 
 The wrapper costs ~0.3 ms, an eighth of the startup budget. A shell wrapper
 would have cost several times that, which is why the binary wrapper is not

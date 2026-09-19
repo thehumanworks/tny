@@ -35,5 +35,6 @@ and directory allocations not represented in C++ allocation counters.
 The transaction implementation originated in a concurrently active isolated
 worktree and was preserved and integrated with its tests after reconciliation.
 Final combined evidence and independent-review dispositions are recorded under
-`docs/verification/cpp-finalization/`. The 6 MB guardrail and original
+`docs/verification/cpp-finalization/`. The 6 MB guardrail here is historical
+([ADR 0150](0150-agent-first-harness-and-measured-footprint.md)); original
 performance gates remain unchanged.

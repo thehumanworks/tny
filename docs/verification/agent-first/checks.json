@@ -1,0 +1,110 @@
+{
+  "observed_at": "2026-09-19T03:16:48.283326+01:00",
+  "implementation_commit": "bace18615b8ca85af7b5f510ab26de4cf372641e",
+  "comparison_baseline": "72bafe6e6c3e863f0e3f15cfa2626d7bc140b7c8",
+  "source_sha256": {
+    "src/core/tools_fs.c": "c1728e57a4d1f56e7504da92399ff6dd6851e69de97301ac93fac45b4f32e038",
+    "src/core/edit.c": "d14a6ff232a882b4dd8cad3ca98be541a6905a65075cc369bbb0ec8e5ee6bd31",
+    "src/core/tools.c": "67e505ff1f6114c69250f8430b969cd8ee98a40a198ccd32cd1d6fa84ae120b1",
+    "src/core/tools_ssh.c": "a5add329efc0557903e2ee3ec955e88887050e0d6c3cbce06880a16403e7fb0c",
+    "tests/test_core.c": "6f96a7c4fc2a8b29b953805febe0fc52ebf067a2ef598a397b5dc6b49e5ab695",
+    "tests/test_edit.c": "a82495d15c915dc0d868c757f691984aacd648906ef658fb54b23668d2a49183",
+    "tests/test_cursor.c": "1ac442a0e262178d7369352d73c742dc15c50ecee5bb0666bfec34a89c437c63",
+    "tests/bench/bench_edit_feedback.c": "0eb6bdbdc1a3e3e7b7b0a21856194ccec29f32e8cb05f6e498dfca61912c7138",
+    "tests/bench/bench_edit_feedback.py": "9c44f69e3a90e0430b8bd080c941e0acd350be6cf6bfdc995b0bbb44b8a5ef56",
+    "tests/mutation/mutate.py": "9dd9e71b7b9221284fc1e3b804e40fa8f74d41282e81cd9d1517309908e51eb8",
+    "tests/packaging/test_size_budget.py": "cfc4dc6dceef8111ac91fa27abc763ff95796cd89e2dc88d985616d3a752256e",
+    "tests/integration/test_site.py": "ac5750e2f7fc4603ece60cbbb37b96d9d2b3eef2fe4d487de69552810a05710d",
+    "Makefile": "9e55cc474eb4d5d78959346e48d1a7a6c79305775d536ab33c4070c74c97f8a3",
+    "nix/package.nix": "ae252aeef5fab2182e2a53f52f5d00068b53f88780eb182bd392508e64b91140",
+    "nix/source.nix": "5d70a1d392c2f758e0fdaf079115dbc1e0078d1f0efae323aae6636b92ba4a3c",
+    "nix/tests.nix": "16681e9b446506b6b0ffcfef0a8579a96e41b18079b2d8cf0be651391406b100",
+    "scripts/site_build.py": "84f8332de3de735527ced135212617fa0276be38b49adbe03a8b26a3dd954a01",
+    "AGENTS.md": "603ad13ebc33ce10cf9fa047380761d7606c0ebdf6ac5583181b7e8b124246ab"
+  },
+  "checks": {
+    "native_unit": {
+      "passed": 602,
+      "failed": 0,
+      "skipped": 0,
+      "sanitizers": [
+        "address",
+        "undefined"
+      ]
+    },
+    "core_rerun": {
+      "passed": 120,
+      "assertions": 2310
+    },
+    "edit_rerun": {
+      "passed": 12,
+      "assertions": 104
+    },
+    "full_make_test": {
+      "exit_code": 2,
+      "integration_groups": 82,
+      "passed_groups": 81,
+      "failed_groups": [
+        "test_libtny_mutation_fault"
+      ],
+      "reason": "host GCC 16 -Wdangling-pointer in unchanged tests/test_cursor.c / Greatest failure-message storage"
+    },
+    "isolated_runtime_fault_repeat": {
+      "exit_code": 0,
+      "compiler": "Nix GCC 13.4.0",
+      "command": "python3 tests/integration/test_libtny_mutation_fault.py",
+      "build": "build/agent-first-fault"
+    },
+    "full_quality": {
+      "exit_code": 2,
+      "reason": "analyzer findings in unchanged C++ jobs/resource code; both host GCC 16 and supplied GCC 13 attempted"
+    },
+    "scoped_quality": {
+      "exit_code": 0,
+      "c_analysis_scope": [
+        "src/core/tools_fs.c"
+      ],
+      "cpp_analysis_scope": [],
+      "format_lint_scope": "full project"
+    },
+    "isolated_leaks": {
+      "exit_code": 0,
+      "compiler": "Nix GCC 13.4.0",
+      "checker": "Valgrind 3.27.1",
+      "unit_tests": 602,
+      "cli_smokes": 4,
+      "memory_errors": 0,
+      "definite_leak_bytes": 0,
+      "indirect_leak_bytes": 0
+    },
+    "mutation": {
+      "exit_code": 0,
+      "valid": 4,
+      "invalid": 0,
+      "killed_by_unit": 4,
+      "survived": 0
+    },
+    "size_reporting": {
+      "exit_code": 0,
+      "tests": 5
+    },
+    "site": {
+      "exit_code": 0,
+      "published_text_assets_matched": 31
+    },
+    "nix_expression_parse": {
+      "exit_code": 0,
+      "files": [
+        "nix/package.nix",
+        "nix/source.nix",
+        "nix/tests.nix"
+      ]
+    },
+    "unexecuted": [
+      "real wasm runtime",
+      "native Darwin/Windows",
+      "nix flake check",
+      "live-model recovery A/B"
+    ]
+  }
+}

@@ -1,7 +1,9 @@
 # 0102 — Size optimization for Linux Clang native releases
 
 Date: 2026-09-12
-Requirements: unchanged Linux dynamic1MiB budget; I-G1/I-G4; contract A24.
+Requirements: then-current Linux dynamic 1 MiB budget (historical;
+[ADR 0150](0150-agent-first-harness-and-measured-footprint.md)); I-G1/I-G4;
+contract A24.
 Supersedes only ADR0100's native Linux Clang optimization level.
 
 ## Decision

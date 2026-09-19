@@ -46,11 +46,12 @@ quality gate is an acceptable migration strategy.
 
 ## Measurement and size policy
 
-Retain all current per-platform size ceilings initially. Measure stripped
+Retain all then-current per-platform size ceilings initially. Measure stripped
 artifacts and loaded C++ runtime dependencies separately and report both.
-Any necessary size-budget revision requires a separately documented,
-measured justification and a frozen budget before candidate acceptance;
-do not remove accounting or cite historical fx sizes as current evidence.
+Any size-budget revision required a separately documented, measured
+justification; [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)
+later removes numeric ceilings. Do not cite historical fx sizes as current
+evidence.
 
 Compare a clean pre-series baseline and each integrated candidate using
 identical host/toolchain/flags/corpora. Shared startup thresholds are

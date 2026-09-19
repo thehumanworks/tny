@@ -56,7 +56,9 @@ Meanwhile the credential surfaces are well defined:
 2. **`claude` and `grok` become *builtin profiles*, not new backends.**
    Both speak OpenAI-compatible HTTP, so they run on the openai backend the
    way user-named profiles do (`provider_name` + config swap), keeping the
-   backend enum at four and the size budget untouched. A settings.json
+   backend enum at four and the then-current size budget untouched
+   (numeric ceilings are historical;
+   [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)). A settings.json
    object or `NAME_BASE_URL` env var named `claude`/`grok` **shadows** the
    builtin — explicit user config always wins.
 

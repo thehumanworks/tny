@@ -13,7 +13,7 @@ single `tny_poll` seam ([ADR 0033](adr/0033-libtny-multi-runtime-cancel.md)).
 
 - Makefile, `src/main.c` printing `--version` / `--help`
 - `tny doctor --json` reports OS, libc, missing optional host binaries
-- Size: stripped binary already under the 1.5 MiB Linux / 1.8 MiB macOS gate (it should be tens of KB)
+- Footprint: stripped artifact size and runtime dependencies measured and reported; no byte ceiling.
 
 ## Phase 1 — CLI + OpenAI-compatible
 
@@ -30,7 +30,7 @@ single `tny_poll` seam ([ADR 0033](adr/0033-libtny-multi-runtime-cancel.md)).
 - Interrupt, multiline, prompt history
 - Same native loop as `ask`
 
-**Gate:** hyperfine `tny --version` vs `fx --version`; first prompt < 10 ms.
+**Gate:** measure `tny --version` with hyperfine against the pre-change baseline; first prompt < 10 ms.
 
 ## Phase 3 — ACP client
 
@@ -56,16 +56,16 @@ single `tny_poll` seam ([ADR 0033](adr/0033-libtny-multi-runtime-cancel.md)).
 
 **Gate:** curl smoke test in CI (skip if no `CURSOR_API_KEY`); unit-test ready-line parser.
 
-## Phase 6 — ACP server + remaining fx tools
+## Phase 6 — ACP server + remaining harness tools
 
 - `tny acp` over the native loop
 - MCP, skills, subagents, `/undo`, extra dirs, compact, doctor polish
 
 **Gate:** Zed or a tiny ACP client can run one native turn.
 
-## Phase 7 — bake-off
+## Phase 7 — measurements and feature inventory
 
-- Publish size/speed table vs the fx version pinned in [size-and-speed.md](size-and-speed.md)
+- Publish reproducible footprint and startup measurements in [size-and-speed.md](size-and-speed.md), without a competitor target ([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)).
 - Fill [parity-with-fx.md](features/parity-with-fx.md)
 
 ## Phase 8 — wasm browser parity (docs/adr/0017) — DONE
@@ -74,12 +74,12 @@ single `tny_poll` seam ([ADR 0033](adr/0033-libtny-multi-runtime-cancel.md)).
 - `make wasm` (node, NODERAWFS, CI) and `make wasm-web` (browser, MEMFS) from one object set
 - ACP `--agent ws://` remote transport, native and wasm; codex over HTTPS under wasm
 - The landing page runs the artifact in xterm.js; the JS agent loop is deleted
-- CI: the same openai/acp/codex-profile mock suites against `TNY=build/wasm/tny`, a size guard, and a headless-browser smoke
+- CI: the same openai/acp/codex-profile mock suites against `TNY=build/wasm/tny`, measured wasm artifact size, and a headless-browser smoke
 
 ## Hard rules during implementation
 
 - Private C++20 ownership/decoding sources only in the areas authorized by [ADR 0114](adr/0114-private-cpp20-ownership-boundaries.md), [ADR 0126](adr/0126-checkpoint-context-ownership.md), and [ADR 0133](adr/0133-owned-subagent-launch-snapshots.md); all other existing C stays C11.
-- No new dependency without updating [language-and-runtime.md](language-and-runtime.md) and the size budget.
+- No new dependency without updating [language-and-runtime.md](language-and-runtime.md) and measuring the artifact plus runtime dependencies.
 - No secrets in the repo. Tests use fixtures, not live keys, unless the user opted in.
 - Do not implement exploit/PoC code for any system.
 - Prefer extending the native tool list over adding UI frameworks.

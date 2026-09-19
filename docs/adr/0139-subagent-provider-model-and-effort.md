@@ -92,9 +92,10 @@ The verification base is `fff9791`; the source/test diff SHA-256 is
 - `make test-subagent-mutation` passed: ownership/fault/wipe baseline and all
   14 compiled mutants killed, including the three selector-routing mutants.
 - Stripped release size: 1,032,976 bytes with host GCC 16; 1,020,848 bytes with
-  GCC 14. Both are below 6,000,000 bytes. The separately supplied C++ runtime
-  dependencies are `libstdc++.so.6` and `libgcc_s.so.1`; they are not included in
-  those artifact sizes.
+  GCC 14. Both were below the then-current 6,000,000-byte ceiling (historical;
+  [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)). The separately
+  supplied C++ runtime dependencies are `libstdc++.so.6` and `libgcc_s.so.1`;
+  they are not included in those artifact sizes.
 
 The change was rebased onto `2398f5e` before landing to include the concurrent
 SDK workflow update. The harness source and integration/ownership fixtures are

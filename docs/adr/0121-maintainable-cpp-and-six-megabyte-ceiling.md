@@ -1,23 +1,30 @@
 # ADR 0121: Maintainable C++ with a six-megabyte artifact ceiling
 
-Date: 2026-09-16. Status: accepted from explicit user direction.
-Supersedes the current executable-size policy in ADR 0120 and earlier
-platform-specific caps, not their historical measurements.
+Date: 2026-09-16. Status: superseded by
+[ADR 0150](0150-agent-first-harness-and-measured-footprint.md) for the
+numeric artifact ceiling and competitor-size mission. Maintainability,
+explicit ownership, reliable failure handling and measured speed remain
+policy. Historical measurements in this file stay as recorded.
 
-## Decision
+Originally accepted from explicit user direction. Superseded the
+executable-size policy in ADR 0120 and earlier platform-specific caps, not
+their historical measurements.
+
+## Decision (historical; numeric ceiling superseded by ADR 0150)
 
 Prioritize readable, extensible C++20 ownership, reliable failure handling and
-measured performance. Artifact size is a guardrail, not a minimization target:
-the shipped tny executable must be strictly below **6,000,000 bytes** (decimal
-MB). Apply the same guardrail to the wasm-plus-glue artifact. The Makefile's
-inclusive maximum is 5,999,999; CI, release and Nix/install checks reuse it
-instead of carrying separate platform-specific magic numbers. Explicit
-SIZE_MAX overrides remain available for deliberately stricter downstream
-builds and test fixtures; shipped workflows use the product default.
+measured performance. At the time, artifact size was a guardrail, not a
+minimization target: the shipped tny executable had to be strictly below
+**6,000,000 bytes** (decimal MB), including the wasm-plus-glue artifact. The
+Makefile's inclusive maximum was 5,999,999; CI, release and Nix/install
+checks reused it. Explicit SIZE_MAX overrides remained available for
+stricter downstream builds. [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)
+removes that product ceiling; the measured sizes and maintainability
+priority stay.
 
-C++ runtime dependencies are reported separately from the executable. This
-ceiling does not include optional external agent binaries, SDK wheel archives,
-or debug-symbol/test executables. It does not authorize silent dependency
+C++ runtime dependencies were reported separately from the executable. That
+ceiling did not include optional external agent binaries, SDK wheel archives,
+or debug-symbol/test executables. It did not authorize silent dependency
 bloat or eliminate artifact measurements.
 
 Prefer standard RAII and typed ownership rather than manual free tables,
@@ -36,8 +43,10 @@ same-host baseline and actual final measurements, not the language choice.
 
 ## Verification
 
-Boundary tests accept 5,999,999 bytes and reject 6,000,000 for native and wasm
-accounting, check every platform uses one default, and ensure workflows do
-not replace the ceiling. Installed Nix payloads retain Makefile-owned checks.
-All initial contracts and earlier ADRs remain immutable; the continuation
-contract records the user's superseding authority.
+Boundary tests then accepted 5,999,999 bytes and rejected 6,000,000 for
+native and wasm accounting, checked every platform used one default, and
+ensured workflows did not replace the ceiling. Installed Nix payloads
+retained Makefile-owned checks. Those numeric tests are historical;
+[ADR 0150](0150-agent-first-harness-and-measured-footprint.md) removes the
+product ceiling. All initial contracts and earlier ADRs remain immutable
+records.

@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>Size and speed — tny</title>
-  <meta name="description" content="Budgets and measured bake-off versus fx.">
+  <meta name="description" content="Measured footprint and speed budgets. No binary-size ceiling.">
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/size.html">
   <meta property="og:title" content="Size and speed — tny">
-  <meta property="og:description" content="Budgets and measured bake-off versus fx.">
+  <meta property="og:description" content="Measured footprint and speed budgets. No binary-size ceiling.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
   <meta name="twitter:card" content="summary_large_image">
@@ -44,11 +44,11 @@
   </div>
   <main class="docs-layout">
     <aside class="docs-sidebar"><nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html">Architecture</a><a href="size.html" aria-current="page">Size and speed</a></div></div><div class="docs-nav-group"><p>tnytty</p><div><a href="tnytty.html">The tiny terminal</a><a href="tnytty-cli.html">CLI</a><a href="tnytty-config.html">Configuration</a><a href="tnytty-api.html">HTTP API</a><a href="tnytty-architecture.html">Architecture</a></div></div></nav></aside>
-    <article class="article"><h1>Size and speed</h1><p class="lede">Beat measured fx, not the README. Host binaries are not in the budget.</p>
+    <article class="article"><h1>Size and speed</h1><p class="lede">Measure the binary. Keep startup fast. Host binaries stay external.</p>
 <h2 id="why">Why this exists</h2>
-<p>fx v0.0.3 is a 6.44 MiB macOS / 11.12 MiB static Linux Zig binary. tny's job is to keep the Unix-shell harness and undercut those numbers in C11.</p>
-<h2 id="measured">Measured bake-off</h2>
-<p>Same machine, macOS arm64, hyperfine. Binary size is current for tny 0.3.0; startup and RSS retain the historical v0.1.0 bake-off until the next performance remeasurement:</p>
+<p>tny stays fast, portable and small through measurement. There is no binary-size ceiling and no product goal to undercut another harness on artifact size. Host binaries stay external.</p>
+<h2 id="measured">Historical bake-off</h2>
+<p>Dated comparison with fx v0.0.3, same machine, macOS arm64, hyperfine. Binary size is current for tny 0.3.0; startup and RSS retain the historical v0.1.0 bake-off until the next performance remeasurement. These numbers are evidence, not a mission:</p>
 <table>
   <thead><tr><th>Metric</th><th>fx 0.0.3</th><th>tny</th><th>Result</th></tr></thead>
   <tbody>
@@ -58,7 +58,7 @@
     <tr><td>TUI first prompt</td><td>—</td><td>3.3–4.3 ms</td><td>budget &lt; 10 ms</td></tr>
   </tbody>
 </table>
-<p>Do not publish a 10 µs claim. That number is fx's <code>FX_BENCH=1</code> path (parse argv, exit before TTY). Beat measured exec and first paint.</p>
+<p>Do not publish a 10 µs claim. That number is fx's <code>FX_BENCH=1</code> path (parse argv, exit before TTY). Former 1.5 MiB / 1.8 MiB / 6 MB tny ceilings are historical.</p>
 <h2 id="ttft">Time to first token</h2>
 <p>Everything between Enter and the provider seeing the turn is pre-paid or overlapped. The TUI warms the host and creates the session in the background. <code>tny ask</code> connects while it reads a piped prompt.</p>
 <table>
@@ -69,28 +69,26 @@
   </tbody>
 </table>
 <p>What remains is the model's own time to first token. Client-side, tny is not the bottleneck.</p>
-<h2 id="budgets">Budgets</h2>
-<p>These apply to the tny executable only. Host binaries do not count.</p>
+<h2 id="budgets">Speed budgets</h2>
+<p>These apply to the tny executable. Host binaries do not count. Artifact size is measured, not capped.</p>
 <table>
-  <thead><tr><th>Build</th><th>Must</th><th>Stretch</th></tr></thead>
+  <thead><tr><th>Command</th><th>Must</th><th>Stretch</th></tr></thead>
   <tbody>
-    <tr><td>macOS arm64, stripped</td><td>&lt; 1.8 MiB</td><td>&lt; 1.2 MiB</td></tr>
-    <tr><td>Linux musl static, stripped</td><td>&lt; 1.5 MiB</td><td>&lt; 1.0 MiB</td></tr>
     <tr><td><code>--version</code> / <code>ask --help</code></td><td>&lt; 5 ms median</td><td>&lt; 2 ms</td></tr>
     <tr><td>TUI first prompt (no spawn)</td><td>&lt; 10 ms</td><td>&lt; 5 ms</td></tr>
   </tbody>
 </table>
 <h2 id="how">How it stays small</h2>
 <ul>
-  <li>C11, no C++ stdlib, no Zig runtime extras.</li>
+  <li>C11 with scoped private C++20 owners; measure C++ runtime dependencies.</li>
   <li>ANSI TUI, not a widget kit.</li>
   <li>yyjson + picohttpparser + wslay, vendored as .c files.</li>
   <li>SecureTransport <code>dlopen</code>'d at first TLS use — eager framework linking costs ~1.2 ms per launch.</li>
   <li>Lazy backend load. No upgrade/MCP/skill walk before first prompt.</li>
-  <li>No WASM, NAPI, sounds, or bundled Node in the default CLI.</li>
+  <li>No NAPI, sounds, or bundled Node in the default CLI. wasm is the landing terminal, not a second agent loop.</li>
 </ul>
 </article>
-    <aside class="toc"><p>on this page</p><a href="#why">Why</a><a href="#measured">Bake-off</a><a href="#ttft">TTFT</a><a href="#budgets">Budgets</a><a href="#how">How</a></aside>
+    <aside class="toc"><p>on this page</p><a href="#why">Why</a><a href="#measured">Bake-off</a><a href="#ttft">TTFT</a><a href="#budgets">Speed</a><a href="#how">How</a></aside>
   </main>
 </div>
 <script src="../assets/site.js"></script>

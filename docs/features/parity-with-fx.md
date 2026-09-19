@@ -1,6 +1,6 @@
 # Feature parity with fx
 
-fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https://fx.sh/llms.txt). The user-visible inventory and measured performance baseline below are the historical v0.0.3 bake-off captured 2026-08-18. The current v0.0.5 extension-hook baseline is tracked separately in [extension-hook-parity.md](extension-hook-parity.md).
+fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https://fx.sh/llms.txt). The user-visible inventory and measured performance baseline below are the historical v0.0.3 bake-off captured 2026-08-18. They are not a product goal to beat fx ([ADR 0150](../adr/0150-agent-first-harness-and-measured-footprint.md)). The current v0.0.5 extension-hook baseline is tracked separately in [extension-hook-parity.md](extension-hook-parity.md).
 
 ## v1 must match — status as built (2026-08-19, all `make test` green)
 
@@ -26,7 +26,7 @@ fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https:
 
 | Metric | fx 0.0.3 | tny 0.1.0 | Result |
 | --- | --- | --- | --- |
-| Stripped binary | 6,748,416 B (6.4 MiB) | 392,384 B (0.37 MiB) | **17.2× smaller** (budget < 2.0 MiB) |
+| Stripped binary | 6,748,416 B (6.4 MiB) | 392,384 B (0.37 MiB) | **17.2× smaller** (then-current budget < 2.0 MiB; historical) |
 | `--version` | 2.2 ms ± 0.3 | 1.9 ms ± 0.2 | **1.18× faster** |
 | Max RSS (`--version`) | 3.0 MiB | 2.1 MiB | **1.4× less memory** |
 | TUI first paint | — | 3.3–4.3 ms (pty-measured) | target < 10 ms met |
@@ -48,7 +48,7 @@ use (`src/net/stream.c`).
 
 | fx feature | Why deferred |
 | --- | --- |
-| WASM `createFxAgent` / `createFxTerminal` | Size; not needed to beat the native CLI |
+| WASM `createFxAgent` / `createFxTerminal` | Size and a second JS agent loop; native CLI plus tny.wasm already cover the landing terminal |
 | `fx login` Vercel OAuth / teams / Gateway credits | Not our vendor |
 | Completion sounds | Noise, extra assets |
 | `fx pr` / `fx issue` | Thin `gh` wrappers later |

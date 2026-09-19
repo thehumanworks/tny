@@ -40,9 +40,11 @@ scope has already failed. Tests clear the provider scope before polling, check
 two consecutive exactly-once ERROR/TURN_END settlements without allocations,
 then prove successful recovery. Each latch has its own intentional mutant.
 
-The artifact guardrail remains strictly below 6,000,000 bytes (ADR 0121).
-Maintainability and measured performance remain priorities; no byte-oriented
-redesign, exception removal, warning suppression or public ABI change is made.
+The artifact guardrail in this ADR was strictly below 6,000,000 bytes
+(ADR 0121). [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)
+removes that numeric ceiling; maintainability and measured performance
+remain priorities. No byte-oriented redesign, exception removal, warning
+suppression or public ABI change is made.
 
 ## Verification
 

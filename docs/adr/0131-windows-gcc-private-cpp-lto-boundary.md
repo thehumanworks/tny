@@ -29,8 +29,9 @@ Another checkpoint-only exemption may move the template failure to another
 module. Rewriting correct ownership or changing optimization globally would
 couple product code to a compiler defect. The consistent private C++ boundary is
 simpler and covers newly added ownership modules on this one affected toolchain.
-Windows loses C++ cross-unit optimization; no speed claim is made. All artifacts
-must remain below 6,000,000 bytes. No diagnostic or behavioral check is disabled.
+Windows loses C++ cross-unit optimization; no speed claim is made. The
+6,000,000-byte ceiling here is historical (ADR 0121); [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)
+removes it. No diagnostic or behavioral check is disabled.
 
 ## Verification
 

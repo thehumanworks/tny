@@ -55,5 +55,7 @@ and review-v2.md. The77-check ARM Windows guest probe establishes feasibility on
 Require independent access-denial tests, prewrite privacy, filename/alias and
 retained-parent cases, failure cleanup, committed-output preservation, actual guest
 product flows and native x64 hosted units/jobs. Verify Mac/Linux/WASM parity and
-unchanged size budgets. Review the first primitive slice before caller rollout.
+unchanged size budgets then in force (historical;
+[ADR 0150](0150-agent-first-harness-and-measured-footprint.md)). Review the
+first primitive slice before caller rollout.
 No claim is made to audit legacy session/vault privacy outside these callers.

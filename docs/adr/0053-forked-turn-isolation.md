@@ -139,8 +139,10 @@ loss, never an agent loss.
     per-session, exist only while a session has work or a warm host, and
     the registry of "what is attachable" is the session store itself
     (`sock` present + flock probe). The whole layer is plain
-    fork/poll/AF_UNIX inside the existing seams; the Linux size gate
-    **tightens from 1.5 MiB to 1 MiB** to pin the claim.
+    fork/poll/AF_UNIX inside the existing seams; the Linux size gate then
+    **tightened from 1.5 MiB to 1 MiB** to pin the claim (that numeric gate
+    is historical;
+    [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)).
 
 ## Consequences
 

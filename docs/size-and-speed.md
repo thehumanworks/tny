@@ -1,8 +1,21 @@
 # Size and speed
 
-## fx baseline
+Current policy: keep tny fast, portable and small through measurement. There
+is **no** binary-size ceiling and **no** product goal to beat fx on artifact
+size ([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)).
+Startup, TTFT, leak, ABI and payload bounds remain active.
 
-Measured 2026-08-18 from [fx.sh](https://fx.sh), the [README](https://github.com/vercel-labs/fx), and v0.0.3 release tarballs. fx is Zig 0.16, Apache-2.0, zero Zig package deps. It is **not** Bun/Node.
+Report stripped bytes (`wc -c`) and runtime dependencies (`otool -L` / `ldd`)
+on release builds. Host binaries (`cursor-sdk-bridge`, ACP agents) stay
+external and are not part of the tny artifact. C++ runtime libraries are
+reported separately from the executable.
+
+## Historical fx baseline (not a product goal)
+
+Measured 2026-08-18 from [fx.sh](https://fx.sh), the
+[README](https://github.com/vercel-labs/fx), and v0.0.3 release tarballs. fx
+is Zig 0.16, Apache-2.0, zero Zig package deps. It is **not** Bun/Node. These
+rows are dated bake-off evidence. They do not define tny's mission.
 
 | Artifact | Size |
 | --- | --- |
@@ -11,63 +24,47 @@ Measured 2026-08-18 from [fx.sh](https://fx.sh), the [README](https://github.com
 | **v0.0.3 macOS arm64** | **6,748,416 B = 6.436 MiB** Mach-O |
 | **v0.0.3 Linux x86_64** | **11,661,624 B = 11.12 MiB** static stripped ELF |
 | `libfx` npm 0.0.3 unpacked | 34.8 MiB (WASM/NAPI — not in tny) |
-| CI CLI budget | **2.000 ms mean** on Linux for `fx`, `help`, `status --json`, … |
+| CI CLI budget (fx's, historical) | **2.000 ms mean** on Linux for `fx`, `help`, `status --json`, … |
 
-The “10 µs” number is the `FX_BENCH=1` path (parse argv, exit before TTY). Do not publish a 10 µs claim. Beat **measured** `exec` + first paint, and beat **6.436 MiB macOS / 11.12 MiB static Linux**.
+The “10 µs” number is the `FX_BENCH=1` path (parse argv, exit before TTY). Do
+not publish a 10 µs claim. Re-measure the same fx version if you compare
+against it. Do not compare debug tny to ReleaseSafe fx. Former tny
+platform ceilings (1 MiB / 1.5 MiB / 1.8 MiB / decimal 6 MB) are likewise
+historical; ADR 0121 and ADR 0120 record those policies and their
+measurements.
 
-Re-measure the same fx version you compare against. Do not compare debug tny to ReleaseSafe fx.
-
-## tny budgets
-
-These apply to the **tny executable only**. `cursor-sdk-bridge` is a Bun-packaged host (see its `manifest.json` `runtime` field). Codex is a separate Rust binary. Neither counts.
-
-| Build | Artifact ceiling |
-| --- | --- |
-| Native tny, all supported platforms (dynamic or static) | **< 6,000,000 bytes** |
-| wasm plus JavaScript glue | **< 6,000,000 bytes** |
-
-[ADR 0121](adr/0121-maintainable-cpp-and-six-megabyte-ceiling.md) records the
-user's current priority: maintainability, explicit ownership, reliable failure
-handling and speed matter more than minimizing executable size. CI/release and
-Nix/install reuse the Makefile's one inclusive maximum of 5,999,999 bytes.
-Size tests reject an artifact exactly at 6,000,000 bytes; accounting remains.
-C++ runtime dependencies are reported separately. Previous platform ceilings
-and fx comparisons below are historical evidence, not current acceptance rules.
-Memory and performance gates remain unchanged.
+## Speed budgets
 
 Startup (empty `HOME` override, no network):
 
 | Command | Must | Stretch |
 | --- | --- | --- |
-| `tny --version` / `tny ask --help` | **< 5 ms** median | < 2 ms (match fx’s 2 ms Linux CLI gate if we can) |
+| `tny --version` / `tny ask --help` | **< 5 ms** median | < 2 ms |
 | TUI first prompt (no spawn) | **< 10 ms** | < 5 ms |
 
 Do not initialize backends until the user sends a turn or `ask` starts. Human
 `doctor` may spawn bounded health probes; `doctor --json` is a side-effect-free
 configuration/capability query and never starts a provider or Python.
 
-On aarch64 Linux the budget hides a cliff ([ADR 0111](adr/0111-aarch64-size-cliff.md)):
-the two `LOAD` segments are aligned to 64 KiB and the RELRO end must sit
-on a 64 KiB boundary, so the file grows by a whole 64 KiB the moment the
-read-only (`R E`) segment passes ≈ 975 KiB (`64 KiB − relro_size` past a
-boundary; `readelf -lW build/tny` shows the segment). Read a sudden +64 KiB
-as that cliff, not as 64 KiB of new instructions. ADR 0121 replaces the old
-architecture-specific byte constraints with the current six-megabyte guardrail. The Linux native
-lanes already omit the frame pointer and drop dead yyjson paths for margin.
+On aarch64 Linux a file-size jump can be a linker cliff, not new code
+([ADR 0111](adr/0111-aarch64-size-cliff.md)): the two `LOAD` segments are
+aligned to 64 KiB and the RELRO end must sit on a 64 KiB boundary, so the
+file grows by a whole 64 KiB the moment the read-only (`R E`) segment
+passes ≈ 975 KiB (`64 KiB − relro_size` past a boundary; `readelf -lW
+build/tny` shows the segment). Read a sudden +64 KiB as that cliff, not as
+64 KiB of new instructions. The Linux native lanes omit the frame pointer
+and drop dead yyjson paths for startup and layout reasons, not a size gate.
 
-Packaged builds pay the budget too. The Nix package
-([ADR 0035](adr/0035-nix-flake-packaging.md)) runs `make size-check` in its
-`checkPhase` and checks the installed payload against the same Makefile-owned
-budget in `installCheckPhase` ([ADR 0103](adr/0103-nix-link-time-runtime-path.md)).
-The wrapped variant measures the real `.tny-wrapped` payload. It adds a
-`makeBinaryWrapper` — a compiled wrapper, not a shell
-script — for `python3` and the CA bundle, measured at ~0.3 ms on Linux x86_64
-(0.73 ms wrapped vs 0.42 ms unwrapped). A shell wrapper would cost several
-times that; `packages.tny-unwrapped` skips it entirely.
+The Nix package ([ADR 0035](adr/0035-nix-flake-packaging.md)) still builds
+through the Makefile. Installed payload measurement and the compiled
+`makeBinaryWrapper` (~0.3 ms on Linux x86_64: 0.73 ms wrapped vs 0.42 ms
+unwrapped) remain; they are not a byte ceiling. `packages.tny-unwrapped`
+skips the wrapper.
 
-## How we stay under fx
+## How we stay small and fast
 
-1. C11 with scoped private C++20 owners (ADR 0114); measure C++ runtime dependencies and artifact deltas. No Zig runtime extras.
+1. C11 with scoped private C++20 owners (ADR 0114); measure C++ runtime
+   dependencies and artifact deltas. No Zig runtime extras.
 2. ANSI TUI, not a widget kit.
 3. yyjson + picohttpparser + wslay, vendored as .c files you can see in `nm`.
    (nanopb deferred: v1 speaks Connect with the JSON codec, no protobuf runtime.)
@@ -78,18 +75,23 @@ times that; `packages.tny-unwrapped` skips it entirely.
    stays libssl-free). Never static or vendored OpenSSL. musl static builds
    cannot dlopen: plain http works, https errors cleanly there.
 5. Lazy backend load: Cursor/Codex/ACP stay cold until selected. No upgrade/MCP/skill walk before first prompt.
-6. No WASM, NAPI, sounds, or bundled Node in the default CLI.
+6. No NAPI, sounds, or bundled Node in the default CLI. wasm is the landing
+   terminal ([ADR 0017](adr/0017-wasm-browser-parity.md)), not a second
+   agent loop.
 
-## Measurement recipe (when code exists)
+Do not UPX. Do not weaken ownership, error handling or cleanup to shave bytes.
+
+## Measurement recipe
 
 ```bash
 make release
 strip build/tny
 wc -c build/tny
-hyperfine --warmup 3 './build/tny --version' 'fx --version'
+hyperfine --warmup 3 './build/tny --version'
 ```
 
-Publish the table in the root README once numbers are real. Until then, beat **6.436 MiB macOS / 11.12 MiB static Linux** and the budgets above. Do not UPX.
+Publish dated tables when numbers are real. Same-host before/after numbers
+are required for performance claims.
 
 ## SDK event-schema foundation (ABI 0.3)
 
@@ -111,11 +113,11 @@ and startup did not regress measurably.
 
 ## C++ ownership series: reproducible startup gate
 
-The private ownership migration (ADR 0114, issues #137–#139) keeps the size
-ceilings above unless a separately measured policy amendment justifies a
-revision. Report `otool -L` / `ldd` dependencies alongside stripped bytes;
-a dynamically loaded C++ runtime is not part of the executable's byte count.
-Do not attribute a language change's size or speed effect without measurement.
+The private ownership migration (ADR 0114, issues #137–#139) reports `otool
+-L` / `ldd` dependencies alongside stripped bytes; a dynamically loaded C++
+runtime is not part of the executable's byte count. Do not attribute a
+language change's size or speed effect without measurement. There is no
+artifact-size ceiling to keep ([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)).
 
 Use an idle reference host, identical toolchain/release flags, and immutable
 baseline/candidate binaries. The startup runner creates a new empty HOME and

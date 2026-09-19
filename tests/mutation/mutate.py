@@ -36,6 +36,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/core/tools_fs.c",
+        ["t_edit_file"],
+        r"while \(cut &&|if \(cut &&|if \(cut < len\)",
+        "tests/integration/test_edit.py",
+        "edit-feedback",
+    ),
+    (
         "src/tui/tui_draw.c",
         ["tui_clear_screen"],
         None,

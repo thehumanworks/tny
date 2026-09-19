@@ -2,9 +2,9 @@
 
 The goal is fewer manual cleanup paths and clearer lifetime contracts, not
 turning every C file into C++. The public ABI remains C; scheduling and OS
-operations remain in their existing owners. See ADRs 0121 and 0123 for the
-current priorities and reconciled implementation. Binary size is a guardrail
-below decimal 6 MB, not a reason to weaken error handling or obscure code.
+operations remain in their existing owners. See ADRs 0123 and 0150 for the
+reconciled implementation and current priorities. Binary size is measured,
+not a ceiling; do not weaken error handling or obscure code to shave bytes.
 
 ## Choose the right owner
 

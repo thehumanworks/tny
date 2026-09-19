@@ -6,8 +6,10 @@ Status: accepted
 ## Context
 
 tny had no compile/test workflow — only GitHub Pages. The product size
-budgets ([size-and-speed.md](../size-and-speed.md)) already say CI must fail
-a PR that exceeds them, and the publish shape for Linux is **musl static**.
+budgets then in [size-and-speed.md](../size-and-speed.md) said CI must fail
+a PR that exceeds them (those numeric ceilings are historical;
+[ADR 0150](0150-agent-first-harness-and-measured-footprint.md)). The publish
+shape for Linux is **musl static**.
 Users also need a Darwin arm64 binary (Apple Silicon / Metal) and a Windows
 binary. Intel Mac is not a target.
 
@@ -28,8 +30,9 @@ console API) is a large follow-up, not a CI prerequisite.
    That runtime provides `fork` / `poll` / `termios` so the existing C
    compiles. Ship `msys-2.0.dll` next to `tny.exe`.
 
-Size gates: 1.5 MiB Linux, 1.8 MiB Darwin, 2.0 MiB Windows. Host binaries
-stay external.
+Size gates at the time: 1.5 MiB Linux, 1.8 MiB Darwin, 2.0 MiB Windows
+(historical; [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)).
+Host binaries stay external.
 
 ## Consequences
 

@@ -42,7 +42,9 @@ wrapper exists, otherwise `bin/tny`. Obtain the applicable SIZE_MAX from the
 existing Makefile by adding a command-line query target with make --eval; do not
 copy platform constants into Nix. Refuse a nonnumeric/empty limit and an installed
 payload whose byte count is at or above that limit. This checks both wrapped and
-unwrapped packages and preserves Makefile ownership of platform budgets.
+unwrapped packages and preserved Makefile ownership of the then-current
+platform budgets (numeric ceilings are historical;
+[ADR 0150](0150-agent-first-harness-and-measured-footprint.md)).
 
 Retain installed version/help/doctor checks. On Linux, run the maintained HTTPS
 fixture against the installed executable with test-only Python/OpenSSL/tini
@@ -90,5 +92,6 @@ sufficient evidence that the installed package meets the documented budget.
   final flake checks after all approved fixes are integrated.
 
 This narrows ADR 0035's post-fixup RUNPATH mechanism for the CLI package and closes
-its installed-size measurement gap. It changes no size budget, eager-loading
-policy, public API or unrelated package.
+its installed-size measurement gap. It changed no size budget then in force,
+eager-loading policy, public API or unrelated package. Numeric ceilings are
+historical ([ADR 0150](0150-agent-first-harness-and-measured-footprint.md)).

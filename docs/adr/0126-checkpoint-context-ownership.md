@@ -69,5 +69,7 @@ and private-field negative controls; sanitizer/leak checks and runtime mutants.
 gates. The same fixture has `--bench` for baseline/candidate measurements.
 Measurements, review dispositions and exact-source evidence belong in the
 [verification record](../verification/cpp-checkpoint-142/evidence.md). This ADR
-makes no speedup or total memory-safety claim. ADR0121's strictly-below-6,000,000
-byte artifact limit and separate runtime dependency accounting remain active.
+makes no speedup or total memory-safety claim. ADR 0121's
+strictly-below-6,000,000 byte artifact limit was current when this shipped;
+[ADR 0150](0150-agent-first-harness-and-measured-footprint.md) removes that
+ceiling. Separate runtime dependency accounting remains active.

@@ -245,8 +245,8 @@ def article(title: str, lede: str, inner: str) -> str:
 def landing() -> str:
     features = [
         (
-            "Tiny 0.71mb binary",
-            "Nine times smaller than fx on macOS. Designed for instant installation and embedding in resource-constrained environments and agent sandboxes.",
+            "Small measured binary",
+            f"The historical v0.3.0 macOS arm64 build measured {SIZE}. Size is reported, not a ceiling. Designed for instant installation and embedding in agent sandboxes.",
         ),
         (
             "Instant time to prompt",
@@ -265,8 +265,8 @@ def landing() -> str:
             "A Unix shell, not an IDE in the terminal. Append-only transcript, a pinned composer, slash commands, and sparing use of paints.",
         ),
         (
-            "Context efficient",
-            "Minimal system prompt and lazy tool catalogs, so token cost and time-to-first-token stay on the model — not the harness.",
+            "Effective context",
+            "The agent gets the instructions, tools and results the task needs. Lazy catalogs keep unused tools off the wire; required context is not stripped to save tokens.",
         ),
         (
             "Host processes stay external",
@@ -280,7 +280,7 @@ def landing() -> str:
     body = f"""<main class="landing">
   <div class="landing-hero">
     <div>
-      <p class="tagline">Tiny C11 coding-agent harness.</p>
+      <p class="tagline">A C11 harness for agents, focused on the agent.</p>
       <p class="install-line">
         <button type="button" data-copy="{INSTALL}" aria-label="Copy install command">
           <span class="prompt">$ </span><code>{INSTALL}</code>
@@ -291,7 +291,7 @@ def landing() -> str:
       <p class="meta">
         <span>v{VERSION}</span>
         <span aria-hidden="true"> · </span>
-        <span>{SIZE}</span>
+        <span>agent-first</span>
         <span aria-hidden="true"> · </span>
         status: <span class="status">experimental</span>
         <span class="info">
@@ -313,8 +313,8 @@ def landing() -> str:
       </div>
     </div>
     <div class="prose">
-      <p><span class="name">tny</span> is a coding agent harness and CLI written in C11, built to beat <a href="https://fx.sh">fx</a> on size and startup while keeping a Unix-shell UI.</p>
-      <p>It focuses on a thin multiplexed frontend over host agents, plus a native OpenAI-compatible loop for BYOK providers. The stripped binary is {SIZE}.</p>
+      <p><span class="name">tny</span> is a C11 coding-agent harness for agents, built by agents, focused on the agent. User constraints and tasks are the goal. The UI is a Unix shell, not an IDE.</p>
+      <p>It is a thin multiplexed frontend over host agents, plus a native OpenAI-compatible loop for BYOK providers. Artifact size and runtime dependencies are measured per platform, without a fixed size ceiling or competitor target.</p>
       <p>The terminal on this page is the real <span class="name">tny</span> binary compiled to WebAssembly — the same sources and the same CI test suite as the native CLI. Pass <code>OPENAI_API_KEY</code> (and optionally <code>OPENAI_BASE_URL</code>) in the URL hash or paste them at the prompt. Keys stay in this tab and go only to the provider you set — never to GitHub. Your provider must allow browser (CORS) calls; <code>api.openai.com</code> does not.</p>
       <p>For end users, the form factor aims to be closer to a Unix shell than a heavy "IDE in the terminal" TUI.</p>
       <p>It's open source, model-agnostic, and suitable for local models, subscriptions, and cloud inference.</p>
@@ -327,8 +327,8 @@ def landing() -> str:
   </section>
 </main>"""
     return page_shell(
-        title="tny — Tiny C11 coding-agent harness",
-        description="Tiny, open, native coding-agent harness. A C11 CLI and TUI that drives Cursor, Codex, ACP, and OpenAI-compatible providers.",
+        title="tny — C11 coding-agent harness",
+        description="Open, native coding-agent harness for agents. A C11 CLI and TUI that drives Cursor, Codex, ACP, and OpenAI-compatible providers.",
         from_docs=False,
         active=None,
         canonical="",
@@ -428,7 +428,7 @@ def docs_install() -> str:
 <h2 id="ci">CI binaries</h2>
 <p>Every pull request builds stripped artifacts on Linux x86_64 and aarch64 (glibc and musl static), Darwin arm64 (Apple Silicon / Metal — not Intel x86). Nix is an optional developer workflow, not a CI gate. Download them from the <code>ci</code> workflow run.</p>
 <h2 id="size">What you should see</h2>
-<p>A stripped Linux or macOS arm64 binary well under 2 MiB. Current measured size is {SIZE} on macOS arm64. <code>tny --version</code> and <code>tny ask --help</code> should return in a couple of milliseconds.</p>
+<p>The historical v0.3.0 macOS arm64 build measured {SIZE}; measure your release with <code>make size-check</code>. Size is reported, not gated by a product ceiling. <code>tny --version</code> and <code>tny ask --help</code> should return in a couple of milliseconds.</p>
 {cmd("tny --version")}
 {cmd("tny doctor --json")}
 <h2 id="hosts">Optional host binaries</h2>
@@ -1140,9 +1140,9 @@ def docs_architecture() -> str:
 def docs_size() -> str:
     inner = f"""
 <h2 id="why">Why this exists</h2>
-<p>fx v0.0.3 is a 6.44 MiB macOS / 11.12 MiB static Linux Zig binary. tny's job is to keep the Unix-shell harness and undercut those numbers in C11.</p>
-<h2 id="measured">Measured bake-off</h2>
-<p>Same machine, macOS arm64, hyperfine. Binary size is current for tny {VERSION}; startup and RSS retain the historical v0.1.0 bake-off until the next performance remeasurement:</p>
+<p>tny stays fast, portable and small through measurement. There is no binary-size ceiling and no product goal to undercut another harness on artifact size. Host binaries stay external.</p>
+<h2 id="measured">Historical bake-off</h2>
+<p>Dated comparison with fx v0.0.3, same machine, macOS arm64, hyperfine. Binary size is current for tny {VERSION}; startup and RSS retain the historical v0.1.0 bake-off until the next performance remeasurement. These numbers are evidence, not a mission:</p>
 <table>
   <thead><tr><th>Metric</th><th>fx 0.0.3</th><th>tny</th><th>Result</th></tr></thead>
   <tbody>
@@ -1152,7 +1152,7 @@ def docs_size() -> str:
     <tr><td>TUI first prompt</td><td>—</td><td>3.3–4.3 ms</td><td>budget &lt; 10 ms</td></tr>
   </tbody>
 </table>
-<p>Do not publish a 10 µs claim. That number is fx's <code>FX_BENCH=1</code> path (parse argv, exit before TTY). Beat measured exec and first paint.</p>
+<p>Do not publish a 10 µs claim. That number is fx's <code>FX_BENCH=1</code> path (parse argv, exit before TTY). Former 1.5 MiB / 1.8 MiB / 6 MB tny ceilings are historical.</p>
 <h2 id="ttft">Time to first token</h2>
 <p>Everything between Enter and the provider seeing the turn is pre-paid or overlapped. The TUI warms the host and creates the session in the background. <code>tny ask</code> connects while it reads a piped prompt.</p>
 <table>
@@ -1163,30 +1163,28 @@ def docs_size() -> str:
   </tbody>
 </table>
 <p>What remains is the model's own time to first token. Client-side, tny is not the bottleneck.</p>
-<h2 id="budgets">Budgets</h2>
-<p>These apply to the tny executable only. Host binaries do not count.</p>
+<h2 id="budgets">Speed budgets</h2>
+<p>These apply to the tny executable. Host binaries do not count. Artifact size is measured, not capped.</p>
 <table>
-  <thead><tr><th>Build</th><th>Must</th><th>Stretch</th></tr></thead>
+  <thead><tr><th>Command</th><th>Must</th><th>Stretch</th></tr></thead>
   <tbody>
-    <tr><td>macOS arm64, stripped</td><td>&lt; 1.8 MiB</td><td>&lt; 1.2 MiB</td></tr>
-    <tr><td>Linux musl static, stripped</td><td>&lt; 1.5 MiB</td><td>&lt; 1.0 MiB</td></tr>
     <tr><td><code>--version</code> / <code>ask --help</code></td><td>&lt; 5 ms median</td><td>&lt; 2 ms</td></tr>
     <tr><td>TUI first prompt (no spawn)</td><td>&lt; 10 ms</td><td>&lt; 5 ms</td></tr>
   </tbody>
 </table>
 <h2 id="how">How it stays small</h2>
 <ul>
-  <li>C11, no C++ stdlib, no Zig runtime extras.</li>
+  <li>C11 with scoped private C++20 owners; measure C++ runtime dependencies.</li>
   <li>ANSI TUI, not a widget kit.</li>
   <li>yyjson + picohttpparser + wslay, vendored as .c files.</li>
   <li>SecureTransport <code>dlopen</code>'d at first TLS use — eager framework linking costs ~1.2 ms per launch.</li>
   <li>Lazy backend load. No upgrade/MCP/skill walk before first prompt.</li>
-  <li>No WASM, NAPI, sounds, or bundled Node in the default CLI.</li>
+  <li>No NAPI, sounds, or bundled Node in the default CLI. wasm is the landing terminal, not a second agent loop.</li>
 </ul>
 """
     return page_shell(
         title="Size and speed — tny",
-        description="Budgets and measured bake-off versus fx.",
+        description="Measured footprint and speed budgets. No binary-size ceiling.",
         from_docs=True,
         active="docs",
         canonical="docs/size.html",
@@ -1195,12 +1193,12 @@ def docs_size() -> str:
             ("why", "Why"),
             ("measured", "Bake-off"),
             ("ttft", "TTFT"),
-            ("budgets", "Budgets"),
+            ("budgets", "Speed"),
             ("how", "How"),
         ],
         body=article(
             "Size and speed",
-            "Beat measured fx, not the README. Host binaries are not in the budget.",
+            "Measure the binary. Keep startup fast. Host binaries stay external.",
             inner,
         ),
     )

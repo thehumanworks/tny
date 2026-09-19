@@ -227,3 +227,8 @@ stdenv.mkDerivation {
 
 # test-native-leaks is the external-host leak runner (leaks on Darwin,
 # valgrind on Linux); test-native-lifecycle enables ASan/UBSan/LSan here.
+
+# Agent-first edit feedback: tests/bench/bench_edit_feedback.{c,py} uses the
+# existing C compiler and Python. Its paired corpus needs Git history, so run
+# the experiment outside the filtered Nix source. The edit-feedback mutation
+# focus uses the existing mutation runner; core/edit suites cover the behavior.

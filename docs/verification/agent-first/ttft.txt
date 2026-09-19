@@ -1,0 +1,2 @@
+baseline   ask-stdin  median=  268.7ms  min=  267.4ms  runs=[267, 268, 268, 269, 269, 272, 272]
+agent-first ask-stdin  median=  268.7ms  min=  266.5ms  runs=[266, 267, 269, 269, 269, 270, 317]

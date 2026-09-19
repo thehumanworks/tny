@@ -168,6 +168,13 @@ def run(args: argparse.Namespace) -> dict:
         measurement="scripted recovery result bytes and evidence calls, not tokens or latency",
         corpus_sha256=hashes,
         sources_sha256={name: digest((ROOT / name).read_bytes()) for name in SOURCES},
+        harness_sha256={
+            name: digest((ROOT / name).read_bytes())
+            for name in (
+                "tests/bench/bench_edit_feedback.py",
+                "tests/bench/bench_edit_feedback.c",
+            )
+        },
         variant_sha256={
             arm: digest(source.encode()) for arm, source in variants.items()
         },
@@ -260,20 +267,25 @@ def run(args: argparse.Namespace) -> dict:
                         arm, "grep_files", dict(path=name, pattern=case["context"])
                     )
                     assert recovery == f"{name}:{case['line']}:{case['context']}\n"
+                    retry_text = recovery.split(":", 2)[2].removesuffix("\n")
                 elif arm == "B":
+                    hint = response.split(HINT, 1)[1]
+                    offset = int(hint.split(";", 1)[0])
                     recovery = call(
-                        arm, "read_file", dict(path=name, offset=case["line"], limit=1)
+                        arm, "read_file", dict(path=name, offset=offset, limit=1)
                     )
                     assert recovery == case["context"] + "\n"
+                    retry_text = recovery.removesuffix("\n")
+                else:
+                    retry_text = response.split(HINT, 1)[1].split(": ", 1)[1]
+                assert retry_text == case["context"]
                 totals[arm]["recovery_bytes"] += len((response + recovery).encode())
                 totals[arm]["evidence_calls"] += int(bool(recovery))
                 outputs[arm]["recovery"] = recovery
                 corrected = call(
                     arm,
                     "edit_file",
-                    dict(
-                        path=name, old_string=case["context"], new_string="replacement"
-                    ),
+                    dict(path=name, old_string=retry_text, new_string="replacement"),
                 )
                 assert corrected.startswith("replaced 1 occurrence"), (
                     arm,

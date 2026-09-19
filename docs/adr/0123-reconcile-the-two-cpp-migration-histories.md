@@ -30,6 +30,7 @@ contract describe the integrated state. New decisions use unique serials.
 
 This is not a merge into main or a force-push. The feature PR becomes a normal
 reviewable descendant of main. The public headers, ABI definitions and
-unrelated worktrees remain unchanged. Only the newer explicit six-MB policy
-(ADR0121) supersedes historical artifact constraints; performance and memory
-safety requirements remain active.
+unrelated worktrees remain unchanged. At reconciliation, the explicit six-MB
+policy (ADR 0121) superseded historical artifact constraints;
+[ADR 0150](0150-agent-first-harness-and-measured-footprint.md) later removes
+that ceiling. Performance and memory safety requirements remain active.

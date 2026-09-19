@@ -28,7 +28,7 @@ See [ADR 0135](adr/0135-clean-build-variants.md).
 | `tny-linux-x86_64-musl` | `ubuntu-24.04` + Alpine 3.21 | **static** musl; unit tests + smoke |
 | `tny-linux-aarch64-musl` | `ubuntu-24.04-arm` + Alpine 3.21 | **static** musl; unit tests + smoke |
 | `tny-darwin-arm64` | `macos-15` | Apple Silicon only; ASan unit tests, shell workflows, libtny fault/fuzz/ownership checks, ImageMagick 7 conversion tests, size and package |
-| `tny-wasm` (`tny.js`+`tny.wasm`, `tny-web.mjs`+`.wasm`) | `ubuntu-24.04` + emsdk 6.0.8 | the SAME openai/acp-ws/codex-profile mock suites with `TNY=build/wasm/tny`, `wasm-size-check`, and a headless-Chromium page smoke ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
+| `tny-wasm` (`tny.js`+`tny.wasm`, `tny-web.mjs`+`.wasm`) | `ubuntu-24.04` + emsdk 6.0.8 | the SAME openai/acp-ws/codex-profile mock suites with `TNY=build/wasm/tny`, measured wasm artifact size, and a headless-Chromium page smoke ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
 
 GitHub Actions builds and releases Linux and macOS native artifacts only
 ([ADR 0137](adr/0137-linux-macos-ci-and-optional-nix.md)). Windows jobs and
@@ -42,8 +42,9 @@ runner or publishing a Windows artifact.
 The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it
 under `assets/wasm/` — the landing terminal is the CI-tested artifact.
 
-Every glibc/Darwin build lane also runs the sibling `tnytty` app's tests,
-strict warnings and size report from its own Makefile (docs/adr/0045).
+Every glibc/Darwin build lane also runs the sibling `tnytty` app's tests
+and strict warnings from its own Makefile (docs/adr/0045). Size is reported,
+not gated by a harness byte ceiling ([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)).
 
 The Linux x86_64 lane runs the full integration suite. Linux aarch64 and
 Darwin arm64 retain unit, fault, ownership and packaging checks; they no longer
@@ -263,17 +264,14 @@ Nix commands are retained; neither is part of release eligibility. Branch
 protection should require the remaining `ci` and `sdk` checks, not a retired
 Nix check.
 
-## Size gates
+## Size reporting
 
-CI fails the job if the stripped binary exceeds the Must column in
-[size-and-speed.md](size-and-speed.md):
-
-| Target | Limit |
-| --- | --- |
-| Linux glibc and musl static | 1.5 MiB (1,572,864 B) |
-| Darwin arm64 | 1.8 MiB (1,887,436 B) |
-
-`make size-check` is the local equivalent. Override with `SIZE_MAX=`.
+There is no product binary-size ceiling
+([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)). CI
+and `make size-check` report stripped bytes and runtime dependencies.
+The compatibility target still rejects missing, empty, non-executable or
+unrecognized-header artifacts. `wasm-size-check` reports glue and module bytes
+and validates the module header. Neither target enforces a byte maximum.
 
 ## Local
 
@@ -285,7 +283,7 @@ make test-shell-workflows # the workflow scheduler under both Bash and Zsh
 make test              # unit (ASan) + integration fixtures
 make test-abi          # ABI baseline, old consumers, exports, artifacts
 make test-sdks         # Python and TypeScript SDK + conformance adapters
-make size-check        # fail if over the host budget
+make size-check        # report stripped size (no product byte ceiling)
 make STATIC=1 release  # musl static, on Alpine or a musl toolchain
 make pack TRIPLE=linux-x86_64
 nix flake check        # the same suite, hermetically (docs/nix.md)

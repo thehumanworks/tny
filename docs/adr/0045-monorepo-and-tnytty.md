@@ -58,7 +58,8 @@ ADR; this one records why it has not happened yet.
 
 - `AGENTS.md` documents the monorepo layout; sibling apps carry their
   own contract and are not governed by the harness's product invariants
-  (size budget, backend rules) — only by the shared quality gates and
+  (backend rules; former size budget is historical, [ADR 0150](0150-agent-first-harness-and-measured-footprint.md))
+  — only by the shared quality gates and
   the shared principles: C11, tiny, fast, docs before code.
 - A change inside `tnytty/` never rebuilds or repackages the harness;
   release automation is untouched.

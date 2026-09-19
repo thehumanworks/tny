@@ -44,9 +44,19 @@ def main() -> None:
     if "assets/term.js" in html:
         fail("index.html still loads the deleted JS agent loop (docs/adr/0017)")
 
-    for needle in ("<span>v0.3.0</span>", "<span>0.71mib</span>"):
+    for needle in ("<span>v0.3.0</span>", "<span>agent-first</span>"):
         if needle not in html:
             fail(f"release metadata missing from index.html: {needle!r}")
+    for name, page in (("index.html", html), ("llms.txt", llms)):
+        for needle in ("built by agents", "focused on the agent"):
+            if needle not in page:
+                fail(f"{name} lost the agent-first mission: {needle!r}")
+        if "built to beat" in page or "beats vercel-labs/fx" in page:
+            fail(f"{name} still treats beating fx as the product mission")
+    if "no binary-size ceiling" not in size_page:
+        fail("size page lost the measured-footprint policy")
+    if "Historical size (v0.3.0)" not in llms:
+        fail("llms.txt presents the old measurement as a current release size")
     if "749,264 B (0.71 MiB)" not in size_page:
         fail("size page does not identify the measured v0.3.0 binary")
     for needle in ("Version: 0.3.0", "749,264 bytes (~0.71 MiB)"):

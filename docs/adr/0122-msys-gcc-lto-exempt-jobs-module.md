@@ -75,8 +75,9 @@ not a defect in the C++20 module or in a C-facing seam.
 
 - The Windows executable loses cross-module inlining into and out of
   `jobs.cpp` only; the durable-jobs supervisor is not a startup or streaming
-  path. The Windows size gate stays at 2.0 MiB; the size effect is measured
-  on the hosted lane, not locally.
+  path. The Windows size gate then stayed at 2.0 MiB (historical;
+  [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)); the size
+  effect is measured on the hosted lane, not locally.
 - A PE-only compiler rule is now recorded next to the object it affects,
   instead of a global `-fno-lto`, `-O2`, `-fno-ipa-cp-clone` or warning
   change.
@@ -98,5 +99,7 @@ not a defect in the C++20 module or in a C-facing seam.
 When re-testing a fixed toolchain, force regeneration with
 `make -B release LTO_EXEMPT_CPP=`; stale objects do not establish that LTO
 has been re-enabled. Exempt objects depend on the Makefile so introducing or
-editing this workaround rebuilds them in an existing checkout. Current
-artifact size authority is ADR0121 (strictly below decimal 6 MB).
+editing this workaround rebuilds them in an existing checkout. Artifact size
+authority at the time was ADR 0121 (strictly below decimal 6 MB);
+[ADR 0150](0150-agent-first-harness-and-measured-footprint.md) removes that
+ceiling. Measured sizes in this ADR remain evidence.

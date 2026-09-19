@@ -289,7 +289,9 @@ Implementation is accepted only with:
 - an exact `nm` export allowlist and ABI snapshot;
 - macOS arm64 and Linux glibc shared-library build/package lanes;
 - local trusted/untrusted TLS fixtures on each published library platform;
-- `make size-check` and the existing startup/TTFT gates with no regression;
+- `make size-check` (then a byte gate; now measurement,
+  [ADR 0150](0150-agent-first-harness-and-measured-footprint.md)) and the
+  existing startup/TTFT gates with no regression;
 - the existing wasm CLI parity suite, without adding a public JS library.
 
 The issue-24 fault lane no longer uses arbitrary index ceilings. A clean child
