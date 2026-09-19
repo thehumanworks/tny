@@ -363,10 +363,10 @@ tny_mailbox_rc tny_team_mailbox_publish(const tny_mailbox_service *s,
     }
     for (size_t i = 0; i < t.count; i++) {
         tny_mailbox_message *m = &t.messages[i];
-        if (strcmp(m->publication, id)) continue;
+        if (strcmp(m->publication, id) != 0) continue;
         if (m->sender.job_attempt != caller->job_attempt || m->sender.task != caller->task ||
             m->sender.task_attempt != caller->task_attempt || m->payload_len != payload_len ||
-            memcmp(m->payload, payload, payload_len)) {
+            memcmp(m->payload, payload, payload_len) != 0) {
             rc = TNY_MAILBOX_CONFLICT;
             goto done;
         }

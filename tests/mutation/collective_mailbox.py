@@ -16,7 +16,7 @@ TEST = Path("tests/integration/test_team_mailbox.py")
 MUTANTS = [
     (
         "publication-content-conflict",
-        "memcmp(m->payload, payload, payload_len)",
+        "memcmp(m->payload, payload, payload_len) != 0",
         "false",
         "test_collective_publication_is_atomic_and_recipient_replayable",
     ),
