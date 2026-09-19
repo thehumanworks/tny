@@ -55,6 +55,8 @@ trials, full search/usage accounting and uncertainty estimates.
 - [`benchmark.json`](benchmark.json): all 30 case results, exact answer checks,
   workload-operation traces, fixture and source hashes, environment, full
   controller report and original archived evidence as UTF-8 strings.
+- [`checks.json`](checks.json): tested code revision, input hashes, check exit
+  codes and full-log hashes, plus stripped binary size/dependencies.
 - [`mutations.json`](mutations.json): pristine control and six targeted
   in-memory mutations of selection, parent reuse and evidence checks.
   All six mutants are killed by the existing tests. Compile/import errors are
@@ -101,7 +103,8 @@ The benchmark checks that its source and controller do not change during a run.
 | Python compatibility | Both shipped modules pass Python 3.9 syntax parsing |
 | `make quality` | Passed with pinned mise tools; GCC analyzer explicitly skipped on Darwin |
 | `make leaks` | Passed: native macOS leak gate reports zero leaks |
-| `make test` | Initial aggregate completed with three new-test failures. All were fixed and rerun successfully; a fresh final aggregate is in progress. This row is not a full-suite pass. |
+| `make test` | Final native aggregate passed (exit 0), including unit, protocol, packaging and all integration suites |
+| wasm CI | Passed on code revision `ea4bfcc` after the native-only doctor probe fix |
 
 The first quality attempt found a pre-existing formatting error in
 `tests/fixtures/checkpoint_ownership.c`; the change includes that formatting-only
@@ -118,7 +121,11 @@ latency improvement claim. Python is an external, optional workflow dependency.
 CI also found an existing wasm compile failure: the native `on_path` helper in
 `cmd_doctor.c` became unused after provider removal. It now shares its caller's
 wasm exclusion. A host compiler regression check exercises that branch with
-`-Werror`; the actual wasm CI rerun remains the end-to-end check.
+`-Werror`; the actual [wasm CI rerun](https://github.com/thehumanworks/tny/actions/runs/35456829700/job/105933556567)
+passed. The [quality](https://github.com/thehumanworks/tny/actions/runs/35456829700/job/105933556587)
+and [Valgrind](https://github.com/thehumanworks/tny/actions/runs/35456829700/job/105933556369)
+CI jobs also passed on code revision `ea4bfcc`. These links identify the tested
+code revision; later evidence-only documentation commits do not change it.
 
 Nix and wasm execution were not run on this host. The workflow is native-local;
 its source/packaging filters use existing dependencies. Python runs only when
