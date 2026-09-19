@@ -2,7 +2,8 @@
 
 Date: 2026-09-19. Base: `3751ef9`. Branch: `feat/collective-swarm-mode`.
 Worktree: `/Users/tomas/projects/tny/.worktrees/collective-swarm`.
-Status: implementation pending; unchecked requirements are not completion.
+Status: implementation delivered; final verification and PR delivery are being reconciled.
+Unchecked requirements are not completion. See evidence.md for exceptions.
 
 ## User goal
 
@@ -16,29 +17,29 @@ worktree, commits are incremental, and delivery ends in a PR.
 
 ## Required invariants and evidence
 
-- [ ] CLI global and ask-local entry, optional count, equals form, strict count
+- [x] CLI global and ask-local entry, optional count, equals form, strict count
       validation, no accidental prompt consumption, help and slash completion.
-- [ ] Persistent/recoverable mode with explicit native-context refusal where
+- [x] Persistent/recoverable mode with explicit native-context refusal where
       unsupported; idle TUI rebind and session/workspace transitions are tested.
       Existing task presets, user system instructions and permissions survive.
-- [ ] Hard collaborator limit at launch admission, not prompt advice. Multiple
+- [x] Hard collaborator limit at launch admission, not prompt advice. Multiple
       starts/retries must not bypass it. One collaborator is valid. Unset means
       no arbitrary default chosen on behalf of the lead. Nested launch paths do
       not bypass the cap, and ordinary non-swarm operation stays unchanged.
-- [ ] Shared objective, independent proposals/challenges, peer replies and
+- [x] Shared objective, independent proposals/challenges, peer replies and
       evidence-driven convergence are available through real public CLI/tool
       paths. Existing durable job/task/attempt/DAG state tracks workflow steps.
-- [ ] Run-scoped channel publication is atomic and replayable per intended
+- [x] Run-scoped channel publication is atomic and replayable per intended
       recipient. Direct messages remain available. Stable IDs, authenticated
       sender/membership, attempt fences, ordering, bounded capacity/backpressure
       and acknowledgement remain intact. No new broker or scheduler.
-- [ ] Incoming waits use OS events, not repeated model calls or periodic mailbox
+- [x] Incoming waits use OS events, not repeated model calls or periodic mailbox
       scans. Subscribe-before-snapshot, deadlines, cancellation, terminal peers,
       queued-before-subscribe, concurrent sends and loss/reopen are covered.
-- [ ] Busy tools are not interrupted/replayed; native delivery saves context before
+- [x] Busy tools are not interrupted/replayed; native delivery saves context before
       marking delivered. No implicit ack, exactly-once effect, false acceptance or
       silently lost publication. Failures remain visible and finite.
-- [ ] Stable common policy/tool prefix; bounded newly received context. No full
+- [x] Stable common policy/tool prefix; bounded newly received context. No full
       board rewrite per request. Measure fixture request/delivery counts and
       report cache capability separately from actual provider cache hits.
 - [ ] New and affected native tests pass, including public localhost-provider

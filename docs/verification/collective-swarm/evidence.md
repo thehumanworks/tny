@@ -127,3 +127,41 @@ clang-format 23.1.0, Ruff 0.16.6. Stripped native release: 1,120,816 bytes;
 not a before/after performance claim. Only fresh ADR 0156 differs from research
 baseline; pre-existing ADRs are unchanged (pre-existing 0153/0154 duplicate numbers
 are not modified). No live provider inference, push, PR, merge or release.
+
+## Coordinator reconciliation at source revision 25993c6
+
+This section supersedes earlier checkpoint status. Implementation is delivered;
+full-gate success must not be inferred from the focused results.
+
+`25993c6` is the final production-source checkpoint. Subsequent delivery/evidence
+edits are documentation only. The new test entrypoints accept the full integration
+runner's executable argument (`8efc60c`). An existing unrelated assertion needed
+only Ruff formatting (`10d33f7`); no gate was weakened. Two publication comparisons
+now spell out `!= 0`, preserving semantics and passing static checks. The mutation
+artifact matches current mailbox source SHA256
+`a8d6e667cb056950b659b6873f07e4202b18d578a150f40778585b9b1f4d194d`.
+Baseline/restored mutation runs passed; all three injected regressions were killed.
+
+Fresh final native unit execution: 512 passed, zero failed/skipped, 29,270
+assertions. Additional isolated schema checks passed. Full regression, quality,
+leaks, focused integration and wasm gates are being collected on separate frozen
+worktrees of 25993c6; their final exits will be appended below.
+
+The prior e47c9cd full attempt reproduced a **baseline** background dashboard
+failure (`locked_saved_inspection_retry`, waiting for `Saved read-only`). The
+identical failure exists in the 3751ef9 baseline log. It also exposed the two new
+runner-entrypoint defects, now fixed and independently rerun: cap 1 case passed;
+collective 13 cases passed. That superseded full attempt was explicitly stopped
+(exit -15) after capturing the failures, and no process from its worktree remained.
+The first a97f330 full attempt exited 2 at help alignment, corrected in e47c9cd.
+The baseline aggregate attempt hit its 1,800-second safety deadline; it is not a
+complete baseline pass. No earlier failed or interrupted run is relabelled green.
+
+See [independent review](review.md) for findings and their resolutions, and
+[Linux verification](linux-verification.md) for the clean Linux Clang build,
+public peer/cap/delivery successes and the independently reproduced gVisor
+filesystem limitation. The disposable Linux sandbox has been terminated.
+
+Actual provider cache hits, model-quality improvements, performance speedups,
+browser runtime and Windows execution were not measured. Stable-prefix and
+bounded-context fixture evidence establishes cache capability, not cache billing.

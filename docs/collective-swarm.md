@@ -32,7 +32,7 @@ Each durable run is a channel. Private `team_mailbox send` remains available.
 ```sh
 tny mailbox publish --run RUN --id design-v1 --text '{"topic":"design","thread":"a","type":"proposal","body":"evidence"}'
 tny mailbox wait --run RUN --timeout-ms 30000
-tny mailbox ack --run RUN --id design-v1.p2
+tny mailbox ack --run RUN --id RECEIPT_ID
 ```
 
 Typed tools use the same fields: action, run, id/text for publish, timeout_ms for
