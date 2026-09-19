@@ -457,7 +457,10 @@ class Worktrees(unittest.TestCase):
         self.assertTrue(t.restored())
         self.assertFalse(w.exists())
         self.assertTrue(other.is_dir())
-        self.assertIn("Worktree removed; branch refs/heads/worktree/delete-busy kept", clean(t.buf))
+        self.assertIn(
+            "Worktree removed; branch refs/heads/worktree/delete-busy kept",
+            clean(t.buf),
+        )
         self.assertNotIn("Worktree kept at", clean(t.buf))
 
     def test_branch_delete_confirmation_defaults_to_keep(self):
