@@ -557,15 +557,14 @@ canonical provider selectors to booleans
 
 ```json
 {
-  "image_input": { "codex": true, "claude": false, "my-gateway": true, "acp@agent": false }
+  "image_input": { "codex": true, "claude": false, "my-gateway": true }
 }
 ```
 
 It is a separate map, not a field inside a provider object, so configuring
 image input can never shadow a builtin subscription profile's OAuth/token
 wiring. Keys are provider selectors of 1–256 bytes using the existing
-provider-name grammar (letters, digits, `-`, `_`); named ACP agents use
-`acp@NAME`, and the legacy `acp:NAME` selector resolves to the same key.
+provider-name grammar (letters, digits, `-`, `_`). Removed protocol selectors are rejected.
 `image_input` is a reserved key: `tny provider setup image_input` is refused.
 
 Three states, resolved for the effective provider and recomputed on every
@@ -596,13 +595,7 @@ Only `true` authorizes an automatic generated-image preview; `absent`/unknown
 keeps the manual paths working and answers `unsupported` to a preview request
 (see [the pending-image queue](#the-pending-image-queue-and-explicit-previews)).
 
-A `true` never overrides an actual restriction: the ACP client still rejects
-image prompts, image attachment stays native-loop only, and tool profile,
-library/`--ssh` and permission rules apply unchanged. The map is validated
-strictly when settings load: a non-object root, a non-boolean value, a
-repeated key, an embedded NUL, a selector outside the grammar or more than
-1024 entries fails configuration with a stable diagnostic instead of an
-ambiguous lookup.
+A `true` value enables image input only within the actual capabilities of the selected HTTP endpoint and model.
 
 Image **generation** and editing are never gated by this map: they use their
 own image provider and credentials and stay available when the conversation
@@ -804,12 +797,7 @@ one-call approval (`ALLOW_ONCE`) covers only that prepared identity and does not
 create a session grant. Typed tools and terminal interception share this scope.
 Reading a record or a status never authorizes a write.
 
-Native CLI, TUI and ACP-server native turns can use the tools with any chat
-provider. Host-owned Cursor/ACP client agents can discover the standalone CLI
-through `tny image --help`; tny does not inject native tools into their loops.
-Image tools are unavailable in libtny and `--ssh` tool runtimes, with a clean
-error instead of accidental local file access. Run the CLI on the remote
-machine with its own credentials if remote image work is needed.
+Native CLI and TUI turns can use the tools with any compatible chat provider. The standalone CLI remains available for scripts.
 
 Wasm uses the existing fetch transport and virtual filesystem with the same
 CLI/service implementation, including the dimension reader, `--strict-size`,

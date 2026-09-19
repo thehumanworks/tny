@@ -93,18 +93,7 @@ context bounds, cancellation, and the shell equivalent.
 
 ## Platforms and authority
 
-The native SDK matrix is macOS arm64 and Linux glibc x86_64/aarch64. SDK
-artifacts contain only `libtny.1.dylib` or `libtny.so.1`; the frozen ABI-0
-compatibility library is a separately named raw release asset and is rejected
-by both current language loaders. There are
-no Windows, musl, wasm/browser, or public-static SDK artifacts. The public
-runtime supports native OpenAI-compatible and Cursor sdk.v1 conversations.
-Cursor requires explicit state directory, API key, and model values plus an
-external `cursor-sdk-bridge`; management RPCs and image attachments remain
-CLI-only. The Python and TypeScript SDKs expose ABI-1 custom tools when the
-capability snapshot advertises them. MCP, Codex, ACP, and unadvertised optional
-features remain disabled in the agent runtime. Toolkit media providers are
-independent of that runtime capability snapshot.
+The embedded runtime supports only native OpenAI-compatible HTTP conversations, with Responses and Chat Completions. Configure endpoints and credentials explicitly in memory. Shared C ABI constants remain stable; removed provider bits are unavailable. Custom tools remain supported where the capability snapshot advertises them.
 
 The SDK default permission mode is `ask`, not the CLI's yolo default.
 Credentials are copied into the native runtime, excluded from repr/error/report

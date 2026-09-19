@@ -146,14 +146,14 @@ sys.exit(subprocess.call(["sh", "-c", av[-1]]))
             assert r.returncode == 1 and "invalid SSH port" in r.stderr, r.stderr
             r = subprocess.run([TNY, "--ssh"], env=env, text=True, capture_output=True)
             assert r.returncode == 1 and "--ssh requires a value" in r.stderr, r.stderr
-            # host backends own their tool loop: refused, not silently local
+            # Removed providers fail before SSH setup.
             r = subprocess.run(
                 [TNY, "--provider", "cursor", "--ssh", "box", "ask", "x"],
                 env=env,
                 text=True,
                 capture_output=True,
             )
-            assert r.returncode == 1 and "native loop" in r.stderr, r.stderr
+            assert r.returncode == 1 and "removed" in r.stderr, r.stderr
             # a failing master connection is reported, not ignored
             (binp / "ssh").write_text("#!/bin/sh\nexit 255\n")
             r = subprocess.run(

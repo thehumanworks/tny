@@ -158,12 +158,8 @@ passed unchanged to `ExtensionAPI.capabilities`:
 | --- | --- | --- | --- |
 | Native OpenAI | every key through provider response plus agent continue/cancel | none | project-local discover/trust pending #59 |
 | Codex | prompt transform/block; session/turn/message; model/effort/instructions/workspace; permission observe; tool-post observe; agent continue/cancel | tool-pre rewrite/deny; tool-post annotate/replace | provider compaction/subagent/tool/batch/wire and permission decisions pending #56; project trust #59 |
-| Cursor | prompt transform/block; session/turn/message; model/effort/instructions/workspace; tool-post observe; agent continue/cancel | tool-pre rewrite/deny; all permission keys; tool-post annotate/replace | provider compaction/subagent/tool/batch/wire pending #58; project trust #59 |
-| ACP | prompt transform/block; session/turn/message; model/effort/instructions/workspace; permission observe; tool-post observe; agent continue/cancel | tool-pre rewrite/deny; tool-post annotate/replace | provider compaction/subagent/tool/batch/wire and permission decisions pending #57; project trust #59 |
 
-This table reports current truth, not the roadmap target. The #55 shared
-permission fold is present, but Codex/ACP decision keys remain unavailable until
-their adapters bind it to one live correlated host request.
+All supported profiles use the native tool and permission gates. Removed host adapters are superseded by [ADR 0151](../adr/0152-native-http-only-providers.md). Historical hook comparisons above describe the pinned external behavior, not runtime dependencies.
 
 ## Completion rule
 

@@ -37,13 +37,13 @@ async def toolkit_async(toolkit: tny.AsyncToolkit) -> bytes:
     return (await toolkit.optimise("Fix the parser")).text
 
 
-cursor_provider: tny.ProviderName = "cursor"
-cursor_config = tny.RuntimeConfig(
+native_provider: tny.ProviderName = "openai"
+native_config = tny.RuntimeConfig(
     workspace=".",
     state_dir=".",
-    provider=cursor_provider,
-    model="cursor-model",
-    api_key="cursor-key",
+    provider=native_provider,
+    model="http-model",
+    api_key="http-key",
 )
 
 TASK_CONFIG = tny.RuntimeConfig(workspace=".", task_preset=tny.TaskPreset("review"))

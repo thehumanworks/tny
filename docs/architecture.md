@@ -1,61 +1,29 @@
 # Architecture
 
-tny is a **frontend + native loop**, not a fourth coding agent: a harness for
-agents, built by agents, focused on the agent
-([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)). Host
-backends already own planning, tools, and sandboxing. The native
-OpenAI-compatible backend owns the general tny tool loop; explicitly
-registered Cursor custom tools are the narrow callback exception. Keep the
-binary small by measuring it; there is no artifact-size ceiling.
+tny is a native agent harness with one OpenAI-compatible HTTP provider backend
+([ADR 0152](adr/0152-native-http-only-providers.md)). CLI, TUI and libtny share
+the runtime, session store, permissions, tools, MCP and event loop. Profiles
+select credentials, URL, model and Responses or Chat Completions wire format.
+Codex and Grok subscription authentication use native login and refresh.
 
 ```text
-                    +-------------------------------------+
-                    | cli / tui / acp / libtny adapters   |
-                    +------------------+------------------+
-                                       | normalized events
-                    +------------------v------------------+
-                    | private runtime + session + events  |
-                    +------------------+------------------+
-           +---------------+-----------+----------+
-           v               v                      v
-     cursor-bridge      acp-client          openai-native
-     spawn              spawn stdio         HTTP SSE + tools
-     Connect sdk.v1     JSON-RPC 2.0        tny owns tools
-     + callbacks                            (openai, codex, claude, grok,
-           |               |                 named profiles)
-           v               v                      v
-     cursor-sdk-bridge  gemini/claude/...   provider API / chatgpt.com
+CLI / TUI / C ABI / Python / Node SDKs
+                |
+       runtime + sessions + tools + MCP
+                |
+       native OpenAI-compatible HTTP + SSE
+                |
+  gateways / ChatGPT Responses / xAI / local models
 ```
 
-## Two kinds of backend
+The event vocabulary remains `text_delta`, `thinking`, `tool_start`, `tool_end`,
+`permission_request`, `plan`, `usage`, `turn_end`, `error`, `status`, and
+`steer_rejected`. Public event layouts and reserved capability constants remain
+ABI-compatible; removed provider capability bits are unavailable.
 
-| Kind | Backends | Who runs tools? | tny role |
-| --- | --- | --- | --- |
-| **Host** | Cursor bridge, ACP client | The host process | Protocol client, approvals UI, session mapping; Cursor custom-tool/store callbacks are explicit exceptions |
-| **Native** | OpenAI-compatible, including the builtin codex / claude / grok subscription profiles | tny | Agent loop, MCP, skills, sandbox, ACP **server**, `read_image` |
-
-Never leak host-specific types into the TUI. Map every backend onto one event set: `text_delta`, `thinking`, `tool_start`, `tool_end`, `permission_request`, `plan`, `usage`, `turn_end`, `error`, `status`, `steer_rejected` (a mid-turn `steer()` the host refused after accepting it; the event carries the rejected text and the frontend re-queues it — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md), [ADR 0013](adr/0013-steer-rejection-owns-the-text.md)).
-
-Python extensions consume a versioned superset of that renderer vocabulary.
-[ADR 0028](adr/0028-extension-parity-contract.md) freezes its lifecycle/control
-names and immutable provider capability matrix. The matrix distinguishes
-native-owned control from host-owned observation; an adapter may not silently
-approximate an unsupported action or expose raw provider payloads.
-
-The native tool loop calls the shared runtime only at quiescent control
-boundaries: pre-tool before validation, unresolved permission before execution,
-post-tool before result persistence, batch before the next POST, and allowlisted
-provider request/response edges. The callback never runs from a backend event
-callback or re-enters the backend. Extension-free calls return without
-allocating event JSON or starting Python.
-
-Cursor's reverse callbacks do not change that ownership model. The bridge owns
-the agent loop and its built-in tools. A registered libtny custom tool is
-executed only through the authenticated `CallCustomTool` boundary; an optional
-`CallStore` service owns only local agent/run/event/checkpoint persistence.
-Both share one bounded loopback HTTP server. Blocking Create/Resume lends that
-server to a bounded pump thread for store traffic only; normal Send/Observe
-polls its fds in the main event loop.
+Extensions run at quiescent native boundaries: pre-tool, unresolved permission,
+post-tool, batch and allowlisted provider request/response edges. Callbacks do
+not re-enter the backend. Extension-free turns do not start Python.
 
 ## Embedding boundary
 
@@ -72,19 +40,12 @@ The public `next_event` operation and the CLI adapters drive the same private
 runtime engine. TUI prewarm remains an acceleration adapter over that engine,
 not a separate provider lifecycle.
 
-The runtime provider selector supports Cursor conversations through that same
-API: create/resume/send/cancel, normalized events, and registered custom
-tools. ABI 1 has no image-send entry point. Cursor images and management RPCs
-remain CLI surfaces and do not expand the embedding ABI.
-
 ## Process rules
 
 - One tny process, one primary workspace (`cwd` unless `--cwd`).
-- **Turns run in a detached session runner** ([ADR 0053](adr/0053-forked-turn-isolation.md)): on native builds, `ask` and the TUI fork a `setsid()` runner that owns the backend, engine, MCP servers, and every `session.json` write, streaming normalized events back over `<session>/sock` (NDJSON). A caller crash or SIGKILL detaches the turn. Explicit interrupts, TUI exit, and foreground terminal hangup stop it, with a verified process kill if cancellation stalls ([ADR 0081](adr/0081-reliable-session-interruption.md)). wasm, `--ephemeral`, and `TNY_ISOLATE=0` run in-process; on macOS a caller that has already initialized SecureTransport also keeps later turns in-process because Apple's trust runtime is unsafe in a fork-only child; `tny acp` (server) and libtny embedders stay in-process by design — their callers own lifecycle.
-- Host processes are children or attach targets. Do not embed Node/Bun/Rust runtimes.
-- Always have a RAII-style shutdown path: cancel turn → close stream → `Shutdown`/EOF → wait → kill.
-- Drain host stderr on a dedicated reader. A full pipe stalls `cursor-sdk-bridge` and most ACP agents.
-- Never log bearer tokens, ready-line JSON, or `.env` values.
+- **Turns run in a detached session runner** ([ADR 0053](adr/0053-forked-turn-isolation.md)): on native builds, `ask` and the TUI fork a `setsid()` runner that owns the backend, engine, MCP servers, and every `session.json` write, streaming normalized events back over `<session>/sock` (NDJSON). A caller crash or SIGKILL detaches the turn. Explicit interrupts, TUI exit, and foreground terminal hangup stop it, with a verified process kill if cancellation stalls ([ADR 0081](adr/0081-reliable-session-interruption.md)). wasm, `--ephemeral`, and `TNY_ISOLATE=0` run in-process; on macOS a caller that has already initialized SecureTransport also keeps later turns in-process because Apple's trust runtime is unsafe in a fork-only child; libtny embedders stay in-process by design — their callers own lifecycle.
+- Always have a RAII-style shutdown path: cancel turn → close stream → release resources.
+- Never log bearer tokens, `.env` values.
 
 Left-arrow backgrounding adds a quiescent tool boundary to the native loop:
 local effective results (or a completed hosted-search response) and the consumed
@@ -105,7 +66,7 @@ OS-specific spawn and pre-exec operations remain in the C host seams.
 
 | Path | Contents |
 | --- | --- |
-| `~/.tny/settings.json` | Provider/model/effort/fast defaults, trusted Cursor sdk.v1 options, permission mode, named provider/ACP-agent profiles, UI, per-workspace overrides, optional `mcp.import_from` ([schema](../schemas/settings.schema.json)) |
+| `~/.tny/settings.json` | Provider/model/effort/fast defaults, permission mode, named HTTP provider profiles, UI, per-workspace overrides, optional `mcp.import_from` ([schema](../schemas/settings.schema.json)) |
 | `~/.tny/mcp.json` | Authoritative stdio and Streamable HTTP MCP servers (never repo-local MCP). Foreign user/project configs load only when global `mcp.import_from` explicitly names their harness ([ADR 0052](adr/0052-mcp-import-from-harnesses.md)) |
 | `~/.tny/sessions/` | Transcripts and recovery checkpoints |
 | `~/.tny/skills/` | Managed skill installs |
@@ -116,35 +77,25 @@ OS-specific spawn and pre-exec operations remain in the C host seams.
 | `<repo>/.tny/tasks/` | Project task-preset Markdown definitions; project files cannot add authority or cost |
 | `<repo>/AGENTS.md` | Project instructions (also `CLAUDE.md` as alias if present). Over `--ssh`, the remote cwd's file is used instead of this local path ([ADR 0040](adr/0040-ssh-agents-md.md)) |
 
-Credentials stay in the OS store or env vars (`CURSOR_API_KEY`, `OPENAI_API_KEY`, provider-specific keys, MCP `header_env` / `bearer_token_env`, Codex's own login). Not in project JSON.
+BYOK credentials come from environment variables (`OPENAI_API_KEY` or profile-specific names). Native Codex/Grok OAuth tokens use their login stores. MCP retains `header_env` / `bearer_token_env`. No API keys are persisted in settings or project JSON.
 
 ## Shared internals
 
 ```text
 src/
-  main.c            # argv → cli or tui
-  cli/              # ask, resume, doctor, acp, status
-  tui/              # ANSI renderer, input, slash/@/$
-  core/             # events, session store, permissions, AGENTS.md loader, images
-  backends/
-    cursor/         # v1.0.30 bridge/client, recovery, management, callbacks
-    acp/            # client + server
-    openai/         # HTTP + SSE + tool loop
-  net/              # http1, connect framing, websocket, tls shim
-  json/             # yyjson wrappers
-  mcp/              # used by native loop and ACP server
-third_party/
-  cursor-sdk-bridge/v1.0.30/ # pinned sdk.v1 protos/contract; never hand-edited
+  cli/ tui/ lib/     # frontends and public C ABI
+  core/             # runtime, sessions, tools, permissions, login, jobs/teams
+  backends/openai/  # Responses + Chat Completions, streaming and tool loop
+  net/              # HTTP/1.1, SSE, TLS seam
+  mcp/              # stdio and Streamable HTTP MCP clients
 ```
 
-POSIX `poll`/`kqueue` only, always through the `tny_poll` seam (`src/util/tny_poll.h`): native forwards to `poll(2)`; the wasm build ([ADR 0017](adr/0017-wasm-browser-parity.md)) waits on `net_wasm.c`'s pseudo-fd registry and yields to the JS event loop via Asyncify. `src/net/net.h` is the transport boundary — on wasm, `http_conn` rides `fetch()` and `ws_conn` the browser/node WebSocket, with `tcp.c`/`stream.c`/`http1.c`/`ws.c` excluded from the source list wholesale. Remote MCP reuses that same `http_conn` boundary ([ADR 0051](adr/0051-mcp-streamable-http.md)); it does not add a platform seam, and wasm is remote-only. No libuv, no threads-per-connection unless a host callback server requires it. One deliberate exception: the TUI's pre-warm runs a single backend `connect()` on a detached pthread at startup ([ADR 0002](adr/0002-tui-provider-prewarm.md)); the connected backend is handed back before any turn starts, so all events still flow through the one event loop. The other exception is bounded fan-out ([ADR 0132](adr/0132-bounded-fan-out-for-independent-file-work.md)): `src/util/parallel.h` runs independent per-file reads and hashes for `grep_files`, `semantic_search` and image source loading on at most eight workers that are all joined before the call returns, folding results back in walk order; nothing about the event loop, ownership or output changes, and wasm or `TNY_THREADS=1` run the same code serially.
-
-## ACP server vs ACP client
-
-- `tny --backend acp --agent <cmd>` is an **ACP client** (drive Gemini CLI, `agent acp`, OpenCode, …).
-- `tny acp` is an **ACP server** exposing the **native** OpenAI-compatible loop (fx parity).
-
-Do not serve Cursor-bridge or Codex sessions through `tny acp`. Those hosts already have their own ACP or IDE surfaces.
+Blocking waits use `tny_poll`; wasm's HTTP seam uses fetch and Asyncify with
+queued bytes, never JS re-entry into C. MCP shares this HTTP seam (remote-only
+on wasm). The native session runner starts lazily at the first turn. Context
+changes rebind an idle runner or defer rebind until the active turn settles.
+There is no provider-host prewarm thread. Bounded independent file work keeps
+the joined worker policy of ADR 0132 (at most eight workers).
 
 ## Speech service
 

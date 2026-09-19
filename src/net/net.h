@@ -15,7 +15,7 @@ extern "C" {
 
 /* ---- URL ---- */
 typedef struct {
-    char scheme[16]; /* http, https, ws, wss, unix */
+    char scheme[16]; /* http, https, unix */
     char host[256];
     int port;
     char path[1024]; /* includes leading '/', or unix socket path for unix:// */
@@ -99,43 +99,6 @@ int sse_feed(sse_parser *p, const char *bytes, size_t n, sse_event_cb cb, void *
 /* End of body: dispatch a final event whose terminating blank line never
  * arrived (a last `data:` line closed by EOF). */
 int sse_flush(sse_parser *p, sse_event_cb cb, void *ud);
-
-/* ---- WebSocket client (RFC 6455 text frames via wslay) ---- */
-typedef struct ws_conn ws_conn;
-typedef void (*ws_msg_cb)(const char *data, size_t len, void *ud);
-
-/* url: ws://host:port/path, wss://, or unix:///abs/path (dummy Host).
- * bearer: optional Authorization header value (token only, no "Bearer "). */
-ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms, char *err, size_t errlen);
-int ws_send_text(ws_conn *w, const char *data, size_t len);
-int ws_fd(ws_conn *w);
-bool ws_want_write(ws_conn *w);
-/* Run wslay send/recv once; delivers complete text messages to cb.
- * 0 ok, -1 dead. */
-int ws_pump(ws_conn *w, ws_msg_cb cb, void *ud);
-void ws_close(ws_conn *w);
-
-/* ---- Connect streaming envelope (docs/backends/cursor-bridge.md) ----
- * frame: flags:1 | length:4 big-endian | payload */
-#define CONNECT_FLAG_END  0x02
-#define CONNECT_MAX_FRAME (64u * 1024u * 1024u)
-
-/* Encoder checks wire-length representability; inbound decoder cap is 64 MiB. */
-int connect_frame_encode(buf_t *out, uint8_t flags, const char *payload, size_t len);
-
-typedef struct {
-    void *owner; /* private move-only owner; never copy an initialized decoder */
-    int status;
-} connect_decoder;
-typedef void (*connect_frame_cb)(uint8_t flags, const char *payload, size_t len, void *ud);
-
-void connect_decoder_init(connect_decoder *d);
-void connect_decoder_free(connect_decoder *d);
-/* EOF: reject an incomplete header/payload. */
-int connect_decoder_finish(const connect_decoder *d);
-/* Feed bytes; cb per complete frame. Returns TNY_PARSE_OK, INVALID (oversized), or OOM. */
-int connect_decoder_feed(connect_decoder *d, const char *bytes, size_t n, connect_frame_cb cb,
-                         void *ud);
 
 #ifdef __cplusplus
 }

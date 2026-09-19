@@ -166,7 +166,7 @@ static tny_backend *fake_backend(int mode, fake_runtime_backend **out) {
     fake_runtime_backend *f = calloc(1, sizeof *f);
     if (!b || !f) abort();
     f->mode = mode;
-    b->id = TNY_BK_ACP;
+    b->id = TNY_BK_COUNT;
     b->impl = f;
     b->connect = fake_connect;
     b->disconnect = fake_disconnect;
@@ -213,7 +213,7 @@ static fixture fixture_new_ext(int mode, const char *extension_source,
     fixture x = {0};
     x.old_home = old_home;
     x.ctx = tny_ctx_load(ws);
-    x.ctx->backend = TNY_BK_ACP;
+    x.ctx->backend = TNY_BK_COUNT;
     x.ctx->no_save = true;
     x.ctx->max_extension_iterations = max_extension_iterations;
     x.session = session_new(x.ctx);
@@ -714,13 +714,13 @@ TEST runtime_payload_byte_limit_and_accounting(void) {
 
 /* --system-prompt fallback (docs/adr/0045): host backends with no schema
  * field get the text prepended to the first user message only. */
-TEST runtime_system_prompt_prefixes_only_the_first_user_message(void) {
+TEST runtime_system_prompt_stays_out_of_user_messages(void) {
     fixture x = fixture_new(0);
     x.ctx->system_prompt = xstrdup("Answer like a pirate.");
     char err[128];
     ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
     ASSERT(drain_engine(x.engine, NULL) >= 0);
-    ASSERT_STR_EQ("Answer like a pirate.\n\nhello", x.fake->prompts[0]);
+    ASSERT_STR_EQ("hello", x.fake->prompts[0]);
     ASSERT_EQ(0, tny_engine_start(x.engine, "again", NULL, err, sizeof err));
     ASSERT(drain_engine(x.engine, NULL) >= 0);
     ASSERT_STR_EQ("again", x.fake->prompts[1]);
@@ -728,20 +728,15 @@ TEST runtime_system_prompt_prefixes_only_the_first_user_message(void) {
     PASS();
 }
 
-TEST runtime_task_precedes_explicit_system_prompt_on_host_first_turn(void) {
+TEST runtime_task_stays_in_native_instructions(void) {
     fixture x = fixture_new(0);
     ASSERT_EQ(TNY_TASK_OK, tny_task_set_explicit(x.ctx, "review", "Review task body.", "explicit"));
     x.ctx->system_prompt = xstrdup("Explicit system addition.");
     char err[128];
     ASSERT_EQ(0, tny_engine_start(x.engine, "hello", NULL, err, sizeof err));
     ASSERT(drain_engine(x.engine, NULL) >= 0);
-    const char *task = strstr(x.fake->prompts[0], "Review task body.");
-    const char *explicit_prompt = strstr(x.fake->prompts[0], "Explicit system addition.");
-    const char *user = strstr(x.fake->prompts[0], "hello");
-    ASSERT(task && explicit_prompt && user);
-    ASSERT(task < explicit_prompt);
-    ASSERT(explicit_prompt < user);
-    ASSERT_EQ(1, count_text(x.fake->prompts[0], "Review task body."));
+    ASSERT_STR_EQ("hello", x.fake->prompts[0]);
+    ASSERT_STR_EQ("Review task body.", x.ctx->task_instructions);
     ASSERT_EQ(0, tny_engine_start(x.engine, "again", NULL, err, sizeof err));
     ASSERT(drain_engine(x.engine, NULL) >= 0);
     ASSERT_STR_EQ("again", x.fake->prompts[1]);
@@ -765,9 +760,7 @@ TEST runtime_skill_mention_rides_ahead_of_the_user_text(void) {
     ASSERT(drain_engine(x.engine, NULL) >= 0);
     buf_t want;
     buf_init(&want);
-    buf_appendf(&want,
-                "Be brief.\n\n<skill name=\"deploy\" path=\"%s\">\n%s</skill>\n\n$deploy now", sf,
-                skill);
+    buf_appendf(&want, "<skill name=\"deploy\" path=\"%s\">\n%s</skill>\n\n$deploy now", sf, skill);
     ASSERT_STR_EQ(want.data, x.fake->prompts[0]);
     buf_free(&want);
     ASSERT(session_skill_injected(x.session, "deploy"));
@@ -789,7 +782,7 @@ TEST runtime_skill_mention_rides_ahead_of_the_user_text(void) {
     PASS();
 }
 
-TEST runtime_system_prompt_skips_resumed_host_sessions(void) {
+TEST runtime_system_prompt_stays_out_of_resumed_messages(void) {
     fixture x = fixture_new(0);
     x.ctx->system_prompt = xstrdup("Answer like a pirate.");
     session_set_host_pointer(x.session, "thr_resumed");
@@ -1756,10 +1749,10 @@ SUITE(runtime_suite) {
     RUN_TEST(runtime_all_payloads_survive_queue_transfer_and_teardown);
     RUN_TEST(runtime_payload_byte_limit_and_accounting);
     RUN_TEST(runtime_copies_events_and_suppresses_duplicate_terminal);
-    RUN_TEST(runtime_system_prompt_prefixes_only_the_first_user_message);
-    RUN_TEST(runtime_task_precedes_explicit_system_prompt_on_host_first_turn);
+    RUN_TEST(runtime_system_prompt_stays_out_of_user_messages);
+    RUN_TEST(runtime_task_stays_in_native_instructions);
     RUN_TEST(runtime_skill_mention_rides_ahead_of_the_user_text);
-    RUN_TEST(runtime_system_prompt_skips_resumed_host_sessions);
+    RUN_TEST(runtime_system_prompt_stays_out_of_resumed_messages);
     RUN_TEST(runtime_synthesizes_transport_error_and_terminal);
     RUN_TEST(runtime_overflow_keeps_error_and_single_terminal);
     RUN_TEST(runtime_cancel_emits_one_interrupted_terminal);

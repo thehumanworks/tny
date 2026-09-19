@@ -134,7 +134,7 @@ current provider overrides:
 ```
 
 Configure those profiles through the existing provider configuration, with each
-profile's own `base_url`, `api_key_env` (or stored key), model and wire API. The
+profile's own `base_url`, `api_key_env`, model and wire API. The
 usual resolver's settings/environment precedence applies. A supplied item model
 or effort overrides that profile's resolved default. Without `item.provider`,
 the item continues to inherit the parent's resolved selection and overrides.
@@ -616,7 +616,7 @@ split covers the *inherited* environment too, not only what the supervisor
 sets: children inherit only an explicit operational allowlist (home, path,
 temporary/configuration directories, locale and certificate locations). Unknown
 names are removed, including custom provider `api_key_env`, derived provider
-keys/URLs, `CURSOR_API_KEY`, and arbitrary `--api-key-env` names. Resolved
+keys/URLs, and arbitrary `--api-key-env` names. Resolved
 credentials are then appended from exactly one kind-owned mapping. Shell tools
 inside ask jobs therefore do not inherit arbitrary submitter variables. An
 operational variable whose value equals a resolved credential is also removed. When the selected conversation provider *is* the
@@ -637,7 +637,7 @@ User settings can explicitly retain up to 32 environment names for ask items:
 {"jobs":{"ask_env":["GEMINI_API_KEY","MCP_AUTH_TOKEN","SSH_AUTH_SOCK"]}}
 ```
 
-This is the exact mapping for selected named ACP agents, MCP environment-variable
+This is the exact mapping for MCP environment-variable
 expansions, and shell tools that need inherited authentication. Values resolve in
 the submitter and travel only in the private payload and ask child environment,
 not in job metadata or argv. Image items never receive this map. Image account
@@ -647,10 +647,8 @@ settings authority, not an agent-supplied job request field.
 
 MCP configurations that declare literal per-server `env` values retain their
 existing MCP-owned mapping. For inherited/expanded values, declare those names
-in `jobs.ask_env`. Named ACP command/model settings still reload through the
-selected `acp@NAME` profile. No arbitrary environment is silently passed through;
-undeclared external-agent/tool variables require this mapping. No live ACP or
-MCP account compatibility is claimed by the fake-credential checks.
+in `jobs.ask_env`. No arbitrary environment is silently passed through;
+undeclared tool variables require this mapping. No live MCP account compatibility is claimed by the fake-credential checks.
 
 ### Canonical image transaction integration
 

@@ -520,13 +520,14 @@ while True: time.sleep(1)
                 {
                     "grok": {
                         "base_url": self.url + "/v1",
-                        "api_key": "fixture-chat-key",
+                        "api_key_env": "FIXTURE_CHAT_KEY",
                         "model": "grok-fixture",
                         "wire_api": "chat",
                     }
                 }
             )
         )
+        self.env["FIXTURE_CHAT_KEY"] = "fixture-chat-key"
         term = Term(
             [self.tny, *prefix, "--provider", "grok", "--ephemeral", "--no-extensions"],
             self.env,
@@ -823,21 +824,18 @@ class XaiDictationTests(unittest.TestCase):
     def test_each_credential_source_and_precedence(self):
         auth = self.login("login-key", stale=True)
         original_auth = auth.read_bytes()
-        settings = self.settings(api_key_env="CUSTOM_XAI_KEY", api_key="stored-key")
+        settings = self.settings(api_key_env="CUSTOM_XAI_KEY")
         original_settings = settings.read_bytes()
         self.env["CUSTOM_XAI_KEY"] = "profile-env-key"
         for key, prefix in (
             ("flag-key", ("--xai-api-key", "flag-key")),
             (TOKEN, ()),
             ("profile-env-key", ()),
-            ("stored-key", ()),
             ("login-key", ()),
         ):
             with self.subTest(source=key):
                 if key == "profile-env-key":
                     del self.env["XAI_API_KEY"]
-                if key == "stored-key":
-                    del self.env["CUSTOM_XAI_KEY"]
                 if key == "login-key":
                     self.assertEqual(settings.read_bytes(), original_settings)
                     settings.unlink()
@@ -847,6 +845,15 @@ class XaiDictationTests(unittest.TestCase):
                 self.assertNotIn("grok_refresh", self.state)
                 if key != "login-key":
                     self.assertEqual(auth.read_bytes(), original_auth)
+
+    def test_explicit_missing_env_does_not_spend_grok_login(self):
+        del self.env["XAI_API_KEY"]
+        self.login("login-key")
+        self.settings(api_key_env="MISSING_XAI_FIXTURE_KEY")
+        result = self.run_dictate("--json")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.state["requests"])
+        self.assertNotIn("grok_refresh", self.state)
 
     def test_grok_refresh_only_when_transcription_starts(self):
         del self.env["XAI_API_KEY"]
@@ -895,7 +902,7 @@ class XaiDictationTests(unittest.TestCase):
                     elif source == "env":
                         env["XAI_API_KEY"] = bad
                     elif source == "profile-env":
-                        self.settings(api_key_env="CUSTOM_XAI_KEY", api_key=TOKEN)
+                        self.settings(api_key_env="CUSTOM_XAI_KEY")
                         env["CUSTOM_XAI_KEY"] = bad
                     elif source == "stored":
                         self.settings(api_key=bad)

@@ -428,8 +428,6 @@ def test_subscription_status():
             env.pop("CHATGPT_ACCOUNT_ID")
             write_json(cli_auth_path(home), {"OPENAI_API_KEY": "sk-test"})
             count = len(requests)
-            assert "codex_usage" not in status()
-            assert "weekly limit" not in status(False)
             env["OPENAI_API_KEY"] = "sk-openai"
             assert "codex_usage" not in status(provider="openai")
             assert len(requests) == count
@@ -695,13 +693,12 @@ def main():
                 capture_output=True,
                 timeout=60,
             )
-            expect_ok(r, "api-key mode")
-            print(
-                "ok  API-key auth.json rides plain bearer auth without ChatGPT headers"
-            )
+            assert r.returncode != 0
+            assert b"stored OPENAI_API_KEY was removed" in r.stderr
+            print("ok  persisted API-key auth requires environment migration")
         finally:
             stop(mock)
-        os.unlink(cli_auth_path(home))
+        # Keep the retired key-only store: native login must repair this state.
 
         # ================================================ native login → tny store
         # ---- device-code flow ----------------------------------------------

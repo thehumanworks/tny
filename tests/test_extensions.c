@@ -296,16 +296,6 @@ TEST extension_capability_matrices_are_typed_and_secret_free(void) {
     ASSERT_STR_EQ("implemented",
                   tny_extension_capability_reason(TNY_BK_OPENAI, TNY_EXT_CAP_PROMPT_OBSERVE));
     ASSERT_EQ(TNY_EXT_CAP_UNAVAILABLE,
-              tny_extension_capability_get(TNY_BK_ACP, TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
-    ASSERT_EQ(TNY_EXT_CAP_UNSUPPORTED,
-              tny_extension_capability_get(TNY_BK_CURSOR, TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
-    ASSERT_STR_EQ("protocol_missing", tny_extension_capability_reason(
-                                          TNY_BK_CURSOR, TNY_EXT_CAP_PERMISSION_ALLOW_ONCE));
-    ASSERT_STR_EQ("protocol_missing",
-                  tny_extension_capability_reason(TNY_BK_CURSOR, TNY_EXT_CAP_PERMISSION_ABSTAIN));
-    ASSERT_EQ(TNY_EXT_CAP_UNSUPPORTED,
-              tny_extension_capability_get(TNY_BK_ACP, TNY_EXT_CAP_TOOL_POST_REPLACE));
-    ASSERT_EQ(TNY_EXT_CAP_UNAVAILABLE,
               tny_extension_capability_get(TNY_BK_OPENAI, (tny_extension_capability_id)-1));
     ASSERT_EQ(TNY_EXT_CAP_UNAVAILABLE,
               tny_extension_capability_get(TNY_BK_OPENAI,
@@ -318,25 +308,25 @@ TEST extension_capability_matrices_are_typed_and_secret_free(void) {
 
     static const char secret[] = "CAPABILITY_SENTINEL_SECRET";
     setenv("OPENAI_API_KEY", secret, 1);
-    char *json = tny_extension_capabilities_json(TNY_BK_CURSOR, true, false);
+    char *json = tny_extension_capabilities_json(TNY_BK_OPENAI, true, false);
     ASSERT(json);
     ASSERT_FALSE(strstr(json, secret));
     yyjson_doc *doc = jparse(json, strlen(json));
     ASSERT(doc);
     yyjson_val *root = yyjson_doc_get_root(doc);
     ASSERT_EQ(1, (int)jget_int(root, "schema_version", 0));
-    ASSERT_STR_EQ("cursor", jget_str(root, "selected_provider"));
+    ASSERT_STR_EQ("openai", jget_str(root, "selected_provider"));
     yyjson_val *runtime = jget(root, "extension_runtime");
     ASSERT(jget_bool(runtime, "enabled", false));
     ASSERT_STR_EQ("unavailable", jget_str(runtime, "python"));
     yyjson_val *providers = jget(root, "providers");
     ASSERT_EQ(TNY_BK_COUNT, (int)yyjson_obj_size(providers));
-    yyjson_val *cursor = jget(providers, "cursor");
-    ASSERT_STR_EQ("host", jget_str(cursor, "runtime"));
-    yyjson_val *entries = jget(cursor, "entries");
+    yyjson_val *native = jget(providers, "openai");
+    ASSERT_STR_EQ("native", jget_str(native, "runtime"));
+    yyjson_val *entries = jget(native, "entries");
     yyjson_val *permission = jget(entries, "extensions.permission.observe");
-    ASSERT_STR_EQ("unsupported", jget_str(permission, "state"));
-    ASSERT_STR_EQ("protocol_missing", jget_str(permission, "reason"));
+    ASSERT_STR_EQ("supported", jget_str(permission, "state"));
+    ASSERT_STR_EQ("implemented", jget_str(permission, "reason"));
     yyjson_doc_free(doc);
     free(json);
 
@@ -351,27 +341,6 @@ TEST extension_capability_matrices_are_typed_and_secret_free(void) {
     yyjson_doc_free(doc);
     free(json);
     unsetenv("OPENAI_API_KEY");
-    PASS();
-}
-
-TEST extensions_known_unavailable_actions_get_capability_diagnostics(void) {
-    ext_fixture f = ext_fixture_new(true);
-    ASSERT(f.host);
-    setenv("TNY_EXTENSION_HOST", f.host, 1);
-    tny_extensions *x = tny_extensions_new(f.tny, f.workspace, 200);
-    ASSERT(x);
-    tny_extensions_set_provider(x, TNY_BK_CURSOR);
-    tny_extension_result result;
-    ASSERT_EQ(0,
-              tny_extensions_invoke(x, "custom_message", "{\"type\":\"custom_message\"}", &result));
-    ASSERT_EQ(0, result.action_count);
-    ASSERT_EQ(1, result.failure_count);
-    ASSERT_STR_EQ("unsupported_capability", result.failures[0].code);
-    ASSERT(strstr(result.failures[0].message, "extensions.permission.allow_once is unsupported"));
-    tny_extension_result_free(&result);
-    tny_extensions_free(x);
-    unsetenv("TNY_EXTENSION_HOST");
-    ext_fixture_free(&f);
     PASS();
 }
 
@@ -400,11 +369,11 @@ TEST extensions_negotiate_schema_and_send_selected_capabilities(void) {
     ext_fixture f = ext_fixture_new(true);
     ASSERT(f.host);
     setenv("TNY_EXTENSION_HOST", f.host, 1);
-    setenv("FAKE_REQUIRE_SELECTED_PROVIDER", "acp", 1);
+    setenv("FAKE_REQUIRE_SELECTED_PROVIDER", "openai", 1);
     setenv("FAKE_REQUIRE_RUNTIME_AVAILABLE", "1", 1);
     tny_extensions *x = tny_extensions_new(f.tny, f.workspace, 200);
     ASSERT(x);
-    tny_extensions_set_provider(x, TNY_BK_ACP);
+    tny_extensions_set_provider(x, TNY_BK_OPENAI);
     tny_extension_result result;
     ASSERT_EQ(0, tny_extensions_invoke(x, "tool_end", "{\"type\":\"tool_end\"}", &result));
     ASSERT_EQ(2, result.action_count);
@@ -441,7 +410,6 @@ SUITE(extensions_suite) {
     RUN_TEST(extensions_reject_non_normalized_or_oversized_input);
     RUN_TEST(extensions_malformed_action_is_a_structured_failure);
     RUN_TEST(extension_capability_matrices_are_typed_and_secret_free);
-    RUN_TEST(extensions_known_unavailable_actions_get_capability_diagnostics);
     RUN_TEST(extensions_reject_event_over_the_wire_limit);
     RUN_TEST(extensions_negotiate_schema_and_send_selected_capabilities);
 }

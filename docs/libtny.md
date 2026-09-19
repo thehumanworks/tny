@@ -5,7 +5,7 @@ speech, transcription, and prompt optimisation, independent of runtime/session
 handles. Existing ABI 1.0/1.1 records, symbols, and defaults remain compatible.
 
 `libtny` contains the ABI-1 headless C candidate for the same runtime
-used by `tny ask`, the TUI, and `tny acp`. It is not a second agent loop and it
+used by `tny ask`, the TUI. It is not a second agent loop and it
 does not expose tny's backend, yyjson, session-store, or pollfd layouts.
 
 The lifecycle design is [ADR 0023](adr/0023-libtny-embedding-abi.md), amended
@@ -130,19 +130,13 @@ pass a state directory; it is not materialized. `tny_session_open` remains
 unavailable for an ephemeral runtime because there is no durable session to
 open.
 
-The public API does not read tny settings or choose a provider from the
-environment. It accepts `openai` (or empty) and `cursor`; Codex and ACP remain
-CLI providers. Cursor requires explicit `state_dir`, `api_key`, and `model`
-options and an external `cursor-sdk-bridge` selected by
-`CURSOR_SDK_BRIDGE_BIN` or `PATH`. Cursor create/resume/send/cancel,
-normalized events, and registered sync/async custom tools use the ordinary
-ABI-1 lifecycle. Catalog/management RPCs and image attachments remain CLI-only.
+The public API does not read tny settings or choose a provider from the environment. It accepts `openai` (or empty), with explicit HTTP configuration and in-memory credentials. Both Responses and Chat Completions use the ordinary ABI-1 lifecycle. Removed provider selectors return an unsupported-provider error.
 
 The default permission policy is `TNY_PERMISSION_ASK`, unlike the CLI's
 deliberate yolo default. `max_steps` defaults to 0 (unlimited, matching the
 CLI; [ADR 0024](adr/0024-unlimited-steps-default.md)); a positive value through
 `INT32_MAX` caps
-model calls per turn and ends the turn with `TNY_STOP_REASON_STEP_LIMIT`. A sensitive native or host request emits a permission
+model calls per turn and ends the turn with `TNY_STOP_REASON_STEP_LIMIT`. A sensitive native request emits a permission
 event and parks until `tny_session_respond_permission`, cancellation, or close.
 MCP is disabled and omitted from the advertised tool schema in ABI 0.
 Home/ancestor instructions and home skill catalogs are never imported. Only an
@@ -170,7 +164,7 @@ the reserved OOM error and exactly one terminal without terminating the host.
 Emergency provider cancellation and reserved delivery make no tny allocation
 attempts. Native pending tools are invalidated and missing transcript results
 are repaired for the next request; partial text is not newly persisted under
-OOM. Cursor closes its owned bridge and reconnects/resumes on a later send.
+OOM.
 Ordinary cancellation semantics are unchanged. See
 [ADR 0117](adr/0117-allocation-free-provider-oom-settlement.md).
 
@@ -184,7 +178,7 @@ configuration, or writes state.
 The snapshot separates:
 
 - `provider_available_mask`: providers compiled and supported by this public
-  library (OpenAI-compatible and Cursor sdk.v1);
+  library (OpenAI-compatible HTTP);
 - `provider_selected`: the runtime's selected provider;
 - `provider_initialized`: whether its local backend has completed
   initialization;
@@ -197,11 +191,8 @@ The snapshot separates:
 shared-library packaging, optional session persistence, the platform TLS
 implementation, and cross-thread cancellation. It deliberately leaves the
 bits for static packaging, MCP, terminal embedding, Windows, wasm, and fully
-static TLS clear. Cursor and OpenAI provider bits are set; Codex and ACP remain
-clear. Registered custom tools are separately available and become enabled
+static TLS clear. Only the OpenAI provider bit is set; legacy provider bit values remain reserved and unavailable. Registered custom tools are separately available and become enabled
 only after registration. Built-in native tools are not “custom tools.”
-The selected Cursor runtime reports transport `sdk.v1-connect-http1` and keeps
-endpoint reachability unknown until ordinary turn traffic observes a result.
 
 ABI 0.6 additionally advertises `TNY_CAP_FEATURE_HOST_SERVICES` as available.
 It is enabled only for a runtime created through the v1 entry point with a

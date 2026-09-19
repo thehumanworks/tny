@@ -8,7 +8,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_background_agents import until
 from test_tui import BANNER, MOCK, TNY, Term, base_env, clean, free_port
 
 TNY = str(Path(TNY).resolve())
@@ -16,13 +15,16 @@ TNY = str(Path(TNY).resolve())
 
 class Worktrees(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="tny-wt-", dir="/tmp")
+        self.tmp = tempfile.TemporaryDirectory(prefix="tny-wt-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name).resolve()
         self.home = self.root / "home"
         self.home.mkdir()
         self.repo = self.root / "repo with spaces"
-        self.env = base_env(str(self.home), {"TNY_ISOLATE": "0"})
+        self.env = base_env(
+            str(self.home),
+            {"TNY_ISOLATE": "0", "GIT_CEILING_DIRECTORIES": str(self.root)},
+        )
         self.init_repo(self.repo)
         self.worktrees = self.home / ".tny" / "worktrees"
 
@@ -137,14 +139,36 @@ class Worktrees(unittest.TestCase):
         rows = json.loads(self.cli("agents", "--json", cwd=self.home).stdout)["agents"]
         self.assertEqual([row["session_id"] for row in rows], [local])
 
-    def test_agents_discover_foreground_worktree_session(self):
-        agent = Path(__file__).resolve().parent / "fake_acp_agent.py"
-        env = {**self.env, "TNY_ISOLATE": "1"}
-        t = self.term(
-            "foreground", extra=("--provider", "acp", "--agent", str(agent)), env=env
+    def provider_env(self, slow=0):
+        port = free_port()
+        env = {
+            **self.env,
+            "TNY_ISOLATE": "1",
+            "MOCK_SLOW_MS": str(slow),
+            "OPENAI_BASE_URL": f"http://127.0.0.1:{port}/v1",
+            "OPENAI_API_KEY": "fixture",
+        }
+        proc = subprocess.Popen(
+            [sys.executable, MOCK, str(port)],
+            env=env,
+            stdout=subprocess.PIPE,
+            text=True,
         )
+
+        def close():
+            proc.terminate()
+            proc.wait(timeout=5)
+            proc.stdout.close()
+
+        self.addCleanup(close)
+        self.assertIn("ready", proc.stdout.readline())
+        return env
+
+    def test_agents_discover_foreground_worktree_session(self):
+        env = self.provider_env()
+        t = self.term("foreground", extra=("--provider", "openai"), env=env)
         t.send("foreground-worktree\r")
-        t.expect("[asked: foreground-worktree]", timeout=15)
+        t.expect("MOCK-OK", timeout=15)
         rows = json.loads(self.cli("agents", "--json").stdout)["agents"]
         self.assertEqual(len(rows), 1)
         self.assertTrue(rows[0]["live"])
@@ -152,20 +176,11 @@ class Worktrees(unittest.TestCase):
         self.assertEqual(json.loads(self.cli("agents", "--json").stdout)["agents"], [])
 
     def test_agents_discover_and_attach_live_worktree_runner(self):
-        agent = Path(__file__).resolve().parent / "fake_acp_agent.py"
-        state = self.root / "acp-state.json"
-        env = {
-            **self.env,
-            "TNY_ISOLATE": "1",
-            "FAKE_ACP_STATE": str(state),
-            "FAKE_ACP_SLOW_MS": "5000",
-        }
+        env = self.provider_env(slow=1500)
         launched = self.cli(
             "--worktree=live",
             "--provider",
-            "acp",
-            "--agent",
-            str(agent),
+            "openai",
             "ask",
             "-B",
             "--json",
@@ -181,14 +196,12 @@ class Worktrees(unittest.TestCase):
         self.assertEqual([row["session_id"] for row in rows], [sid])
         self.assertTrue(rows[0]["live"])
         self.assertTrue(rows[0]["running"])
-        t = Term([TNY, "--agent", str(agent), "agents"], env, str(self.repo))
+        t = Term([TNY, "agents"], env, str(self.repo))
         self.addCleanup(t.close)
         t.expect("Background agents")
         t.send("\r")
         t.expect("Attached " + sid)
-        t.expect("[asked: worktree-runner]", timeout=15)
-        until(lambda: state.exists() and "new_cwd" in json.loads(state.read_text()))
-        self.assertEqual(json.loads(state.read_text())["new_cwd"], str(managed))
+        t.expect("MOCK-OK", timeout=15)
         t.send("/status\r")
         t.expect(str(managed))
         t.send("\x04")
@@ -444,7 +457,7 @@ class Worktrees(unittest.TestCase):
         self.assertEqual(self.git(w, "branch", "--show-current"), "later-branch")
 
     def test_slash_switches_workspace_and_starts_fresh_session(self):
-        env = {**self.env, "TNY_ISOLATE": "1"}
+        env = self.provider_env()
         t = self.term(env=env)
         t.send("/worktree slash\r")
         t.expect("new session")

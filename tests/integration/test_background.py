@@ -595,51 +595,6 @@ def main():
                 poll(lambda: pid_gone(p), 10, f"pid {p} reaped")
             print("ok: no orphans")
 
-            # ---- host-backend (ACP stub) parity: the stored result is the
-            # answer even where the transcript holds only a resume pointer,
-            # and host tool_calls ride the host_tools branch. Runs LAST
-            # among the mock-provider scenarios: it persists
-            # last_provider=acp in settings.json, which would win provider
-            # resolution for every later implicit-provider invocation. ----
-            agent = os.path.join(ROOT, "tests", "integration", "fake_acp_agent.py")
-
-            def aenv(st):
-                return ctx.env(fport, FAKE_ACP_STATE=os.path.join(home, st))
-
-            acp = [TNY, "--backend", "acp", "--agent", agent, "--cwd", ctx.ws]
-            ra = subprocess.run(
-                acp + ["ask", "--json", "hello"],
-                env=aenv("acp-fg.json"),
-                capture_output=True,
-                timeout=30,
-            )
-            assert ra.returncode == 0, ra.stderr.decode()
-            afg = json.loads(ra.stdout)
-            rb = subprocess.run(
-                acp + ["ask", "-B", "hello"],
-                env=aenv("acp-bg.json"),
-                capture_output=True,
-                timeout=30,
-            )
-            assert rb.returncode == 0, rb.stderr.decode()
-            asid = rb.stdout.decode().strip()
-            assert is_hex16(asid), rb.stdout
-            ad = poll(
-                lambda: (lambda x: x if x.get("status") != "running" else None)(
-                    ctx.doc(asid)
-                ),
-                20,
-                "acp bg done",
-            )
-            assert ad["status"] == "done", ad
-            ares = ad["result"]
-            assert norm(ares) == norm(afg), (
-                f"acp stored result != foreground json:\n{norm(ares)}\n{norm(afg)}"
-            )
-            assert ares["provider"] == "acp", ares
-            assert ares["tool_calls"], "host tool_calls missing from result"
-            print("ok: host-backend (acp) result parity")
-
             # ---- -B --ephemeral rejected ----
             re_ = subprocess.run(
                 [TNY, "--cwd", ctx.ws, "ask", "-B", "--ephemeral", "x"],

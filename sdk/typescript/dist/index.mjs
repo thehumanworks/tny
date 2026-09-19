@@ -169,7 +169,7 @@ export class Runtime {
     if (options.persistence && typeof options.stateDir !== "string") {
       throw new TypeError("stateDir is required when persistence is true");
     }
-    if (options.provider !== undefined && !["openai", "cursor"].includes(options.provider)) {
+    if (options.provider !== undefined && !["openai"].includes(options.provider)) {
       throw new UnsupportedFeatureError(`provider ${String(options.provider)}`);
     }
     if (options.taskPreset !== undefined) {

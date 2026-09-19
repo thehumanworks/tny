@@ -310,49 +310,18 @@ class ImageInputTests(unittest.TestCase):
                 self.assertIn(expected, r.stderr)
                 self.assertEqual(self.state["chat"], [])
 
-    def test_acp_alias_cannot_bypass_false_and_transport_still_refuses(self):
-        if WASM:
-            self.skipTest("wasm cannot spawn the ACP agent process")
-        agent = str(ROOT / "tests/integration/fake_acp_agent.py")
-        for selector in ("acp@agent", "acp:agent"):
-            with self.subTest(selector=selector):
-                self.settings(
-                    {
-                        "acp": {"agent": {"command": sys.executable, "args": [agent]}},
-                        "image_input": {"acp@agent": False},
-                    }
-                )
-                r = self.run_tny(
-                    "--provider",
-                    selector,
-                    "ask",
-                    "--image",
-                    str(self.png),
-                    "describe this",
-                )
-                self.assertEqual(r.returncode, 1, r.stderr)
-                self.assertIn(REFUSAL, r.stderr)
-
-        # configured true never overrides the ACP client's actual rejection
-        self.settings(
-            {
-                "acp": {"agent": {"command": sys.executable, "args": [agent]}},
-                "image_input": {"acp@agent": True},
-            }
-        )
-        r = self.run_tny(
-            "--provider", "acp@agent", "ask", "--image", str(self.png), "describe this"
-        )
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("image prompts are not supported", r.stderr)
-        self.assertNotIn(REFUSAL, r.stderr)
+    def test_removed_acp_selectors_fail(self):
+        for selector in ("acp", "acp@agent", "acp:agent"):
+            r = self.run_tny("--provider", selector, "ask", "hello")
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("removed", r.stderr)
 
     def test_switching_providers_recomputes_the_capability(self):
         self.settings(
             {
                 "gateway": {
                     "base_url": self.url + "/v1",
-                    "api_key": "fixture-gateway-key",
+                    "api_key_env": "OPENAI_API_KEY",
                 },
                 "image_input": {"openai": False},
             }

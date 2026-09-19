@@ -168,6 +168,12 @@ void tui_background_arm(tui *t) {
 void tui_agents_select(tui *t) {
     if (t->agent_selected < 0 || t->agent_selected >= t->n_agents) return;
     session_meta *m = &t->agents[t->agent_selected];
+    if (m->backend &&
+        (strcmp(m->backend, "cursor") == 0 || strcmp(m->backend, "acp") == 0 ||
+         strncmp(m->backend, "acp@", 4) == 0 || strncmp(m->backend, "acp:", 4) == 0)) {
+        tui_err(t, "cannot attach: this session uses a removed provider");
+        return;
+    }
     if (m->workspace && strcmp(m->workspace, t->ctx->cwd) != 0) {
         /* Attachment and subsequent turns must use the selected checkout's
          * storage, settings and permissions, not the dashboard's origin. */
@@ -180,6 +186,11 @@ void tui_agents_select(tui *t) {
         tui_raw_end(t);
         if (!ctx) {
             tui_err(t, "cannot load the background session's workspace");
+            return;
+        }
+        if (tny_resolve_backend(ctx, m->backend ? m->backend : "openai") < 0) {
+            tny_ctx_free(ctx);
+            tui_err(t, "cannot attach: provider configuration is unavailable");
             return;
         }
         if (t->engine) tny_engine_end_session(t->engine, "agents");
@@ -196,6 +207,11 @@ void tui_agents_select(tui *t) {
         t->perm = perm_new(ctx);
         t->worktree = NULL; /* discovery does not acquire a managed-worktree lock */
         tui_files_free(t);
+    }
+    tui_prewarm_drop(t);
+    if (tny_resolve_backend(t->ctx, m->backend ? m->backend : "openai") < 0) {
+        tui_err(t, "cannot attach: provider configuration is unavailable");
+        return;
     }
     tny_session_state *session = session_open(t->ctx, m->id);
     if (!session) {
@@ -216,24 +232,11 @@ void tui_agents_select(tui *t) {
     tui_overlay_clear(t);
     /* A live runner retains its exact configuration. The local context is
      * only its display/next-turn selection, never a provider startup here. */
-    free(t->ctx->provider_name);
-    t->ctx->provider_name = xstrdup(m->backend ? m->backend : "openai");
-    t->ctx->backend =
-        m->backend && strcmp(m->backend, "cursor") == 0 ? TNY_BK_CURSOR
-        : m->backend && (strcmp(m->backend, "acp") == 0 || str_starts(m->backend, "acp@"))
-            ? TNY_BK_ACP
-            : TNY_BK_OPENAI;
     free(t->ctx->model);
     t->ctx->model = m->model ? xstrdup(m->model) : NULL;
     tui_sysf(t, "Attached %s (%s); /agents returns to the list; quit detaches", m->id,
              agent_status(m));
     tui_command(t, "/transcript");
-    /* Resolve credentials/host mode for a later prompt, even if this live
-     * runner exits after attachment. This does not start a provider. */
-    char *model = t->ctx->model ? xstrdup(t->ctx->model) : NULL;
-    tny_resolve_backend(t->ctx, m->backend ? m->backend : "openai");
-    free(t->ctx->model);
-    t->ctx->model = model;
     if (!running) {
         char err[192];
         if (session_task_reconcile(session, err, sizeof err) != 0) tui_err(t, err);

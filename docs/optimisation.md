@@ -46,7 +46,7 @@ For each field, precedence is explicit optimisation option, then
 effort, fast-tier, and task settings do not change the optimiser. Selecting
 another provider usually also requires selecting a model that it serves.
 Native OpenAI-compatible providers, including subscription profiles, work;
-Cursor and ACP hosts are refused because tny cannot enforce their tool set.
+Every supported provider uses the native tool set.
 
 ## Project exploration
 

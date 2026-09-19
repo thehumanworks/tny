@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "mutants": [
+    {
+      "name": "id-precedence",
+      "source": "src/backends/openai/toolcalls.cpp",
+      "sha256": "41351b236c5a6c2a0255143e490fb8f2e023a32c19fc282bdad0d173232ab652",
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": 1,
+      "killed": true
+    },
+    {
+      "name": "borrowed-document",
+      "source": "src/backends/openai/toolcalls.cpp",
+      "sha256": "d01a3e215383e00109ccb33385cc8334a58336158ad599457a37cabd42f627ac",
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": 1,
+      "killed": true
+    },
+    {
+      "name": "swallowed-oom",
+      "source": "src/backends/openai/stream_decode.cpp",
+      "sha256": "13c7ef8855f5f84366d66984a3939e341e9ba0149ca52a257daadbde180b7ae4",
+      "compile_exit": 0,
+      "link_exit": 0,
+      "run_exit": 1,
+      "killed": true
+    }
+  ],
+  "passed": true,
+  "inputs": {
+    "/home/tomas/Projects/tny/build/parser-ownership/test_ownership.cpp.o": "744a317888e82aebec4a0f111c866688f0a68370123d6705feeb04b152a72805",
+    "/home/tomas/Projects/tny/build/parser-ownership/ownership-test": "d6fbeafa87085da2c9810f918ce5c59756cdc696b1ad624ebc7a97e9b7a17c04",
+    "/home/tomas/Projects/tny/build/fault-san-pic/src/util/alloc.o": "cc51f694ae5128712b9d9c4e67ad7e9465dcf435622788ffda7e178c5f0f98f8",
+    "/home/tomas/Projects/tny/build/fault-san-pic/src/util/util.o": "c99ff371c58fdae92a1b909b02ae91ab8b2f80ccc33a51ab4faf7cd332edfda5",
+    "/home/tomas/Projects/tny/build/fault-san-pic/src/json/json.o": "27dc0103608740772ca340319955567e6709eff46cf267f7f0ec115bd5d8e295",
+    "/home/tomas/Projects/tny/build/fault-san-pic/third_party/yyjson/yyjson.o": "6979cae3d745f791deec3225ab54cc87d3014daee40a3becafc189421a2a09a1",
+    "/home/tomas/Projects/tny/build/fault-san-pic/src/net/sse.cpp.o": "ce63e7ead1c0e410c69d2c7ac42d6d96560a4168465c5037bc5b6303eaad663b",
+    "/home/tomas/Projects/tny/build/fault-san-pic/src/backends/openai/toolcalls.cpp.o": "86bbebb9fdb12eef833195bb87ffc956fb295dc1987cd386c49d202454f4e4b0",
+    "/home/tomas/Projects/tny/build/fault-san-pic/src/backends/openai/stream_decode.cpp.o": "e8ad0b38f8547cba8636f303344102824cfd521f3676fb3f90c7aa9caaf9a969",
+    "/home/tomas/Projects/tny/src/backends/openai/toolcalls.cpp": "13e5055e790511d95d352e017b11496a9d9e7cf42407b78fd7de1d39190cad63",
+    "/home/tomas/Projects/tny/src/backends/openai/stream_decode.cpp": "5a6d6856b5b8b8e8afbfba9b87cbcdb221c1caeb9834949b95dae6f59d436424"
+  },
+  "baseline_exit": 0
+}

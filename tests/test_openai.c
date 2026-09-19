@@ -905,7 +905,7 @@ TEST openai_preview_needs_a_continuable_tool_batch(void) {
 
     /* and a non-native backend handle is never a session for this */
     tny_backend other = {0};
-    other.id = TNY_BK_ACP;
+    other.id = TNY_BK_COUNT;
     ASSERT_EQ(
         TNY_IMAGE_PREVIEW_UNAVAILABLE_SESSION,
         tny_backend_openai_queue_image_preview(&other, f.png, f.hash_a, 0, &code, err, sizeof err));

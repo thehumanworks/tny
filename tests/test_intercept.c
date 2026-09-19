@@ -853,8 +853,6 @@ TEST intercepted_jobs_carry_each_operations_identity(void) {
         "tny --json --model test jobs list",
         "tny --worktree branch jobs list",
         "tny --worktree jobs list",
-        "tny --agent helper -- agent-arg -- jobs list",
-        "tny --agent first --agent second jobs list",
         "tny --add-dir /tmp --add-dir /var/tmp jobs list",
         "tny -- jobs list",
         "tny.exe --provider openai jobs list",

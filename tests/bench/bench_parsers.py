@@ -21,14 +21,13 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-MODES = ("sse", "connect", "tools")
+MODES = ("sse", "tools")
 PATTERNS = ("whole", "byte", "split")
 SOURCE_STEMS = (
     "src/util/util",
     "src/util/alloc",
     "src/json/json",
     "src/net/sse",
-    "src/net/connectrpc",
     "src/backends/openai/toolcalls",
     "third_party/yyjson/yyjson",
 )
@@ -76,7 +75,7 @@ def checked(command: list[str], cwd: Path, env: dict[str, str], log: Path) -> st
 
 def manifest(root: Path, sources: list[Path], harness: Path) -> dict[str, str]:
     paths = set(sources)
-    for directory in ("src", "include", "third_party/yyjson", "third_party/wslay"):
+    for directory in ("src", "include", "third_party/yyjson"):
         paths.update(
             path
             for path in (root / directory).rglob("*")

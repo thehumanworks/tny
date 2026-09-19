@@ -1504,7 +1504,6 @@ static bool rn_consume_checkpoint(rn_state *r) {
     if (disk_packet) restart = yyjson_doc_get_root(disk_packet);
     session->ctx = ctx;
     if (!restart) session_write_pid(session, getpid());
-    if (opts->no_host_registry) ctx->no_host_registry = true;
     if (!freopen("/dev/null", "r", stdin)) { /* best effort */
     }
     char *logf = path_join(session->dir, "task.log");

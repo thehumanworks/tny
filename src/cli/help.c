@@ -26,7 +26,6 @@ void help_root(void) {
           "  task-workspace COMMAND Inspect, integrate or clean an owned task worktree\n"
           "  team COMMAND           Start, inspect, collect or cancel a job-backed team\n"
           "  resume [last|<id>]     Resume a session interactively\n"
-          "  acp                    Start an ACP server over stdio (native loop)\n"
           "  agents                 Background agents dashboard; --json lists state\n"
           "  web search|fetch TEXT  Search the web or fetch a URL\n"
           "  sessions               List saved sessions for this workspace\n"
@@ -34,7 +33,6 @@ void help_root(void) {
           "  providers | backends   List configured providers and doctor hints\n"
           "  provider setup NAME    Add an OpenAI-compatible provider (interactive on a tty)\n"
           "  models                 List available models for the active provider\n"
-          "  cursor COMMAND         Cursor sdk.v1 catalog, agents, runs, artifacts, and raw RPCs\n"
           "  tasks                  List built-in and discovered task presets\n"
           "  task show NAME         Inspect one resolved task preset\n"
           "  permissions            Show the permission mode and rules\n"
@@ -52,8 +50,8 @@ void help_root(void) {
           "                         on user@host[:port] over OpenSSH; tny stays local\n"
           "  --ssh-cwd DIR          Remote working directory for --ssh (default: login\n"
           "                         dir); a leading ~ means the remote home, so quote it\n"
-          "  --provider NAME        cursor | acp | openai | codex | claude | grok, a\n"
-          "                         named API profile, or settings ACP agent acp@NAME\n"
+          "  --provider NAME        openai | codex | grok, or a\n"
+          "                         named OpenAI-compatible HTTP profile\n"
           "                         (--backend also works)\n"
           "  --cwd DIR              Primary workspace (default: current directory)\n"
           "  --worktree [NAME]      Create or enter ~/.tny/worktrees/NAME (random by default)\n"
@@ -64,9 +62,7 @@ void help_root(void) {
           "                         (or any level `tny models` lists for the provider)\n"
           "                         (--reasoning-effort also works)\n"
           "  --system-prompt TEXT   Custom system prompt. openai-compatible providers\n"
-          "                         carry it on the system/instructions field; cursor\n"
-          "                         and acp have no such field, so it is prepended\n"
-          "                         to the session's first user message\n"
+          "                         carry it on the system/instructions field.\n"
           "  --task NAME            Apply a named task preset (review, optimizer,\n"
           "                         document, retro, task-creation, or a discovered\n"
           "                         .tny/tasks NAME.md)\n"
@@ -80,7 +76,7 @@ void help_root(void) {
           "                         unlimited; 'unlimited' or 0 clears the cap)\n"
           "  --no-extensions        Do not load ~/.tny/extensions for this process\n"
           "  --fast                 Paid fast tier where the provider has one\n"
-          "                         (openai, codex, cursor; higher speed and cost)\n"
+          "                         (compatible HTTP providers; higher speed and cost)\n"
           "  --json                 Machine-readable output where listed\n"
           "  --color MODE           auto | always | never (--no-color = never).\n"
           "                         NO_COLOR disables colors only; the status bar keeps\n"
@@ -94,20 +90,15 @@ void help_root(void) {
           "\n"
           "  --xai-api-key KEY      xAI dictation credential (independent of chat)\n"
           "\nProvider flags:\n"
-          "  cursor: --bridge-bin PATH        (env CURSOR_SDK_BRIDGE_BIN, CURSOR_API_KEY)\n"
           "  codex:  --chatgpt-token TOKEN --chatgpt-account-id ID (env CHATGPT_ACCESS_TOKEN,\n"
           "          CHATGPT_ACCOUNT_ID) for file-less hosts; else ~/.tny/codex-auth.json from\n"
           "          `tny --provider codex login`, else $CODEX_HOME/auth.json from `codex login`.\n"
           "          Runs chatgpt.com/backend-api/codex on tny's native loop\n"
-          "  acp:    --agent CMD -- args... for ad-hoc agents; acp@NAME selects an\n"
-          "          acp.NAME command + args from ~/.tny/settings.json\n"
           "  openai: --base-url URL --api-key-env NAME (env OPENAI_BASE_URL, OPENAI_API_KEY)\n"
           "          --base-url-env NAME  Read the base URL from env NAME (keeps a\n"
           "                         secret-bearing gateway URL off argv)\n"
           "          --wire-api responses|chat  Wire protocol (default responses;\n"
           "                         chat for legacy-only providers, docs/adr/0016)\n"
-          "  claude: Claude Code OAuth token (env CLAUDE_CODE_OAUTH_TOKEN,\n"
-          "          ANTHROPIC_API_KEY, or ~/.claude/.credentials.json)\n"
           "  grok:   xAI session (~/.grok/auth.json via `tny --provider grok login`,\n"
           "          native device auth) or env XAI_API_KEY\n"
           "\n"
@@ -128,8 +119,7 @@ void help_root(void) {
           "  tny --provider codex ask \"run the tests\"\n"
           "  tny --effort xhigh ask \"prove this lock-free queue is correct\"\n"
           "  tny --provider codex --fast ask \"quick: run the tests\"\n"
-          "  tny --provider acp --agent gemini -- --acp\n"
-          "  tny --provider acp@claude-code --model claude-sonnet-4-6\n",
+          "  tny --provider openrouter ask \"run tests\"\n",
           stdout);
 }
 
@@ -181,7 +171,7 @@ static const char *ask_help =
     "  id=$(tny ask -B \"audit the Makefile\")   # detached; `tny session $id` to read\n"
     "  tny ask --resume $id --steer \"drop that — check the tests instead\"\n"
     "  tny ask --output-schema schema.json \"extract the TODOs as JSON\"\n"
-    "  tny --provider cursor --model composer-2 ask \"find the login bug\"\n";
+    "  tny --provider codex --model gpt-5.6-sol ask \"find the login bug\"\n";
 
 static const char *jobs_help =
     "Usage: tny jobs submit ask [options] [< prompt.txt]\n"
@@ -319,17 +309,6 @@ static const char *workspace_help =
     "  tny workspace list\n"
     "  tny workspace add ../shared-lib\n";
 
-static const char *acp_help =
-    "Usage: tny acp [--model ID] [--log-file PATH]\n"
-    "\n"
-    "Serve tny's native OpenAI-compatible loop as an ACP agent over stdio\n"
-    "(protocolVersion 1). stdout is protocol-only; logs go to --log-file.\n"
-    "Use the leading --ephemeral global flag to disable local session storage.\n"
-    "\n"
-    "Examples:\n"
-    "  tny acp\n"
-    "  tny --ephemeral --model gpt-4.1-mini acp\n";
-
 static const char *setup_help =
     "Usage: tny setup [--base-url URL] [--api-key-env NAME] [--model ID]\n"
     "\n"
@@ -344,7 +323,7 @@ static const char *doctor_help =
     "Usage: tny doctor [--json]\n"
     "\n"
     "Run local health checks: config files, session store, host binaries\n"
-    "(cursor-sdk-bridge, codex, ACP agents), and provider credentials.\n";
+    "and native HTTP provider credentials.\n";
 
 static const char *resume_help =
     "Usage: tny resume [last|<id>]\n"
@@ -355,21 +334,6 @@ static const char *resume_help =
     "Examples:\n"
     "  tny resume last\n"
     "  tny resume 4f2a1c90aa317b22\n";
-
-static const char *cursor_help =
-    "Usage: tny cursor COMMAND [ARGS]\n\n"
-    "Manage the complete Cursor SDK Bridge sdk.v1 surface. Catalog and lifecycle\n"
-    "aliases cover users, models, repositories, agents, runs, messages, artifacts,\n"
-    "and usage. `rpc SERVICE METHOD [JSON|-]` exposes every pinned outbound RPC;\n"
-    "DeleteAgent requires --yes. CURSOR_API_KEY and cursor-sdk-bridge are required.\n\n"
-    "Options:\n"
-    "  -h, --help              Show this help.\n\n"
-    "Examples:\n"
-    "  tny cursor me\n"
-    "  tny cursor agents\n"
-    "  tny cursor runs AGENT_ID\n"
-    "  tny cursor download AGENT_ID artifact/path > artifact.bin\n"
-    "  tny cursor rpc SdkAgentService GetRun '{\"runId\":\"run-…\"}'\n";
 
 bool help_for(const char *command) {
     const char *text = NULL;
@@ -587,38 +551,38 @@ bool help_for(const char *command) {
     else if (strcmp(command, "tasks") == 0) text = tasks_help;
     else if (strcmp(command, "task") == 0) text = task_help;
     else if (strcmp(command, "workspace") == 0) text = workspace_help;
-    else if (strcmp(command, "acp") == 0) text = acp_help;
     else if (strcmp(command, "setup") == 0) text = setup_help;
     else if (strcmp(command, "doctor") == 0) text = doctor_help;
     else if (strcmp(command, "resume") == 0) text = resume_help;
-    else if (strcmp(command, "cursor") == 0) text = cursor_help;
     else if (strcmp(command, "status") == 0)
         text = "Usage: tny status [--json]\n\nShow provider, model, permissions, workspace, and "
                "session counts.\n";
     else if (strcmp(command, "models") == 0)
         text = "Usage: tny models [--json]\n\nList models for the active provider (codex "
-               "model/list, cursor ListModels, GET /models on openai).\nCatalogs that advertise "
+               "GET /models with its subscription dialect, GET /models on gateways).\nCatalogs "
+               "that advertise "
                "reasoning-effort levels show them per model; pick one\nwith --effort or /effort.\n";
     else if (strcmp(command, "permissions") == 0)
         text =
             "Usage: tny permissions [--json]\n\nShow the permission mode and persistent rules.\n";
     else if (strcmp(command, "providers") == 0 || strcmp(command, "backends") == 0)
-        text = "Usage: tny providers [--json]\n\nList the four providers with a one-line doctor "
+        text = "Usage: tny providers [--json]\n\nList configured HTTP providers with a one-line "
+               "doctor "
                "hint each.\n";
     else if (strcmp(command, "provider") == 0)
         text = "Usage: tny provider [list] [--json]\n"
                "       tny provider setup NAME [--base-url URL]\n"
-               "           [--api-key KEY | --api-key-env ENV] [--model M]\n"
+               "           [--api-key-env ENV] [--model M]\n"
                "           [--wire-api responses|chat]\n\n"
                "Write an OpenAI-compatible provider profile to ~/.tny/settings.json and\n"
-               "make it the default. On a terminal, missing fields are prompted for (the\n"
-               "key with echo off). --api-key stores the key in settings.json (0600);\n"
-               "--api-key-env names an env var instead — an env var always wins.\n\n"
+               "make it the default. On a terminal, missing fields are prompted for.\n"
+               "Keys must be exported in the environment; settings store only names.\n"
+               "--api-key-env names the environment variable holding the key.\n\n"
                "Examples:\n"
                "  tny provider setup openrouter --base-url https://openrouter.ai/api/v1 \\\n"
                "      --api-key-env OPENROUTER_API_KEY --model anthropic/claude-sonnet-4.6\n"
                "  tny provider setup opencode --base-url https://api.opencode.example/v1 \\\n"
-               "      --api-key sk-…\n"
+               "      --api-key-env GATEWAY_API_KEY\n"
                "  tny provider setup   # interactive\n";
     else if (strcmp(command, "usage") == 0)
         text = "Usage: tny usage [--json]\n\nShow local token usage recorded from native-loop "
@@ -661,19 +625,14 @@ bool help_for(const char *command) {
                "          machines. The login lands in ~/.tny/codex-auth.json, which tny\n"
                "          reads for the ChatGPT Responses backend and refreshes itself.\n"
                "          Existing `codex login` files ($CODEX_HOME/auth.json) keep working.\n"
-               "  claude  Reports the credential in use (CLAUDE_CODE_OAUTH_TOKEN,\n"
-               "          ANTHROPIC_API_KEY, ~/.claude/.credentials.json), else runs\n"
-               "          `claude setup-token` to mint a Claude Code OAuth token.\n"
                "  grok    Native RFC 8628 device-code sign-in against auth.x.ai (no grok\n"
                "          CLI needed): open the printed URL on any device, confirm the\n"
                "          code; the session lands in ~/.grok/auth.json (grok CLI format)\n"
                "          and auto-refreshes.\n"
-               "  cursor  Reports whether CURSOR_API_KEY is set.\n"
                "  openai  Reports whether an API key resolved (tny setup configures one).\n"
                "\n"
                "Examples:\n"
                "  tny --provider codex login --device\n"
-               "  tny --provider claude login\n"
                "  tny --provider grok login\n";
     else if (strcmp(command, "logout") == 0)
         text = "Usage: tny [--provider NAME] logout\n\nProvider-specific logout (removes "

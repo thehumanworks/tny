@@ -172,7 +172,7 @@ def main() -> int:
     assert len(documented_keys) == len(set(documented_keys))
     assert tuple(fixture["capabilities"]) == documented_keys
 
-    env = dict(os.environ, TNY_EXTENSIONS="off", TNY_DOCTOR_NO_SPAWN="1")
+    env = dict(os.environ, TNY_EXTENSIONS="off")
     completed = subprocess.run(
         [str(TNY), "--provider", "openai", "doctor", "--json"],
         cwd=str(ROOT),

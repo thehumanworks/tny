@@ -41,7 +41,7 @@ int reject_event(const oa_decoded_event *, void *ud) {
     return TNY_PARSE_OOM;
 }
 void count_sse(const char *, size_t, void *ud) { ++*static_cast<int *>(ud); }
-void count_frame(uint8_t, const char *, size_t, void *ud) { ++*static_cast<int *>(ud); }
+
 constexpr char chat[] =
     R"({"choices":[{"delta":{"content":"hello","reasoning_content":"retained thinking that exceeds small string storage","reasoning_details":[{"index":0,"text":"reason","unknown":{"signed":"payload"}}],"tool_calls":[{"index":0,"id":"long_call_identity_exceeding_small_string_storage","function":{"name":"read_file","arguments":"{\"path\":\"long retained path for allocation failure tests\"}"}}]}}]})";
 #ifdef TNY_ALLOC_TESTING
@@ -178,18 +178,6 @@ extern "C" int tny_ownership_selftest(void) {
         OWN_CHECK(sse_flush(&parser, count_sse, &events) == TNY_PARSE_OOM);
         sse_parser_free(&parser);
     }
-    for (size_t i = 1; i <= 2; ++i) {
-        const char frame[] = "\0\0\0\0\x20"
-                             "abcdefghijklmnopqrstuvwxyz123456";
-        connect_decoder parser;
-        connect_decoder_init(&parser);
-        fault_at(i);
-        int events = 0;
-        OWN_CHECK(connect_decoder_feed(&parser, frame, sizeof frame - 1, count_frame, &events) ==
-                  TNY_PARSE_OOM);
-        OWN_CHECK(events == 0);
-        connect_decoder_free(&parser);
-    }
     fault_at(0);
     unsetenv("TNY_TEST_ALLOC_SCOPE");
     unsetenv("TNY_TEST_ALLOC_FAIL_AT");
@@ -249,17 +237,6 @@ extern "C" int tny_ownership_selftest(void) {
     OWN_CHECK(sse_flush(&parser, count_sse, &events) == TNY_PARSE_OK);
     sse_parser_free(&parser);
     sse_parser_free(&parser);
-    connect_decoder frame;
-    connect_decoder_init(&frame);
-    OWN_CHECK(connect_decoder_feed(&frame, nullptr, 0, count_frame, &events) == TNY_PARSE_OK);
-    OWN_CHECK(connect_decoder_finish(&frame) == TNY_PARSE_OK);
-    connect_decoder_free(&frame);
-    const char too_large[] = {0, 4, 0, 0, 1};
-    connect_decoder_init(&frame);
-    OWN_CHECK(connect_decoder_feed(&frame, too_large, sizeof too_large, count_frame, &events) ==
-              TNY_PARSE_INVALID);
-    OWN_CHECK(events == 0);
-    connect_decoder_free(&frame);
     return 0;
 }
 #ifdef TNY_OWNERSHIP_STANDALONE

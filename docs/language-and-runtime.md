@@ -34,7 +34,7 @@ types.
 | Release | `-Os -ffunction-sections -fdata-sections`, strip, `--gc-sections` / `-dead_strip` |
 | libc | macOS: libSystem (cannot static-link). Linux publish: **musl static** |
 | TLS | macOS: Security.framework. Linux: **system OpenSSL** (`libssl.so.3` / `.so.1.1`), `dlopen`'d at first TLS use ([adr/0007](adr/0007-linux-tls-system-openssl.md)). Never link or vendor OpenSSL; musl static has no https |
-| Threads | One event loop. TUI prewarm uses one bounded connection thread; Cursor may lend its loopback callback server to one bounded pump thread during a blocking store RPC. Custom tools remain owner-thread-only |
+| Threads | One event loop, native runner isolation, bounded independent file workers; no provider-host thread |
 | Exceptions / RTTI | C++ allocation failures are caught at private C boundaries; RTTI is not needed |
 
 ## Library bill of materials
@@ -45,9 +45,6 @@ Vendor by source file, not by package manager graphs.
 | --- | --- | --- |
 | JSON | [yyjson](https://github.com/ibireme/yyjson) | Fast, one `.c` |
 | HTTP/1.1 + SSE | BSD sockets + [picohttpparser](https://github.com/h2o/picohttpparser) + ~200 LOC SSE | Drain the chunked body after `[DONE]`. Also accept `data: DONE` |
-| WebSocket | [wslay](https://github.com/tatsuhiro-t/wslay) | Framing only; tny owns TCP/TLS + the handshake |
-| Protobuf | No runtime for Cursor requests; pinned `.proto` files plus deterministic contract metadata. A minimal bounded decoder handles `SdkErrorDetails` Any payloads | JSON is the forward-compatible sdk.v1 interchange; no C++ protobuf runtime |
-| Connect | Hand-rolled HTTP/1.1 framing plus bounded loopback callback server | Unary + server streams outbound; authenticated custom-tool/store RPCs inbound; classic gRPC will not work |
 | Speech playback | Optional host `afplay`, `ffplay`, `mpv` or `mpg123` | External process only; no decoder library; [ADR 0071](adr/0071-ephemeral-host-audio-playback.md) |
 | TUI | Raw ANSI + termios + UTF-8 width | No ncurses, notcurses, termbox |
 | Tests | [greatest.h](https://github.com/silentbicycle/greatest) | One header. Golden files in `testdata/` |
@@ -66,9 +63,7 @@ are v1. Windows CI builds via MSYS2 `MSYS` (POSIX runtime, `msys-2.0.dll`);
 native Win32 is later. Intel Mac is not a CI or publish target
 ([adr/0006](adr/0006-ci-build-targets.md), [ci.md](ci.md)).
 
-Pin third-party versions in `third_party/*/VERSION`. Cursor's release protos
-and generated `contract.json` live under
-`third_party/cursor-sdk-bridge/v1.0.30/`; neither is hand-edited.
+Pin third-party versions in `third_party/*/VERSION`: yyjson, picohttpparser and greatest.
 
 Nix builds go through the same Makefile ([nix.md](nix.md),
 [ADR 0035](adr/0035-nix-flake-packaging.md)) and add no library to the bill of

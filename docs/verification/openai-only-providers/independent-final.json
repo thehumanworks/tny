@@ -1,0 +1,148 @@
+{
+  "binary": "/home/tomas/Projects/tny/build/tny",
+  "mock": "/tmp/tny-openai-only-e5nvv5r9/baseline/tests/integration/mock_openai.py",
+  "passed": 28,
+  "failed": 0,
+  "results": [
+    {
+      "case": "reject provider cursor",
+      "status": "passed",
+      "seconds": 0.004
+    },
+    {
+      "case": "reject provider acp",
+      "status": "passed",
+      "seconds": 0.004
+    },
+    {
+      "case": "reject provider acp@fixture",
+      "status": "passed",
+      "seconds": 0.003
+    },
+    {
+      "case": "reject provider acp:fixture",
+      "status": "passed",
+      "seconds": 0.004
+    },
+    {
+      "case": "reject provider claude",
+      "status": "passed",
+      "seconds": 0.003
+    },
+    {
+      "case": "reject command acp",
+      "status": "passed",
+      "seconds": 0.003
+    },
+    {
+      "case": "reject command cursor",
+      "status": "passed",
+      "seconds": 0.004
+    },
+    {
+      "case": "reject saved provider=cursor",
+      "status": "passed",
+      "seconds": 0.003
+    },
+    {
+      "case": "reject saved provider=acp",
+      "status": "passed",
+      "seconds": 0.004
+    },
+    {
+      "case": "reject saved provider=acp@fixture",
+      "status": "passed",
+      "seconds": 0.004
+    },
+    {
+      "case": "reject saved last_provider=cursor",
+      "status": "passed",
+      "seconds": 0.003
+    },
+    {
+      "case": "reject saved last_provider=acp",
+      "status": "passed",
+      "seconds": 0.004
+    },
+    {
+      "case": "reject saved last_provider=acp@fixture",
+      "status": "passed",
+      "seconds": 0.003
+    },
+    {
+      "case": "reject saved last_backend=cursor",
+      "status": "passed",
+      "seconds": 0.004
+    },
+    {
+      "case": "reject saved last_backend=acp",
+      "status": "passed",
+      "seconds": 0.003
+    },
+    {
+      "case": "reject saved last_backend=acp@fixture",
+      "status": "passed",
+      "seconds": 0.003
+    },
+    {
+      "case": "no discovery from installed agents or Claude/Cursor credentials",
+      "status": "passed",
+      "seconds": 0.007
+    },
+    {
+      "case": "reject stored BYOK credential without leaking it",
+      "status": "passed",
+      "seconds": 0.003
+    },
+    {
+      "case": "openai responses stream + tools without agent binaries",
+      "status": "passed",
+      "seconds": 0.083
+    },
+    {
+      "case": "openai chat stream + tools without agent binaries",
+      "status": "passed",
+      "seconds": 0.07
+    },
+    {
+      "case": "openrouter responses stream + tools without agent binaries",
+      "status": "passed",
+      "seconds": 0.085
+    },
+    {
+      "case": "openrouter chat stream + tools without agent binaries",
+      "status": "passed",
+      "seconds": 0.082
+    },
+    {
+      "case": "aiproxy responses stream + tools without agent binaries",
+      "status": "passed",
+      "seconds": 0.078
+    },
+    {
+      "case": "aiproxy chat stream + tools without agent binaries",
+      "status": "passed",
+      "seconds": 0.078
+    },
+    {
+      "case": "grok responses stream + tools without agent binaries",
+      "status": "passed",
+      "seconds": 0.08
+    },
+    {
+      "case": "grok chat stream + tools without agent binaries",
+      "status": "passed",
+      "seconds": 0.082
+    },
+    {
+      "case": "Codex ChatGPT native responses + headers without CLI",
+      "status": "passed",
+      "seconds": 0.084
+    },
+    {
+      "case": "no agent host was executed",
+      "status": "passed",
+      "seconds": 0.0
+    }
+  ]
+}

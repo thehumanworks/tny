@@ -201,7 +201,7 @@ def assert_secret_buffers_are_wiped() -> None:
     # These are the only native request builders that place Authorization in
     # an owned request buffer.  Keep the check close to buf_free so a future
     # early-exit refactor cannot silently bypass the wipe.
-    for relative in ("src/net/http1.c", "src/net/ws.c"):
+    for relative in ("src/net/http1.c",):
         source = (ROOT / relative).read_text()
         pattern = re.compile(
             r"nstream_write_all\([^;]+;\s*"
@@ -210,21 +210,6 @@ def assert_secret_buffers_are_wiped() -> None:
             re.DOTALL,
         )
         assert pattern.search(source), f"request buffer is not wiped in {relative}"
-
-    source = (ROOT / "src/backends/cursor/rpc.c").read_text()
-    start = source.index("int cursor_stream_start(")
-    end = source.index("\nint cursor_stream_pump_raw", start)
-    stream = source[start:end]
-    frees = list(re.finditer(r"buf_free\(&auth\);", stream))
-    wipes = list(
-        re.finditer(
-            r"if \(auth\.data\) secure_zero\(auth\.data, auth\.cap\);\s*buf_free\(&auth\);",
-            stream,
-        )
-    )
-    assert len(frees) == 2 and len(wipes) == len(frees), (
-        "Cursor streaming auth must be wiped on framing failure and after request construction"
-    )
 
 
 def assert_tls_close_is_guarded() -> None:

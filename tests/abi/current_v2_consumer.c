@@ -44,12 +44,18 @@ int main(int argc, char **argv) {
 
     /* The documented minimum outer prefix ends after the complete task
      * record and must be safe for an exact-size allocation. */
-    tny_runtime_options_v2 *minimum = malloc(360u);
+    void *minimum = malloc(360u);
     if (!minimum || tny_runtime_options_v2_init(minimum, 360u) != TNY_STATUS_OK) return 10;
-    minimum->base.runtime.workspace = bytes(argv[1]);
-    minimum->base.runtime.base_url = bytes(argv[2]);
-    minimum->base.runtime.api_key = bytes("abi1-v2-minimum-key");
-    minimum->task.name = bytes("review");
+    /* Populate the prefix through a complete local object, keeping the
+     * actual API allocation exactly 360 bytes without an undersized typed
+     * object (diagnosed by GCC 16's alloc-size check). */
+    tny_runtime_options_v2 minimum_fields = {0};
+    memcpy(&minimum_fields, minimum, 360u);
+    minimum_fields.base.runtime.workspace = bytes(argv[1]);
+    minimum_fields.base.runtime.base_url = bytes(argv[2]);
+    minimum_fields.base.runtime.api_key = bytes("abi1-v2-minimum-key");
+    minimum_fields.task.name = bytes("review");
+    memcpy(minimum, &minimum_fields, 360u);
     if (tny_runtime_create_v2(minimum, 360u, &runtime, NULL) != TNY_STATUS_OK || !runtime ||
         tny_runtime_destroy(&runtime) != TNY_STATUS_OK) {
         free(minimum);

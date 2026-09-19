@@ -1039,28 +1039,11 @@ def provider_turn_sweeps(libpath):
     host = Path(libpath).with_name("provider-faults")
     mock, url = start_mock(MOCK_REASONING="item")
     chat, chat_url = start_mock(MOCK_EXPECT_WIRE="chat", MOCK_REASONING="details")
-    ws = subprocess.Popen(
-        [sys.executable, os.path.join(HERE, "fake_acp_agent_ws.py"), "0"],
-        env=dict(os.environ, FAKE_ACP_COALESCE="1"),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
-    ws_url = "ws://127.0.0.1:" + ws.stdout.readline().decode().strip().split()[-1]
     counts = {}
     try:
-        providers = ("openai", "openai-chat", "cursor", "acp", "acp-ws")
-        # macos-15 runners: python under a throwaway HOME exceeds the 30 s
-        # cursor ready-line timeout. Local Darwin still runs the fixture.
-        if os.environ.get("CI") and sys.platform == "darwin":
-            providers = ("openai", "openai-chat", "acp", "acp-ws")
+        providers = ("openai", "openai-chat")
         for provider in providers:
-            provider_url = (
-                ws_url
-                if provider == "acp-ws"
-                else chat_url
-                if provider == "openai-chat"
-                else url
-            )
+            provider_url = chat_url if provider == "openai-chat" else url
 
             def run(index):
                 with tempfile.TemporaryDirectory(prefix="tny-turn-sweep-") as root:
@@ -1109,8 +1092,6 @@ def provider_turn_sweeps(libpath):
     finally:
         mock.terminate()
         mock.wait(timeout=5)
-        ws.terminate()
-        ws.wait(timeout=5)
         chat.terminate()
         chat.wait(timeout=5)
     return counts
@@ -1146,15 +1127,7 @@ def main():
     native_host = Path(libpath).with_name("provider-faults")
     for test in (
         "decoder_oom_mid_stream",
-        "emergency_cancel_reaps",
         "request_construction_oom",
-        "error_decode_oom",
-        "message_oom",
-        "pending_completion_oom",
-        "store_callback_exhaustive",
-        "callback_thread_oom",
-        "bridge_stderr_oom",
-        "immediate_observe_recovery_exhaustive",
     ):
         subprocess.run([str(native_host), "-t", test], check=True, timeout=60)
     results.update(provider_turn_sweeps(libpath))

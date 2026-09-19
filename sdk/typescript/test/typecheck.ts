@@ -42,9 +42,9 @@ async function useCursor(): Promise<void> {
   await using runtime = await Runtime.create({
     workspace,
     stateDir: workspace,
-    provider: "cursor",
-    model: "cursor-model",
-    apiKey: "cursor-key",
+    provider: "openai",
+    model: "http-model",
+    apiKey: "http-key",
   });
   // @ts-expect-error Codex is not a public-runtime provider.
   await Runtime.create({ workspace, provider: "codex" });

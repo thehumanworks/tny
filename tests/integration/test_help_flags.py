@@ -19,13 +19,11 @@ if not TNY.is_absolute():
 # acp lives outside src/cli/) explicit. test_parser_map_covers_dispatch makes a
 # newly dispatched command fail until its parser is registered here.
 COMMAND_PARSERS = {
-    "acp": ("cmd_acp_server",),
     "agents": ("cmd_agents",),
     "web": ("cmd_web",),
     "ask": ("cmd_ask",),
     "ask-user": ("cmd_ask_user",),
     "backends": ("cmd_backends",),
-    "cursor": ("cmd_cursor",),
     "doctor": ("cmd_doctor",),
     "edit": ("cmd_edit",),
     "speak": ("cmd_speak",),
@@ -64,14 +62,15 @@ GLOBAL_PARSERS = ("main", "cli_parse_globals", "parse_globals")
 PARSED_WITHOUT_HELP = {
     # Descriptor-only internal runner entry. It is not a user operation and
     # refuses without its private inherited socket/listener/writer handles.
-    "<global>": {"--resume-*", "--runner-restart"},
+    "<global>": {"--resume-*", "--runner-restart", "--agent", "--bridge-bin"},
     "image": {"--job-no-replace"},
+    "provider": {"--api-key"},
 }
 
 # Help-only token from the ACP passthrough example
 # `tny --provider acp --agent gemini -- --acp`; it belongs to the child agent,
 # not tny. No other parser/help mismatch is allowlisted.
-HELP_WITHOUT_PARSER = {"<global>": {"--acp"}}
+HELP_WITHOUT_PARSER = {}
 
 SOURCE_PATHS = [
     ROOT / "src/main.c",
@@ -84,7 +83,6 @@ SOURCE_PATHS = [
     ROOT / "src/cli/args.c",
     ROOT / "src/cli/globals.c",
     *sorted((ROOT / "src/cli").glob("cmd_*.c")),
-    ROOT / "src/backends/acp/acp_server.c",
 ]
 
 FUNCTION_START_RE = re.compile(
@@ -223,7 +221,7 @@ def dispatched_commands() -> set[str]:
     source = (ROOT / "src/main.c").read_text(encoding="utf-8")
     commands = set(re.findall(r'strcmp\(cmd,\s*"([a-z][a-z0-9-]*)"\)\s*==\s*0', source))
     commands.add("help")  # argv[1] fast path, intentionally outside cmd dispatch
-    return commands
+    return commands - {"cursor", "acp"}  # diagnostic-only removed commands
 
 
 class HelpFlagAlignmentTest(unittest.TestCase):

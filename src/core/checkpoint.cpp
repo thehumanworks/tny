@@ -50,7 +50,6 @@ constexpr string_field strings[] = {
     {"max_tokens_field", &tny_ctx::max_tokens_field, false},
     {"wire_api", &tny_ctx::wire_api, false},
     {"output_schema", &tny_ctx::output_schema, false},
-    {"bridge_bin", &tny_ctx::bridge_bin, false},
     {"xai_api_key", &tny_ctx::xai_api_key, true},
     {"chatgpt_token", &tny_ctx::chatgpt_token, true},
     {"chatgpt_account_id", &tny_ctx::chatgpt_account_id, true},
@@ -82,7 +81,6 @@ constexpr bool_field bools[] = {
     {"library_mode", &tny_ctx::library_mode},
     {"prompt_optimisation", &tny_ctx::prompt_optimisation},
     {"extensions_enabled", &tny_ctx::extensions_enabled},
-    {"no_host_registry", &tny_ctx::no_host_registry},
     {"service_tier_explicit", &tny_ctx::service_tier_explicit},
     {"service_tier_from_settings", &tny_ctx::service_tier_from_settings},
     {"task_explicit", &tny_ctx::task_explicit},
@@ -253,8 +251,7 @@ context restore(yyjson_val *r) {
     // The C constructor permits optional defaults to fail. None may mask OOM here.
     allocation_ok();
     check(c->settings_path && c->provider_name && c->sandbox_mode && c->base_url &&
-          c->auth_header_name && c->auth_header_prefix && c->bridge_bin && c->cursor_config &&
-          c->instructions_snapshot);
+          c->auth_header_name && c->auth_header_prefix && c->instructions_snapshot);
     for (const auto &f : strings)
         replace_string(c.get()->*(f.member), optional_string(jget(r, f.name)));
     restore_fixed(c->ws_hash, jget(r, "ws_hash"));

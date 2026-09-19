@@ -1,8 +1,7 @@
 # Speech
 
 `tny speak` vocalises a message using your existing ChatGPT subscription login.
-It is independent of the provider running the conversation: OpenAI, Claude,
-Grok, Codex, Cursor and ACP agents can invoke the CLI through their shell.
+It is independent of the provider running the conversation: all native HTTP profiles can invoke the CLI through the terminal tool.
 No Python, Codex subprocess, API key, Doppler or additional auth service is
 required. API-key-only Codex logins do not grant ChatGPT speech access.
 

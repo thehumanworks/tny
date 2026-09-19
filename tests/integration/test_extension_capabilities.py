@@ -66,7 +66,7 @@ def main() -> int:
         assert not marker.exists(), "extension-free startup executed a sentinel"
 
         completed = subprocess.run(
-            [str(TNY), "--provider", "cursor", "doctor", "--json"],
+            [str(TNY), "--provider", "openai", "doctor", "--json"],
             cwd=str(ROOT),
             env=env,
             text=True,
@@ -83,24 +83,19 @@ def main() -> int:
         result = json.loads(completed.stdout)
         capabilities = result["extensions"]["capabilities"]
         assert capabilities["schema_version"] == 1
-        assert capabilities["selected_provider"] == "cursor"
+        assert capabilities["selected_provider"] == "openai"
         expected_python = (
             "unavailable" if os.environ.get("TNY_TEST_EXPECT_WASM") else "available"
         )
         assert capabilities["extension_runtime"]["python"] == expected_python
-        assert set(capabilities["providers"]) == {"openai", "cursor", "acp"}
+        assert set(capabilities["providers"]) == {"openai"}
         for provider in capabilities["providers"].values():
             assert len(provider["entries"]) == 29
-        cursor = capabilities["providers"]["cursor"]["entries"]
-        assert cursor["extensions.permission.observe"] == {
-            "state": "unsupported",
-            "reason": "protocol_missing",
-        }
         native = capabilities["providers"]["openai"]["entries"]
         assert native["extensions.permission.observe"]["state"] == "supported"
         assert native["extensions.prompt.transform"]["state"] == "supported"
         providers = {item["name"]: item for item in result["providers"]}
-        assert "probe skipped" in providers["cursor"]["detail"]
+        assert set(providers) == {"openai"}
 
     print("test_extension_capabilities: all assertions passed")
     return 0

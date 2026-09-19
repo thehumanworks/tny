@@ -5,7 +5,6 @@ import http.client
 import importlib.util
 import json
 import os
-import select
 import subprocess
 import sys
 import tempfile
@@ -374,7 +373,7 @@ class CacheTests(unittest.TestCase):
                 {
                     "compat": {
                         "base_url": self.env["TNY_CODEX_BASE_URL"],
-                        "api_key": "fixture",
+                        "api_key_env": "CHATGPT_ACCESS_TOKEN",
                         "wire_api": "chat",
                     }
                 }
@@ -421,59 +420,25 @@ class CacheTests(unittest.TestCase):
 
     def test_affinity_resets_between_turns_in_one_process(self):
         if "/wasm/" in TNY or os.name == "nt":
-            self.skipTest(
-                "native POSIX ACP pipe test; resume is checked on every target"
-            )
-        proc = subprocess.Popen(
-            [TNY, "--provider", "codex", "acp"],
-            cwd=self.ws,
-            env=self.env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-        )
-        self.addCleanup(lambda: proc.kill() if proc.poll() is None else None)
-        buffer = bytearray()
+            self.skipTest("native PTY; resume is checked on every target")
+        from test_tui import BANNER, Term
 
-        def rpc(mid, method, params):
-            proc.stdin.write(
-                json.dumps(
-                    {"jsonrpc": "2.0", "id": mid, "method": method, "params": params}
-                ).encode()
-                + b"\n"
-            )
-            proc.stdin.flush()
+        term = Term([TNY, "--provider", "codex"], self.env, str(self.ws))
+        self.addCleanup(term.close)
+        term.expect(BANNER)
+        for prompt in ("first", "second"):
+            before = len(self.server.requests)
+            term.send(prompt + "\r")
             deadline = time.monotonic() + 20
-            while time.monotonic() < deadline:
-                if b"\n" not in buffer:
-                    if not select.select([proc.stdout], [], [], 0.2)[0]:
-                        continue
-                    chunk = os.read(proc.stdout.fileno(), 65536)
-                    self.assertTrue(chunk, "ACP closed stdout")
-                    buffer.extend(chunk)
-                while b"\n" in buffer:
-                    line, _, tail = buffer.partition(b"\n")
-                    buffer[:] = tail
-                    message = json.loads(line)
-                    if message.get("id") == mid:
-                        self.assertNotIn("error", message)
-                        return message["result"]
-            self.fail("ACP response timed out")
-
-        rpc(1, "initialize", {"protocolVersion": 1, "clientCapabilities": {}})
-        sid = rpc(2, "session/new", {"cwd": str(self.ws), "mcpServers": []})[
-            "sessionId"
-        ]
-        for i, prompt in enumerate(["first", "second"], 3):
-            rpc(
-                i,
-                "session/prompt",
-                {"sessionId": sid, "prompt": [{"type": "text", "text": prompt}]},
-            )
+            while (
+                len(self.server.requests) < before + 3 and time.monotonic() < deadline
+            ):
+                term.pump(0.05)
+            self.assertGreaterEqual(len(self.server.requests), before + 3)
+            term.pump(0.5)
         self.check_routing(self.server.requests)
-        proc.stdin.close()
-        proc.wait(timeout=5)
-        proc.stdout.close()
+        term.send("/quit\r")
+        self.assertEqual(term.wait(), 0)
 
 
 class ReportingTests(unittest.TestCase):

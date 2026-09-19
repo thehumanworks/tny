@@ -856,69 +856,6 @@ def unattended_permission():
     print("PASS unattended ask -B denies without handoff permission parking")
 
 
-def completed_host_dashboard():
-    agent = Path(__file__).resolve().parent / "fake_acp_agent.py"
-    with tempfile.TemporaryDirectory(prefix="tny-host-agents-") as home:
-        state = Path(home) / "acp-state.json"
-        env = base_env(
-            home,
-            {
-                "FAKE_ACP_STATE": str(state),
-                "OPENAI_BASE_URL": "http://127.0.0.1:1/v1",
-                "OPENAI_API_KEY": "fixture",
-            },
-        )
-        launched = subprocess.run(
-            [
-                TNY,
-                "--provider",
-                "acp",
-                "--agent",
-                str(agent),
-                "ask",
-                "-B",
-                "original host",
-            ],
-            env=env,
-            cwd=home,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert launched.returncode == 0, launched.stderr
-        session = next((Path(home) / ".tny/sessions").glob("*/*/session.json"))
-        term = None
-        try:
-            until(lambda: json.loads(session.read_text()).get("status") == "done")
-            until(lambda: not writer_live(session))
-            term = Term([TNY, "--agent", str(agent), "agents"], env, home)
-            term.expect("Background agents")
-            term.send("\r")
-            term.expect("Attached")
-            term.send("HOST-FOLLOWUP\r")
-            term.expect("[asked: HOST-FOLLOWUP]", timeout=15)
-            until(
-                lambda: (
-                    json.loads(state.read_text()).get("last_prompt") == "HOST-FOLLOWUP"
-                ),
-                term,
-            )
-            assert "connect failed" not in term.buf
-            term.send("\x04")
-            assert term.wait() == 0
-        finally:
-            if term:
-                term.close()
-            subprocess.run(
-                [TNY, "session", "stop", session.parent.name, "--kill"],
-                env=env,
-                cwd=home,
-                capture_output=True,
-                timeout=12,
-            )
-    print("PASS completed host dashboard followup preserves ACP backend")
-
-
 if __name__ == "__main__":
     run_case()
     run_case(no_tools=True)
@@ -935,6 +872,5 @@ if __name__ == "__main__":
     empty_dashboard()
 
     unattended_permission()
-    completed_host_dashboard()
 
     unsupported_in_process()

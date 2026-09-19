@@ -88,39 +88,18 @@ class SDKTests(unittest.TestCase):
             **kwargs,
         )
 
-    def test_cursor_provider_is_accepted_and_reported_without_connecting(self) -> None:
-        with tny.Runtime(
-            tny.RuntimeConfig(
-                workspace=self.workspace,
-                state_dir=self.state,
-                provider="cursor",
-                model="cursor-model",
-                api_key="cursor-key-not-real",
-            ),
-            library=self.library,
-        ) as runtime:
-            self.assertEqual(runtime.capabilities.provider, "cursor")
-            self.assertEqual(runtime.capabilities.provider_selected, 2)
-            self.assertEqual(runtime.capabilities.provider_available_mask & 3, 3)
-            self.assertEqual(runtime.capabilities.transport, b"sdk.v1-connect-http1")
-        required = {
-            "state_dir": self.state,
-            "model": "cursor-model",
-            "api_key": "cursor-key-not-real",
-        }
-        for missing in required:
-            options = dict(required)
-            options[missing] = None if missing == "state_dir" else ""
+    def test_removed_providers_are_rejected_without_connecting(self) -> None:
+        for provider in ("cursor", "acp", "claude"):
             with (
-                self.subTest(missing=missing),
-                self.assertRaises(tny.InvalidArgumentError),
+                self.subTest(provider=provider),
+                self.assertRaises(
+                    tny.InvalidArgumentError
+                    if provider == "claude"
+                    else tny.UnsupportedError
+                ),
             ):
                 tny.Runtime(
-                    tny.RuntimeConfig(
-                        workspace=self.workspace,
-                        provider="cursor",
-                        **options,
-                    ),
+                    tny.RuntimeConfig(workspace=self.workspace, provider=provider),
                     library=self.library,
                 )
 

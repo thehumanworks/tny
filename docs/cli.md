@@ -36,7 +36,6 @@ tny jobs submit ask|image|batch   # durable work; prints a job id immediately
 tny jobs status|wait|cancel|retry|logs|rm <id>
 tny jobs list               # durable jobs in this workspace's state directory
 tny resume [last|<id>]      # interactive resume
-tny acp                     # ACP server (native loop only)
 tny agents                  # background dashboard; --json for scripts
 tny web search QUERY        # override, else Codex login, else DuckDuckGo
 tny web fetch URL           # bounded HTTP fetch
@@ -49,7 +48,6 @@ tny tasks                   # list built-in and discovered task presets
 tny task show NAME          # inspect one resolved preset
 tny backends                # compatibility alias for providers
 tny models
-tny cursor COMMAND          # complete Cursor sdk.v1 catalog/management/raw RPC
 tny permissions
 tny workspace list|add|remove|clear
 tny status
@@ -66,9 +64,9 @@ tny mcp call SERVER/TOOL    # one MCP tools/call; JSON arguments on stdin
 Global flags are **leading**:
 
 ```text
-tny --provider cursor|acp|openai|codex|claude|grok|NAME|acp@AGENT [command]
+tny --provider openai|codex|grok|NAME [command]
                             # --backend is an alias; NAME = an OpenAI-compatible
-                            # profile; acp@AGENT = settings acp.AGENT
+                            # HTTP profile
 tny --cwd DIR
 tny --worktree [NAME]       # create/enter ~/.tny/worktrees/NAME; random by default
 tny --model ID
@@ -108,8 +106,8 @@ the native OpenAI-compatible loop. `all` is the unchanged default; the shell
 profiles reduce both advertised and accepted built-ins as documented in
 [Tools, MCP, skills, subagents](features/mcp-and-skills.md#native-tool-profiles).
 `tny status` and `tny doctor` print the effective `tools` profile and expose it
-as the JSON string field `"tools"`. libtny, wasm, and `tny acp` keep `all`; an
-explicit profile ignored by wasm or ACP server mode emits one status line.
+as the JSON string field `"tools"`. libtny and wasm keep `all`; an
+explicit profile ignored by wasm emits one status line.
 
 Color resolution ([ADR 0026](adr/0026-color-vs-attribute-sgr.md)): `NO_COLOR`
 (any value, even empty) disables SGR *colors* only — bold/dim/reverse are
@@ -190,15 +188,7 @@ filesystem. Over SSH, custom task discovery remains unavailable. See
 [ADR 0112](adr/0112-bundled-task-creation.md) and the filesystem clarification in
 [ADR 0113](adr/0113-task-creation-filesystem-clarification.md).
 
-The resolved instruction body travels with the request itself, so the model
-adopts the preset without spending tool calls to locate or read the file. The
-native openai-compatible loop carries it in the system prompt, after tny's
-runtime instructions and project context and before any explicit
-`--system-prompt` additions; host providers (cursor, acp), whose pinned
-protocols expose no system field, receive the same sections at the top of a
-fresh session's first user message
-([ADR 0045](adr/0045-system-prompt-flag.md),
-[ADR 0048](adr/0048-runtime-task-presets.md)).
+Task instructions follow `--system-prompt` additions in the native system context. They do not modify the user message.
 
 The resolved snapshot belongs to the session. Resuming without `--task`
 restores it; an explicit task must match the saved name and digest. A task may
@@ -215,10 +205,9 @@ Ephemeral mode is available on every conversational entry point:
 tny --ephemeral
 tny --ephemeral ask "review this workspace"
 tny ask --ephemeral --json "list the public CLI"
-tny --ephemeral acp
 ```
 
-The working transcript remains in memory for multi-turn TUI/ACP use, but tny
+The working transcript remains in memory for multi-turn TUI use, but tny
 does not write session JSON, recovery checkpoints, large tool-result blobs, or
 TUI prompt history. It also does not import saved conversation state:
 `resume`, `--resume`, `-r`, `-c`, session recovery/migration, and TUI
@@ -246,138 +235,54 @@ tny --ssh dev@example.com:2222 ask "run the tests" # one-shot
 tny --ssh '[2001:db8::1]:22' ask "df -h"
 ```
 
-- `--ssh-cwd DIR` sets the remote working directory (default: the login
-  directory). A leading `~` resolves against the **remote** home — quote it
-  (`--ssh-cwd '~/app'`) so the local shell doesn't expand it to the local
-  home first. `--cwd` stays the *local* workspace for settings and sessions.
-- The connection is opened before the TUI starts, so OpenSSH prompts for
-  passwords / host keys as usual; tool calls then reuse it (`BatchMode`).
-  The master lives in `~/.tny/ssh/` and idles out after 10 minutes.
-- Works with the native loop providers (`openai`, `claude`, `grok`, any
-  openai-compatible profile). Cursor, Codex and ACP hosts execute their own
-  tools and are refused with an explanatory error.
-- `memory`, `skill`, MCP and web tools stay local; `open_file`
-  and `install_skill` report that they are unavailable over `--ssh`.
-  `subagent` is hidden and refused with `SUBAGENT_UNSUPPORTED_CONTEXT`: a
-  child would run its tools on this machine, not the remote host.
-- `/undo` does not cover remote edits.
-- The system prompt tells the model it is in a remote environment on the
-  target host and states the remote working directory (instead of the local
-  workspace); the TUI status bar shows `ssh user@host:/remote/dir`.
-  Project `AGENTS.md` is loaded from the remote cwd, not from `--cwd`;
-  `$HOME/.tny/AGENTS.md` still applies as user policy and is labeled local
-  ([ADR 0040](adr/0040-ssh-agents-md.md)).
+- Works with all native HTTP profiles, including `openai`, `codex`, `grok`, and configured gateways.
 
 wasm behavior: remote-only — the browser build has no `ssh` to spawn, so
 `--ssh` fails at connect with a clear error.
 
 ## Provider selection
 
-`--provider` accepts the four builtin names, the two **builtin subscription
-profiles** `claude` and `grok` ([ADR 0019](adr/0019-subscription-logins-claude-grok.md),
-[backends/openai-compatible.md](backends/openai-compatible.md#builtin-subscription-profiles-claude-and-grok)),
-plus any **named OpenAI-compatible provider** (`"openrouter"`, `"xai"`, a
-local gateway — any name), defined either way or both:
+`--provider NAME` (`--backend` alias) selects `openai`, `codex`, `grok`, or a
+named OpenAI-compatible HTTP profile. Names come from a settings object with
+`base_url` or a `NAME_BASE_URL` environment variable. Both Responses (default)
+and Chat Completions (`wire_api: "chat"`) use the native tools/MCP/session loop.
+No vendor agent binary is required.
 
-- a top-level `~/.tny/settings.json` object with a `base_url`, and/or
-- `NAME_BASE_URL` in the environment (name uppercased, non-alphanumerics →
-  `_`; the env value beats the settings `base_url`)
+Precedence: explicit flag, settings `provider`, remembered `last_provider`
+(`last_backend` compatibility alias), OpenAI env, exactly one complete named
+env pair, native Codex OAuth credentials, Grok OAuth credentials, then openai.
+An explicit or remembered unknown/removed selector fails rather than falling
+back. Installed binaries and Claude auth artifacts do not affect selection.
 
-Named providers run on the openai backend but keep their own name, config,
-key env, and saved model (see
-[backends/openai-compatible.md](backends/openai-compatible.md)). Env
-detection is a lazy in-memory scan at provider-resolution time — startup
-paths (`--help`, `--version`, first TUI paint) never run it.
-
-### Named ACP agents ([ADR 0030](adr/0030-settings-schema-and-acp-map.md))
-
-Reusable ACP commands live directly under `acp` and are selected through the
-namespaced provider ID `acp@NAME`:
-
-```json
-{
-  "acp": {
-    "claude": {
-      "command": "npx",
-      "args": ["-y", "@agentclientprotocol/claude-agent-acp"],
-      "model": "claude-sonnet-4-6"
-    },
-    "gemini": { "command": "gemini", "args": ["--acp"] }
-  }
-}
-```
+### `tny provider setup`
 
 ```sh
-tny --provider acp@claude
-tny --provider acp@gemini ask "review this repository"
+tny provider setup openrouter --base-url https://openrouter.ai/api/v1 --api-key-env OPENROUTER_API_KEY
+tny provider setup aiproxy --base-url https://your-gateway.example/v1 --api-key-env AIPROXY_API_KEY
+tny provider setup  # interactive environment-variable name prompts
 ```
 
-`command` must be a nonempty string. `args` is an optional array of nonempty
-strings; `model` is optional. Fields are validated only when that profile is
-selected, so an unused bad entry cannot break another provider's startup.
-Profile names use letters, digits, `-`, and `_`. Defining a profile does not
-select it; after it is used, normal `last_provider` persistence may restore it
-on the next launch.
+AIProxy's example URL is a placeholder: supply your gateway URL. Setup stores
+only configuration and environment-variable names, never API keys. Existing
+`api_key` settings and `--api-key` persistence fail with a migration diagnostic;
+export the key, set `api_key_env`, and delete the stored key. Generic auth header
+and wire options remain available. `/provider setup [NAME]` is the TUI flow.
+The browser may still accept a key into the tab's ephemeral environment.
 
-The effective provider name is the full `acp@NAME`, so sessions and
-`models["acp@NAME"]` stay isolated from other ACP agents. Model precedence is
-`--model` > `models["acp@NAME"]` > the profile's `model` >
-`ACP_NAME_DEFAULT_MODEL` > the agent default (profile punctuation becomes `_`
-in the environment variable). The ad-hoc form remains `--provider acp --agent
-CMD -- ARGS`; `--agent` cannot be combined with `--provider acp@NAME`.
-The older `acp.agents.NAME` command array and `acp:NAME` selector remain
-accepted for compatibility.
-
-### `tny provider setup` ([ADR 0018](adr/0018-provider-setup-stored-keys.md))
-
-The guided way to add one:
-
-```text
-tny provider setup opencode --base-url https://api.opencode.example/v1 --api-key sk-…
-tny provider setup openrouter --base-url https://openrouter.ai/api/v1     --api-key-env OPENROUTER_API_KEY --model anthropic/claude-sonnet-4.6
-tny provider setup            # interactive on a tty (key prompted with echo off)
-```
-
-Fields merge into the settings profile and `last_provider` switches to it, so
-a bare `tny` runs on the new provider immediately. `--api-key` stores the key
-in `~/.tny/settings.json` (the file drops to 0600); an environment variable
-(`api_key_env`, default `NAME_API_KEY`) always beats a stored key, so
-rotation from the shell keeps working. Storing a key clears `api_key_env`
-and vice versa. Host providers (cursor/codex/acp) are refused — they have no
-base_url/key shape. In the TUI the same flow is `/provider setup [NAME]`
-(`/cancel` aborts), which is also how the browser wasm terminal adds
-providers; the page URL hash additionally accepts
-`NAME_BASE_URL`/`NAME_API_KEY`/`NAME_DEFAULT_MODEL` pairs directly.
-
-`--provider` default, in order:
-
-1. an explicit user default in `~/.tny/settings.json` (`"provider"`)
-2. the provider (and its saved model) last used, recorded in `last_provider` / `models.{provider}` — named OpenAI-compatible and `acp@NAME` providers included
-3. `openai` if `OPENAI_BASE_URL` or `OPENAI_API_KEY` is set
-4. the env-defined provider if **exactly one** `NAME_BASE_URL` + `NAME_API_KEY` pair is set (a lone `*_BASE_URL` from an unrelated tool never hijacks the default; keyless local gateways need an explicit `--provider NAME` once — `last_provider` remembers it)
-5. `codex` if a ChatGPT credential exists — `CHATGPT_ACCESS_TOKEN`, `~/.tny/codex-auth.json` (`tny --provider codex login`), or `$CODEX_HOME/auth.json` (`codex login`); `--chatgpt-token` counts too — the subscription drives the native loop, no API key ([backends/codex.md](backends/codex.md))
-6. `claude` if a Claude Code OAuth login exists (`CLAUDE_CODE_OAUTH_TOKEN`, or `~/.claude/.credentials.json` from `claude /login`; a bare `ANTHROPIC_API_KEY` never hijacks the default — use `--provider claude`)
-7. `grok` if an xAI session exists (`~/.grok/auth.json`, from `tny
-   --provider grok login` or the grok CLI)
-8. `cursor` if `CURSOR_API_KEY` is set in the environment
-9. `openai` (its connect error explains how to configure a key)
-
-A settings.json object or `NAME_BASE_URL` env var named `codex`, `claude` or
-`grok` shadows the builtin profile entirely: explicit config wins. See
-[settings.md](settings.md) and the published JSON Schema for `model`, `effort`,
-`fast`, provider profiles, and named ACP-agent defaults.
+ACP client/server, named ACP agents, Cursor bridge, `tny acp`, `tny cursor`,
+`--agent` and `--bridge-bin` are removed. Use the C/Python/Node SDKs for embedding.
+The built-in Claude subscription login is removed; access Claude models through
+an explicitly configured compatible HTTP gateway.
 
 ## `tny login`
 
 `tny [--provider NAME] login [--device]` signs in to the active provider.
-tny never stores tokens itself:
+Native OAuth logins persist refreshable tokens; BYOK API keys remain in env:
 
 | Provider | What login does |
 | --- | --- |
 | codex | Native ChatGPT sign-in, no Codex CLI ([ADR 0066](adr/0066-native-chatgpt-login-and-credential-sources.md)): the browser PKCE flow with a `localhost:1455` callback (the redirect URL can also be pasted into the terminal), or `--device` for a verification URL + one-time code on headless machines. The login lands in `~/.tny/codex-auth.json` (`0600`), which tny reads for the ChatGPT Responses backend and refreshes itself. `$CODEX_HOME/auth.json` from `codex login` keeps working as a fallback. |
-| claude | Reports the credential tny resolved (`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `~/.claude/.credentials.json`), else runs `claude setup-token`; the user exports the printed token as `CLAUDE_CODE_OAUTH_TOKEN`. |
 | grok | Native RFC 8628 device-code sign-in against `auth.x.ai` — no grok CLI needed, works over SSH/containers ([ADR 0021](adr/0021-native-grok-device-login.md)). tny prints the verification URL + code, polls the token endpoint, and writes the session to `~/.grok/auth.json` in the grok CLI's own store format (both tools share the entry). `GROK_OAUTH2_ISSUER` / `GROK_OAUTH2_CLIENT_ID` override the endpoint (enterprise IdPs, tests). |
-| cursor | Reports whether `CURSOR_API_KEY` is set. |
 | openai / named | Reports whether an API key resolved (`tny setup` configures one). |
 
 `tny logout` mirrors this: native deletion of `~/.tny/codex-auth.json` for
@@ -386,26 +291,11 @@ grok (foreign-issuer entries are kept), an env-var hint otherwise.
 
 ## System prompt
 
-`--system-prompt TEXT` (leading global flag, headless and interactive) sets a
-user system prompt for the run ([ADR 0045](adr/0045-system-prompt-flag.md)).
-Providers with a schema field for it use that field: the openai-compatible
-backend prepends the text to its system message (`instructions` on the
-responses wire, the `system` role message on chat), ahead of tny's
-operational preamble and the AGENTS.md chain. The host protocols expose no
-such field on their pinned surfaces (cursor sdk.v1 `CreateAgent`, ACP
-`session/new`), so there the text is prepended to the
-**first user message** of a fresh session, separated by a blank line.
-Resumed sessions and later turns never get it again.
+`--system-prompt TEXT` adds a user system prompt ahead of the operational preamble and AGENTS.md chain: `instructions` on Responses, a system message on Chat Completions.
 
 ## Reasoning effort
 
-`--effort` (env `TNY_REASONING_EFFORT`, TUI `/effort`) takes the canonical
-levels `off | light | medium | high | xhigh | max` and maps them onto each
-provider's wire vocabulary ([ADR 0009](adr/0009-reasoning-effort.md)):
-cursor `ModelSelection.params`, openai `reasoning.effort` (`reasoning_effort`
-on the chat wire; the codex/claude/grok profiles ride the same field). ACP has no
-portable knob at protocolVersion 1; the
-backend says so in one status line and the agent's default applies.
+`--effort` (env `TNY_REASONING_EFFORT`, TUI `/effort`) accepts `off | light | medium | high | xhigh | max`. The native backend maps this to `reasoning.effort` on Responses and `reasoning_effort` on Chat Completions.
 
 Providers advertise their real per-model levels through their catalogs;
 `tny models` shows them (`[effort: …]` / `"efforts"` in `--json`) and any
@@ -510,7 +400,7 @@ printf 'summarize src/\n' | tny ask --stdin
 tny ask --json --ephemeral "list the public CLI"
 tny ask --resume last "now add tests"
 tny ask -B "audit the Makefile"        # detach; prints the session id
-tny --provider cursor --model composer-2 ask "find the login bug"
+tny --provider openai --model gpt-5.4 ask "find the login bug"
 tny --provider codex --effort xhigh ask "prove this queue is lock-free"
 tny --yolo --cwd /tmp/ws ask "run the test suite"
 ```
@@ -685,22 +575,7 @@ never success and never a second enqueue. No shipped command sends
 `image_preview` yet; `tny image generate --preview` arrives with the preview
 integration slice.
 
-Both commands are socket-bound and never read `/dev/tty`. Without
-`TNY_SESSION_SOCK` they print exactly
-`tny: no session socket (set TNY_SESSION_SOCK or run inside tny)` to stderr and
-exit 1. Exit codes are 0 success, 1 usage/configuration, 2 rejected or failed
-control operation, and 130 interrupted. wasm, `--ephemeral`,
-`TNY_ISOLATE=0`, and the macOS post-TLS in-process fallback have no runner
-socket and therefore take this clean-error path. A noninteractive `tny ask`
-owner does not wait for a human and preserves the existing
-`ask_user_question` fallback string. `tny acp` stays in-process and maps the
-question through its ACP client permission callback rather than creating a
-runner socket. See [ADR 0058](adr/0058-session-control-channel-roles-and-tool-ops.md).
-Internally both verbs now sit on one private exchange helper that returns the
-status, safe error code and message instead of printing them, so a caller that
-needs the outcome inside its own result does not have to parse command output;
-that helper has no stdio on any platform, including its WebAssembly branch,
-and the commands keep their messages and exit codes.
+Interactive questions use the native runner question channel. Headless calls use the documented `ask_user_question` fallback string.
 
 **Inside tny**: typed directly into the `terminal` tool, both verbs skip the
 socket entirely and reach the turn in memory
@@ -852,7 +727,7 @@ tny_workflow_begin
 trap 'tny_workflow_cleanup' EXIT
 
 tny_task inspect --provider codex -- "Inspect the implementation"
-tny_task test-plan --provider cursor -- "Design the missing tests"
+tny_task test-plan --provider openai -- "Design the missing tests"
 tny_task implement --after inspect --after test-plan --   "Implement and verify using both reports"
 
 tny_workflow_run --jobs 2
@@ -860,7 +735,7 @@ tny_result implement
 ```
 
 Shell tasks are ephemeral by default. The helper exposes the normal provider,
-model, effort, workspace, permission, SSH, and ACP-agent selections; it does not
+model, effort, workspace, permission, and SSH selections; it does not
 implement provider behavior itself. Full API and failure semantics:
 [workflows.md](workflows.md).
 
@@ -931,7 +806,7 @@ This works from repository subdirectories too. Unrelated repositories are not
 included. Selecting a session switches to its checkout's settings, permissions
 and session storage. A foreground session with an attached owner is listed but
 cannot be taken over; detach its owner first. Finished foreground sessions are
-not retained in this list. Unlike `tny cursor agents`, this lists local tny sessions.
+not retained in this list. This lists local tny sessions.
 Outside Git (or when Git is unavailable), listing remains workspace-local;
 wasm remains workspace-local because local Git is unavailable.
 
@@ -1092,75 +967,23 @@ wasm behavior: `-B` is **native only** — the browser build has no
 (`tny: --background is not available in the browser build`, exit 1) before
 any backend work.
 
-## `tny cursor` management
-
-`tny cursor` starts a short-lived v1.0.30 bridge, negotiates capabilities,
-performs one operation, and applies the same authenticated shutdown/process
-cleanup as a conversational turn. Readable aliases cover the public catalog
-and management surface:
-
-```text
-tny cursor ping | version | me | models | repositories
-tny cursor create [NAME]
-tny cursor resume|reload|close AGENT_ID
-tny cursor send AGENT_ID MESSAGE
-tny cursor wait|run|conversation RUN_ID
-tny cursor runs|agent|messages|artifacts AGENT_ID
-tny cursor observe RUN_ID [AFTER_OFFSET]
-tny cursor cancel RUN_ID [AGENT_ID]
-tny cursor agents
-tny cursor archive|unarchive AGENT_ID
-tny cursor delete AGENT_ID --yes
-tny cursor download AGENT_ID PATH
-tny cursor usage AGENT_ID [RUN_ID]
-```
-
-Create, resume, and send use the same validated `settings.cursor` option
-composition as normal conversations. `download` writes artifact bytes to
-stdout incrementally, capped at 8 MiB. Destructive delete requires `--yes`
-before a bridge is spawned.
-
-For additive fields and operations without a convenience alias:
-
-```text
-tny cursor rpc SERVICE METHOD [JSON|-] [--yes]
-```
-
-`SERVICE` may be `SdkAgentService`, `sdk.v1.SdkAgentService`, or the canonical
-`/sdk.v1.SdkAgentService`; `METHOD` is case-sensitive. Only the 27 pinned
-client-to-bridge routes are accepted. The request must be one UTF-8 JSON object
-no larger than 8 MiB, supplied as one argument, on stdin with `-`, or as `{}`
-when omitted on a terminal. Unary output remains the bridge JSON object;
-server-stream output is one unmodified JSON frame per line. Raw
-`DeleteAgent` also requires `--yes`. Prefer stdin for requests containing an
-API key or other secret so it does not enter the shell history/process list.
-
-This command is native-only and exits 1 with
-`tny: cursor: sdk.v1 management is unavailable in WebAssembly` before reading
-credentials or starting bridge work. Provider management is not part of the public libtny ABI;
-libtny exposes Cursor conversations through its normal runtime API.
-
 ## Provider-specific flags
 
 | Provider | Flags / env |
 | --- | --- |
-| cursor | `--bridge-bin PATH`, `CURSOR_SDK_BRIDGE_BIN`, `CURSOR_API_KEY` (also pass through to RPCs) |
 | codex (builtin profile) | credential precedence `--chatgpt-token` (+ `--chatgpt-account-id`) > `CHATGPT_ACCESS_TOKEN` (+ `CHATGPT_ACCOUNT_ID`) > `~/.tny/codex-auth.json` (`tny --provider codex login`) > `$CODEX_HOME/auth.json` (`codex login`); the winning file auto-refreshes in place, flag/env tokens need no filesystem; account id explicit or from the JWT claim → `https://chatgpt.com/backend-api/codex` on the Responses wire with `chatgpt-account-id` + `OpenAI-Beta: responses=v1`; an `OPENAI_API_KEY` auth.json → `api.openai.com`; default model `gpt-5.6-sol`; `TNY_CODEX_BASE_URL` redirects the ChatGPT-mode URL (mocks/gateways) without shadowing the profile ([backends/codex.md](backends/codex.md)) |
-| acp | `--agent CMD` plus extra args after `--`, e.g. `tny --provider acp --agent gemini -- acp`; `--agent ws://host:port` connects to a remote agent instead of spawning ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
 | openai | `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0016](adr/0016-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API`. `--base-url-env NAME` reads the base URL from environment variable `NAME` with `--base-url` precedence, keeping a secret-bearing gateway URL off argv (native subagent children use it, [ADR 0087](adr/0087-explicit-subagent-contract-and-private-launch.md)); an empty `NAME` or combining it with `--base-url` is a startup error (exit 1) |
 | named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY`; `NAME_WIRE_API` / profile `wire_api` |
-| claude (builtin profile) | credential from `CLAUDE_CODE_OAUTH_TOKEN` > `ANTHROPIC_API_KEY` > `~/.claude/.credentials.json` (`$CLAUDE_CONFIG_DIR` honored); OAuth tokens add `anthropic-beta: oauth-2025-04-20`; chat wire; default model `claude-sonnet-4-6`; `TNY_CLAUDE_BIN` for login |
 | grok (builtin profile) | session token from `~/.grok/auth.json` (minted by tny's native device login or the grok CLI; expired OIDC tokens auto-refresh at resolve) → CLI chat proxy (chat wire, `X-XAI-Token-Auth` + `x-grok-model-override` + `x-grok-client-version` headers — the proxy 426s unversioned clients, `TNY_GROK_CLIENT_VERSION` overrides the pin — default model `grok-4.6`); else `XAI_API_KEY` → `api.x.ai` (responses wire, same default model); `GROK_OAUTH2_ISSUER` / `GROK_OAUTH2_CLIENT_ID` override the login endpoint |
 
 Model precedence for every provider: `--model` > saved `models.{provider}` >
 the provider object's `model` (openai-compatible only) > `NAME_DEFAULT_MODEL`
 from the environment (`CODEX_DEFAULT_MODEL`, `OPENROUTER_DEFAULT_MODEL`, …).
 
-`tny ask` never blocks on an approval. Unresolved permissions fail the run unless `--auto` reviews (native loop) or `--yolo`. Host providers must be pre-authorized or they fail closed.
+`tny ask` never blocks on an approval. Unresolved permissions fail the run unless `--auto` reviews (native loop) or `--yolo`.
 
 `--image PATH` (repeatable) attaches image files to the first user message.
-The native OpenAI-compatible loop uses `image_url` data URLs; Cursor v1.0.30
-uses base64 `SdkImageData` with the same detected MIME type. The native loop
+The native OpenAI-compatible loop uses `image_url` data URLs. The native loop
 also uses the encoding when the model calls `read_image` mid-turn. Max 8 MiB;
 type comes from magic bytes (png/jpeg/gif/webp), not the extension. At most 16 `--image`
 flags are accepted. A 17th prints `tny: too many --image flags (max 16)` and
@@ -1208,14 +1031,10 @@ own wire field:
 | --- | --- |
 | openai | `"service_tier":"priority"` on the chat-completions request (`fast` alias server-side) |
 | codex | same as openai — the builtin profile rides the Responses request's `service_tier` |
-| cursor | `ModelSelection` param `{"id":"fast","value":"true"}` — fast is a per-model variant, not a request field |
-| acp | not supported — `--fast` exits 1 with the capable provider list |
 
 The interactive TUI exposes the same capability as `/fast [fast|priority|default]`.
 
-Provider caveat: `--provider cursor` runs Cursor's own headless loop. Its
-built-in tools have no per-call approval RPC, so tny permission rules apply
-only to explicitly registered custom-tool callbacks.
+
 
 ## `--max-steps` (agent loop cap)
 
@@ -1226,8 +1045,7 @@ calls per turn; a capped turn stops with "step limit reached" on stderr and
 (`0` means unlimited).
 `--max-steps unlimited` (or `0`) clears a cap a repo set through the
 `.tny.json` `"steps"` limit. The interactive TUI exposes the same knob as
-`/max-steps set N` / `/max-steps clear`. Host providers (cursor, acp)
-run their own loops and are not affected.
+`/max-steps set N` / `/max-steps clear`. The cap applies to every native HTTP profile.
 
 `--max-extension-iterations N` independently caps continuations requested by
 Python `agent_end` hooks; its default is unlimited and `0`/`unlimited` clears
@@ -1244,12 +1062,12 @@ Options:
   --resume last   Continue the latest workspace session
   --ephemeral     Keep conversation/session artifacts in memory only
   --no-save       Compatibility alias for --ephemeral
-  --provider NAME cursor | acp | openai | codex | claude | grok | settings profile (--backend also accepted)
+  --provider NAME openai | codex | grok | settings profile (--backend also accepted)
 
 Examples:
   tny ask "explain src/main.c"
   tny ask --json --ephemeral "list exported symbols"
-  tny --provider cursor --model composer-2 ask "fix the leak"
+  tny --provider openai --model gpt-5.4 ask "fix the leak"
 ```
 
 Missing required values print the error, then a correct example, then exit 1. No timed prompts.
@@ -1274,13 +1092,13 @@ The leading global `--xai-api-key KEY` works for standalone and TUI dictation:
 
 ```sh
 tny --xai-api-key "$XAI_API_KEY" dictate --stt-provider xai --input-file speech.wav
-TNY_STT_PROVIDER=xai tny --provider claude
+TNY_STT_PROVIDER=xai tny --provider grok
 # Inside the TUI: /dictate xai, then Enter to transcribe, then Enter to send.
 ```
 
 xAI credential precedence is flag, `XAI_API_KEY`, named `xai` settings
-(`api_key_env`, then stored `api_key` if unset), then Grok login. Empty or
-CR/LF-bearing values fail locally. Grok login credentials refresh only at
+(`api_key_env`), then Grok login only when no explicit key source is configured.
+A missing explicit environment variable, empty or CR/LF-bearing value fails locally. Grok login credentials refresh only at
 transcription start. STT uses `https://api.x.ai/v1/stt` with its service-selected
 model; chat/profile base URLs and models are ignored. `--check` opens no audio,
 makes no request, and performs no refresh; success means local prerequisites,

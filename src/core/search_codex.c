@@ -199,7 +199,7 @@ char *tool_web_search_codex(tools_env *env, const char *query, bool *handled) {
     tny_codex_creds creds;
     int resolved = tny_codex_credentials(env->ctx, &creds);
     if (!creds.access_token) {
-        bool broken = resolved != 0 && tny_codex_auth_present();
+        bool broken = resolved != 0 && tny_codex_auth_configured();
         tny_codex_creds_free(&creds);
         if (broken) return tool_err("Codex login is unreadable; run tny --provider codex login");
         *handled = false; /* no login or API-key-only (not a subscription login) */

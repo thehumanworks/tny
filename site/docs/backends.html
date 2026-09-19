@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>Backends — tny</title>
-  <meta name="description" content="Cursor bridge, ACP, and the native OpenAI loop with the codex, claude, and grok subscription profiles.">
+  <meta name="description" content="Native OpenAI-compatible HTTP with Codex and Grok subscription profiles.">
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/backends.html">
   <meta property="og:title" content="Backends — tny">
-  <meta property="og:description" content="Cursor bridge, ACP, and the native OpenAI loop with the codex, claude, and grok subscription profiles.">
+  <meta property="og:description" content="Native OpenAI-compatible HTTP with Codex and Grok subscription profiles.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
   <meta name="twitter:card" content="summary_large_image">
@@ -44,37 +44,16 @@
   </div>
   <main class="docs-layout">
     <aside class="docs-sidebar"><nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html" aria-current="page">Backends</a><a href="architecture.html">Architecture</a><a href="size.html">Size and speed</a></div></div><div class="docs-nav-group"><p>tnytty</p><div><a href="tnytty.html">The tiny terminal</a><a href="tnytty-cli.html">CLI</a><a href="tnytty-config.html">Configuration</a><a href="tnytty-api.html">HTTP API</a><a href="tnytty-architecture.html">Architecture</a></div></div></nav></aside>
-    <article class="article"><h1>Backends</h1><p class="lede">A thin multiplexed frontend over host harnesses, plus one native loop.</p>
-<h2 id="kinds">Two kinds of backend</h2>
-<table>
-  <thead><tr><th>Kind</th><th>Backends</th><th>Who runs tools?</th></tr></thead>
-  <tbody>
-    <tr><td>Host</td><td>Cursor bridge, ACP client</td><td>The host process; tny executes only registered Cursor custom callbacks</td></tr>
-    <tr><td>Native</td><td>OpenAI-compatible, plus the builtin codex / claude / grok subscription profiles</td><td>tny</td></tr>
-  </tbody>
-</table>
-<p>Never leak host-specific types into the TUI. Every backend maps onto one event set: <code>text_delta</code>, <code>thinking</code>, <code>tool_start</code>, <code>tool_end</code>, <code>permission_request</code>, <code>plan</code>, <code>usage</code>, <code>turn_end</code>, <code>error</code>.</p>
-<h2 id="cursor">Cursor SDK Bridge</h2>
-<p>tny pins the supported v1.0.30 release and implements all 5 services/29 RPCs: 27 outbound catalog/agent/run/artifact/usage/control calls plus reverse <code>CallCustomTool</code> and <code>CallStore</code>. Local/cloud AgentOptions cover images, modes, sandbox/review, MCP/subagents, and presence-sensitive built-in tool allow/deny. Classic gRPC/HTTP2 and Cursor's private <code>agent.v1</code> are not used.</p>
-<p>Auth is <code>CURSOR_API_KEY</code> plus a per-process bridge bearer and independent loopback callback bearers. None enters logs or argv. Cursor owns built-in tools and exposes no per-call approval RPC; tny permission policy applies only to registered custom tools. Custom store callbacks own bounded local agent/run/event/checkpoint persistence.</p>
-<p>Versioned session pointers retain agent, run, durable offset, and runtime. A dropped Send reconnects through ObserveRun without duplicating events; cancel waits for authoritative terminal state. <code>tny cursor</code> exposes full management/raw access. wasm reports distinct clean unsupported errors for conversations and management before spawn.</p>
+    <article class="article"><h1>Backends</h1><p class="lede">One native loop across configured HTTP profiles.</p>
+<h2 id="kinds">One native backend</h2>
+<p>Every profile uses OpenAI-compatible HTTP. tny owns tools, MCP, skills, permissions, sessions, jobs, teams, and workflows. The C ABI and normalized event schema remain stable.</p>
 <h2 id="codex">Codex</h2>
 <p>A builtin profile of the native loop: your ChatGPT login drives the Responses-compatible <code>chatgpt.com/backend-api/codex</code> with <code>chatgpt-account-id</code> and <code>OpenAI-Beta: responses=v1</code>. tny owns tools, permissions, MCP, and sessions; tokens auto-refresh; no <code>codex app-server</code> process.</p>
 <p><code>tny --provider codex login</code> signs in natively (browser PKCE, or <code>--device</code> for headless boxes) into <code>~/.tny/codex-auth.json</code>; <code>CHATGPT_ACCESS_TOKEN</code> / <code>--chatgpt-token</code> need no file at all; an existing <code>codex login</code> keeps working.</p>
-<h2 id="acp">ACP</h2>
-<p>JSON-RPC 2.0 over stdio, one message per line. tny implements both sides:</p>
-<table>
-  <thead><tr><th>Mode</th><th>Command</th><th>Role</th></tr></thead>
-  <tbody>
-    <tr><td>Client</td><td><code>tny --provider acp --agent &lt;exe&gt;</code></td><td>Drive other agents</td></tr>
-    <tr><td>Server</td><td><code>tny acp</code></td><td>Expose the native loop</td></tr>
-  </tbody>
-</table>
-<p>Always answer <code>session/request_permission</code> or the agent hangs. Cursor extras (<code>cursor/ask_question</code>, <code>cursor/create_plan</code>) are answered if the argv is Cursor's ACP — that is still <code>--provider acp</code>.</p>
 <h2 id="openai">OpenAI-compatible</h2>
 <p>The Responses API (<code>POST /v1/responses</code>) with typed SSE events is the default wire; legacy Chat Completions stays available per provider via <code>wire_api: "chat"</code>. This is the only backend where tny owns the complete tool loop. The agent loop assembles preamble + <code>AGENTS.md</code> + skill catalog + history, posts, executes tool calls, and repeats until final text, a step limit, cancel, or deny. Sessions store the portable chat-shaped transcript on either wire.</p>
 </article>
-    <aside class="toc"><p>on this page</p><a href="#kinds">Two kinds</a><a href="#cursor">Cursor</a><a href="#codex">Codex</a><a href="#acp">ACP</a><a href="#openai">OpenAI-compatible</a></aside>
+    <aside class="toc"><p>on this page</p><a href="#kinds">Native HTTP</a><a href="#codex">Codex</a><a href="#openai">OpenAI-compatible</a></aside>
   </main>
 </div>
 <script src="../assets/site.js"></script>

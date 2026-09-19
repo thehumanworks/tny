@@ -66,7 +66,6 @@ static tny_ctx *fixture(bool full) {
     set_string(&c->max_tokens_field, "fixture-max_tokens_field");
     set_string(&c->wire_api, "fixture-wire_api");
     set_string(&c->output_schema, "fixture-output_schema");
-    set_string(&c->bridge_bin, "fixture-bridge_bin");
     set_string(&c->xai_api_key, "SECRET-xai_api_key");
     set_string(&c->chatgpt_token, "SECRET-chatgpt_token");
     set_string(&c->chatgpt_account_id, "SECRET-chatgpt_account_id");
@@ -100,7 +99,6 @@ static tny_ctx *fixture(bool full) {
     c->library_mode = false;
     c->prompt_optimisation = true;
     c->extensions_enabled = true;
-    c->no_host_registry = true;
     c->service_tier_explicit = true;
     c->service_tier_from_settings = true;
     c->task_explicit = true;
@@ -129,7 +127,7 @@ static tny_ctx *fixture(bool full) {
     free(c->instruction_paths);
     c->instruction_paths = array("/instructions/one", "", "/instructions/three");
     c->n_instruction_paths = 3;
-    c->extra_headers = array("X-Fixture: SECRET-header", "X-Second: value", "X-Third: value");
+    c->extra_headers = array("X-Fixture: SECRET-header", "X-Second: value", "X-XAI-Token-Auth: xai-grok-cli");
     c->settings = parse("{\"secret\":\"SECRET-settings\",\"nested\":{\"a\":[1,true,null]},"
                         "\"models\":{\"grok\":\"old\"}}");
     c->repo_cfg = parse("{\"secret\":\"SECRET-repo\",\"context\":false}");
@@ -156,7 +154,7 @@ static void same(const tny_ctx *c, yyjson_doc *expected) {
 static void complete_schema(tny_ctx *c) {
     yyjson_doc *d = snapshot(c, false);
     yyjson_val *r = yyjson_doc_get_root(d);
-    REQUIRE(yyjson_obj_size(r) == 66);
+    REQUIRE(yyjson_obj_size(r) == 64);
     REQUIRE(jget_str(r, "cwd") && !strcmp(jget_str(r, "cwd"), c->cwd));
     REQUIRE(jget_str(r, "provider_name") &&
             !strcmp(jget_str(r, "provider_name"), c->provider_name));
@@ -172,7 +170,6 @@ static void complete_schema(tny_ctx *c) {
     REQUIRE(jget_str(r, "wire_api") && !strcmp(jget_str(r, "wire_api"), c->wire_api));
     REQUIRE(jget_str(r, "output_schema") &&
             !strcmp(jget_str(r, "output_schema"), c->output_schema));
-    REQUIRE(jget_str(r, "bridge_bin") && !strcmp(jget_str(r, "bridge_bin"), c->bridge_bin));
     REQUIRE(jget_str(r, "xai_api_key") && !strcmp(jget_str(r, "xai_api_key"), c->xai_api_key));
     REQUIRE(jget_str(r, "chatgpt_token") &&
             !strcmp(jget_str(r, "chatgpt_token"), c->chatgpt_token));
@@ -219,8 +216,6 @@ static void complete_schema(tny_ctx *c) {
             yyjson_get_bool(jget(r, "prompt_optimisation")) == c->prompt_optimisation);
     REQUIRE(yyjson_is_bool(jget(r, "extensions_enabled")) &&
             yyjson_get_bool(jget(r, "extensions_enabled")) == c->extensions_enabled);
-    REQUIRE(yyjson_is_bool(jget(r, "no_host_registry")) &&
-            yyjson_get_bool(jget(r, "no_host_registry")) == c->no_host_registry);
     REQUIRE(yyjson_is_bool(jget(r, "service_tier_explicit")) &&
             yyjson_get_bool(jget(r, "service_tier_explicit")) == c->service_tier_explicit);
     REQUIRE(yyjson_is_bool(jget(r, "service_tier_from_settings")) &&
@@ -283,7 +278,7 @@ static void complete_schema(tny_ctx *c) {
                 c->mcp_import_order[i]);
     yyjson_doc_free(d);
     d = snapshot(c, true);
-    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 56);
+    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 54);
     yyjson_doc_free(d);
 }
 static void encoder_lifetime(void) {
@@ -364,7 +359,6 @@ static void edge_cases(tny_ctx *full) {
         "max_tokens_field",
         "wire_api",
         "output_schema",
-        "bridge_bin",
         "xai_api_key",
         "chatgpt_token",
         "chatgpt_account_id",
@@ -437,7 +431,7 @@ static void edge_cases(tny_ctx *full) {
     reject(full, d, "backend", "2");
     reject(full, d, "backend", "-1");
     reject(full, d, "backend", "null");
-    full->backend = TNY_BK_CURSOR;
+    full->backend = -1; /* An unresolved context cannot recover a native checkpoint. */
     reject(full, d, "backend", "0");
     full->backend = TNY_BK_OPENAI;
     reject(full, d, "provider_name", "\"other\"");
@@ -553,7 +547,7 @@ static void recovery_routing(tny_ctx *saved) {
     set_string(&resolved->api_key, "SECRET-refreshed-credential");
     tny_ctx_clear_extra_headers(resolved);
     resolved->extra_headers =
-        array("X-Fixture: SECRET-header", "X-Second: value", "X-Third: value");
+        array("X-Fixture: SECRET-header", "X-Second: value", "X-XAI-Token-Auth: xai-grok-cli");
     tny_finish_builtin_profile(resolved);
     yyjson_doc *before = snapshot(resolved, false);
     tny_ctx bytes;
@@ -599,9 +593,9 @@ static void routing_edges(void) {
         tny_ctx_clear_extra_headers(saved);
         tny_ctx_clear_extra_headers(resolved);
         saved->extra_headers =
-            array("X-Fixture: SECRET-header", "X-Second: value", "X-Third: value");
+            array("X-Fixture: SECRET-header", "X-Second: value", "X-XAI-Token-Auth: xai-grok-cli");
         resolved->extra_headers =
-            array("X-Fixture: SECRET-header", "X-Second: value", "X-Third: value");
+            array("X-Fixture: SECRET-header", "X-Second: value", "X-XAI-Token-Auth: xai-grok-cli");
         tny_finish_builtin_profile(saved);
         tny_finish_builtin_profile(resolved);
         if (shape == 2) {

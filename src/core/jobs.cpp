@@ -861,8 +861,7 @@ static bool jobs_budget_valid(yyjson_val *v) {
 static bool admission_public_config(tny_ctx *ctx, yyjson_val *v) {
     if (!admission_config_valid(v)) return false;
     const char *aliases[] = {jget_str(v, "label"), jget_str(v, "provider_scope")};
-    const char *secrets[] = {ctx->api_key, ctx->chatgpt_token, getenv("CHATGPT_ACCESS_TOKEN"),
-                             getenv("CURSOR_API_KEY")};
+    const char *secrets[] = {ctx->api_key, ctx->chatgpt_token, getenv("CHATGPT_ACCESS_TOKEN")};
     for (size_t i = 0; i < sizeof aliases / sizeof aliases[0]; i++)
         for (size_t j = 0; j < sizeof secrets / sizeof secrets[0]; j++)
             if (secrets[j] && *secrets[j] && strcmp(aliases[i], secrets[j]) == 0) return false;
@@ -2071,9 +2070,7 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
      * happens to back both, so that gating one never disarms the other. */
     bool chat_is_codex = tny_provider_name(ctx) && strcmp(tny_provider_name(ctx), "codex") == 0;
     yyjson_mut_val *chat = yyjson_mut_obj(doc);
-    bool chat_is_cursor = tny_provider_name(ctx) && strcmp(tny_provider_name(ctx), "cursor") == 0;
-    jm_set_str(doc, chat, "api_key", chat_is_cursor ? NULL : ctx->api_key);
-    jm_set_str(doc, chat, "cursor_key", chat_is_cursor ? getenv("CURSOR_API_KEY") : NULL);
+    jm_set_str(doc, chat, "api_key", ctx->api_key);
     jm_set_str(doc, chat, "codex_url", chat_is_codex ? getenv("TNY_CODEX_BASE_URL") : NULL);
     jm_set_str(doc, chat, "base_url", ctx->base_url);
     jm_set_str(doc, chat, "wire_api",
@@ -2222,7 +2219,6 @@ static char *jobs_execution_scope(tny_ctx *ctx) {
         execution_scope_part(&b, strings[i]);
     if (codex && (!credentials.account_id || !*credentials.account_id)) {
         execution_scope_part(&b, credentials.access_token);
-        execution_scope_part(&b, credentials.api_key);
     }
     int n_headers = 0;
     while (ctx->extra_headers && ctx->extra_headers[n_headers]) n_headers++;
@@ -4274,12 +4270,6 @@ static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *
         buf_appendf(&entry, "TNY_CODEX_BASE_URL=%s", codex_url);
         owned[n++] = buf_detach(&entry);
     }
-    const char *cursor_key = image ? NULL : jget_str(chat, "cursor_key");
-    if (cursor_key) {
-        buf_init(&entry);
-        buf_appendf(&entry, "CURSOR_API_KEY=%s", cursor_key);
-        owned[n++] = buf_detach(&entry);
-    }
     if (jget(payload, "admission")) owned[n++] = xstrdup("TNY_ADMISSION_ENROLLED=1");
     const char *policy = jget_str(item, "workspace_policy");
     if (jget_bool(payload, "read_only", false) ||
@@ -4463,6 +4453,15 @@ static int worker_build_argv(yyjson_val *payload, yyjson_val *item, const char *
 static int worker_spawn_item(yyjson_val *payload, yyjson_val *item, bool image, job_slot *slot,
                              char *err, size_t errlen) {
     slot->image = image;
+    yyjson_val *chat = jget(payload, "chat");
+    const char *provider = jget_str(chat, "provider");
+    if (!provider) provider = jget_str(payload, "provider");
+    if (!image && provider &&
+        (strcmp(provider, "cursor") == 0 || strcmp(provider, "acp") == 0 ||
+         strncmp(provider, "acp@", 4) == 0 || strncmp(provider, "acp:", 4) == 0)) {
+        safe_err(err, errlen, "job uses a removed provider; submit a native HTTP job");
+        return -1;
+    }
     if (image) {
         char *canonical = NULL;
         int valid = validate_image_item(NULL, item, &canonical, err, errlen);

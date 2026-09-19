@@ -4,7 +4,7 @@ Research and implementation contract for **tny**: a C11 TUI + CLI agent harness.
 
 The public static site (Geist Mono) is generated from `scripts/site_build.py` into [`site/`](../site/) and published by GitHub Pages. Rebuild with `make site`. The landing terminal is the real CLI compiled to wasm ([ADR 0017](adr/0017-wasm-browser-parity.md)); BYOK intake rules from [ADR 0005](adr/0005-client-side-landing-terminal.md) still apply. User-facing pages live there, including [tnytty](https://thehumanworks.github.io/tny/docs/tnytty.html); this tree remains the harness implementation contract. tnytty's contract is [`tnytty/docs/`](../tnytty/docs/README.md).
 
-Do not start product code until you have read this index and the files it names. tny is a harness for agents, built by agents, focused on the agent ([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)). Keep user-facing functionality, add Cursor SDK Bridge, Codex subscriptions (ChatGPT Responses backend), ACP, and OpenAI-compatible providers. Stay fast, portable and small through measurement; there is no binary-size ceiling and no competitor-size target.
+Do not start product code until you have read this index and the files it names. tny is a harness for agents, built by agents, focused on the agent ([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)). Use one native OpenAI-compatible HTTP backend, including Codex subscriptions and Grok ([ADR 0152](adr/0152-native-http-only-providers.md)). Stay fast, portable and small through measurement; there is no binary-size ceiling and no competitor-size target.
 
 ## Read first
 
@@ -32,7 +32,7 @@ Do not start product code until you have read this index and the files it names.
 | [team-mailbox.md](team-mailbox.md) | Durable addressed collaboration, safe-boundary delivery, acknowledgment and retirement |
 | [task-workspaces.md](task-workspaces.md) | Isolated editing, provenance, explicit integration and conflict-safe cleanup |
 | [admission.md](admission.md) | Shared launch permits, cleanup holds, scope limits and honest usage policies |
-| [settings.md](settings.md) | settings.json defaults, schema, named providers and ACP agents |
+| [settings.md](settings.md) | settings.json defaults, schema, env-key HTTP profiles |
 | [tui.md](tui.md) | Interactive shell, slash commands, keys |
 | [worktrees.md](worktrees.md) | Isolated Git checkouts, named reuse, merge/remove/keep on exit |
 | [libtny.md](libtny.md) | Experimental headless C embedding ABI |
@@ -46,9 +46,7 @@ Do not start product code until you have read this index and the files it names.
 | Doc | Why |
 | --- | --- |
 | [backends/README.md](backends/README.md) | Which loop owns tools and auth |
-| [backends/cursor-bridge.md](backends/cursor-bridge.md) | Spawn `cursor-sdk-bridge`, Connect `sdk.v1` |
 | [backends/codex.md](backends/codex.md) | Codex subscriptions on the ChatGPT Responses backend (native loop) |
-| [backends/acp.md](backends/acp.md) | ACP client (other agents) and ACP server (native loop) |
 | [backends/openai-compatible.md](backends/openai-compatible.md) | Chat Completions (+ optional Responses) |
 
 ## Feature parity with fx

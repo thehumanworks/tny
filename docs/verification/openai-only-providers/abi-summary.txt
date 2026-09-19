@@ -1,0 +1,13 @@
+make -j4 test-abi: exit 0
+Ran 43 tests in 84.826s
+
+OK
+python3 scripts/check_abi_baseline.py --compat0 abi/compat0.json
+libtny ABI 0.8 frozen compatibility manifest: ok
+python3 scripts/check_abi_baseline.py \
+	--candidate build/abi/libtny-v1-current.json
+libtny ABI 1 baseline comparison: ok
+python3 scripts/check_abi_baseline.py \
+	--baseline abi/baseline-v1.0.json \
+	--candidate build/abi/libtny-v1-current.json
+libtny ABI 1 baseline comparison: ok

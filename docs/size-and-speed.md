@@ -5,10 +5,7 @@ is **no** binary-size ceiling and **no** product goal to beat fx on artifact
 size ([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)).
 Startup, TTFT, leak, ABI and payload bounds remain active.
 
-Report stripped bytes (`wc -c`) and runtime dependencies (`otool -L` / `ldd`)
-on release builds. Host binaries (`cursor-sdk-bridge`, ACP agents) stay
-external and are not part of the tny artifact. C++ runtime libraries are
-reported separately from the executable.
+Measure stripped release artifacts and runtime dependencies. The harness uses native HTTP and does not depend on vendor agent binaries. [ADR 0152](adr/0152-native-http-only-providers.md) supersedes the former provider architecture; historical measurements below remain evidence for their recorded revisions.
 
 ## Historical fx baseline (not a product goal)
 
@@ -66,7 +63,7 @@ skips the wrapper.
 1. C11 with scoped private C++20 owners (ADR 0114); measure C++ runtime
    dependencies and artifact deltas. No Zig runtime extras.
 2. ANSI TUI, not a widget kit.
-3. yyjson + picohttpparser + wslay, vendored as .c files you can see in `nm`.
+3. yyjson + picohttpparser, vendored as .c files you can see in `nm`.
    (nanopb deferred: v1 speaks Connect with the JSON codec, no protobuf runtime.)
 4. System TLS, **dlopen'd at first TLS use**: macOS Security.framework (eager
    framework linking costs ~1.2 ms per launch and loses the startup race),
@@ -74,7 +71,7 @@ skips the wrapper.
    ([adr/0007](adr/0007-linux-tls-system-openssl.md), +4 KiB total, `ldd`
    stays libssl-free). Never static or vendored OpenSSL. musl static builds
    cannot dlopen: plain http works, https errors cleanly there.
-5. Lazy backend load: Cursor/Codex/ACP stay cold until selected. No upgrade/MCP/skill walk before first prompt.
+5. Lazy backend load: HTTP connections stay cold until a turn. No upgrade/MCP/skill walk before first prompt.
 6. No NAPI, sounds, or bundled Node in the default CLI. wasm is the landing
    terminal ([ADR 0017](adr/0017-wasm-browser-parity.md)), not a second
    agent loop.

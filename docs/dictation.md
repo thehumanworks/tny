@@ -2,7 +2,7 @@
 
 Talk into the local microphone and turn speech into an editable prompt.
 Dictation selects its own provider: ChatGPT/Codex or xAI can transcribe while Grok,
-Claude, Cursor, ACP, or any OpenAI-compatible provider runs the conversation.
+Codex, Grok, or any configured OpenAI-compatible profile runs the conversation.
 
 ## Interactive shell
 
@@ -32,7 +32,7 @@ tny dictate --input-file speech.wav   # file transcription, no recorder needed
 tny dictate --input-file speech.wav --json
 tny dictate --stt-provider xai --input-file speech.wav
 tny --xai-api-key "$XAI_API_KEY" dictate --stt-provider xai --seconds 10
-TNY_STT_PROVIDER=xai tny --provider claude  # Ctrl-R uses xAI; chat stays Claude
+TNY_STT_PROVIDER=xai tny --provider codex  # Ctrl-R uses xAI; chat uses ChatGPT
 tny dictate --check --json            # local credentials + recorder check only
 tny dictate --input-file speech.wav --check --json  # credentials check only
 ```
@@ -90,15 +90,15 @@ HTTP errors show status only, not a response body or bearer token.
 1. The leading global flag `--xai-api-key KEY` (before `dictate`, or when starting the TUI).
 2. `XAI_API_KEY`.
 3. A named `xai` object in `~/.tny/settings.json`: the variable named by
-   `api_key_env`, then stored `api_key` if that variable is unset. The object
-   must have a nonempty `base_url`, following the generic named-provider
-   convention; see the [settings example](settings.md#named-openai-compatible-providers).
-4. The access/session token resolved by the existing Grok auth reader from
+   `api_key_env`. See the [settings example](settings.md#named-openai-compatible-providers);
+   `base_url` configures chat and is not used by this standalone STT adapter.
+4. When no explicit key source is configured, the access/session token from
    `~/.grok/auth.json`. Sign in with `tny --provider grok login`.
 
 An explicitly present empty, whitespace-only, CR/LF-bearing, or over-16-KiB
 credential is rejected; it does not silently select a lower-priority account.
-An unset settings `api_key_env` may fall back to stored `api_key`. No key is
+An explicitly configured missing `api_key_env` fails closed. Stored `api_key`
+settings are rejected with migration guidance. No key is
 printed or persisted by dictation. Only the existing Grok refresh routine may
 update its own auth store, when that login is selected and an actual
 transcription starts. Higher-priority credentials never refresh the login.

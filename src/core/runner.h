@@ -41,7 +41,6 @@ typedef struct {
     const char *initial_prompt;  /* -B: run detached with no client */
     const char **initial_images; /* NULL-terminated array or NULL */
     bool continue_recovery;      /* fold recovery.json into the first turn */
-    bool no_host_registry;       /* docs/adr/0031 decision 8 */
 } tny_runner_opts;
 
 /* Fork the runner. The listener is bound in the parent before the fork so

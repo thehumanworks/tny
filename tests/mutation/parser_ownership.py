@@ -20,12 +20,6 @@ from pathlib import Path
 
 MUTANTS = (
     (
-        "frame-limit",
-        "src/net/connectrpc.cpp",
-        "if (s.length > CONNECT_MAX_FRAME)",
-        "if (false)",
-    ),
-    (
         "id-precedence",
         "src/backends/openai/toolcalls.cpp",
         "c = by_id(id);",

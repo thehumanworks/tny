@@ -254,7 +254,7 @@ def landing() -> str:
         ),
         (
             "Four first-class backends",
-            'Cursor via the complete public SDK Bridge v1.0.30, Codex subscriptions via the ChatGPT Responses backend, other agents via <a href="docs/backends.html">ACP</a>, and a native OpenAI-compatible tool loop.',
+            "One native OpenAI-compatible HTTP tool loop, with Responses and Chat Completions, ChatGPT subscriptions, and Grok.",
         ),
         (
             "Minimal memory footprint",
@@ -270,11 +270,11 @@ def landing() -> str:
         ),
         (
             "Host processes stay external",
-            "<code>cursor-sdk-bridge</code> and ACP agents are spawned or attached, never embedded; a Codex login is plain HTTPS. The tny binary does not ship Node, Bun, or Rust.",
+            "Providers use HTTPS directly. Native Codex and Grok login and refresh need no vendor agent executable.",
         ),
         (
             "Model and provider agnostic",
-            'Local models, OpenRouter, Groq, Azure, Cursor, Codex subscriptions, or any <a href="docs/backends.html">ACP</a> agent.',
+            "Local models, OpenRouter, AIProxy at your configured URL, Groq, Azure, Codex subscriptions, and Grok.",
         ),
     ]
     body = f"""<main class="landing">
@@ -314,7 +314,7 @@ def landing() -> str:
     </div>
     <div class="prose">
       <p><span class="name">tny</span> is a C11 coding-agent harness for agents, built by agents, focused on the agent. User constraints and tasks are the goal. The UI is a Unix shell, not an IDE.</p>
-      <p>It is a thin multiplexed frontend over host agents, plus a native OpenAI-compatible loop for BYOK providers. Artifact size and runtime dependencies are measured per platform, without a fixed size ceiling or competitor target.</p>
+      <p>It owns a native tool loop over OpenAI-compatible HTTP providers. Artifact size and runtime dependencies are measured per platform, without a fixed size ceiling or competitor target.</p>
       <p>The terminal on this page is the real <span class="name">tny</span> binary compiled to WebAssembly — the same sources and the same CI test suite as the native CLI. Pass <code>OPENAI_API_KEY</code> (and optionally <code>OPENAI_BASE_URL</code>) in the URL hash or paste them at the prompt. Keys stay in this tab and go only to the provider you set — never to GitHub. Your provider must allow browser (CORS) calls; <code>api.openai.com</code> does not.</p>
       <p>For end users, the form factor aims to be closer to a Unix shell than a heavy "IDE in the terminal" TUI.</p>
       <p>It's open source, model-agnostic, and suitable for local models, subscriptions, and cloud inference.</p>
@@ -328,7 +328,7 @@ def landing() -> str:
 </main>"""
     return page_shell(
         title="tny — C11 coding-agent harness",
-        description="Open, native coding-agent harness for agents. A C11 CLI and TUI that drives Cursor, Codex, ACP, and OpenAI-compatible providers.",
+        description="Open, native coding-agent harness for agents. A C11 CLI and TUI that uses OpenAI-compatible HTTP providers, including Codex and Grok.",
         from_docs=False,
         active=None,
         canonical="",
@@ -352,9 +352,9 @@ def docs_quick() -> str:
     inner = f"""
 <h2 id="install">Install and build</h2>
 {cmd(INSTALL)}
-<p>A C11 compiler and <code>make</code> are enough. Vendored libraries (yyjson, picohttpparser, wslay) ship in the repo — nothing is downloaded at build time. The installer recipe is in <a href="install.html">Installation</a> if you want <code>~/.local/bin</code>.</p>
+<p>A C11 compiler and <code>make</code> are enough. Vendored libraries (yyjson, picohttpparser) ship in the repo — nothing is downloaded at build time. The installer recipe is in <a href="install.html">Installation</a> if you want <code>~/.local/bin</code>.</p>
 {cmd("tny doctor")}
-<p><code>doctor</code> reports OS, libc, and which optional host binaries are missing. It never needs a network key.</p>
+<p><code>doctor</code> reports OS, libc, and native HTTP provider configuration. It never needs a network key.</p>
 <h2 id="first-request">Run your first request</h2>
 <p>Start tny from the project you want to work on. The launch directory becomes the primary workspace:</p>
 {cmd("cd path/to/project")}
@@ -363,13 +363,12 @@ def docs_quick() -> str:
 <p>For scripts and CI, skip the shell:</p>
 {cmd('tny ask --json "list the public CLI"')}
 <h2 id="providers">Pick a provider</h2>
-<p>tny is a frontend. The default provider is the last one you used, then whatever credentials are already on the machine — an OpenAI-compatible key, a ChatGPT login (<code>tny --provider codex login</code>, <code>CHATGPT_ACCESS_TOKEN</code>, or an existing <code>codex login</code>), or <code>CURSOR_API_KEY</code>. Override it:</p>
-{cmd('tny --provider cursor ask "explain this repo"')}
+<p>tny owns the native HTTP agent loop. Explicit configuration and remembered provider selection take precedence; an unavailable remembered gateway fails closed. Without a selection, tny detects environment-key profiles, usable ChatGPT OAuth credentials, or a Grok login. Override it:</p>
+{cmd('tny --provider openai ask "explain this repo"')}
 {cmd("tny --provider codex")}
-{cmd("tny --provider acp --agent gemini -- --acp")}
-<p>See <a href="providers.html">Providers</a> for env vars and host binaries.</p>
+<p>See <a href="providers.html">Providers</a> for env vars and HTTP profiles.</p>
 <h2 id="permissions">What tny asks before it acts</h2>
-<p>tny starts in <code>yolo</code> permission mode. Consenting to run an agent in a workspace is the approval. Host providers (Cursor, ACP) run their own loops; tny does not pretend to gate them.</p>
+<p>tny starts in <code>yolo</code> permission mode. Consenting to run an agent in a workspace is the approval. tny owns tools and permission gates for every provider.</p>
 <p><code>ask</code> and <code>auto</code> are explicit opt-ins on the native OpenAI-compatible loop. Listing, globbing, and reading files inside the workspace never need approval. Writes, shell, and paths outside the workspace do — when you opt in.</p>
 <p>Switch modes with <code>/permissions</code> or <code>--permission-mode</code>. Details in <a href="permissions.html">Permissions</a>.</p>
 {note("Approve deliberately", "yolo disables tny permission checks and the command sandbox for that process. Use it in a workspace you are willing to lose. Host sandboxes, if any, still apply.")}
@@ -431,18 +430,16 @@ def docs_install() -> str:
 <p>The historical v0.3.0 macOS arm64 build measured {SIZE}; measure your release with <code>make size-check</code>. Size is reported, not gated by a product ceiling. <code>tny --version</code> and <code>tny ask --help</code> should return in a couple of milliseconds.</p>
 {cmd("tny --version")}
 {cmd("tny doctor --json")}
-<h2 id="hosts">Optional host binaries</h2>
+<h2 id="hosts">Provider dependencies</h2>
 <p>The tny binary is the harness. Host agents stay on <code>PATH</code>:</p>
 <table>
   <thead><tr><th>Provider</th><th>Host</th></tr></thead>
   <tbody>
-    <tr><td><code>cursor</code></td><td><code>cursor-sdk-bridge</code> (never linked into tny)</td></tr>
     <tr><td><code>codex</code></td><td>none — tny signs in itself (<code>tny --provider codex login</code>)</td></tr>
-    <tr><td><code>acp</code></td><td>whatever you pass to <code>--agent</code></td></tr>
     <tr><td><code>openai</code></td><td>none — tny owns the loop</td></tr>
   </tbody>
 </table>
-<p><code>tny doctor</code> tells you which of those are missing. Missing hosts are not a failed install.</p>
+<p>No vendor agent binary is required. <code>tny doctor</code> checks local configuration.</p>
 <h2 id="tnytty">tnytty</h2>
 <p>The same clone builds the tiny terminal. It is a sibling app, not part of the harness binary:</p>
 {cmd("make tnytty")}
@@ -460,11 +457,11 @@ def docs_install() -> str:
             ("script", "setup.sh"),
             ("ci", "CI binaries"),
             ("size", "What you should see"),
-            ("hosts", "Optional hosts"),
+            ("hosts", "Provider dependencies"),
             ("tnytty", "tnytty"),
         ],
         body=article(
-            "Installation", "Clone, make, strip. Host agents stay on PATH.", inner
+            "Installation", "Clone, make, strip. Providers use HTTP directly.", inner
         ),
     )
 
@@ -477,36 +474,29 @@ def docs_providers() -> str:
   <li>the provider last used, recorded in <code>~/.tny/settings.json</code></li>
   <li><code>openai</code> if <code>OPENAI_BASE_URL</code> or <code>OPENAI_API_KEY</code> is set</li>
   <li><code>codex</code> if a ChatGPT credential exists (<code>CHATGPT_ACCESS_TOKEN</code>, <code>~/.tny/codex-auth.json</code>, or <code>~/.codex/auth.json</code>)</li>
-  <li><code>cursor</code> if <code>CURSOR_API_KEY</code> is set</li>
   <li><code>openai</code>, whose connect error explains how to configure a key</li>
 </ol>
+<h2 id="credentials">Credentials and gateways</h2>
+<p>BYOK uses environment keys only. Configure <code>base_url</code> and <code>api_key_env</code> in a named profile, or export <code>NAME_BASE_URL</code> and <code>NAME_API_KEY</code>. Set AIProxy's URL explicitly. Inline or stored <code>api_key</code> settings fail with a migration diagnostic. SDK injection and this browser tab's ephemeral environment remain supported.</p>
+<p>Removed protocol selectors, commands, and agent flags fail clearly. Claude models remain available through configured compatible gateways; no vendor auth artifacts or executables are discovered.</p>
 <h2 id="openai">openai</h2>
-<p>Native loop. tny owns tools, MCP, skills, permissions, sessions, and <code>tny acp</code>.</p>
+<p>Native loop. tny owns tools, MCP, skills, permissions, and sessions.</p>
 {cmd("export OPENAI_API_KEY=…")}
 {cmd("export OPENAI_BASE_URL=https://openrouter.ai/api/v1   # optional")}
 {cmd("tny --provider openai --model anthropic/claude-sonnet-4.6")}
 <p>The default wire is the Responses API (<code>POST /v1/responses</code>, typed SSE) — what current OpenAI models require for function tools + reasoning effort. Providers that only speak legacy Chat Completions still work: set <code>wire_api: "chat"</code> in the provider profile, <code>OPENAI_WIRE_API=chat</code>, or pass <code>--wire-api chat</code>. OpenAI, OpenRouter, Groq, Together, DeepSeek, ollama, llama.cpp, vLLM, and Azure (custom auth header) all fit one of the two wires.</p>
-<h2 id="cursor">cursor</h2>
-<p>Spawns <code>cursor-sdk-bridge</code> v1.0.30 and implements its complete public Connect <code>sdk.v1</code> HTTP/1.1 contract: local/cloud agents, durable runs, images, modes, MCP/subagents, built-in tool allow/deny, artifacts, usage, and authenticated custom-tool/store callbacks. This is Cursor's supported headless loop, not <code>agent acp</code> or the rejected private <code>agent.v1</code> HTTP/2 wire.</p>
-{cmd("export CURSOR_API_KEY=…")}
-{cmd("tny --provider cursor")}
-{cmd("tny cursor models")}
-<p>Configure trusted protojson under <code>settings.cursor</code>: runtime, state/store, Agent/Send options, sandbox/review, MCP, subagents, and tool selection. Registered libtny custom tools can execute through the local callback boundary; Cursor still owns built-in tools and their permission policy. Resolve the bridge from <code>CURSOR_SDK_BRIDGE_BIN</code> or <code>PATH</code>. The bridge is 23–43 MiB of Bun — that weight is why it is never linked into tny.</p>
-<p><code>tny cursor</code> exposes catalog, agent/run lifecycle, messages, artifacts/download, usage, and a checked raw 27-route RPC. In wasm, conversations report <code>cursor: conversational sdk.v1 bridge is unavailable in WebAssembly</code> and management reports <code>cursor: sdk.v1 management is unavailable in WebAssembly</code> before bridge work.</p>
 <h2 id="codex">codex</h2>
 <p>Your ChatGPT subscription on tny's native loop against the Responses-compatible <code>chatgpt.com/backend-api/codex</code>. Sign in with <code>tny --provider codex login</code> (browser, or <code>--device</code> on headless machines) — no Codex CLI — or hand tny a token with <code>CHATGPT_ACCESS_TOKEN</code> / <code>--chatgpt-token</code> when there is no filesystem to keep one. An existing <code>codex login</code> is picked up too. Tokens refresh automatically.</p>
 {cmd("tny --provider codex login")}
 {cmd("tny --provider codex login --device")}
 {cmd("CHATGPT_ACCESS_TOKEN=… tny --provider codex ask 'run the tests'")}
-<h2 id="acp">acp</h2>
-<p>Drive any ACP agent as a client, or serve tny's native loop to an editor.</p>
-{cmd("tny --provider acp --agent gemini -- --acp")}
-{cmd("tny acp")}
-<p><code>tny acp</code> is the server. It exposes only the native OpenAI-compatible loop. Cursor and Codex already have their own IDE surfaces.</p>
+
+<h2 id="grok">Grok</h2>
+<p><code>XAI_API_KEY</code> selects the public xAI Responses API. <code>tny --provider grok login</code> uses native subscription login and refresh with the compatible chat proxy. Neither requires a vendor executable.</p>
 """
     return page_shell(
         title="Providers — tny",
-        description="Choose Cursor, Codex, ACP, or an OpenAI-compatible endpoint.",
+        description="Configure OpenAI-compatible HTTP, Codex, or Grok.",
         from_docs=True,
         active="docs",
         canonical="docs/providers.html",
@@ -514,13 +504,11 @@ def docs_providers() -> str:
         toc=[
             ("order", "Selection order"),
             ("openai", "openai"),
-            ("cursor", "cursor"),
             ("codex", "codex"),
-            ("acp", "acp"),
         ],
         body=article(
             "Providers",
-            "Four backends, one event loop. Host processes stay external.",
+            "One native HTTP backend, two wire formats.",
             inner,
         ),
     )
@@ -556,9 +544,9 @@ def docs_ask() -> str:
   "tool_calls": [{{"name": "read_file", "status": "success"}}]
 }}</code></pre>
 <h2 id="ci">Scripts and CI</h2>
-<p><code>tny ask</code> never blocks on an approval. Unresolved permissions fail the run unless you pass <code>--auto</code> (native loop) or stay on the default <code>--yolo</code>. Host providers must be pre-authorized or they fail closed.</p>
+<p><code>tny ask</code> never blocks on an approval. Unresolved permissions fail the run unless you pass <code>--auto</code> (native loop) or stay on the default <code>--yolo</code>.</p>
 <p>When the prompt is piped on stdin, connect overlaps the read so the provider is already warming while the prompt arrives.</p>
-{note("Images", "The native loop and Cursor v1.0.30 accept <code>--image PATH</code> (repeatable, max 16; 8 MiB each) after magic-byte MIME validation. A 17th flag exits before files or backend connection. Cursor sends base64 <code>SdkImageData</code>. Codex still ignores image input. libtny ABI 1 does not expose image attachments yet.")}
+{note("Images", "Native HTTP profiles accept <code>--image PATH</code> (repeatable, max 16; 8 MiB each) after magic-byte MIME validation, subject to configured image-input policy. A 17th flag exits before files or backend connection. libtny ABI 1 does not expose image attachments yet.")}
 """
     return page_shell(
         title="tny ask — tny",
@@ -587,14 +575,12 @@ def docs_cli() -> str:
 <pre><code>tny                         # interactive TUI, fresh session
 tny ask [prompt]            # one turn, then exit
 tny resume [last|&lt;id&gt;]      # interactive resume
-tny acp                     # ACP server (native loop only)
 tny sessions
 tny session last|&lt;id&gt;
 tny providers
 tny tasks
 tny task show NAME          # inspect one resolved preset
 tny models
-tny cursor COMMAND          # Cursor v1.0.30 management/raw RPC
 tny permissions
 tny workspace list|add|remove|clear
 tny status
@@ -603,7 +589,7 @@ tny usage
 tny login | logout | setup</code></pre>
 <h2 id="globals">Global flags</h2>
 <p>Global flags are leading — they come before the command.</p>
-<pre><code>tny --provider cursor|acp|openai|codex|claude|grok [command]
+<pre><code>tny --provider openai|codex|grok|NAME [command]
 tny --cwd DIR
 tny --model ID
 tny --task NAME             # runtime preset: review|optimizer|document|retro|task-creation
@@ -622,7 +608,7 @@ use only <code>name:</code> and <code>description:</code> frontmatter and a
 non-empty UTF-8 body no larger than 256 KiB. SSH sessions use built-ins only.
 The selected name/source/digest is recorded with the session; resuming restores
 it and rejects a mismatched explicit selector. <code>--agent CMD</code> remains
-the ACP executable/WebSocket option.</p>
+a removed legacy option.</p>
 <pre><code>cat &gt; .tny/tasks/release-review.md &lt;&lt;'TASK'
 ---
 name: release-review
@@ -636,23 +622,6 @@ tny --task release-review ask "Review this release"</code></pre>
 and gives you a new invocation without automatically executing the task.</p>
 <pre><code>tny --task task-creation ask "Create a task named release-review for reviewing releases"
 tny task show release-review</code></pre>
-<h2 id="cursor-management">Cursor management</h2>
-<p><code>tny cursor</code> starts a short-lived v1.0.30 bridge and exposes the complete public management surface. Create/resume/send preserve trusted <code>settings.cursor</code> local/cloud options. Downloads stream decoded artifact bytes with a strict 8 MiB cap; delete requires <code>--yes</code>.</p>
-<pre><code>tny cursor ping | version | me | models | repositories
-tny cursor create [NAME]
-tny cursor resume|reload|close AGENT_ID
-tny cursor send AGENT_ID MESSAGE
-tny cursor wait|run|conversation RUN_ID
-tny cursor runs|agent|messages|artifacts AGENT_ID
-tny cursor observe RUN_ID [AFTER_OFFSET]
-tny cursor cancel RUN_ID [AGENT_ID]
-tny cursor agents
-tny cursor archive|unarchive AGENT_ID
-tny cursor delete AGENT_ID --yes
-tny cursor download AGENT_ID PATH
-tny cursor usage AGENT_ID [RUN_ID]
-tny cursor rpc SERVICE METHOD [JSON|-] [--yes]</code></pre>
-<p>Raw RPC accepts only the 27 client-to-bridge routes and one bounded UTF-8 JSON object from an argument or stdin. Unary JSON and stream frames are preserved. Pipe secret-bearing requests so they do not enter shell history. This command and Cursor conversations return a clean unsupported error in wasm.</p>
 <h2 id="help">Help shape</h2>
 <p>Every subcommand has <code>--help</code> with copy-paste examples. Missing required values print the error, then a correct example, then exit 1. No timed prompts.</p>
 {cmd("tny ask --help")}
@@ -660,9 +629,7 @@ tny cursor rpc SERVICE METHOD [JSON|-] [--yes]</code></pre>
 <table>
   <thead><tr><th>Provider</th><th>Flags / env</th></tr></thead>
   <tbody>
-    <tr><td>cursor</td><td><code>--bridge-bin</code>, <code>CURSOR_SDK_BRIDGE_BIN</code>, <code>CURSOR_API_KEY</code></td></tr>
     <tr><td>codex</td><td><code>--chatgpt-token</code>, <code>--chatgpt-account-id</code>, <code>CHATGPT_ACCESS_TOKEN</code>, <code>CHATGPT_ACCOUNT_ID</code>; else <code>~/.tny/codex-auth.json</code> (<code>tny --provider codex login</code>) or <code>$CODEX_HOME/auth.json</code>; <code>TNY_CODEX_BASE_URL</code></td></tr>
-    <tr><td>acp</td><td><code>--agent CMD</code> plus extra args after <code>--</code></td></tr>
     <tr><td>openai</td><td><code>--base-url</code>, <code>--api-key-env</code>, <code>OPENAI_BASE_URL</code>, <code>OPENAI_API_KEY</code></td></tr>
   </tbody>
 </table>
@@ -674,8 +641,7 @@ tny cursor rpc SERVICE METHOD [JSON|-] [--yes]</code></pre>
 {cmd('tny --task review ask "inspect the current diff"')}
 {cmd("tny task show review")}
 {cmd('tny ask --json --provider openai "list exported symbols"')}
-{cmd('tny --provider cursor ask --model composer-2 "fix the leak"')}
-{cmd("tny --provider acp --agent gemini -- --acp")}
+{cmd('tny --provider openai ask --model gpt-5.4 "fix the leak"')}
 """
     return page_shell(
         title="CLI — tny",
@@ -687,7 +653,6 @@ tny cursor rpc SERVICE METHOD [JSON|-] [--yes]</code></pre>
         toc=[
             ("tree", "Command tree"),
             ("globals", "Global flags"),
-            ("cursor-management", "Cursor management"),
             ("help", "Help"),
             ("provider-flags", "Provider flags"),
             ("json-cmds", "JSON"),
@@ -710,7 +675,7 @@ def docs_workflows() -> str:
 trap 'tny_workflow_cleanup' EXIT
 
 tny_task architecture --task review --provider codex -- "Audit the architecture"
-tny_task tests --task review --provider cursor -- "Audit the tests"
+tny_task tests --task review --provider openai -- "Audit the tests"
 tny_task implement \\
   --after architecture --after tests --no-context --provider codex -- \\
   "Implement from the architecture report after both reviews finish"
@@ -769,7 +734,7 @@ const result = await workflow.run();</code></pre>
 <p>Task failures remain values so independent work can finish. Call <code>raise_for_failure()</code> in Python or <code>raiseForFailure()</code> in TypeScript when the aggregate should throw.</p>
 <h2 id="safety">Safety and limits</h2>
 <p>Dependency output is untrusted model text. The envelope labels it as context but cannot eliminate prompt injection. Keep permissions least-privileged and use separate worktrees for parallel agents that write files.</p>
-<p>Direct dependency output is bounded to 1 MiB by default. Runs have no implicit retry, cache, distributed queue, or resume policy. The shell reaches every CLI provider; native SDK workflows can select OpenAI-compatible or Cursor sdk.v1 libtny runtimes. Cursor requires explicit state directory, API key, and model configuration plus an external bridge.</p>
+<p>Direct dependency output is bounded to 1 MiB by default. Runs have no implicit retry, cache, distributed queue, or resume policy. The shell reaches every native HTTP CLI profile; SDK workflows use the shared OpenAI-compatible libtny runtime. No external agent bridge is required.</p>
 <p><a href="https://github.com/thehumanworks/tny/blob/main/docs/workflows.md">Read the complete workflow reference</a>.</p>
 """
     return page_shell(
@@ -828,7 +793,7 @@ def docs_tui() -> str:
 <p><code>/task</code> lists runtime-owned presets; <code>/task NAME</code> selects one before the first turn and <code>/task clear</code> removes it. The status row shows the active task. Resuming restores the exact saved task snapshot, while changing a task after a turn requires <code>/new</code>.</p>
 <p>SSH task discovery is builtin-only. To prevent local project instructions from crossing into a remote workspace, <code>/ssh</code> refuses to attach while a user, project, or workflow task is selected; clear it first, attach, then select a builtin.</p>
 <h2 id="startup">Startup</h2>
-<p>First paint never waits on a backend. After the banner, the TUI pre-warms the selected provider's host on a background thread so the first prompt adopts a live connection. Failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.</p>
+<p>First paint never waits on a provider. Each native turn connects lazily in its detached session runner; MCP may warm independently.</p>
 <h2 id="browser">Browser demo</h2>
 <p>The terminal on the landing page is the real tny binary compiled to WebAssembly, running inside xterm.js. On a phone it fits the viewport so lines wrap instead of clipping; the on-screen keyboard shrinks the pane via the visual viewport. Pass <code>OPENAI_API_KEY</code> and optionally <code>OPENAI_BASE_URL</code> in the URL hash (<code>#OPENAI_API_KEY=…</code>) or paste them at the pre-launch prompt. Keys are sanitized at intake and stay in this tab. Workspace tools that need a host binary return a clean error; the provider must allow CORS — <code>api.openai.com</code> does not.</p>
 """
@@ -869,13 +834,11 @@ def docs_sessions() -> str:
   results/          # large tool-result blobs
   recovery.json     # partial assistant text + last event offset</code></pre>
 <p><code>session.json</code> never stores API keys or MCP header values.</p>
-<h2 id="hosts">Host mapping</h2>
+<h2 id="hosts">Session mapping</h2>
 <p>Host backends store their own threads. tny keeps a thin local alias so <code>tny resume last</code> still works.</p>
 <table>
   <thead><tr><th>Backend</th><th>Stored pointer</th></tr></thead>
   <tbody>
-    <tr><td>cursor</td><td>versioned <code>cursor-sdk.v1</code>: <code>agent_id</code>, <code>run_id</code>, exclusive <code>after_offset</code>, local/cloud runtime</td></tr>
-    <tr><td>acp</td><td>agent argv + <code>sessionId</code></td></tr>
     <tr><td>openai</td><td>full transcript</td></tr>
   </tbody>
 </table>
@@ -894,20 +857,20 @@ def docs_sessions() -> str:
         toc=[
             ("id", "Identity"),
             ("disk", "On disk"),
-            ("hosts", "Host mapping"),
+            ("hosts", "Session mapping"),
             ("compact", "Compaction"),
             ("recover", "Recovery"),
         ],
         body=article(
             "Sessions",
-            "Workspace-scoped history with a thin alias for host threads.",
+            "Workspace-scoped portable history and detached session runners.",
             inner,
         ),
     )
 
 
 def docs_permissions() -> str:
-    inner = f"""
+    inner = """
 <h2 id="modes">Modes</h2>
 <table>
   <thead><tr><th>Mode</th><th>Native behavior</th></tr></thead>
@@ -917,20 +880,20 @@ def docs_permissions() -> str:
     <tr><td><code>yolo</code></td><td>Skip tny permission checks and the command sandbox for this process. Does not rewrite saved settings</td></tr>
   </tbody>
 </table>
-<p>Default: <code>yolo</code> for every provider. Host providers run their own loops and do not hand tny a gate for built-in tools. <code>ask</code> and <code>auto</code> govern the native loop; for Cursor, only explicitly registered custom-tool callbacks cross tny's policy boundary, and sensitive callbacks fail closed unless yolo.</p>
+<p>Default: <code>yolo</code> for every provider. <code>ask</code> and <code>auto</code> are explicit opt-ins. tny owns the native tool loop and permission boundary for every HTTP profile.</p>
 <h2 id="what">What needs approval</h2>
 <p>Never: <code>list_files</code>, <code>glob_files</code>, <code>grep_files</code>, <code>read_file</code>, <code>file_info</code> inside the workspace.</p>
 <p>Always, unless a rule or grant allows it: writes, deletes, renames, <code>run_command</code>, <code>open_file</code>, <code>install_skill</code>, <code>vision</code>, any path outside the workspace, MCP <code>tools/call</code>.</p>
 <p>Prompt choices: Yes / Yes and don't ask again (session grant) / No. Keys: <code>y</code> / <code>a</code> / <code>n</code>.</p>
 <h2 id="rules">Persistent rules</h2>
 <p>Only in <code>~/.tny/settings.json</code>. Project <code>.tny.json</code> cannot grant authority. Last match wins. Workspace rules beat user-global. Wildcards are glob-style.</p>
-<pre><code>{{
-  "permission": {{
+<pre><code>{
+  "permission": {
     "*": "ask",
-    "bash": {{ "git *": "allow", "git push *": "deny" }},
-    "edit": {{ "docs/*": "allow", "*": "deny" }}
-  }}
-}}</code></pre>
+    "bash": { "git *": "allow", "git push *": "deny" },
+    "edit": { "docs/*": "allow", "*": "deny" }
+  }
+}</code></pre>
 <h2 id="sandbox">Sandbox</h2>
 <table>
   <thead><tr><th>Mode</th><th>Terminal-child behavior</th></tr></thead>
@@ -940,8 +903,8 @@ def docs_permissions() -> str:
     <tr><td><code>auto</code></td><td><code>os</code> when the platform wrapper is executable, otherwise <code>none</code></td></tr>
   </tbody>
 </table>
-<p><code>yolo</code> forces effective <code>none</code>. Only local native-loop <code>terminal</code> children are wrapped, including background commands; tny itself, host-provider tools, built-in file tools, and <code>--ssh</code> commands stay outside. Network remains open for package managers, provider CLIs, tests, and local development servers. A denied write names the path and points to workspace extra dirs; widening is a separate user decision, not an automatic retry. <code>doctor</code> reports the effective mode. wasm treats <code>auto</code> as <code>none</code> and rejects explicit <code>os</code> cleanly.</p>
-{note("Host mapping", "Cursor's built-in tools remain headless — there is no per-call approval RPC. Registered Cursor custom-tool callbacks are the narrow exception and retain tny validation/sensitivity policy. ACP requests map onto y / a / n; the codex profile is the native loop with real gates.")}
+<p><code>yolo</code> forces effective <code>none</code>. Only local native-loop <code>terminal</code> children are wrapped, including background commands; tny itself and built-in file tools, and <code>--ssh</code> commands stay outside. Network remains open for package managers, provider CLIs, tests, and local development servers. A denied write names the path and points to workspace extra dirs; widening is a separate user decision, not an automatic retry. <code>doctor</code> reports the effective mode. wasm treats <code>auto</code> as <code>none</code> and rejects explicit <code>os</code> cleanly.</p>
+
 """
     return page_shell(
         title="Permissions — tny",
@@ -995,7 +958,7 @@ def docs_tools() -> str:
   }
 }</code></pre>
 <p>Existing stdio JSONL entries keep their shape. Remote entries use Streamable HTTP: one POST per JSON-RPC message, answered by one JSON document over fixed-length or arbitrarily split chunked framing. Legacy <code>Mcp-Session-Id</code> and stateless MCP <code>2026-07-28</code> are supported. Authentication comes from environment-backed headers and is never logged.</p>
-<p>SSE is intentionally unsupported: tny does not parse <code>text/event-stream</code>, open a GET event stream, or fall back to legacy HTTP+SSE, and returns an actionable error for an SSE-only endpoint. Wasm is remote-only: HTTP works lazily through fetch subject to CORS; stdio fails cleanly. <code>tny acp</code> uses only client-supplied <code>mcpServers</code>, not the user profile.</p>
+<p>SSE is intentionally unsupported: tny does not parse <code>text/event-stream</code>, open a GET event stream, or fall back to legacy HTTP+SSE, and returns an actionable error for an SSE-only endpoint. Wasm is remote-only: HTTP works lazily through fetch subject to CORS; stdio fails cleanly.</p>
 <h2 id="skills">Skills</h2>
 <p>A directory plus <code>SKILL.md</code> (YAML frontmatter <code>name</code>, <code>description</code>). Metadata is discovered at startup; the body loads only on invoke.</p>
 <p>Search order, workspace upward, stop before <code>$HOME</code>: <code>skills/</code>, <code>.agents/skills/</code>, <code>.claude/skills/</code>, <code>.codex/skills/</code>, <code>.cursor/skills/</code>, <code>.opencode/skills/</code>. Then <code>~/.tny/skills/</code> and the same hidden names under <code>$HOME</code>.</p>
@@ -1020,7 +983,7 @@ def docs_tools() -> str:
         ],
         body=article(
             "Tools, MCP, skills",
-            "The native loop owns tools. Host backends own theirs.",
+            "The native loop owns tools for all providers.",
             inner,
         ),
     )
@@ -1028,52 +991,29 @@ def docs_tools() -> str:
 
 def docs_backends() -> str:
     inner = """
-<h2 id="kinds">Two kinds of backend</h2>
-<table>
-  <thead><tr><th>Kind</th><th>Backends</th><th>Who runs tools?</th></tr></thead>
-  <tbody>
-    <tr><td>Host</td><td>Cursor bridge, ACP client</td><td>The host process; tny executes only registered Cursor custom callbacks</td></tr>
-    <tr><td>Native</td><td>OpenAI-compatible, plus the builtin codex / claude / grok subscription profiles</td><td>tny</td></tr>
-  </tbody>
-</table>
-<p>Never leak host-specific types into the TUI. Every backend maps onto one event set: <code>text_delta</code>, <code>thinking</code>, <code>tool_start</code>, <code>tool_end</code>, <code>permission_request</code>, <code>plan</code>, <code>usage</code>, <code>turn_end</code>, <code>error</code>.</p>
-<h2 id="cursor">Cursor SDK Bridge</h2>
-<p>tny pins the supported v1.0.30 release and implements all 5 services/29 RPCs: 27 outbound catalog/agent/run/artifact/usage/control calls plus reverse <code>CallCustomTool</code> and <code>CallStore</code>. Local/cloud AgentOptions cover images, modes, sandbox/review, MCP/subagents, and presence-sensitive built-in tool allow/deny. Classic gRPC/HTTP2 and Cursor's private <code>agent.v1</code> are not used.</p>
-<p>Auth is <code>CURSOR_API_KEY</code> plus a per-process bridge bearer and independent loopback callback bearers. None enters logs or argv. Cursor owns built-in tools and exposes no per-call approval RPC; tny permission policy applies only to registered custom tools. Custom store callbacks own bounded local agent/run/event/checkpoint persistence.</p>
-<p>Versioned session pointers retain agent, run, durable offset, and runtime. A dropped Send reconnects through ObserveRun without duplicating events; cancel waits for authoritative terminal state. <code>tny cursor</code> exposes full management/raw access. wasm reports distinct clean unsupported errors for conversations and management before spawn.</p>
+<h2 id="kinds">One native backend</h2>
+<p>Every profile uses OpenAI-compatible HTTP. tny owns tools, MCP, skills, permissions, sessions, jobs, teams, and workflows. The C ABI and normalized event schema remain stable.</p>
 <h2 id="codex">Codex</h2>
 <p>A builtin profile of the native loop: your ChatGPT login drives the Responses-compatible <code>chatgpt.com/backend-api/codex</code> with <code>chatgpt-account-id</code> and <code>OpenAI-Beta: responses=v1</code>. tny owns tools, permissions, MCP, and sessions; tokens auto-refresh; no <code>codex app-server</code> process.</p>
 <p><code>tny --provider codex login</code> signs in natively (browser PKCE, or <code>--device</code> for headless boxes) into <code>~/.tny/codex-auth.json</code>; <code>CHATGPT_ACCESS_TOKEN</code> / <code>--chatgpt-token</code> need no file at all; an existing <code>codex login</code> keeps working.</p>
-<h2 id="acp">ACP</h2>
-<p>JSON-RPC 2.0 over stdio, one message per line. tny implements both sides:</p>
-<table>
-  <thead><tr><th>Mode</th><th>Command</th><th>Role</th></tr></thead>
-  <tbody>
-    <tr><td>Client</td><td><code>tny --provider acp --agent &lt;exe&gt;</code></td><td>Drive other agents</td></tr>
-    <tr><td>Server</td><td><code>tny acp</code></td><td>Expose the native loop</td></tr>
-  </tbody>
-</table>
-<p>Always answer <code>session/request_permission</code> or the agent hangs. Cursor extras (<code>cursor/ask_question</code>, <code>cursor/create_plan</code>) are answered if the argv is Cursor's ACP — that is still <code>--provider acp</code>.</p>
 <h2 id="openai">OpenAI-compatible</h2>
 <p>The Responses API (<code>POST /v1/responses</code>) with typed SSE events is the default wire; legacy Chat Completions stays available per provider via <code>wire_api: "chat"</code>. This is the only backend where tny owns the complete tool loop. The agent loop assembles preamble + <code>AGENTS.md</code> + skill catalog + history, posts, executes tool calls, and repeats until final text, a step limit, cancel, or deny. Sessions store the portable chat-shaped transcript on either wire.</p>
 """
     return page_shell(
         title="Backends — tny",
-        description="Cursor bridge, ACP, and the native OpenAI loop with the codex, claude, and grok subscription profiles.",
+        description="Native OpenAI-compatible HTTP with Codex and Grok subscription profiles.",
         from_docs=True,
         active="docs",
         canonical="docs/backends.html",
         current_doc="docs/backends.html",
         toc=[
-            ("kinds", "Two kinds"),
-            ("cursor", "Cursor"),
+            ("kinds", "Native HTTP"),
             ("codex", "Codex"),
-            ("acp", "ACP"),
             ("openai", "OpenAI-compatible"),
         ],
         body=article(
             "Backends",
-            "A thin multiplexed frontend over host harnesses, plus one native loop.",
+            "One native loop across configured HTTP profiles.",
             inner,
         ),
     )
@@ -1082,26 +1022,17 @@ def docs_backends() -> str:
 def docs_architecture() -> str:
     inner = """
 <h2 id="picture">Process model</h2>
-<pre><code>                 +-------------------------------------+
-                 |  cli / tui  (one event loop)        |
-                 +------------------+------------------+
-                                    | normalized events
-                 +------------------v------------------+
-                 |  session + permission + render bus  |
-                 +------------------+------------------+
-        +---------------+-----------+----------+
-        v               v                      v
-  cursor-bridge      acp-client          openai-native
-  Connect sdk.v1     stdio JSON-RPC      HTTP SSE + tools
-  + callbacks                            (openai, codex, claude, grok)</code></pre>
-<p>One tny process, one primary workspace. Host processes are children or attach targets. Always have a shutdown path: cancel turn → close stream → Shutdown/EOF → wait → kill. Drain host stderr on a dedicated reader — a full pipe stalls the bridge and most ACP agents.</p>
+<pre><code>CLI / TUI / SDK → detached session runner → native tool loop
+                                      → HTTP Responses / Chat Completions
+                                      → tools / MCP / permission gates</code></pre>
+<p>One event loop per runner, with portable session history and explicit cancellation and cleanup.</p>
 <h2 id="loop">One event loop</h2>
-<p>POSIX <code>poll</code>/<code>kqueue</code> only. No libuv. TUI pre-warm runs <code>connect()</code> plus <code>create_or_resume()</code> on one bounded thread and hands the backend back before events flow. Cursor's authenticated callback server normally shares the event loop; blocking Create/Resume may lend store traffic to one bounded pump thread, while owner-thread custom tools fail closed there.</p>
+<p>Blocking work uses the platform poll seam. Provider connections begin lazily; no vendor agent process is launched.</p>
 <h2 id="state">Config and state</h2>
 <table>
   <thead><tr><th>Path</th><th>Contents</th></tr></thead>
   <tbody>
-    <tr><td><code>~/.tny/settings.json</code></td><td>Model, permission mode, trusted Cursor local/cloud sdk.v1 options, UI, per-workspace overrides</td></tr>
+    <tr><td><code>~/.tny/settings.json</code></td><td>Model, permission mode, HTTP profiles, UI, per-workspace overrides</td></tr>
     <tr><td><code>~/.tny/mcp.json</code></td><td>Trusted MCP servers only</td></tr>
     <tr><td><code>~/.tny/sessions/</code></td><td>Transcripts and recovery</td></tr>
     <tr><td><code>~/.tny/skills/</code></td><td>Managed skill installs</td></tr>
@@ -1111,14 +1042,13 @@ def docs_architecture() -> str:
     <tr><td><code>&lt;repo&gt;/AGENTS.md</code></td><td>Project instructions</td></tr>
   </tbody>
 </table>
-<p>Credentials stay in the OS store or env vars. Not in project JSON. Never log tokens or ready-line JSON.</p>
-<p>Cursor versioned pointers retain <code>agent_id</code>, <code>run_id</code>, <code>after_offset</code>, and local/cloud runtime. The bridge owns built-in tools; tny owns only explicit custom-tool and optional custom-store callbacks. The supported v1.0.30 bridge remains external; no private <code>agent.v1</code> HTTP/2 protocol is embedded. wasm returns distinct clean unsupported errors for conversations and management before bridge/callback work.</p>
+<p>BYOK keys come from environment variables; settings store only their names. Native subscription OAuth credentials can be refreshed and persisted privately. Never log credentials.</p>
 <h2 id="lang">Language</h2>
-<p>C11, vendored .c files you can see in <code>nm</code>: yyjson, picohttpparser, wslay. ANSI TUI, not a widget kit. macOS TLS is Security.framework, <code>dlopen</code>'d at first use. Never static OpenSSL or libcurl.</p>
+<p>C11, vendored .c files you can see in <code>nm</code>: yyjson, picohttpparser. ANSI TUI, not a widget kit. macOS TLS is Security.framework, <code>dlopen</code>'d at first use. Never static OpenSSL or libcurl.</p>
 """
     return page_shell(
         title="Architecture — tny",
-        description="One event loop, four backends, host processes stay external.",
+        description="One event loop, one native HTTP backend.",
         from_docs=True,
         active="docs",
         canonical="docs/architecture.html",
@@ -1154,7 +1084,7 @@ def docs_size() -> str:
 </table>
 <p>Do not publish a 10 µs claim. That number is fx's <code>FX_BENCH=1</code> path (parse argv, exit before TTY). Former 1.5 MiB / 1.8 MiB / 6 MB tny ceilings are historical.</p>
 <h2 id="ttft">Time to first token</h2>
-<p>Everything between Enter and the provider seeing the turn is pre-paid or overlapped. The TUI warms the host and creates the session in the background. <code>tny ask</code> connects while it reads a piped prompt.</p>
+<p>Everything between Enter and the provider seeing the turn is pre-paid or overlapped. Each turn runs in a detached native session runner. <code>tny ask</code> connects while it reads a piped prompt.</p>
 <table>
   <thead><tr><th>Path</th><th>before</th><th>after</th></tr></thead>
   <tbody>
@@ -1176,7 +1106,7 @@ def docs_size() -> str:
 <ul>
   <li>C11 with scoped private C++20 owners; measure C++ runtime dependencies.</li>
   <li>ANSI TUI, not a widget kit.</li>
-  <li>yyjson + picohttpparser + wslay, vendored as .c files.</li>
+  <li>yyjson + picohttpparser, vendored as .c files.</li>
   <li>SecureTransport <code>dlopen</code>'d at first TLS use — eager framework linking costs ~1.2 ms per launch.</li>
   <li>Lazy backend load. No upgrade/MCP/skill walk before first prompt.</li>
   <li>No NAPI, sounds, or bundled Node in the default CLI. wasm is the landing terminal, not a second agent loop.</li>

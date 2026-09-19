@@ -1,6 +1,6 @@
 # Sessions
 
-Applies to the **native** backend fully. Host backends store their own threads; tny keeps a thin local alias so `tny resume last` still works.
+Every supported provider uses the native session transcript and detached runner lifecycle.
 
 ## Identity
 
@@ -107,8 +107,7 @@ wasm (no `fork`), `--ephemeral` (nothing durable to survive for, [ADR
 0020](../adr/0020-ephemeral-sessions.md)), the `TNY_ISOLATE=0` debug escape
 hatch, `tny ask --events=jsonl` (the canonical foreground event stream is
 this process's own engine, [ADR
-0090](../adr/0090-canonical-foreground-ask-events.md)), `tny acp` server
-mode, and libtny embedders. On macOS, a caller that
+0090](../adr/0090-canonical-foreground-ask-events.md)), mode, and libtny embedders. On macOS, a caller that
 has already initialized SecureTransport also keeps later turns in-process;
 that fork-safety containment is separate from the deep-path socket fallback
 above. These in-process modes have no runner socket.
@@ -152,11 +151,7 @@ the current id in `TNY_SESSION_ID`.
 The subprocess verbs are unavailable without that environment/socket. This
 includes wasm and the deliberate in-process modes above: they print
 `tny: no session socket (set TNY_SESSION_SOCK or run inside tny)` as one stderr
-line, exit 1, and never read `/dev/tty`. `tny acp` instead routes its
-in-process `ask_user_question` through an ACP client question/permission
-callback when the client supports one, otherwise it preserves the
-non-interactive fallback; it does not create a session socket or promise
-universal free-text ACP input.
+line, exit 1, and never read `/dev/tty`.
 
 ## Runtime status ([ADR 0031](../adr/0031-background-ask.md))
 
@@ -167,9 +162,7 @@ every completed turn records them, not just `-B`):
 - `status` — `running | done | error | interrupted`
 - `exit_code` — int, present once the turn finished
 - `result` — object: the exact JSON foreground `tny ask --json` would have
-  printed for this turn. This closes the host-backend gap — cursor/codex/acp
-  transcripts hold only a resume pointer, so `tny session <id> --json | jq
-  .result` is how their answers are read back.
+  printed for this turn. Read it with `tny session <id> --json`.
 
 Old sessions simply lack all three; readers treat absence as "not a
 background task". A foreground `--events=jsonl` turn records the same fields
@@ -218,12 +211,11 @@ limit: flock is advisory and unreliable on some network filesystems.
 
 ## Ephemeral mode
 
-Use the leading global flag on the TUI, CLI, or ACP server:
+Use the leading global flag on the TUI or CLI:
 
 ```bash
 tny --ephemeral
 tny --ephemeral ask "review this workspace"
-tny --ephemeral acp
 ```
 
 `tny ask --ephemeral` is also accepted, and `--no-save` remains an alias.
@@ -264,9 +256,7 @@ Host mapping:
 
 | Backend | Stored pointer |
 | --- | --- |
-| cursor | `agent_id`, `run_id`, workspace, model |
-| acp | agent argv + `sessionId` |
-| openai (codex/claude/grok profiles included) | full transcript |
+| openai (codex/grok profiles included) | full transcript |
 
 ## Skill injections
 
@@ -274,7 +264,7 @@ A user message that mentioned a skill ([ADR 0056](../adr/0056-skill-mention-inje
 
 ## Compaction (native)
 
-After **eight** completed turns, keep the latest **four** verbatim and replace older turns with a structured summary (requests, outcomes, files, commands, interruptions). `/compact` forces condensation of everything before the latest turn. The on-disk transcript stays intact; only the model view shrinks. Host backends: send `/compact` only if the protocol has an equivalent; otherwise no-op with a status line.
+After **eight** completed turns, keep the latest **four** verbatim and replace older turns with a structured summary (requests, outcomes, files, commands, interruptions). `/compact` forces condensation of everything before the latest turn. The on-disk transcript stays intact; only the model view shrinks.
 
 ## Recovery
 
