@@ -16,6 +16,14 @@ declaration order, unless the edge is marked as ordering-only.
 
 The shell surface selects native HTTP profiles, including Codex and Grok. SDK tasks embed the same OpenAI-compatible backend using explicit endpoint and in-memory credentials. Neither surface launches a vendor agent binary.
 
+## Instruction evolution
+
+[Automatic workflow learning](instruction-improvement.md) runs by default inside
+normal turns. It updates bounded empirical recovery guidance without a preset
+or additional model calls. The optional broader instruction experiment uses
+fresh sessions and trusted external checks; its instruction-file promotion
+remains explicit. Neither adds another provider implementation.
+
 ## Shell functions
 
 `make install`, the source installer, Nix package, and release archives install

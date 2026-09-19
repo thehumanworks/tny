@@ -58,6 +58,7 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         }
         ctx->max_extension_iterations = v;
     }
+    if (g->no_self_improve) ctx->no_self_improve = true;
     if (g->no_extensions) {
         ctx->extensions_enabled = false;
         tny_extensions_free(ctx->extensions);

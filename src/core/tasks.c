@@ -55,6 +55,24 @@ static const struct {
      "guidance. Keep any AGENTS.md/skill changes concise, scoped, and evidence-based; test or "
      "validate them where possible. End with concrete follow-ups and unresolved risks.",
      "Retrospective and durable lessons"},
+    {"self-improve",
+     "Run a bounded, evidence-gated experiment on task instructions only. Read "
+     "docs/instruction-improvement.md when available. The optional installed workflow is "
+     "python3 <prefix>/lib/tny/tny_improve.py; it is not a built-in tool. "
+     "First agree the task, editable instruction body, trusted independent evaluator, fixed "
+     "train/validation/test cases, cost unit, candidate/step/time budgets, and provider authority. "
+     "Do not call a live provider without authorization. Use the current accepted instructions "
+     "and training feedback to propose each revision. Keep validation and test cases out of "
+     "proposal context. Test each candidate externally; assistant claims are not evidence. "
+     "Reject regressions, invalid evidence, and ties. An accepted candidate becomes the next "
+     "parent. Preserve baseline, lineage, raw evidence and rejected candidates. Evaluate the "
+     "frozen winner against the baseline on the held-out test set after search. "
+     "Do not modify evaluators, permissions, models, harness code or global guidance as part "
+     "of this experiment. Never install a candidate implicitly: review the evidence and obtain "
+     "explicit promotion authorization. Report costs including search, case-level results, "
+     "limitations and rollback. Distinguish deterministic replay results from live-model gains; "
+     "instruction evolution is not model training or open-ended recursive self-modification.",
+     "Bounded, evidence-gated task instruction evolution"},
     {"task-creation",
      "Act as a tny task author. On user request, create or update reusable tny task presets: "
      "Markdown instructions selected with --task NAME, not scheduled jobs or SKILL.md files. "

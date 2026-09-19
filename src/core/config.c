@@ -442,6 +442,16 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     ctx->backend = -1;
     ctx->perm_mode = TNY_MODE_YOLO;
     ctx->tool_profile = TNY_TOOLS_ALL;
+    yyjson_val *learning = jget(sroot, "self_improve");
+    const char *learning_env = getenv("TNY_SELF_IMPROVE");
+    if ((learning && !yyjson_is_bool(learning)) ||
+        (learning_env && strcmp(learning_env, "0") != 0 && strcmp(learning_env, "1") != 0)) {
+        fprintf(stderr, "tny: self_improve must be boolean; TNY_SELF_IMPROVE must be 0 or 1\n");
+        tny_ctx_free(ctx);
+        return NULL;
+    }
+    ctx->no_self_improve =
+        learning_env ? strcmp(learning_env, "0") == 0 : !jget_bool(sroot, "self_improve", true);
     ctx->max_steps = 0; /* unlimited; .tny.json "steps" or --max-steps cap it */
     const char *read_only = getenv("TNY_TEAM_READ_ONLY");
     ctx->workspace_read_only = read_only && strcmp(read_only, "1") == 0;

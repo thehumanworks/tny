@@ -156,6 +156,22 @@ TEST task_creation_builtin_and_example_are_usable(void) {
     PASS();
 }
 
+TEST self_improve_builtin_is_bounded_and_explicit(void) {
+    task_env env;
+    task_env_begin(&env);
+    tny_ctx *ctx = tny_ctx_new_explicit(env.workspace, env.root);
+    ASSERT(ctx);
+    ASSERT_EQ(TNY_TASK_OK, tny_task_apply(ctx, "self-improve"));
+    ASSERT_STR_EQ("builtin", ctx->task_source);
+    ASSERT(strstr(ctx->task_instructions, "trusted independent evaluator"));
+    ASSERT(strstr(ctx->task_instructions, "training feedback"));
+    ASSERT(strstr(ctx->task_instructions, "explicit promotion authorization"));
+    ASSERT(strstr(ctx->task_instructions, "not model training"));
+    tny_ctx_free(ctx);
+    task_env_end(&env);
+    PASS();
+}
+
 TEST task_set_is_atomic_on_invalid_input(void) {
     tny_ctx ctx = {0};
     ASSERT_EQ(TNY_TASK_OK, tny_task_set_explicit(&ctx, "first", "keep me", "explicit"));
@@ -437,6 +453,7 @@ TEST task_listing_rejects_excessive_definition_count(void) {
 SUITE(tasks_suite) {
     RUN_TEST(task_name_grammar_is_strict);
     RUN_TEST(task_creation_builtin_and_example_are_usable);
+    RUN_TEST(self_improve_builtin_is_bounded_and_explicit);
     RUN_TEST(task_set_is_atomic_on_invalid_input);
     RUN_TEST(task_frontmatter_is_stripped_and_described);
     RUN_TEST(task_precedence_and_sources_match_selection);

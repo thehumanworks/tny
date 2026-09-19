@@ -160,6 +160,17 @@ Report prioritized findings; do not edit unless explicitly asked.
 Save it as `.tny/tasks/release-review.md`, then run
 `tny --task release-review ask "Review this release"`.
 
+Automatic workflow learning is **on by default**, without selecting a preset.
+`--no-self-improve`, `TNY_SELF_IMPROVE=0`, or `"self_improve": false` disables it.
+`status --json` and `doctor --json` expose `self_improve`. See
+[instruction improvement](instruction-improvement.md) for scope and evidence.
+
+The bundled `self-improve` preset guides optional broader instruction experiments:
+`tny --task self-improve ask "Design an experiment for our review task"`.
+It does not start optimization or grant promotion authority by itself. See
+[instruction improvement](instruction-improvement.md) for the optional workflow,
+independent evaluator contract and published benchmark limitations.
+
 The bundled `task-creation` preset lets an agent author tasks for you:
 
 ```sh

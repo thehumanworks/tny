@@ -1012,7 +1012,8 @@ install: release
 	# unlink first: macOS kills (SIGKILL) a code-signed Mach-O overwritten in place
 	rm -f "$(DESTDIR)$(PREFIX)/bin/tny$(EXE)"
 	cp "$(BIN)" "$(DESTDIR)$(PREFIX)/bin/tny$(EXE)"
-	cp python/tny_extension_host.py "$(DESTDIR)$(PREFIX)/lib/tny/"
+	cp python/tny_extension_host.py python/tny_improve.py python/tny_improve_propose.py \
+		"$(DESTDIR)$(PREFIX)/lib/tny/"
 	cp python/tny_ext/*.py python/tny_ext/py.typed \
 		"$(DESTDIR)$(PREFIX)/lib/tny/tny_ext/"
 	cp shell/tny-workflows.sh "$(DESTDIR)$(PREFIX)/share/tny/"
@@ -1219,7 +1220,8 @@ LEAKS         ?= leaks
 # its correlation tests fork a runner and a terminal child.
 # terminal_task_suite also forks a detached waiter; the inherited atExit hook
 # stops that waiter before its launch handshake (ADR 0136).
-LEAK_SUITE_SKIP := mcp_suite runner_suite \
+# learning_process_suite forks writers to verify concurrent evidence merging.
+LEAK_SUITE_SKIP := mcp_suite runner_suite learning_process_suite \
 	session_bg_suite ssh_suite terminal_task_suite task_workspace_process_suite
 LEAK_SUITES = $(filter-out $(LEAK_SUITE_SKIP),\
 	$(if $(wildcard tests/test_main.c),$(shell sed -n 's/.*RUN_SUITE(\([A-Za-z0-9_]*\)).*/\1/p' tests/test_main.c)))

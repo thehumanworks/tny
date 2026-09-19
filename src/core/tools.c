@@ -875,7 +875,28 @@ const char *tools_call_label(const tools_call *call) {
     return call && call->intercept ? call->intercept->label : NULL;
 }
 
+void tools_learning_edit_result(tools_env *env, const char *target, const char *replacement,
+                                bool replace_all, tny_edit_status status) {
+    if (!env || !env->ctx || env->ctx->no_self_improve || !target || !replacement) return;
+    if (status != TNY_EDIT_OK && status != TNY_EDIT_NOT_FOUND && status != TNY_EDIT_AMBIGUOUS)
+        return;
+    env->learning_fact = (tools_learning_fact){.valid = true,
+                                               .ok = status == TNY_EDIT_OK,
+                                               .event = TNY_LEARN_EDIT,
+                                               .scope = fnv1a(target, strlen(target)),
+                                               .intent = fnv1a(replacement, strlen(replacement)) ^
+                                                         (replace_all ? UINT64_MAX : 0)};
+}
+
+void tools_learning_read_result(tools_env *env, tny_learning_event event, const char *target,
+                                bool useful) {
+    if (!env || !env->ctx || env->ctx->no_self_improve || !target || !useful) return;
+    env->learning_fact = (tools_learning_fact){
+        .valid = true, .ok = true, .event = event, .scope = fnv1a(target, strlen(target))};
+}
+
 char *tools_call_execute(tools_env *env, tools_call *call) {
+    env->learning_fact = (tools_learning_fact){0};
     const char *name = call->name;
     yyjson_val *args = call->args;
 

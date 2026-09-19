@@ -94,6 +94,7 @@ static tny_ctx *fixture(bool full) {
     c->model_from_flag = true;
     c->json_out = true;
     c->no_save = false;
+    c->no_self_improve = true;
     c->no_color = true;
     c->force_color = true;
     c->library_mode = false;
@@ -155,7 +156,7 @@ static void same(const tny_ctx *c, yyjson_doc *expected) {
 static void complete_schema(tny_ctx *c) {
     yyjson_doc *d = snapshot(c, false);
     yyjson_val *r = yyjson_doc_get_root(d);
-    REQUIRE(yyjson_obj_size(r) == 64);
+    REQUIRE(yyjson_obj_size(r) == 65);
     REQUIRE(jget_str(r, "cwd") && !strcmp(jget_str(r, "cwd"), c->cwd));
     REQUIRE(jget_str(r, "provider_name") &&
             !strcmp(jget_str(r, "provider_name"), c->provider_name));
@@ -207,6 +208,8 @@ static void complete_schema(tny_ctx *c) {
             yyjson_get_bool(jget(r, "json_out")) == c->json_out);
     REQUIRE(yyjson_is_bool(jget(r, "no_save")) &&
             yyjson_get_bool(jget(r, "no_save")) == c->no_save);
+    REQUIRE(yyjson_is_bool(jget(r, "no_self_improve")) &&
+            yyjson_get_bool(jget(r, "no_self_improve")) == c->no_self_improve);
     REQUIRE(yyjson_is_bool(jget(r, "no_color")) &&
             yyjson_get_bool(jget(r, "no_color")) == c->no_color);
     REQUIRE(yyjson_is_bool(jget(r, "force_color")) &&
@@ -279,7 +282,7 @@ static void complete_schema(tny_ctx *c) {
                 c->mcp_import_order[i]);
     yyjson_doc_free(d);
     d = snapshot(c, true);
-    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 54);
+    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 55);
     yyjson_doc_free(d);
 }
 static void encoder_lifetime(void) {
@@ -306,6 +309,7 @@ static void roundtrip(tny_ctx *c) {
     yyjson_doc_free(input);
     same(restored, expected);
     REQUIRE(restored->cwd != c->cwd);
+    REQUIRE(restored->no_self_improve == c->no_self_improve);
     REQUIRE(!c->settings || restored->settings != c->settings);
     REQUIRE(!c->extensions_enabled || restored->extensions);
     if (c->extensions_enabled) {

@@ -1,0 +1,56 @@
+{
+  "code_revision": "ea4bfcc7fade3cc45923de642e0665eea300f907",
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "source_sha256": {
+    "python/tny_improve.py": "d20b3754db6b328516dff219f9437cbf47855bf9c651838345be805f152c9459",
+    "python/tny_improve_propose.py": "29dc1f11191d3d56c454f17e6b92806fc994b89a621145fd63779b0fc9b3eac3",
+    "src/core/tasks.c": "4bc2622b60318b3c4f1440f02294328e82cab577eb887e67b76b7441ed2c5361",
+    "src/cli/help.c": "d07b61cc3308282fe5d559167ba620ecd39b2c53fd8a8fd3c248d068dcca98c1",
+    "src/cli/cmd_doctor.c": "4b7046971afe20ffdf1da8bc8cb4af71c16b001c4553c0d1da597e632ee7ba81",
+    "tests/integration/test_instruction_improvement.py": "097dff77fffb44b5a1c4fd512082470b8f33d0e49556979d30abed615d1da6b3",
+    "tests/integration/test_improve_propose.py": "5b92b69abc02bca7f49582f851ebdf504f2daf7bcf90f49c367be3fbb1d8e090",
+    "tests/integration/test_bench_instruction_improvement.py": "81fd742838094ba1491fd5fdd5ace5264a5acddf141c6ba5e239037b892e6d5e",
+    "tests/integration/test_wasm_doctor.py": "557133100b72ac56f6f985c4632e8c05a7eeebbab7a40aa87d2404f948d32714",
+    "tests/bench/bench_instruction_improvement.py": "1ad2441aa6069411df07f5a459b9adb3e0883fcd38424f06af17477a80fd045c",
+    "tests/mutation/instruction_improvement.py": "e4641d735ab8decad9f0f6047e3c3403d005a51d8211b71ead629a2af3d77bcf",
+    "tests/test_tasks.c": "aa2382c9c9ec74e2210c53f37c47ea264a7cf26f096b2caab5da33cce4ceb308",
+    "Makefile": "a740850c81d7a6a4ac369d107bdb3d96d8412947b7a26248c2e3ff3a3abee569"
+  },
+  "checks": [
+    {
+      "command": "mise exec -- make -j8 test",
+      "exit_code": 0,
+      "log_sha256": "5b3abef72c11238243643a7986ef337801f7b957a11fb07cc29cec28786385ce"
+    },
+    {
+      "command": "mise exec -- make -j8 quality",
+      "exit_code": 0,
+      "log_sha256": "3d08f9ac56cd54afaf2c5d302672c7d98f10371036bf138f2b6ff1a3543b03ca",
+      "note": "GCC analyzer explicitly skipped on Darwin; Linux CI quality passed"
+    },
+    {
+      "command": "mise exec -- make -j8 leaks",
+      "exit_code": 0,
+      "log_sha256": "222d616b09d7e6cefbb79eb943833aebb965a79ece9409c3379339f54dd80877"
+    },
+    {
+      "command": "python3 tests/mutation/instruction_improvement.py",
+      "exit_code": 0,
+      "note": "Pristine control plus six killed mutants; detailed evidence in mutations.json"
+    }
+  ],
+  "binary": {
+    "path": "build/tny",
+    "bytes": 1087584,
+    "sha256": "a73774eb2a5408a21f35eace3fba6cebaa7628500959bc7bd02642d7244ef761",
+    "dependencies": [
+      "/usr/lib/libc++.1.dylib",
+      "/usr/lib/libSystem.B.dylib"
+    ]
+  },
+  "limitations": [
+    "No live-provider benchmark or general coding/LLM gain claim",
+    "Nix not available locally",
+    "Offline replay costs exclude oracle/setup/controller overhead"
+  ]
+}

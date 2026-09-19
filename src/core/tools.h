@@ -10,6 +10,7 @@
 #include "core/events.h"
 #include "core/backend.h"
 #include "core/image_preview.h"
+#include "core/learning.h"
 #include "util/terminal_task.h"
 
 #ifdef __cplusplus
@@ -51,7 +52,16 @@ typedef enum {
     TNY_IMAGE_FLUSH_PREVIEW_FATAL /* an accepted preview cannot be delivered */
 } tools_image_flush_outcome;
 
+typedef struct {
+    bool valid;
+    bool ok;
+    tny_learning_event event;
+    uint64_t scope;
+    uint64_t intent; /* transient hash of intended replacement; never persisted */
+} tools_learning_fact;
+
 typedef struct tools_env {
+    tools_learning_fact learning_fact; /* actual executor fact, not rendered tool text */
     tny_ctx *ctx;
     tny_session_state *session;
     perm_engine *perm;
@@ -138,6 +148,10 @@ char *tools_execute(tools_env *env, const char *name, const char *args_json);
 int tools_call_prepare(tools_env *env, const char *name, const char *args_json, tools_call *call);
 void tools_call_grant(tools_env *env, const tools_call *call);
 char *tools_call_execute(tools_env *env, tools_call *call);
+void tools_learning_edit_result(tools_env *env, const char *target, const char *replacement,
+                                bool replace_all, tny_edit_status status);
+void tools_learning_read_result(tools_env *env, tny_learning_event event, const char *target,
+                                bool useful);
 bool tools_call_pending(const tools_call *call);
 int tools_call_take_async(tools_call *call, char **result, bool *is_error);
 void tools_call_invalidate_async(tools_call *call);

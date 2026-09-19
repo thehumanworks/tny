@@ -1,0 +1,100 @@
+{
+  "inputs_sha256": {
+    "src/core/learning.c": "f18fb0af3bc6631dcf268ea3b4c2fcb767541b6bc7ce1aa451e218b8de450122",
+    "src/util/learning_store.c": "f3401b84c2d9b91f8b7f9fe34a622416e495f97aa873252e00e218b0bb6f34eb",
+    "src/util/util.c": "ac7c57c693e52d513a9d0e843190a7c8742510f91e5a8801ebc9b7bf1393cf03",
+    "third_party/yyjson/yyjson.c": "ac2e9bbb2e2d9149d90878d40506a1d624fa0b33c979a11b61075c54782c6d6a",
+    "tests/test_learning.c": "64035c73f19aa1b224c963de0100b0e11996535c1735865da7f0f6e678e06ddb"
+  },
+  "results": [
+    {
+      "name": "baseline",
+      "exit_code": 0,
+      "passed": true,
+      "classification": "pristine",
+      "stdout": "\n* Suite learning_suite:\n...........\n11 tests - 11 passed, 0 failed, 0 skipped (12939 ticks, 0.013 sec)\n\n* Suite learning_process_suite:\n.\n1 test - 1 passed, 0 failed, 0 skipped (1435 ticks, 0.001 sec)\n\nTotal: 12 tests (14392 ticks, 0.014 sec), 157 assertions\nPass: 12, fail: 0, skip: 0.\n",
+      "stderr": ""
+    },
+    {
+      "name": "skip-final-flush",
+      "exit_code": 1,
+      "passed": true,
+      "classification": "killed",
+      "stdout": "\n* Suite learning_suite:\n.........F\nFAIL learning_turn_flush_and_resume_preserve_pending_once: 2 != fresh.rules[0].successes (tests/test_learning.c:351)\n.\n11 tests - 10 passed, 1 failed, 0 skipped (11295 ticks, 0.011 sec)\n\n* Suite learning_process_suite:\n.\n1 test - 1 passed, 0 failed, 0 skipped (1341 ticks, 0.001 sec)\n\nTotal: 12 tests (12652 ticks, 0.013 sec), 147 assertions\nPass: 11, fail: 1, skip: 0.\n",
+      "stderr": ""
+    },
+    {
+      "name": "discard-pending-at-next-turn",
+      "exit_code": 1,
+      "passed": true,
+      "classification": "killed",
+      "stdout": "\n* Suite learning_suite:\n.........F\nFAIL learning_turn_flush_and_resume_preserve_pending_once: 3 != l.rules[0].successes (tests/test_learning.c:356)\n.\n11 tests - 10 passed, 1 failed, 0 skipped (8679 ticks, 0.009 sec)\n\n* Suite learning_process_suite:\n.\n1 test - 1 passed, 0 failed, 0 skipped (1086 ticks, 0.001 sec)\n\nTotal: 12 tests (9779 ticks, 0.010 sec), 150 assertions\nPass: 11, fail: 1, skip: 0.\n",
+      "stderr": ""
+    },
+    {
+      "name": "promote-one-observation",
+      "exit_code": 1,
+      "passed": true,
+      "classification": "killed",
+      "stdout": "\n* Suite learning_suite:\nF\nFAIL learning_promotion_and_demotion: 0 != advice_size(&l) (tests/test_learning.c:63)\n..........\n11 tests - 10 passed, 1 failed, 0 skipped (7003 ticks, 0.007 sec)\n\n* Suite learning_process_suite:\n.\n1 test - 1 passed, 0 failed, 0 skipped (868 ticks, 0.001 sec)\n\nTotal: 12 tests (7879 ticks, 0.008 sec), 147 assertions\nPass: 11, fail: 1, skip: 0.\n",
+      "stderr": ""
+    },
+    {
+      "name": "ignore-negative-feedback",
+      "exit_code": 1,
+      "passed": true,
+      "classification": "killed",
+      "stdout": "\n* Suite learning_suite:\nF\nFAIL learning_promotion_and_demotion: 0 != advice_size(&l) (tests/test_learning.c:77)\n..........\n11 tests - 10 passed, 1 failed, 0 skipped (16640 ticks, 0.017 sec)\n\n* Suite learning_process_suite:\n.\n1 test - 1 passed, 0 failed, 0 skipped (1675 ticks, 0.002 sec)\n\nTotal: 12 tests (18346 ticks, 0.018 sec), 155 assertions\nPass: 11, fail: 1, skip: 0.\n",
+      "stderr": ""
+    },
+    {
+      "name": "ignore-disabled",
+      "exit_code": 1,
+      "passed": true,
+      "classification": "killed",
+      "stdout": "\n* Suite learning_suite:\n....F\nFAIL learning_disabled_and_memory_only: 0 != l.rules[0].successes (tests/test_learning.c:155)\n......\n11 tests - 10 passed, 1 failed, 0 skipped (12102 ticks, 0.012 sec)\n\n* Suite learning_process_suite:\n.\n1 test - 1 passed, 0 failed, 0 skipped (1441 ticks, 0.001 sec)\n\nTotal: 12 tests (13562 ticks, 0.014 sec), 154 assertions\nPass: 11, fail: 1, skip: 0.\n",
+      "stderr": ""
+    },
+    {
+      "name": "ignore-target",
+      "exit_code": 1,
+      "passed": true,
+      "classification": "killed",
+      "stdout": "\n* Suite learning_suite:\n..F\nFAIL learning_no_invented_evidence: 0 != l.rules[i].successes (tests/test_learning.c:119)\n........\n11 tests - 10 passed, 1 failed, 0 skipped (12437 ticks, 0.012 sec)\n\n* Suite learning_process_suite:\n.\n1 test - 1 passed, 0 failed, 0 skipped (1430 ticks, 0.001 sec)\n\nTotal: 12 tests (13885 ticks, 0.014 sec), 152 assertions\nPass: 11, fail: 1, skip: 0.\n",
+      "stderr": ""
+    },
+    {
+      "name": "retain-expired-episode",
+      "exit_code": 1,
+      "passed": true,
+      "classification": "killed",
+      "stdout": "\n* Suite learning_suite:\n...F\nFAIL learning_episode_resets: 1 != l.rules[0].successes (tests/test_learning.c:137)\n.......\n11 tests - 10 passed, 1 failed, 0 skipped (15801 ticks, 0.016 sec)\n\n* Suite learning_process_suite:\n.\n1 test - 1 passed, 0 failed, 0 skipped (1675 ticks, 0.002 sec)\n\nTotal: 12 tests (17515 ticks, 0.018 sec), 156 assertions\nPass: 11, fail: 1, skip: 0.\n",
+      "stderr": ""
+    },
+    {
+      "name": "overwrite-instead-of-merge",
+      "exit_code": 1,
+      "passed": true,
+      "classification": "killed",
+      "stdout": "\n* Suite learning_suite:\n.....F\nFAIL learning_reload_and_privacy: 2 != fresh.rules[0].successes (tests/test_learning.c:175)\n\nExpected: {\n     Got: {\"version\":1,\"rules\":[{\"successes\":1,\"failures\":0,\"session\":\"0123456789abcdef\"},{\"successes\":0,\"failures\":0,\"session\":\"\"},{\"successes\":0,\"failures\":0,\"session\":\"\"}]}\n\nF\nFAIL learning_corrupt_state_untouched: bad[i] != data (tests/test_learning.c:231)\nF\nFAIL learning_symlink_and_nonregular_refusal: S_ISLNK(st.st_mode) (tests/test_learning.c:257)\nF\nFAIL learning_lock_nonblocking_and_delta_merge: 3 != fresh.rules[0].successes (tests/test_learning.c:291)\nF\nFAIL learning_turn_flush_and_resume_preserve_pending_once: 2 != fresh.rules[0].successes (tests/test_learning.c:351)\nF\nFAIL learning_store_permission_and_lock_refusal: 0644 != st.st_mode & 0777 (tests/test_learning.c:311)\n\n11 tests - 5 passed, 6 failed, 0 skipped (7711 ticks, 0.008 sec)\n\n* Suite learning_process_suite:\nF\nFAIL learning_process_merge: 2 != fresh.rules[0].successes (tests/test_learning.c:392)\n\n1 test - 0 passed, 1 failed, 0 skipped (1174 ticks, 0.001 sec)\n\nTotal: 12 tests (8901 ticks, 0.009 sec), 76 assertions\nPass: 5, fail: 7, skip: 0.\n",
+      "stderr": ""
+    },
+    {
+      "name": "accept-unknown-schema-fields",
+      "exit_code": 1,
+      "passed": true,
+      "classification": "killed",
+      "stdout": "\n* Suite learning_suite:\n......F\nFAIL learning_corrupt_state_untouched: 0 != advice_size(&l) (tests/test_learning.c:226)\n....\n11 tests - 10 passed, 1 failed, 0 skipped (12622 ticks, 0.013 sec)\n\n* Suite learning_process_suite:\n.\n1 test - 1 passed, 0 failed, 0 skipped (1621 ticks, 0.002 sec)\n\nTotal: 12 tests (14270 ticks, 0.014 sec), 126 assertions\nPass: 11, fail: 1, skip: 0.\n",
+      "stderr": ""
+    },
+    {
+      "name": "accept-public-directory",
+      "exit_code": 1,
+      "passed": true,
+      "classification": "killed",
+      "stdout": "\n* Suite learning_suite:\n..........F\nFAIL learning_store_permission_and_lock_refusal: 0 != fresh.rules[0].successes (tests/test_learning.c:326)\n\n11 tests - 10 passed, 1 failed, 0 skipped (12041 ticks, 0.012 sec)\n\n* Suite learning_process_suite:\n.\n1 test - 1 passed, 0 failed, 0 skipped (1349 ticks, 0.001 sec)\n\nTotal: 12 tests (13408 ticks, 0.013 sec), 155 assertions\nPass: 11, fail: 1, skip: 0.\n",
+      "stderr": ""
+    }
+  ],
+  "passed": true
+}

@@ -13,6 +13,12 @@ OAuth, and Grok public/subscription HTTP. No agent executable or ACP server.
 6. Run release/library builds, `make test`, `make quality` and report measured
    artifact size/dependencies in the verification directory.
 
+Automatic recovery-policy learning is default-on in the native workflow
+([ADR 0154](adr/0154-default-automatic-workflow-learning.md)). Use typed execution
+facts and bounded workspace evidence; preserve task and permission authority.
+The optional broader instruction experiment remains separate (ADR 0153), with
+independent evaluation, explicit promotion and held-out reporting.
+
 Private C++20 remains scoped by ADRs 0114, 0126 and 0133. Other application and
 OS seams stay C11. No public event or C ABI layout changes. wasm builds share
 the native HTTP tool loop through fetch and `tny_poll`. Streaming decoders must

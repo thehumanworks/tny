@@ -11,6 +11,8 @@
 #include "backends/openai/turn_owner.h"
 #include "core/image.h"
 #include "core/instructions.h"
+#include "core/intercept.h"
+#include "core/learning.h"
 #include "core/tasks.h"
 #include "core/skills.h"
 #include "mcp/mcp.h"
@@ -70,6 +72,10 @@ typedef struct {
 typedef struct {
     tny_ctx *ctx;
     tools_env env;
+    tny_learning learning;
+    bool learning_initialized;
+    uint64_t learning_target;
+    uint64_t learning_intent;
     oa_connection_owner *connection;
     sse_parser sse;
     oa_state state;
@@ -672,6 +678,8 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
      * round trip on the model's clock, and never a blocking wait here. */
     mcp_catalog_collect(o->ctx, sys);
     if (provider_oom()) return;
+    tny_learning_collect(&o->learning, sys);
+    if (provider_oom()) return;
     if (o->ctx->task_instructions && *o->ctx->task_instructions) {
         buf_appends(sys, "\n");
         if (!provider_oom()) tny_task_collect(o->ctx, sys);
@@ -1265,6 +1273,7 @@ static void finish_turn_ok(oa_impl *o) {
         return;
     }
     session_recovery_clear(s);
+    if (!o->ctx->no_self_improve) tny_learning_flush(&o->learning);
     emit_turn_end(o, o->final_stop);
 }
 
@@ -1300,7 +1309,7 @@ static void subagent_control(oa_impl *o, tny_openai_control_kind kind, const cha
 
 static void complete_tool(oa_impl *o, const char *cid, const char *name, const char *original_args,
                           const char *effective_args, const char *control_extension,
-                          const char *control_reason, char *original_result) {
+                          const char *control_reason, const char *original_result) {
     if (!original_result || provider_oom()) return;
     bool original_ok = !str_starts(original_result, "error:");
     emit_tool_end(o, cid, name, original_result, original_ok);
@@ -1335,6 +1344,40 @@ static void complete_tool(oa_impl *o, const char *cid, const char *name, const c
 
 static int run_tools(oa_impl *o);
 
+static void reset_learning_episode(oa_impl *o) {
+    tny_learning_observe(&o->learning, TNY_LEARN_OTHER, 0, false);
+    o->learning_target = o->learning_intent = 0;
+}
+
+static void complete_rejected_tool(oa_impl *o, const char *cid, const char *name,
+                                   const char *original_args, const char *effective_args,
+                                   const char *control_extension, const char *control_reason,
+                                   const char *result) {
+    reset_learning_episode(o);
+    complete_tool(o, cid, name, original_args, effective_args, control_extension, control_reason,
+                  result);
+}
+
+/* Learn only from an actually executed first-party operation, before extension
+ * result replacement. Denied, cancelled, custom and asynchronous proposals do
+ * not establish successful recovery. No tool text becomes durable guidance. */
+static void observe_learning(oa_impl *o) {
+    if (o->cancelled || o->env.perm_blocked || provider_oom()) return;
+    const tools_learning_fact *fact = &o->env.learning_fact;
+    if (!fact->valid || (fact->event != TNY_LEARN_EDIT && fact->scope != o->learning_target)) {
+        tny_learning_observe(&o->learning, TNY_LEARN_OTHER, 0, false);
+        o->learning_target = o->learning_intent = 0;
+        return;
+    }
+    if (fact->event == TNY_LEARN_EDIT) {
+        if (fact->intent != o->learning_intent || fact->scope != o->learning_target)
+            tny_learning_observe(&o->learning, TNY_LEARN_OTHER, 0, false);
+        o->learning_intent = fact->ok ? 0 : fact->intent;
+        o->learning_target = fact->ok ? 0 : fact->scope;
+    }
+    tny_learning_observe(&o->learning, fact->event, fact->scope, fact->ok);
+}
+
 static int execute_call(oa_impl *o, const char *cid, const char *original_args,
                         const char *effective_args, const char *control_extension,
                         const char *control_reason, tools_call *call) {
@@ -1351,10 +1394,15 @@ static int execute_call(oa_impl *o, const char *cid, const char *original_args,
     if (provider_oom()) return -1;
     subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_START, cid, call, NULL, false);
     if (provider_oom()) return -1;
+    if (call->custom) {
+        tny_learning_observe(&o->learning, TNY_LEARN_OTHER, 0, false);
+        o->learning_target = o->learning_intent = 0;
+    }
     char *result = o->cancelled ? tool_err("interrupted before %s ran", call->name)
                                 : tools_call_execute(&o->env, call);
     if (!result) return tools_call_pending(call) ? 1 : -1;
     bool ok = !str_starts(result, "error:");
+    observe_learning(o);
     subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_END, cid, call, result, ok);
     complete_tool(o, cid, call->name, original_args, effective_args, control_extension,
                   control_reason, result);
@@ -1408,7 +1456,7 @@ static int finish_custom_completion(oa_impl *o) {
 
 static void finish_cancelled_call(oa_impl *o, const char *cid, const char *name, const char *args) {
     char *result = tool_err("interrupted before %s ran", name);
-    complete_tool(o, cid, name, args, args, NULL, "cancelled", result);
+    complete_rejected_tool(o, cid, name, args, args, NULL, "cancelled", result);
     free(result);
 }
 
@@ -1624,8 +1672,8 @@ static int run_tools(oa_impl *o) {
                                    ? tool_err("interrupted before %s ran", name)
                                    : tool_err("extension denied %s: %s", name,
                                               response.reason ? response.reason : "denied");
-                complete_tool(o, cid, name, args, effective_args, control_extension, control_reason,
-                              result);
+                complete_rejected_tool(o, cid, name, args, effective_args, control_extension,
+                                       control_reason, result);
                 free(result);
                 free(effective_args);
                 free(control_extension);
@@ -1641,8 +1689,8 @@ static int run_tools(oa_impl *o) {
                 char *result = provider_oom() ? NULL
                                : call.error   ? xstrdup(call.error)
                                               : tool_err("cannot prepare tool call %s", name);
-                complete_tool(o, cid, name, args, effective_args, control_extension, control_reason,
-                              result);
+                complete_rejected_tool(o, cid, name, args, effective_args, control_extension,
+                                       control_reason, result);
                 free(result);
                 tools_call_free(&call);
                 free(effective_args);
@@ -1657,8 +1705,8 @@ static int run_tools(oa_impl *o) {
             if (provider_oom() || session_save(o->env.session) != 0) {
                 char *result =
                     provider_oom() ? NULL : tool_err("could not persist admitted tool call");
-                complete_tool(o, cid, call.name, args, effective_args, control_extension,
-                              control_reason, result);
+                complete_rejected_tool(o, cid, call.name, args, effective_args, control_extension,
+                                       control_reason, result);
                 free(result);
                 tools_call_free(&call);
                 free(effective_args);
@@ -1671,8 +1719,8 @@ static int run_tools(oa_impl *o) {
             if (call.verdict == PERM_DENY) {
                 char *result = tool_err("permission denied for %s", call.name);
                 permission_block(o);
-                complete_tool(o, cid, call.name, args, effective_args, control_extension,
-                              "permission rule denied", result);
+                complete_rejected_tool(o, cid, call.name, args, effective_args, control_extension,
+                                       "permission rule denied", result);
                 free(result);
                 tools_call_free(&call);
                 free(effective_args);
@@ -1724,8 +1772,8 @@ static int run_tools(oa_impl *o) {
                 if (!response.stop) permission_block(o);
                 char *result = response.stop ? tool_err("interrupted before %s ran", call.name)
                                              : tool_err("permission denied for %s", call.name);
-                complete_tool(o, cid, call.name, args, effective_args, control_extension,
-                              control_reason, result);
+                complete_rejected_tool(o, cid, call.name, args, effective_args, control_extension,
+                                       control_reason, result);
                 free(result);
                 control_response_free(&response);
                 tools_call_free(&call);
@@ -1758,8 +1806,8 @@ static int run_tools(oa_impl *o) {
                 if (decision == TNY_PERM_DECISION_DENY) {
                     permission_block(o);
                     char *result = tool_err("permission denied for %s", call.name);
-                    complete_tool(o, cid, call.name, args, effective_args, control_extension,
-                                  "user denied", result);
+                    complete_rejected_tool(o, cid, call.name, args, effective_args,
+                                           control_extension, "user denied", result);
                     free(result);
                 } else {
                     executed = execute_or_park(o, cid, args, effective_args, control_extension,
@@ -1798,8 +1846,8 @@ static int run_tools(oa_impl *o) {
         if (p->decision == TNY_PERM_DECISION_DENY) {
             permission_block(o);
             char *result = tool_err("permission denied for %s", p->call.name);
-            complete_tool(o, p->id, p->call.name, p->original_args, p->effective_args,
-                          p->control_extension, "user denied", result);
+            complete_rejected_tool(o, p->id, p->call.name, p->original_args, p->effective_args,
+                                   p->control_extension, "user denied", result);
             free(result);
         } else {
             int executed = execute_or_park(o, p->id, p->original_args, p->effective_args,
@@ -1967,6 +2015,16 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_
     o->usage_in = o->usage_out = 0;
     memset(&o->usage, 0, sizeof o->usage);
     o->usage_seen = o->usage_recorded = false;
+    o->learning_target = o->learning_intent = 0;
+    bool learn = !o->ctx->no_self_improve && !o->ctx->prompt_optimisation;
+    bool persist_learning = !o->ctx->no_save && !o->ctx->library_mode && !o->ctx->ssh_host;
+    if (o->learning_initialized)
+        tny_learning_resume(&o->learning, o->ctx->tny_dir, o->ctx->cwd, o->env.session->id, learn,
+                            persist_learning);
+    else
+        tny_learning_begin(&o->learning, o->ctx->tny_dir, o->ctx->cwd, o->env.session->id, learn,
+                           persist_learning);
+    o->learning_initialized = true;
     secure_zero(o->turn_state, sizeof o->turn_state);
     o->env.perm_blocked = false;
     pending_perm_clear(o);
@@ -2070,8 +2128,9 @@ static void oa_cancel(tny_backend *b) {
             oa_pending *pending = &o->turn->custom;
             tools_call_invalidate_async(&pending->call);
             char *result = tool_err("interrupted before %s completed", pending->call.name);
-            complete_tool(o, pending->id, pending->call.name, pending->original_args,
-                          pending->effective_args, pending->control_extension, "cancelled", result);
+            complete_rejected_tool(o, pending->id, pending->call.name, pending->original_args,
+                                   pending->effective_args, pending->control_extension, "cancelled",
+                                   result);
             free(result);
             pending_custom_clear(o, false);
             o->tool_index++;
@@ -2079,8 +2138,9 @@ static void oa_cancel(tny_backend *b) {
         if (o->turn->permission.id) {
             oa_pending *pending = &o->turn->permission;
             char *result = tool_err("interrupted before %s ran", pending->call.name);
-            complete_tool(o, pending->id, pending->call.name, pending->original_args,
-                          pending->effective_args, pending->control_extension, "cancelled", result);
+            complete_rejected_tool(o, pending->id, pending->call.name, pending->original_args,
+                                   pending->effective_args, pending->control_extension, "cancelled",
+                                   result);
             free(result);
             pending_perm_clear(o);
             o->tool_index++;

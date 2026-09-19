@@ -55,6 +55,16 @@ tny owns tools, permissions, context and the agent loop for every provider.
 BYOK keys come from environment variables; OAuth subscription login and
 refresh are native. Claude models work through configured compatible gateways.
 
+## Bounded self-improvement
+
+[Automatic workflow learning](instruction-improvement.md) is on by default in
+normal CLI/TUI work. Verified recovery outcomes revise bounded, workspace-scoped
+advice used in later requests and sessions. It currently learns exact-edit
+recovery, with no extra inference or user-selected preset. An explicit opt-out is
+available. A separate optional controller can evolve larger task-instruction
+bodies. Neither trains model weights or rewrites harness code automatically.
+Offline replay results are not claims of general live coding gains.
+
 ## Embedding
 
 The native harness is being extracted behind an experimental headless C ABI

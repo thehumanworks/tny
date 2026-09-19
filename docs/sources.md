@@ -1,5 +1,20 @@
 # Sources
 
+## Bounded instruction evolution (2026-09-19)
+
+Primary-source snapshots and applicability are recorded in
+[ADR 0153](adr/0153-bounded-instruction-evolution.md):
+
+- SoL-Pi: https://github.com/NVlabs/SoL-Pi/tree/bd005888b9b8a3fcdb511feb91fc27d3dfa8f2b1
+  and https://arxiv.org/html/2609.20519v1
+- GEPA: https://arxiv.org/html/2507.19457v1
+- Darwin Gödel Machine: https://arxiv.org/html/2505.22954v1
+- ACE: https://arxiv.org/html/2510.04618v1
+
+These inform bounded experiments and evidence retention. Their published gains
+are not claims about tny. The workflow's offline benchmark is a deterministic
+replay, not a live-model study.
+
 Fetched or rechecked 2026-08-31. Pin implementations to these pages and to a
 **release tag**, not `main`. Moving-main observations are labeled and are not
 release claims.

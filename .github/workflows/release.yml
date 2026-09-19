@@ -120,7 +120,7 @@ jobs:
           # humans) get a clean bin after extraction; exec bit survives tar.
           mkdir -p dist/stage/lib/tny/tny_ext dist/stage/share/tny
           cp dist/tny-${{ matrix.triple }} dist/stage/tny
-          cp python/tny_extension_host.py dist/stage/lib/tny/
+          cp python/tny_extension_host.py python/tny_improve.py python/tny_improve_propose.py dist/stage/lib/tny/
           cp python/tny_ext/*.py python/tny_ext/py.typed dist/stage/lib/tny/tny_ext/
           cp shell/tny-workflows.sh dist/stage/share/tny/
           tar -C dist/stage -czf dist/tny-${{ matrix.triple }}.tar.gz tny lib share
@@ -349,7 +349,7 @@ jobs:
               && ./dist/tny-'"${{ matrix.triple }}"' --version \
               && mkdir -p dist/stage/lib/tny/tny_ext dist/stage/share/tny \
               && cp dist/tny-'"${{ matrix.triple }}"' dist/stage/tny \
-              && cp python/tny_extension_host.py dist/stage/lib/tny/ \
+              && cp python/tny_extension_host.py python/tny_improve.py python/tny_improve_propose.py dist/stage/lib/tny/ \
               && cp python/tny_ext/*.py python/tny_ext/py.typed dist/stage/lib/tny/tny_ext/ \
               && cp shell/tny-workflows.sh dist/stage/share/tny/ \
               && tar -C dist/stage -czf dist/tny-'"${{ matrix.triple }}"'.tar.gz tny lib share'
