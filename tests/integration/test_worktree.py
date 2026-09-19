@@ -80,10 +80,18 @@ class Worktrees(unittest.TestCase):
         t.expect(BANNER)
         return t
 
-    def finish(self, t, choice="\r", quit_command="/quit\r", rc=0):
+    def finish(
+        self, t, choice="\r", quit_command="/quit\r", rc=0, delete="\r", force=None
+    ):
         t.send(quit_command)
         t.expect("[K]eep (default):")
         t.send(choice)
+        if choice.lower() == "r" and rc == 0:
+            t.expect("Also delete the local branch?")
+            t.send(delete)
+            if force is not None:
+                t.expect("Force delete the local branch?")
+                t.send(force)
         self.assertEqual(t.wait(), rc, clean(t.buf))
         self.assertTrue(t.restored())
 
@@ -397,6 +405,78 @@ class Worktrees(unittest.TestCase):
         self.assertEqual(self.git(self.repo, "rev-parse", "worktree/remove"), head)
         self.enter("remove")
         self.assertEqual((w / "saved.txt").read_text(), "saved in branch\n")
+
+    def test_remove_deletes_unused_branch_and_recreates(self):
+        t = self.term("unused")
+        self.finish(t, "r", delete="y")
+        self.assertFalse((self.worktrees / "unused").exists())
+        self.assertEqual(self.git(self.repo, "branch", "--list", "worktree/unused"), "")
+        self.enter("unused")
+
+    def test_merged_branch_deletion_keeps_remote_ref(self):
+        t = self.term("merged")
+        w = self.worktrees / "merged"
+        (w / "saved.txt").write_text("merged work\n")
+        self.commit(w)
+        head = self.git(w, "rev-parse", "HEAD")
+        remote = "refs/remotes/origin/worktree/merged"
+        self.git(self.repo, "update-ref", remote, head)
+        self.git(self.repo, "merge", "--ff-only", "worktree/merged")
+        self.finish(t, "R", delete="Y")
+        self.assertEqual(self.git(self.repo, "branch", "--list", "worktree/merged"), "")
+        self.assertEqual(self.git(self.repo, "rev-parse", remote), head)
+        self.assertEqual((self.repo / "saved.txt").read_text(), "merged work\n")
+
+    def test_unmerged_branch_requires_separate_force_confirmation(self):
+        for name, force in (("keep-unmerged", "\r"), ("delete-unmerged", "y")):
+            t = self.term(name)
+            w = self.worktrees / name
+            (w / "saved.txt").write_text("unique commit\n")
+            self.commit(w)
+            self.finish(t, "r", delete="y", force=force)
+            self.assertFalse(w.exists())
+            branch = self.git(self.repo, "branch", "--list", "worktree/" + name)
+            self.assertEqual(bool(branch), force != "y")
+            self.assertIn(
+                "kept" if force != "y" else "Deleted local branch", clean(t.buf)
+            )
+
+    def test_branch_delete_failure_reports_directory_removed(self):
+        t = self.term("delete-busy")
+        w = self.worktrees / "delete-busy"
+        t.send("/quit\r")
+        t.expect("[K]eep (default):")
+        t.send("r")
+        t.expect("Also delete the local branch?")
+        other = self.root / "other checkout"
+        self.git(self.repo, "worktree", "add", str(other), "worktree/delete-busy")
+        t.send("y")
+        t.expect("Force delete the local branch?")
+        t.send("y")
+        self.assertEqual(t.wait(), 1, clean(t.buf))
+        self.assertTrue(t.restored())
+        self.assertFalse(w.exists())
+        self.assertTrue(other.is_dir())
+        self.assertIn("Worktree removed; branch refs/heads/worktree/delete-busy kept", clean(t.buf))
+        self.assertNotIn("Worktree kept at", clean(t.buf))
+
+    def test_branch_delete_confirmation_defaults_to_keep(self):
+        for index, answer in enumerate(("n", "\x1b", "\x03", "\x04", "x")):
+            name = f"keep-{index}"
+            t = self.term(name)
+            self.finish(t, "r", delete=answer)
+            self.assertFalse((self.worktrees / name).exists())
+            self.assertTrue(self.git(self.repo, "branch", "--list", "worktree/" + name))
+
+    def test_retained_branch_checked_out_elsewhere_is_not_reset(self):
+        w = self.enter("elsewhere")
+        head = self.git(w, "rev-parse", "HEAD")
+        self.git(self.repo, "worktree", "remove", str(w))
+        other = self.root / "other checkout"
+        self.git(self.repo, "worktree", "add", str(other), "worktree/elsewhere")
+        self.cli("--worktree=elsewhere", "status", ok=False)
+        self.assertEqual(self.git(other, "rev-parse", "HEAD"), head)
+        self.assertFalse(w.exists())
 
     def test_dirty_ignored_untracked_and_locked_removal_refused(self):
         for name, filename in (

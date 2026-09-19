@@ -44,6 +44,10 @@ int worktree_merge(tny_worktree *w, char *err, size_t errlen) {
 int worktree_remove(tny_worktree *w, char *err, size_t errlen) {
     return worktree_merge(w, err, errlen);
 }
+int worktree_delete_branch(tny_worktree *w, bool force, char *err, size_t errlen) {
+    (void)force;
+    return worktree_merge(w, err, errlen);
+}
 #else
 #include <errno.h>
 #include <fcntl.h>
@@ -294,6 +298,17 @@ int worktree_merge(tny_worktree *w, char *err, size_t errlen) {
                  w->origin, out.data ? out.data : "cannot read HEAD");
     buf_free(&head);
     buf_free(&out);
+    return rc;
+}
+
+int worktree_delete_branch(tny_worktree *w, bool force, char *err, size_t errlen) {
+    buf_t b = {0};
+    /* Git still refuses branches checked out elsewhere, even with -D. */
+    int rc =
+        GIT(w->common, &b, "branch", force ? "-D" : "-d", "--", w->branch + strlen("refs/heads/"));
+    if (rc)
+        snprintf(err, errlen, "git branch deletion failed: %s", b.data ? b.data : "unknown error");
+    buf_free(&b);
     return rc;
 }
 

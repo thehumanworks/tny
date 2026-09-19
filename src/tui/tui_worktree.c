@@ -116,6 +116,17 @@ bool tui_worktree_wait_runner(pid_t pid) {
     return false;
 }
 
+static bool worktree_confirm(const char *prompt) {
+    tcflush(STDIN_FILENO, TCIFLUSH);
+    fputs(prompt, stdout);
+    fflush(stdout);
+    unsigned char answer = 0;
+    struct pollfd fd = {STDIN_FILENO, POLLIN, 0};
+    if (tny_poll(&fd, 1, -1) > 0 && read(STDIN_FILENO, &answer, 1) != 1) answer = 0;
+    putchar('\n');
+    return answer == 'y' || answer == 'Y';
+}
+
 void tui_worktree_finish(tui *t, bool stopped) {
     tny_worktree *w = t->worktree;
     if (!w) return;
@@ -128,7 +139,7 @@ void tui_worktree_finish(tui *t, bool stopped) {
         if (*w->origin_ref)
             printf("Merge commits into %s at %s (keeps worktree).\n", w->origin_ref, w->origin);
         else puts("Origin had a detached HEAD; merging requires a manual destination.");
-        fputs("On exit: [m]erge, [r]emove directory (keep branch), [K]eep (default): ", stdout);
+        fputs("On exit: [m]erge, [r]emove directory, [K]eep (default): ", stdout);
         fflush(stdout);
         struct pollfd fd = {STDIN_FILENO, POLLIN, 0};
         if (tny_poll(&fd, 1, -1) > 0) {
@@ -145,7 +156,27 @@ void tui_worktree_finish(tui *t, bool stopped) {
         if (!rc) printf("Merged into %s; worktree kept at %s\n", w->origin_ref, w->path);
     } else if (choice == 'r' || choice == 'R') {
         rc = worktree_remove(w, err, sizeof err);
-        if (!rc) printf("Removed worktree %s; branch %s kept\n", w->path, w->branch);
+        if (!rc) {
+            printf("Removed worktree %s\nLocal branch: %s\n", w->path, w->branch);
+            if (worktree_confirm("Also delete the local branch? [y/N] (default: keep): ")) {
+                rc = worktree_delete_branch(w, false, err, sizeof err);
+                if (rc) {
+                    fprintf(stderr, "tny: %s\n", err);
+                    if (worktree_confirm("Force delete the local branch? This can discard unmerged "
+                                         "commits (including squash-merged history). [y/N]: "))
+                        rc = worktree_delete_branch(w, true, err, sizeof err);
+                    else {
+                        printf("Branch %s kept\n", w->branch);
+                        return;
+                    }
+                }
+                if (rc) {
+                    fprintf(stderr, "tny: %s\nWorktree removed; branch %s kept\n", err, w->branch);
+                    if (!t->exit_code) t->exit_code = 1;
+                } else printf("Deleted local branch %s; remote branches untouched\n", w->branch);
+            } else printf("Branch %s kept\n", w->branch);
+            return; /* A branch failure must not claim the directory was kept. */
+        }
     } else printf("Kept worktree %s\n", w->path);
     if (rc) {
         fprintf(stderr, "tny: %s\nWorktree kept at %s\n", err, w->path);
