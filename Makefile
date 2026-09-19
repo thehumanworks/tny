@@ -1012,7 +1012,8 @@ install: release
 	# unlink first: macOS kills (SIGKILL) a code-signed Mach-O overwritten in place
 	rm -f "$(DESTDIR)$(PREFIX)/bin/tny$(EXE)"
 	cp "$(BIN)" "$(DESTDIR)$(PREFIX)/bin/tny$(EXE)"
-	cp python/tny_extension_host.py "$(DESTDIR)$(PREFIX)/lib/tny/"
+	cp python/tny_extension_host.py python/tny_improve.py python/tny_improve_propose.py \
+		"$(DESTDIR)$(PREFIX)/lib/tny/"
 	cp python/tny_ext/*.py python/tny_ext/py.typed \
 		"$(DESTDIR)$(PREFIX)/lib/tny/tny_ext/"
 	cp shell/tny-workflows.sh "$(DESTDIR)$(PREFIX)/share/tny/"

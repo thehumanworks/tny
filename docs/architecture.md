@@ -1,5 +1,10 @@
 # Architecture
 
+The optional [instruction-evolution workflow](instruction-improvement.md) sits
+outside the runtime. It uses existing detached CLI sessions for proposals and
+trusted external evaluators for selection. It never rewrites the provider loop,
+permission policy or live session task snapshots (ADR 0153).
+
 tny is a native agent harness with one OpenAI-compatible HTTP provider backend
 ([ADR 0152](adr/0152-native-http-only-providers.md)). CLI, TUI and libtny share
 the runtime, session store, permissions, tools, MCP and event loop. Profiles

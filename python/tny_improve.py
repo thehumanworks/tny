@@ -109,7 +109,9 @@ def _body(value: Any) -> str:
     except UnicodeError as exc:
         raise ImprovementError("instructions must be UTF-8") from exc
     _require("\0" not in value, "instructions contain NUL")
-    first = value.lstrip("\ufeff \t\r\n").splitlines()[0].strip()
+    lines = value.lstrip("\ufeff \t\r\n").splitlines()
+    _require(bool(lines), "instructions must contain a task body")
+    first = lines[0].strip()
     _require(
         first not in ("---", "+++"),
         "instructions must be task body, without frontmatter",
@@ -234,16 +236,25 @@ def gate(parent: dict, candidate: dict) -> tuple:
     return False, "no strict train improvement"
 
 
-def _stop(process: subprocess.Popen) -> None:
-    # Kill the group even if the direct child exited but descendants hold pipes.
-    try:
-        if os.name == "posix":
-            os.killpg(process.pid, signal.SIGKILL)
-        else:
-            process.kill()
-    except ProcessLookupError:
-        pass
-    process.wait(timeout=5)
+def _stop(process: subprocess.Popen) -> str:
+    # Give trusted adapters time to cancel their detached native sessions.
+    # Then kill remaining group members, including pipe-holding descendants.
+    errors = []
+    for sig, grace in ((signal.SIGTERM, 20), (signal.SIGKILL, 5)):
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            # Some kernels reject signals to an orphaned/zombie-only group.
+            # Preserve that uncertainty without skipping pipe/evidence cleanup.
+            errors.append(str(exc))
+        try:
+            process.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            if sig == signal.SIGKILL:
+                errors.append("child exit unverified after cancellation")
+    return "; ".join(errors)
 
 
 class _Evidence:
@@ -288,6 +299,7 @@ class _Evidence:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     cwd=self.cwd,
+                    env=dict(os.environ, TNY_IMPROVE_TIMEOUT_S=str(timeout)),
                     shell=False,
                     start_new_session=os.name == "posix",
                 )
@@ -318,7 +330,17 @@ class _Evidence:
         finally:
             if process is not None:
                 if error is not None:
-                    _stop(process)
+                    cleanup_error = _stop(process)
+                    if cleanup_error:
+                        error += "; cleanup: " + cleanup_error
+                    # Graceful adapter cleanup can publish cancellation receipts
+                    # after the original observation stopped. Keep those too.
+                    try:
+                        tail_out, tail_err = process.communicate(timeout=2)
+                        output.extend(tail_out[: MAX_JSON - len(output)])
+                        errors.extend(tail_err[: MAX_JSON - len(errors)])
+                    except subprocess.TimeoutExpired:
+                        pass
                 code = process.returncode
                 process.stdout.close()
                 process.stderr.close()
@@ -422,6 +444,7 @@ def _seal(root: Path) -> None:
 
 def run(spec_path: Any, out_directory: Any) -> dict:
     """Create an exclusive 0700 archive and run bounded search, never activation."""
+    _require(os.name == "posix", "instruction evolution requires native POSIX Python")
     root = Path(out_directory).absolute()
     try:
         root.mkdir(mode=0o700)
@@ -522,6 +545,11 @@ def promote(run_directory: Any, target: Any, expected_sha256: str) -> dict:
     temporary = None
     try:
         root, target = Path(run_directory).absolute(), Path(target).absolute()
+        _no_symlinks(root)
+        _no_symlinks(target)
+        # Preserve symlink refusal on the supplied paths, then normalize '..'
+        # before checking containment. Never overwrite the rollback archive.
+        root, target = root.resolve(strict=True), target.resolve(strict=True)
         report, body = _verify(root)
         _require(
             expected_sha256 == report["baseline_sha256"],
@@ -586,6 +614,13 @@ def promote(run_directory: Any, target: Any, expected_sha256: str) -> dict:
             os.unlink(temporary)
 
 
+def _interrupt(_signum: int, _frame: Any) -> None:
+    # A repeated interrupt must not cut short the bounded child cleanup.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    raise KeyboardInterrupt("instruction experiment interrupted")
+
+
 def main(argv: Any = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -603,6 +638,11 @@ def main(argv: Any = None) -> int:
     activate.add_argument("--target", required=True, type=Path)
     activate.add_argument("--expected-sha256", required=True)
     args = parser.parse_args(argv)
+    previous = (
+        {sig: signal.signal(sig, _interrupt) for sig in (signal.SIGINT, signal.SIGTERM)}
+        if os.name == "posix"
+        else {}
+    )
     try:
         result = (
             run(args.spec, args.out)
@@ -611,9 +651,12 @@ def main(argv: Any = None) -> int:
         )
         print(_dump(result).decode("utf-8"), end="")
         return 0
-    except ImprovementError as exc:
+    except (ImprovementError, KeyboardInterrupt) as exc:
         print(_dump({"status": "failed", "error": str(exc)}).decode("utf-8"), end="")
         return 1
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,10 @@ OAuth, and Grok public/subscription HTTP. No agent executable or ACP server.
 6. Run release/library builds, `make test`, `make quality` and report measured
    artifact size/dependencies in the verification directory.
 
+Instruction evolution is an optional workflow, not a new runtime phase or
+provider loop ([ADR 0153](adr/0153-bounded-instruction-evolution.md)). Keep proposal,
+independent evaluation, explicit promotion and held-out reporting separate.
+
 Private C++20 remains scoped by ADRs 0114, 0126 and 0133. Other application and
 OS seams stay C11. No public event or C ABI layout changes. wasm builds share
 the native HTTP tool loop through fetch and `tny_poll`. Streaming decoders must

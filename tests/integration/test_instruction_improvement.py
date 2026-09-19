@@ -21,8 +21,9 @@ import tny_improve as improve
 
 # One independent evaluator, with synthetic per-case outcomes. No provider I/O.
 FAKE = r"""
-import json, sys
+import json, os, sys
 from pathlib import Path
+assert float(os.environ["TNY_IMPROVE_TIMEOUT_S"]) > 0
 request = json.load(sys.stdin)
 config = json.loads(Path("config.json").read_text())
 with Path("calls.jsonl").open("a") as log:
@@ -247,6 +248,21 @@ class ImprovementTests(unittest.TestCase):
         with self.assertRaises(improve.ImprovementError):
             improve.promote(archive_link, self.baseline, self.digest)
 
+    def test_dotdot_alias_cannot_overwrite_rollback_archive(self):
+        self.run_search()
+        (self.root / "alias").mkdir()
+        before = {p.name: p.read_bytes() for p in self.out.iterdir()}
+        for archive, target in (
+            (self.root / "alias/../run", self.out / "baseline.md"),
+            (self.out, self.root / "alias/../run/baseline.md"),
+        ):
+            with self.subTest(archive=archive, target=target):
+                with self.assertRaises(improve.ImprovementError):
+                    improve.promote(archive, target, self.digest)
+                self.assertEqual(
+                    {p.name: p.read_bytes() for p in self.out.iterdir()}, before
+                )
+
     def test_archive_tampering_and_missing_evidence(self):
         self.run_search()
         for name in (
@@ -381,6 +397,8 @@ class ImprovementTests(unittest.TestCase):
                 "",
                 " ",
                 "a\0b",
+                "\ufeff",
+                "\ufeff \n",
                 "---\ntitle: bad\n---\nbody",
                 "+++\na=1",
                 "x" * 65537,
@@ -529,4 +547,4 @@ class ImprovementTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(argv=[sys.argv[0]])

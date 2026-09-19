@@ -127,7 +127,8 @@ static tny_ctx *fixture(bool full) {
     free(c->instruction_paths);
     c->instruction_paths = array("/instructions/one", "", "/instructions/three");
     c->n_instruction_paths = 3;
-    c->extra_headers = array("X-Fixture: SECRET-header", "X-Second: value", "X-XAI-Token-Auth: xai-grok-cli");
+    c->extra_headers =
+        array("X-Fixture: SECRET-header", "X-Second: value", "X-XAI-Token-Auth: xai-grok-cli");
     c->settings = parse("{\"secret\":\"SECRET-settings\",\"nested\":{\"a\":[1,true,null]},"
                         "\"models\":{\"grok\":\"old\"}}");
     c->repo_cfg = parse("{\"secret\":\"SECRET-repo\",\"context\":false}");

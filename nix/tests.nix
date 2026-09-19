@@ -190,6 +190,9 @@ stdenv.mkDerivation {
     runHook postBuild
   '';
 
+  # Instruction evolution and its offline file-read benchmark use the existing
+  # Python stdlib only. python/, tests/integration/ and tests/bench/ are in the
+  # shared source fileset; no live provider, external corpus or new dependency.
   # The fixture agents and mock hosts are `#!/usr/bin/env python3` scripts that
   # tny execs directly; /usr/bin/env does not exist in the sandbox.
   postPatch = ''

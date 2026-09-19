@@ -26,6 +26,17 @@ class MakeInstallTests(unittest.TestCase):
 
             self.assertTrue((prefix / "bin/tny").is_file())
             self.assertTrue((prefix / "lib/tny/tny_extension_host.py").is_file())
+            for name in ("tny_improve.py", "tny_improve_propose.py"):
+                installed = prefix / "lib/tny" / name
+                self.assertEqual(
+                    installed.read_bytes(), (ROOT / "python" / name).read_bytes()
+                )
+                subprocess.run(
+                    ["python3", str(installed), "--help"],
+                    check=True,
+                    capture_output=True,
+                    timeout=5,
+                )
             self.assertTrue((prefix / "lib/tny/tny_ext/py.typed").is_file())
             helper = prefix / "share/tny/tny-workflows.sh"
             self.assertTrue(helper.is_file())

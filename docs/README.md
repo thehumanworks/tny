@@ -6,6 +6,11 @@ The public static site (Geist Mono) is generated from `scripts/site_build.py` in
 
 Do not start product code until you have read this index and the files it names. tny is a harness for agents, built by agents, focused on the agent ([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)). Use one native OpenAI-compatible HTTP backend, including Codex subscriptions and Grok ([ADR 0152](adr/0152-native-http-only-providers.md)). Stay fast, portable and small through measurement; there is no binary-size ceiling and no competitor-size target.
 
+The optional [instruction-improvement workflow](instruction-improvement.md)
+runs bounded, evidence-gated experiments on task presets. Its
+[research decision](adr/0153-bounded-instruction-evolution.md) distinguishes
+reproducible offline evidence from unmeasured live-model improvement.
+
 ## Read first
 
 | Doc | Why |
