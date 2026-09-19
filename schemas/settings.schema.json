@@ -9,6 +9,11 @@
       "type": "string",
       "description": "JSON Schema URL used by editors for validation and completion."
     },
+    "self_improve": {
+      "type": "boolean",
+      "default": true,
+      "description": "Automatically learn bounded recovery guidance from verified tool outcomes. TNY_SELF_IMPROVE=0 or --no-self-improve disables it. No extra provider calls."
+    },
     "provider": {
       "type": "string",
       "minLength": 1,

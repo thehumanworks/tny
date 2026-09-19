@@ -254,6 +254,7 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                     tny_tool_profile_name(ctx->tool_profile),
                     tny_sandbox_kind_name(tny_sandbox_effective(ctx)));
         jescape(&b, ctx->cwd);
+        buf_appendf(&b, ",\"self_improve\":%s", ctx->no_self_improve ? "false" : "true");
         buf_appends(&b, ",\"task\":");
         if (ctx->task_name) {
             buf_appends(&b, "{\"name\":");
@@ -303,6 +304,8 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         }
         printf("permission: %s\n", tny_perm_mode_name(ctx->perm_mode));
         printf("tools:      %s\n", tny_tool_profile_name(ctx->tool_profile));
+        printf("self-improve: %s\n",
+               ctx->no_self_improve ? "off" : "on (automatic workflow learning)");
         tny_sandbox_kind sandbox = tny_sandbox_effective(ctx);
         printf("sandbox:    %s (%s)\n", tny_sandbox_kind_name(sandbox),
                tny_sandbox_kind_description(sandbox));

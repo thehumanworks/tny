@@ -57,11 +57,13 @@ refresh are native. Claude models work through configured compatible gateways.
 
 ## Bounded self-improvement
 
-An opt-in [instruction-evolution workflow](instruction-improvement.md) can propose,
-evaluate and retain task-instruction revisions. Accepted children become the next
-parent, while independent checks, fixed budgets and explicit promotion bound the
-loop. It does not train model weights or change harness code. Published offline
-benchmark results prove only the measured replay workload, not live coding gains.
+[Automatic workflow learning](instruction-improvement.md) is on by default in
+normal CLI/TUI work. Verified recovery outcomes revise bounded, workspace-scoped
+advice used in later requests and sessions. It currently learns exact-edit
+recovery, with no extra inference or user-selected preset. An explicit opt-out is
+available. A separate optional controller can evolve larger task-instruction
+bodies. Neither trains model weights or rewrites harness code automatically.
+Offline replay results are not claims of general live coding gains.
 
 ## Embedding
 

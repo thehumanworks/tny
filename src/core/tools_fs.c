@@ -491,7 +491,6 @@ static char *t_read_file(tools_env *env, yyjson_val *args) {
         free(abs);
         return e;
     }
-    free(abs);
     int64_t off = jget_int(args, "offset", 0);
     int64_t lim = jget_int(args, "limit", 0);
     char *res;
@@ -514,10 +513,13 @@ static char *t_read_file(tools_env *env, yyjson_val *args) {
             }
         }
         res = tool_bound_result(env, out.data, out.len);
+        if (res) tools_learning_read_result(env, TNY_LEARN_READ, abs, out.len > 0);
         buf_free(&out);
     } else {
         res = tool_bound_result(env, data, len);
+        if (res) tools_learning_read_result(env, TNY_LEARN_READ, abs, len > 0);
     }
+    free(abs);
     free(data);
     return res;
 }
@@ -566,6 +568,7 @@ static char *t_edit_file(tools_env *env, yyjson_val *args) {
     tny_edit_result result = {0};
     tny_edit_hooks hooks = {.before_write = edit_record_undo, .before_write_userdata = env};
     tny_edit_status status = tny_edit_file_exact(abs, olds, news, all, &hooks, &result);
+    tools_learning_edit_result(env, abs, news, all, status);
     if (status == TNY_EDIT_READ_ERROR) {
         char *e = tool_err("cannot read %s", abs);
         free(abs);

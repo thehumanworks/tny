@@ -10,6 +10,17 @@ void tny_learning_counter_add(tny_learning_counter *counter, bool ok) {
     else ++counter->failures;
 }
 
+static void counter_merge(tny_learning_counter *counter, const tny_learning_counter *delta) {
+    counter->successes += delta->successes;
+    counter->failures += delta->failures;
+    while (counter->successes + counter->failures > TNY_LEARNING_LIMIT) {
+        counter->successes /= 2;
+        counter->failures /= 2;
+    }
+    if (delta->successes || delta->failures)
+        memcpy(counter->session_id, delta->session_id, sizeof counter->session_id);
+}
+
 #ifndef __EMSCRIPTEN__
 #include "util/util.h"
 #include "yyjson.h"
@@ -160,17 +171,7 @@ static void merge(tny_learning_store *store, tny_learning_counter counters[3]) {
     if (!private_fd(lock, false) || flock(lock, LOCK_EX | LOCK_NB)) goto done;
     tny_learning_counter merged[3] = {0};
     if (!load(dir, name, merged)) goto done;
-    for (unsigned i = 0; i < 3; ++i) {
-        uint32_t s = store->delta[i].successes, f = store->delta[i].failures;
-        /* Bound deferred evidence, then age the combined aggregate without overflow. */
-        merged[i].successes += s;
-        merged[i].failures += f;
-        while (merged[i].successes + merged[i].failures > TNY_LEARNING_LIMIT) {
-            merged[i].successes /= 2;
-            merged[i].failures /= 2;
-        }
-        if (s || f) memcpy(merged[i].session_id, store->session_id, 17);
-    }
+    for (unsigned i = 0; i < 3; ++i) counter_merge(&merged[i], &store->delta[i]);
     if (save(dir, name, merged)) {
         memcpy(counters, merged, sizeof merged);
         memset(store->delta, 0, sizeof store->delta);
@@ -210,6 +211,30 @@ void tny_learning_store_init(tny_learning_store *store, const char *tny_dir, con
 #endif
 }
 
+void tny_learning_store_flush(tny_learning_store *store,
+                              tny_learning_counter counters[TNY_LEARNING_RULES]) {
+#ifndef __EMSCRIPTEN__
+    if (!store->active) return;
+    for (unsigned i = 0; i < TNY_LEARNING_RULES; ++i) {
+        if (store->delta[i].successes || store->delta[i].failures) {
+            merge(store, counters);
+            break;
+        }
+    }
+#else
+    (void)store;
+    (void)counters;
+#endif
+}
+
+void tny_learning_store_carry(tny_learning_store *store,
+                              tny_learning_counter counters[TNY_LEARNING_RULES],
+                              const tny_learning_counter pending[TNY_LEARNING_RULES]) {
+    memcpy(store->delta, pending, sizeof store->delta);
+    for (unsigned i = 0; i < TNY_LEARNING_RULES; ++i) counter_merge(&counters[i], &pending[i]);
+    tny_learning_store_flush(store, counters);
+}
+
 void tny_learning_store_record(tny_learning_store *store,
                                tny_learning_counter counters[TNY_LEARNING_RULES], unsigned rule,
                                bool ok) {
@@ -218,7 +243,6 @@ void tny_learning_store_record(tny_learning_store *store,
     memcpy(counters[rule].session_id, store->session_id, 17);
     if (!store->active) return;
     tny_learning_counter_add(&store->delta[rule], ok);
-#ifndef __EMSCRIPTEN__
-    merge(store, counters);
-#endif
+    memcpy(store->delta[rule].session_id, store->session_id, 17);
+    tny_learning_store_flush(store, counters);
 }

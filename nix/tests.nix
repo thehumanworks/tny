@@ -190,6 +190,9 @@ stdenv.mkDerivation {
     runHook postBuild
   '';
 
+  # Default native learning's C unit/process suites and CLI/TUI mock benchmark
+  # use the existing compiler, Python and POSIX tools. Its Darwin-only fork
+  # leak exclusion does not remove the Linux Valgrind process coverage.
   # Instruction evolution and its offline file-read benchmark use the existing
   # Python stdlib only. python/, tests/integration/ and tests/bench/ are in the
   # shared source fileset; no live provider, external corpus or new dependency.

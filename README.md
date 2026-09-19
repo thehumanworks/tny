@@ -25,6 +25,12 @@ tny acp                      # serve tny's native loop to any ACP client
 
 Task presets (`--task NAME`) configure a native task independently of the HTTP provider.
 
+**Automatic workflow learning is on by default.** Normal CLI/TUI work learns
+bounded recovery guidance from actual edit/read/retry outcomes and applies it to
+later requests and sessions. No preset, manual experiment, or extra model call
+is required. Use `--no-self-improve` to opt out. See
+[the scope and evidence](docs/instruction-improvement.md).
+
 ## Ephemeral sessions
 
 Use `--ephemeral` before the command to keep a CLI or TUI conversation

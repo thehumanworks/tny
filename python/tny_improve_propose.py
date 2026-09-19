@@ -140,6 +140,7 @@ def propose(args: argparse.Namespace, request: dict) -> dict:
             "--model",
             args.model,
             "--no-extensions",
+            "--no-self-improve",
             "--permission-mode",
             "ask",
             "--max-steps",

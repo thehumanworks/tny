@@ -2,6 +2,8 @@
 
 - Status: accepted
 - Date: 2026-09-19
+- Extended by [ADR 0154](0154-default-automatic-workflow-learning.md): automatic
+  native recovery learning is now default-on; the controller below stays optional.
 
 ## Context and research
 

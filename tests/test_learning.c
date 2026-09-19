@@ -199,6 +199,10 @@ TEST learning_corrupt_state_untouched(void) {
     const char *bad[] = {
         "{",
         "{}",
+        "{\"version\":1,\"extra\":true,\"rules\":["
+        "{\"successes\":2,\"failures\":0,\"session\":\"\"},"
+        "{\"successes\":0,\"failures\":0,\"session\":\"\"},"
+        "{\"successes\":0,\"failures\":0,\"session\":\"\"}]}",
         "{\"version\":2,\"rules\":[]}",
         "{\"version\":1,\"rules\":[]}",
         "{\"version\":1,\"rules\":[{\"successes\":999999,\"failures\":0,\"session\":\"\"},"
@@ -328,6 +332,46 @@ TEST learning_store_permission_and_lock_refusal(void) {
     PASS();
 }
 
+TEST learning_turn_flush_and_resume_preserve_pending_once(void) {
+    char root[64], path[256];
+    ASSERT(fixture(root));
+    tny_learning l, fresh;
+    tny_learning_begin(&l, root, "workspace", session, true, true);
+    episode(&l, TNY_LEARN_READ, true);
+    store_path(path, root, &l, "lock");
+    int lock = open(path, O_RDWR);
+    ASSERT(lock >= 0);
+    ASSERT_EQ(0, flock(lock, LOCK_EX | LOCK_NB));
+    episode(&l, TNY_LEARN_READ, true);
+    ASSERT_EQ(1, l.store.delta[0].successes);
+    ASSERT_EQ(0, flock(lock, LOCK_UN));
+    tny_learning_flush(&l);
+    tny_learning_flush(&l);
+    tny_learning_begin(&fresh, root, "workspace", session, true, true);
+    ASSERT_EQ(2, fresh.rules[0].successes);
+    ASSERT_EQ(0, l.store.delta[0].successes);
+    ASSERT_EQ(0, flock(lock, LOCK_EX | LOCK_NB));
+    episode(&l, TNY_LEARN_READ, true);
+    tny_learning_resume(&l, root, "workspace", "fedcba9876543210", true, true);
+    ASSERT_EQ(3, l.rules[0].successes);
+    ASSERT_EQ(1, l.store.delta[0].successes);
+    ASSERT_EQ(0, flock(lock, LOCK_UN));
+    tny_learning_resume(&l, root, "workspace", "fedcba9876543210", true, true);
+    tny_learning_begin(&fresh, root, "workspace", session, true, true);
+    ASSERT_EQ(3, fresh.rules[0].successes);
+    ASSERT_STR_EQ(session, fresh.rules[0].session_id); /* original observation provenance */
+    ASSERT_EQ(0, flock(lock, LOCK_EX | LOCK_NB));
+    episode(&l, TNY_LEARN_READ, true);
+    tny_learning_resume(&l, root, "workspace", session, false, true);
+    ASSERT_EQ(0, flock(lock, LOCK_UN));
+    tny_learning_flush(&l);
+    tny_learning_begin(&fresh, root, "workspace", session, true, true);
+    ASSERT_EQ(3, fresh.rules[0].successes); /* opt-out did not flush deferred work */
+    close(lock);
+    cleanup(root);
+    PASS();
+}
+
 TEST learning_process_merge(void) {
     char root[64];
     ASSERT(fixture(root));
@@ -360,6 +404,7 @@ SUITE(learning_suite) {
     RUN_TEST(learning_corrupt_state_untouched);
     RUN_TEST(learning_symlink_and_nonregular_refusal);
     RUN_TEST(learning_lock_nonblocking_and_delta_merge);
+    RUN_TEST(learning_turn_flush_and_resume_preserve_pending_once);
     RUN_TEST(learning_store_permission_and_lock_refusal);
 }
 

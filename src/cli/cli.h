@@ -24,6 +24,7 @@ typedef struct {
     const char *max_steps;                /* --max-steps N|unlimited (0 = no cap) */
     const char *max_extension_iterations; /* 0/unlimited = no cap */
     bool no_extensions;                   /* --no-extensions */
+    bool no_self_improve;                 /* --no-self-improve */
     bool fast;                            /* --fast (providers with TNY_CAP_FAST) */
     const char **add_dirs;                /* --add-dir, repeatable */
     int n_add_dirs;

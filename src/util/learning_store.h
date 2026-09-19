@@ -27,6 +27,11 @@ void tny_learning_store_init(tny_learning_store *store, const char *tny_dir, con
                              const char *session_id, bool persist,
                              tny_learning_counter counters[TNY_LEARNING_RULES]);
 void tny_learning_counter_add(tny_learning_counter *counter, bool ok);
+void tny_learning_store_flush(tny_learning_store *store,
+                              tny_learning_counter counters[TNY_LEARNING_RULES]);
+void tny_learning_store_carry(tny_learning_store *store,
+                              tny_learning_counter counters[TNY_LEARNING_RULES],
+                              const tny_learning_counter pending[TNY_LEARNING_RULES]);
 /* Local evidence is retained if a nonblocking merge cannot complete. */
 void tny_learning_store_record(tny_learning_store *store,
                                tny_learning_counter counters[TNY_LEARNING_RULES], unsigned rule,

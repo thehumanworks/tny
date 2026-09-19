@@ -28,6 +28,11 @@ typedef struct tny_learning {
  * for ephemeral, library and remote contexts. */
 void tny_learning_begin(tny_learning *learning, const char *tny_dir, const char *workspace,
                         const char *session_id, bool enabled, bool persist);
+/* For an already initialized learner: reset the episode, reload the store,
+ * and preserve outstanding deltas only for the same enabled persistent scope. */
+void tny_learning_resume(tny_learning *learning, const char *tny_dir, const char *workspace,
+                         const char *session_id, bool enabled, bool persist);
+void tny_learning_flush(tny_learning *learning);
 /* Only classified, actually executed first-party results may reach this API. */
 void tny_learning_observe(tny_learning *learning, tny_learning_event event, uint64_t scope,
                           bool ok);

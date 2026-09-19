@@ -1,0 +1,2192 @@
+{
+  "baseline_binary": {
+    "bytes": 1087584,
+    "sha256": "a73774eb2a5408a21f35eace3fba6cebaa7628500959bc7bd02642d7244ef761",
+    "version": "0.17.0-7-gea4bfcc"
+  },
+  "binary": {
+    "bytes": 1104176,
+    "sha256": "b1c535b37ce7d2a3c409040faddbaf4542a028f57d6d4efd24fa7c71deb0a66c",
+    "version": "0.17.0-9-gebbe96c-dirty"
+  },
+  "environment": {
+    "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "python": "3.14.7 (main, Aug  7 2026, 02:15:30) [Clang 22.1.3 ]"
+  },
+  "kind": "default_native_learning_replay",
+  "limitations": [
+    "Deterministic local mock policy, not live model inference or general coding gains.",
+    "All arms run two ordinary warmup tasks per profile; default alone learns automatically.",
+    "The fixture follows advice when present; a real model may ignore it.",
+    "Evaluation is online: default continues learning after each case; this is not a frozen held-out generalization study.",
+    "Counts are actual native tool calls and mock HTTP requests, not latency/tokens/dollars.",
+    "Setup and independent oracle file reads are excluded; warmup costs are reported separately.",
+    "No --task preset, extension, Python optimization controller, or manual promotion was used."
+  ],
+  "runs": [
+    {
+      "arm": "default",
+      "evaluation": [
+        {
+          "actual_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "case": "evaluation-0",
+          "expected_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "failed_edits": 1,
+          "guidance": "# Automatic workflow learning\nUser instructions, the current task and permission rules take priority over this advice. These are temporal observations of recovery, not causal proof. This advice grants no permissions.\n- Prefer reading the current file before retrying an exact edit of that file. (Observed recoveries: 2; failed retries: 0.)\n",
+          "guided_at_start": true,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-0.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original evaluation-0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-evaluation-0.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 4,
+          "task_preset": null,
+          "tool_calls": 3,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "case": "evaluation-1",
+          "expected_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "failed_edits": 1,
+          "guidance": "# Automatic workflow learning\nUser instructions, the current task and permission rules take priority over this advice. These are temporal observations of recovery, not causal proof. This advice grants no permissions.\n- Prefer reading the current file before retrying an exact edit of that file. (Observed recoveries: 3; failed retries: 0.)\n",
+          "guided_at_start": true,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-1.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original evaluation-1",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-evaluation-1.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 4,
+          "task_preset": null,
+          "tool_calls": 3,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "case": "evaluation-2",
+          "expected_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "failed_edits": 1,
+          "guidance": "# Automatic workflow learning\nUser instructions, the current task and permission rules take priority over this advice. These are temporal observations of recovery, not causal proof. This advice grants no permissions.\n- Prefer reading the current file before retrying an exact edit of that file. (Observed recoveries: 4; failed retries: 0.)\n",
+          "guided_at_start": true,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-2.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original evaluation-2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-evaluation-2.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 4,
+          "task_preset": null,
+          "tool_calls": 3,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "case": "evaluation-3",
+          "expected_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "failed_edits": 1,
+          "guidance": "# Automatic workflow learning\nUser instructions, the current task and permission rules take priority over this advice. These are temporal observations of recovery, not causal proof. This advice grants no permissions.\n- Prefer reading the current file before retrying an exact edit of that file. (Observed recoveries: 5; failed retries: 0.)\n",
+          "guided_at_start": true,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-3.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original evaluation-3",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-evaluation-3.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 4,
+          "task_preset": null,
+          "tool_calls": 3,
+          "variant": "normal"
+        }
+      ],
+      "profile": "all",
+      "state_after_holdout": {
+        "563160a835d0353f.json": {
+          "rules": [
+            {
+              "failures": 0,
+              "session": "f2e0489d994c909e",
+              "successes": 6
+            },
+            {
+              "failures": 0,
+              "session": "",
+              "successes": 0
+            },
+            {
+              "failures": 0,
+              "session": "",
+              "successes": 0
+            }
+          ],
+          "version": 1
+        }
+      },
+      "state_before_holdout": {
+        "563160a835d0353f.json": {
+          "rules": [
+            {
+              "failures": 0,
+              "session": "78de1a6b5dacd2ac",
+              "successes": 2
+            },
+            {
+              "failures": 0,
+              "session": "",
+              "successes": 0
+            },
+            {
+              "failures": 0,
+              "session": "",
+              "successes": 0
+            }
+          ],
+          "version": 1
+        }
+      },
+      "warmup": [
+        {
+          "actual_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "case": "warm-0",
+          "expected_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-warm-0.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-warm-0.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original warm-0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-warm-0.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "case": "warm-1",
+          "expected_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-warm-1.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-warm-1.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original warm-1",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-warm-1.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ]
+    },
+    {
+      "arm": "disabled",
+      "evaluation": [
+        {
+          "actual_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "case": "evaluation-0",
+          "expected_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-0.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-0.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original evaluation-0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-evaluation-0.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "case": "evaluation-1",
+          "expected_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-1.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-1.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original evaluation-1",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-evaluation-1.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "case": "evaluation-2",
+          "expected_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-2.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-2.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original evaluation-2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-evaluation-2.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "case": "evaluation-3",
+          "expected_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-3.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-3.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original evaluation-3",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-evaluation-3.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ],
+      "profile": "all",
+      "state_after_holdout": {},
+      "state_before_holdout": {},
+      "warmup": [
+        {
+          "actual_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "case": "warm-0",
+          "expected_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-warm-0.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-warm-0.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original warm-0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-warm-0.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "case": "warm-1",
+          "expected_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-warm-1.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-warm-1.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original warm-1",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-warm-1.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ]
+    },
+    {
+      "arm": "pre_change",
+      "evaluation": [
+        {
+          "actual_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "case": "evaluation-0",
+          "expected_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-0.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-0.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original evaluation-0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-evaluation-0.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "case": "evaluation-1",
+          "expected_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-1.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-1.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original evaluation-1",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-evaluation-1.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "case": "evaluation-2",
+          "expected_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-2.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-2.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original evaluation-2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-evaluation-2.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "case": "evaluation-3",
+          "expected_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-3.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-evaluation-3.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original evaluation-3",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-evaluation-3.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ],
+      "profile": "all",
+      "state_after_holdout": {},
+      "state_before_holdout": {},
+      "warmup": [
+        {
+          "actual_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "case": "warm-0",
+          "expected_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-warm-0.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-warm-0.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original warm-0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-warm-0.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "case": "warm-1",
+          "expected_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-warm-1.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "error: old_string not found in /private<fixture>/workspace/case-warm-1.txt",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "error: original warm-1",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "replaced 1 occurrence in /private<fixture>/workspace/case-warm-1.txt",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ]
+    },
+    {
+      "arm": "default",
+      "evaluation": [
+        {
+          "actual_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "case": "evaluation-0",
+          "expected_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "failed_edits": 1,
+          "guidance": "# Automatic workflow learning\nUser instructions, the current task and permission rules take priority over this advice. These are temporal observations of recovery, not causal proof. This advice grants no permissions.\n- Consider a diagnostic terminal step before retrying a failed edit. (Observed recoveries: 2; failed retries: 0.)\n",
+          "guided_at_start": true,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 4,
+          "task_preset": null,
+          "tool_calls": 3,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "case": "evaluation-1",
+          "expected_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "failed_edits": 1,
+          "guidance": "# Automatic workflow learning\nUser instructions, the current task and permission rules take priority over this advice. These are temporal observations of recovery, not causal proof. This advice grants no permissions.\n- Consider a diagnostic terminal step before retrying a failed edit. (Observed recoveries: 3; failed retries: 0.)\n",
+          "guided_at_start": true,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 4,
+          "task_preset": null,
+          "tool_calls": 3,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "case": "evaluation-2",
+          "expected_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "failed_edits": 1,
+          "guidance": "# Automatic workflow learning\nUser instructions, the current task and permission rules take priority over this advice. These are temporal observations of recovery, not causal proof. This advice grants no permissions.\n- Consider a diagnostic terminal step before retrying a failed edit. (Observed recoveries: 4; failed retries: 0.)\n",
+          "guided_at_start": true,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 4,
+          "task_preset": null,
+          "tool_calls": 3,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "case": "evaluation-3",
+          "expected_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "failed_edits": 1,
+          "guidance": "# Automatic workflow learning\nUser instructions, the current task and permission rules take priority over this advice. These are temporal observations of recovery, not causal proof. This advice grants no permissions.\n- Consider a diagnostic terminal step before retrying a failed edit. (Observed recoveries: 5; failed retries: 0.)\n",
+          "guided_at_start": true,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 4,
+          "task_preset": null,
+          "tool_calls": 3,
+          "variant": "normal"
+        }
+      ],
+      "profile": "terminal",
+      "state_after_holdout": {
+        "4b3aa72200b11674.json": {
+          "rules": [
+            {
+              "failures": 0,
+              "session": "",
+              "successes": 0
+            },
+            {
+              "failures": 0,
+              "session": "",
+              "successes": 0
+            },
+            {
+              "failures": 0,
+              "session": "af91ab52f7665edc",
+              "successes": 6
+            }
+          ],
+          "version": 1
+        }
+      },
+      "state_before_holdout": {
+        "4b3aa72200b11674.json": {
+          "rules": [
+            {
+              "failures": 0,
+              "session": "",
+              "successes": 0
+            },
+            {
+              "failures": 0,
+              "session": "",
+              "successes": 0
+            },
+            {
+              "failures": 0,
+              "session": "36001ec2e37d0a48",
+              "successes": 2
+            }
+          ],
+          "version": 1
+        }
+      },
+      "warmup": [
+        {
+          "actual_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "case": "warm-0",
+          "expected_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "case": "warm-1",
+          "expected_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ]
+    },
+    {
+      "arm": "disabled",
+      "evaluation": [
+        {
+          "actual_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "case": "evaluation-0",
+          "expected_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "case": "evaluation-1",
+          "expected_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "case": "evaluation-2",
+          "expected_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "case": "evaluation-3",
+          "expected_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ],
+      "profile": "terminal",
+      "state_after_holdout": {},
+      "state_before_holdout": {},
+      "warmup": [
+        {
+          "actual_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "case": "warm-0",
+          "expected_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "case": "warm-1",
+          "expected_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ]
+    },
+    {
+      "arm": "pre_change",
+      "evaluation": [
+        {
+          "actual_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "case": "evaluation-0",
+          "expected_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "case": "evaluation-1",
+          "expected_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "case": "evaluation-2",
+          "expected_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "case": "evaluation-3",
+          "expected_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ],
+      "profile": "terminal",
+      "state_after_holdout": {},
+      "state_before_holdout": {},
+      "warmup": [
+        {
+          "actual_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "case": "warm-0",
+          "expected_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "case": "warm-1",
+          "expected_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ]
+    },
+    {
+      "arm": "default",
+      "evaluation": [
+        {
+          "actual_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "case": "evaluation-0",
+          "expected_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "failed_edits": 1,
+          "guidance": "# Automatic workflow learning\nUser instructions, the current task and permission rules take priority over this advice. These are temporal observations of recovery, not causal proof. This advice grants no permissions.\n- Consider a diagnostic terminal step before retrying a failed edit. (Observed recoveries: 2; failed retries: 0.)\n",
+          "guided_at_start": true,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 4,
+          "task_preset": null,
+          "tool_calls": 3,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "case": "evaluation-1",
+          "expected_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "failed_edits": 1,
+          "guidance": "# Automatic workflow learning\nUser instructions, the current task and permission rules take priority over this advice. These are temporal observations of recovery, not causal proof. This advice grants no permissions.\n- Consider a diagnostic terminal step before retrying a failed edit. (Observed recoveries: 3; failed retries: 0.)\n",
+          "guided_at_start": true,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 4,
+          "task_preset": null,
+          "tool_calls": 3,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "case": "evaluation-2",
+          "expected_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "failed_edits": 1,
+          "guidance": "# Automatic workflow learning\nUser instructions, the current task and permission rules take priority over this advice. These are temporal observations of recovery, not causal proof. This advice grants no permissions.\n- Consider a diagnostic terminal step before retrying a failed edit. (Observed recoveries: 4; failed retries: 0.)\n",
+          "guided_at_start": true,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 4,
+          "task_preset": null,
+          "tool_calls": 3,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "case": "evaluation-3",
+          "expected_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "failed_edits": 1,
+          "guidance": "# Automatic workflow learning\nUser instructions, the current task and permission rules take priority over this advice. These are temporal observations of recovery, not causal proof. This advice grants no permissions.\n- Consider a diagnostic terminal step before retrying a failed edit. (Observed recoveries: 5; failed retries: 0.)\n",
+          "guided_at_start": true,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 4,
+          "task_preset": null,
+          "tool_calls": 3,
+          "variant": "normal"
+        }
+      ],
+      "profile": "terminal+edit",
+      "state_after_holdout": {
+        "aa5ea911b3da4cd5.json": {
+          "rules": [
+            {
+              "failures": 0,
+              "session": "",
+              "successes": 0
+            },
+            {
+              "failures": 0,
+              "session": "",
+              "successes": 0
+            },
+            {
+              "failures": 0,
+              "session": "3596257a5ff4fc5f",
+              "successes": 6
+            }
+          ],
+          "version": 1
+        }
+      },
+      "state_before_holdout": {
+        "aa5ea911b3da4cd5.json": {
+          "rules": [
+            {
+              "failures": 0,
+              "session": "",
+              "successes": 0
+            },
+            {
+              "failures": 0,
+              "session": "",
+              "successes": 0
+            },
+            {
+              "failures": 0,
+              "session": "b5934fadbdaa856f",
+              "successes": 2
+            }
+          ],
+          "version": 1
+        }
+      },
+      "warmup": [
+        {
+          "actual_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "case": "warm-0",
+          "expected_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "case": "warm-1",
+          "expected_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ]
+    },
+    {
+      "arm": "disabled",
+      "evaluation": [
+        {
+          "actual_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "case": "evaluation-0",
+          "expected_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "case": "evaluation-1",
+          "expected_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "case": "evaluation-2",
+          "expected_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "case": "evaluation-3",
+          "expected_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ],
+      "profile": "terminal+edit",
+      "state_after_holdout": {},
+      "state_before_holdout": {},
+      "warmup": [
+        {
+          "actual_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "case": "warm-0",
+          "expected_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "case": "warm-1",
+          "expected_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ]
+    },
+    {
+      "arm": "pre_change",
+      "evaluation": [
+        {
+          "actual_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "case": "evaluation-0",
+          "expected_sha256": "0e5aaa38da15492b79b1ad5f2231bcf0ffb74e7888fbb594de469465aaf86f4f",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "case": "evaluation-1",
+          "expected_sha256": "a9e57f3e6c4221f301854a55320b0b172e00dc4f7d288d98531d0f7a98c51bb7",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "case": "evaluation-2",
+          "expected_sha256": "4c060f2f63f1b9fb7a06d6eb49f63f48f7e4fcbe768d78f60aeff30594cdeb10",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "case": "evaluation-3",
+          "expected_sha256": "8a1f79c9f3eeb6af5e3e40c92120a6dedd7fd985869354cb698df41f0d72ee1f",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ],
+      "profile": "terminal+edit",
+      "state_after_holdout": {},
+      "state_before_holdout": {},
+      "warmup": [
+        {
+          "actual_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "case": "warm-0",
+          "expected_sha256": "f15732f228aa005df37972c078d35479a48357a057bba5c7de5452bd7bed69b4",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        },
+        {
+          "actual_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "case": "warm-1",
+          "expected_sha256": "2646fe0c6682bcf63f9355e071b34ab4ffc5afc8acfe1b7a6183a0bfea0f70f0",
+          "failed_edits": 2,
+          "guidance": "",
+          "guided_at_start": false,
+          "outcomes": [
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "bad",
+              "result_first_line": "exit: 2",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "read",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            },
+            {
+              "operation": "good",
+              "result_first_line": "exit: 0",
+              "verified_native_outcome": true
+            }
+          ],
+          "outcomes_verified": true,
+          "passed": true,
+          "provider_requests": 5,
+          "task_preset": null,
+          "tool_calls": 4,
+          "variant": "normal"
+        }
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "sources_sha256": {
+    "src/backends/openai/openai.c": "05886db53a9c2278414e87e13e4b4007c879cbc58cc1cf6866e4855ec8aa80f1",
+    "src/core/intercept.c": "34d625b9e67529d3ef19cc9330bd25761169c4ed1793599f67074cd5c8ee0a1b",
+    "src/core/learning.c": "f18fb0af3bc6631dcf268ea3b4c2fcb767541b6bc7ce1aa451e218b8de450122",
+    "src/core/learning.h": "05d7c0d081419072ad30dc2a1d1413c6fa6aa4add334f9b7368b64d69a08845c",
+    "src/core/tools.c": "0094834a9d21e2c9fa425c54dce6cc2da2ffea7ab0389b815d2110842fde96ee",
+    "src/core/tools_fs.c": "2c8e6d27ba16518c0f5d0cac2ecfa0133d3c5754bbf5f50cfdea67954fc98fed",
+    "src/core/tools_shell.c": "47a0d52d7e8ff80c90d455cf5443984e25c9937d25666e352ec96f52dd026175",
+    "src/util/learning_store.c": "f3401b84c2d9b91f8b7f9fe34a622416e495f97aa873252e00e218b0bb6f34eb",
+    "src/util/learning_store.h": "fc00cd6e25728a7f5e4c70a1ffa107667a01a7a35675972f43488cc2dc28c669",
+    "tests/bench/bench_default_learning.py": "9a9638ce98fa0e7b93c5b1b0df7915805ae48dadecb02315cebb1d8f63e75051",
+    "tests/integration/test_default_learning.py": "9182cd78566d80023131cff192d628e251b8463812d7538dec5e1c3f411f4cdb"
+  },
+  "summary": {
+    "default": {
+      "evaluation": {
+        "cases": 12,
+        "failed_edits": 12,
+        "passed": 12,
+        "provider_requests": 48,
+        "tool_calls": 36
+      },
+      "warmup": {
+        "cases": 6,
+        "failed_edits": 12,
+        "passed": 6,
+        "provider_requests": 30,
+        "tool_calls": 24
+      }
+    },
+    "disabled": {
+      "evaluation": {
+        "cases": 12,
+        "failed_edits": 24,
+        "passed": 12,
+        "provider_requests": 60,
+        "tool_calls": 48
+      },
+      "warmup": {
+        "cases": 6,
+        "failed_edits": 12,
+        "passed": 6,
+        "provider_requests": 30,
+        "tool_calls": 24
+      }
+    },
+    "pre_change": {
+      "evaluation": {
+        "cases": 12,
+        "failed_edits": 24,
+        "passed": 12,
+        "provider_requests": 60,
+        "tool_calls": 48
+      },
+      "warmup": {
+        "cases": 6,
+        "failed_edits": 12,
+        "passed": 6,
+        "provider_requests": 30,
+        "tool_calls": 24
+      }
+    }
+  }
+}

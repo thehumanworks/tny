@@ -911,6 +911,8 @@ static char *exec_edit(tools_env *env, const tny_intercept *ic) {
         status = tny_edit_file_exact(ic->detail, payload.old_text, payload.new_text,
                                      payload.replace_all, &hooks, &result);
     }
+    if (!env->ctx->ssh_host)
+        tools_learning_edit_result(env, ic->detail, payload.new_text, payload.replace_all, status);
     tny_edit_payload_free(&payload);
     int code;
     if (transport_error) {

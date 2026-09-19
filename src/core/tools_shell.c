@@ -2,12 +2,15 @@
  * OS sandbox wrapper; the tny runner and host-provider tools stay outside. */
 #include "core/tools.h"
 #include "core/sandbox.h"
+#include "core/shellwords.h"
+#include "core/shlex.h"
 #include "util/process.h"
 #include "util/terminal_task.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
 
 #include <stdio.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -88,6 +91,7 @@ static void shell_control_env(tools_env *env) {
      * effective permission mode and may not widen it (docs/adr/0063). */
     setenv("TNY_NESTED", "1", 1);
     setenv("TNY_NESTED_MODE", tny_perm_mode_name(env->ctx->perm_mode), 1);
+    setenv("TNY_SELF_IMPROVE", env->ctx->no_self_improve ? "0" : "1", 1);
 }
 
 static void background_setup(void *ud) { shell_control_env(ud); }
@@ -185,6 +189,43 @@ static char *background_call(tools_env *env, const char *cmd, const char *id, yy
     tny_terminal_task_free(&task);
     free(root);
     return result;
+}
+
+/* A deliberately narrow read-only grammar. Unknown shell machinery still runs
+ * normally, but cannot supply learning evidence. Never mine command/output text
+ * into a policy or mistake exit zero from an unrelated command for a read. */
+static void learning_terminal_read(tools_env *env, const char *command) {
+    if (env->ctx->no_self_improve) return;
+    shlex_cmd classified;
+    shlex_parse(command, &classified);
+    const char *program = shlex_is_simple(&classified) ? shlex_program(&classified) : NULL;
+    if (!program || (strcmp(program, "cat") != 0 && strcmp(program, "sed") != 0)) return;
+    tny_words words = {0};
+    if (tny_shellwords(command, &words) != 0 || words.stop) {
+        tny_shellwords_free(&words);
+        return;
+    }
+    const char *target = NULL;
+    if (strcmp(program, "cat") == 0 && words.argc == 2) target = words.argv[1];
+    if (strcmp(program, "sed") == 0 && words.argc == 4 && strcmp(words.argv[1], "-n") == 0) {
+        const char *p = words.argv[2];
+        bool valid = isdigit((unsigned char)*p) != 0;
+        while (isdigit((unsigned char)*p)) p++;
+        if (*p == ',') {
+            p++;
+            valid = valid && isdigit((unsigned char)*p) != 0;
+            while (isdigit((unsigned char)*p)) p++;
+        }
+        if (valid && strcmp(p, "p") == 0) target = words.argv[3];
+    }
+    /* Quoted/escaped '~' is literal to the shell, while tools_path_detail
+     * expands it. Refuse all tilde operands rather than misattribute a read. */
+    if (target && *target && *target != '-' && *target != '~') {
+        char *path = tools_path_detail(env, target);
+        if (path) tools_learning_read_result(env, TNY_LEARN_TERMINAL, path, true);
+        free(path);
+    }
+    tny_shellwords_free(&words);
 }
 
 char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled) {
@@ -334,6 +375,8 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     /* The user interrupted the turn: report that, not the signal this
      * process chose to stop the command with. */
     if (cancelled) code = SHELL_EXIT_CANCELLED;
+    if (reaped && code == 0 && !cancelled && !timed_out && !output_limited && out.len > 0)
+        learning_terminal_read(env, cmd);
     char *denied_path = sandbox_kind != TNY_SANDBOX_NONE ? tny_sandbox_denied_path(out.data) : NULL;
     if (shell_profile) {
         buf_appendf(&res, "exit: %d\nbytes: %zu\ncwd: %s\n", code, output_bytes, env->ctx->cwd);

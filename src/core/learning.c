@@ -1,5 +1,6 @@
 #include "core/learning.h"
 #include <string.h>
+#include <stdio.h>
 
 static void reset_episode(tny_learning *learning) {
     learning->pending_scope = 0;
@@ -16,6 +17,26 @@ void tny_learning_begin(tny_learning *learning, const char *tny_dir, const char 
     if (enabled)
         tny_learning_store_init(&learning->store, tny_dir, workspace, session_id, persist,
                                 learning->rules);
+}
+
+void tny_learning_resume(tny_learning *learning, const char *tny_dir, const char *workspace,
+                         const char *session_id, bool enabled, bool persist) {
+    if (!learning) return;
+    tny_learning_counter pending[TNY_LEARNING_RULES] = {0};
+    char key[17] = "";
+    if (workspace)
+        snprintf(key, sizeof key, "%016llx",
+                 (unsigned long long)fnv1a(workspace, strlen(workspace)));
+    if (enabled && persist && learning->enabled && learning->store.active && tny_dir &&
+        strcmp(learning->store.root, tny_dir) == 0 && strcmp(learning->store.key, key) == 0)
+        memcpy(pending, learning->store.delta, sizeof pending);
+    tny_learning_begin(learning, tny_dir, workspace, session_id, enabled, persist);
+    if (enabled && learning->store.active)
+        tny_learning_store_carry(&learning->store, learning->rules, pending);
+}
+
+void tny_learning_flush(tny_learning *learning) {
+    if (learning && learning->enabled) tny_learning_store_flush(&learning->store, learning->rules);
 }
 
 void tny_learning_observe(tny_learning *learning, tny_learning_event event, uint64_t scope,

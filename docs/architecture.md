@@ -1,9 +1,10 @@
 # Architecture
 
-The optional [instruction-evolution workflow](instruction-improvement.md) sits
-outside the runtime. It uses existing detached CLI sessions for proposals and
-trusted external evaluators for selection. It never rewrites the provider loop,
-permission policy or live session task snapshots (ADR 0153).
+[Automatic workflow learning](instruction-improvement.md) runs by default inside
+ordinary native turns. Typed tool outcomes update bounded workspace evidence;
+eligible recovery advice enters later requests without extra inference or tasks
+(ADR 0154). The broader instruction-evolution controller remains an optional
+external workflow (ADR 0153). Neither changes permission policy or task snapshots.
 
 tny is a native agent harness with one OpenAI-compatible HTTP provider backend
 ([ADR 0152](adr/0152-native-http-only-providers.md)). CLI, TUI and libtny share

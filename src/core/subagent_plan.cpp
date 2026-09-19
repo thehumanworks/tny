@@ -116,6 +116,7 @@ struct tny_subagent_plan_owner {
         arg("--permission-mode");
         arg(tny_perm_mode_name(ctx.perm_mode));
         if (ctx.no_save) arg("--ephemeral");
+        if (ctx.no_self_improve) arg("--no-self-improve");
         arg("ask");
         arg("--json");
         arg("--stdin");

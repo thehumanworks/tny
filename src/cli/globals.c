@@ -87,6 +87,8 @@ static int parse_globals(int argc, char **argv, cli_globals *g, bool diagnostics
         } else if (strcmp(a, "--max-extension-iterations") == 0) {
             if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
             g->max_extension_iterations = v;
+        } else if (strcmp(a, "--no-self-improve") == 0) {
+            g->no_self_improve = true;
         } else if (strcmp(a, "--no-extensions") == 0) {
             g->no_extensions = true;
         } else if (strcmp(a, "--fast") == 0) {

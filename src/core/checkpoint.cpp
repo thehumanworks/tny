@@ -76,6 +76,7 @@ constexpr bool_field bools[] = {
     {"model_from_flag", &tny_ctx::model_from_flag},
     {"json_out", &tny_ctx::json_out},
     {"no_save", &tny_ctx::no_save},
+    {"no_self_improve", &tny_ctx::no_self_improve},
     {"no_color", &tny_ctx::no_color},
     {"force_color", &tny_ctx::force_color},
     {"library_mode", &tny_ctx::library_mode},

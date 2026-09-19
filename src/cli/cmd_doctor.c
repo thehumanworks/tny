@@ -97,7 +97,7 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_appendf(&b, "\"tools\":\"%s\",\"sandbox\":\"%s\",\"sandbox_note\":",
                     tny_tool_profile_name(ctx->tool_profile), tny_sandbox_kind_name(sandbox));
         jescape(&b, sandbox_note);
-        buf_appends(&b, ",");
+        buf_appendf(&b, ",\"self_improve\":%s,", ctx->no_self_improve ? "false" : "true");
         buf_appends(&b, "\"providers\":[");
         for (int i = 0; i < TNY_BK_COUNT; i++) {
             if (i) buf_appends(&b, ",");
@@ -124,6 +124,7 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         printf("%s sandbox: %s (%s)\n", sandbox == TNY_SANDBOX_NONE ? "note" : "ok ",
                tny_sandbox_kind_name(sandbox), sandbox_note);
         printf("ok  tools: %s\n", tny_tool_profile_name(ctx->tool_profile));
+        printf("%s automatic workflow learning\n", ctx->no_self_improve ? "off" : "on ");
         printf("%s codex: %s\n", codex ? "ok " : "miss",
                codex ? "ChatGPT credential found (flag, env, ~/.tny/codex-auth.json, or "
                        "$CODEX_HOME/auth.json)"

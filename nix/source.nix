@@ -75,6 +75,9 @@ let
     # test_fault_sweep_inventory.py prevents shrinking discovered fault indices.
     # Runner/job ownership (fixtures/runner_ownership.cpp, fixtures/resource_host_faults.c,
     # mutation/runner_critical.py) uses the same C/C++ compiler and Python.
+    # Default native learning uses src/core/learning and src/util/learning_store;
+    # its CLI/TUI mock benchmark imports test_default_learning from tests/.
+    # No new external fixture directory or package is needed.
     # Instruction-evolution replay benchmark and its in-memory Python mutation
     # checks use these existing tests/ and python/ trees, with stdlib only.
     ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark

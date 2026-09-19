@@ -75,6 +75,7 @@ void help_root(void) {
           "                         Cap extension-requested follow-up turns (default:\n"
           "                         unlimited; 'unlimited' or 0 clears the cap)\n"
           "  --no-extensions        Do not load ~/.tny/extensions for this process\n"
+          "  --no-self-improve      Disable default automatic workflow learning\n"
           "  --fast                 Paid fast tier where the provider has one\n"
           "                         (compatible HTTP providers; higher speed and cost)\n"
           "  --json                 Machine-readable output where listed\n"

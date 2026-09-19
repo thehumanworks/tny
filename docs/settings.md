@@ -71,6 +71,7 @@ permission/cost escalation.
 | `effort` | string, or per-provider object | `--effort LEVEL` |
 | `fast` | boolean/string, or per-provider object | `--fast` when true/`fast`/`priority`; standard tier when false/`default` |
 | `permission_mode` | `ask`, `auto`, or `yolo` | `--permission-mode` |
+| `self_improve` | boolean, default `true` | Default automatic recovery learning; `TNY_SELF_IMPROVE=0` or `--no-self-improve` disables it ([ADR 0154](adr/0154-default-automatic-workflow-learning.md)) |
 | `tools` | `all`, `terminal+edit`, or `terminal` | Native-loop tool profile; `TNY_TOOLS` wins; default `all` ([ADR 0062](adr/0062-native-tool-profiles-advertise-and-enforce.md)) |
 | `web_search_command` | shell command template with `{query}` or `{{query}}` | overrides automatic Codex-login/DDG search; runs like `terminal` ([ADR 0055](adr/0055-web-search-gating-and-command-provider.md)); wins over `web_search_url` |
 | `web_search_url` | URL template with `{query}` or `{{query}}` | overrides automatic Codex-login/DDG search; fetched like `web_fetch` |

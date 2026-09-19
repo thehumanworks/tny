@@ -10,7 +10,7 @@ unset MAKEFLAGS MFLAGS MAKELEVEL
 
 # A parent tny harness may use terminal-only tools. Fixtures choose their own
 # profiles; do not let the caller hide tools from unrelated integration tests.
-unset TNY_TOOLS
+unset TNY_TOOLS TNY_SELF_IMPROVE
 
 TNY="${TNY:-$PWD/build/tny}"
 if [ ! -x "$TNY" ]; then

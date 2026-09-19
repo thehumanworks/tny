@@ -3913,6 +3913,7 @@ TEST subagent_plan_carries_resolved_config_privately(void) {
     ctx->model = xstrdup("mock-model");
     ctx->reasoning_effort = xstrdup("high");
     ctx->perm_mode = TNY_MODE_ASK;
+    ctx->no_self_improve = true;
     setenv("TNY_PERMISSION_MODE", "yolo", 1);
     setenv("CHATGPT_ACCOUNT_ID", "ambient-account", 1);
     setenv(TNY_SUBAGENT_KEY_ENV, "stale-inherited", 1);
@@ -3940,6 +3941,7 @@ TEST subagent_plan_carries_resolved_config_privately(void) {
                           "high",
                           "--permission-mode",
                           "ask",
+                          "--no-self-improve",
                           "ask",
                           "--json",
                           "--stdin",
@@ -5430,6 +5432,7 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ctx->model = xstrdup("grok-4.6");
     ctx->perm_mode = TNY_MODE_ASK;
     ctx->max_steps = 7;
+    ctx->no_self_improve = true;
     ctx->tool_profile = TNY_TOOLS_TERMINAL;
     ctx->extensions_enabled = false;
     tny_ctx_add_extra_header(ctx, "X-Fixture: runtime-only");
@@ -5450,6 +5453,7 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT_STR_EQ(json, again);
     ASSERT_EQ(TNY_MODE_ASK, restored->perm_mode);
     ASSERT_EQ(7, restored->max_steps);
+    ASSERT(restored->no_self_improve);
     tny_ctx_free(restored);
     /* Public recovery stores effective selection but no credential/settings
      * bytes, and rejects changed identity or widened permission access. */
@@ -5470,6 +5474,7 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT(recovered);
     ASSERT_EQ(TNY_MODE_ASK, recovered->perm_mode);
     ASSERT_EQ(7, recovered->max_steps);
+    ASSERT(recovered->no_self_improve);
     ASSERT_STR_EQ("private-runtime-key", recovered->api_key);
     tny_ctx_free(recovered);
     tny_ctx_add_extra_header(ctx, "X-Changed: different");

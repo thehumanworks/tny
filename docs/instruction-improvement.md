@@ -1,4 +1,64 @@
-# Bounded instruction improvement
+# Default self-improvement and bounded experiments
+
+**Automatic workflow learning is on by default.** Ordinary `tny ask` and TUI
+work collect execution feedback and apply eligible guidance without a preset,
+manual promotion, Python helper or additional provider call.
+
+## What improves automatically
+
+The first native mechanism learns a narrow recovery procedure: inspect current
+file content before retrying an exact edit. A failed exact edit, a successful
+read of the same target, and a related successful retry supply positive evidence.
+After two successful episodes, the harness adds bounded empirical advice to later
+normal requests and sessions. A failed retry supplies negative evidence and can
+remove previously eligible advice. A cold workspace has no promoted advice.
+
+This is experience-driven policy learning, not model-weight training, automatic
+source-code rewriting, or an open-ended research loop. It currently improves
+exact-edit recovery, not every kind of reasoning or tool failure. Temporal
+association is not causal proof.
+
+The learner uses typed executor facts, not assistant claims or output text.
+It recognizes `read_file` and conservative foreground terminal reads (`cat FILE`
+and `sed -n RANGEp FILE`). Intercepted `tny edit` works in terminal profiles too.
+A different target or intended replacement, unrelated commands, failed/empty
+reads, denied/nonexecuted calls and background launch acknowledgements cannot
+establish recovery. User instructions and permissions remain authoritative.
+
+Evidence lives in private `~/.tny/learning/<workspace-hash>.json` files. Only
+bounded counters and source session IDs persist—no filenames, command text,
+file contents or credentials. Eligible advice uses fixed templates, at most
+1 KiB. Files are private, atomically replaced and merged under a nonblocking
+lock. Pending updates retry at normal turn completion and carry into the next
+turn of the same live backend. If the process exits/restarts while the store is
+still unavailable, unflushed counters can be lost; learning must not block the
+task. Corrupt state stays untouched. Original session logs remain the detailed
+execution evidence; the learner's counters are not an immutable audit archive.
+
+Inspect or disable the effective default:
+
+```sh
+tny doctor --json                 # self_improve: true by default
+tny --no-self-improve ask "..."   # explicit opt-out for this process
+TNY_SELF_IMPROVE=0 tny            # opt out through the environment
+```
+
+Alternatively set `"self_improve": false` in `~/.tny/settings.json`. The environment
+overrides settings; `--no-self-improve` overrides both. Disabling does not delete
+existing evidence. With active turns stopped, remove the workspace's learning
+JSON to reset it; the next ordinary turn starts cold.
+
+Normal native CLI/TUI turns persist learning. `--ephemeral`, libtny and wasm keep
+only current-turn memory and do not load ambient learning files. SSH operations
+are not classified yet and do not write local learner state. Prompt optimisation
+and standalone tools do not run this loop. Help/version do not load learner
+state. Opt-out follows detached runners, subagents, nested terminal commands and
+job launches.
+
+See [ADR 0154](adr/0154-default-automatic-workflow-learning.md) and the
+[automatic-learning evidence](verification/automatic-learning/README.md).
+
+## Optional: broader instruction experiments
 
 This opt-in workflow evolves a **task instruction body**, not tny's executable,
 permissions or model weights. Each accepted revision becomes the next parent.
