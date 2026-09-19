@@ -1,0 +1,105 @@
+{
+  "$id": "result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "result": {
+          "oneOf": [
+            {
+              "$ref": "board.schema.json"
+            },
+            {
+              "$ref": "ticket.schema.json"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "board": {
+                  "$ref": "board.schema.json"
+                },
+                "tickets": {
+                  "items": {
+                    "$ref": "ticket.schema.json"
+                  },
+                  "maxItems": 10000,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "board",
+                "tickets"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "schema_version": {
+                  "const": 1
+                }
+              },
+              "required": [
+                "schema_version"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "ok",
+        "result"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "too_large",
+                "not_found",
+                "already_exists",
+                "revision_conflict",
+                "forbidden",
+                "claim_conflict",
+                "dispatch_conflict",
+                "unsafe_path",
+                "corrupt_state",
+                "storage_error",
+                "unauthorized",
+                "http_error",
+                "timeout"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        "ok": {
+          "const": false
+        }
+      },
+      "required": [
+        "ok",
+        "error"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tnyboard"
+version = "1.0.0"
+description = "Standalone local cooperative ticket board"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+tnyboard = "tnyboard.__main__:main"
+
+[tool.setuptools]
+include-package-data = false
+packages = ["tnyboard"]
+package-dir = {tnyboard = "."}
+
+[tool.setuptools.package-data]
+tnyboard = ["schemas/*.json", "docs/*.md"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
