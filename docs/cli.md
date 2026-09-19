@@ -160,6 +160,12 @@ Report prioritized findings; do not edit unless explicitly asked.
 Save it as `.tny/tasks/release-review.md`, then run
 `tny --task release-review ask "Review this release"`.
 
+The bundled `self-improve` preset guides bounded instruction experiments:
+`tny --task self-improve ask "Design an experiment for our review task"`.
+It does not start optimization or grant promotion authority by itself. See
+[instruction improvement](instruction-improvement.md) for the optional workflow,
+independent evaluator contract and published benchmark limitations.
+
 The bundled `task-creation` preset lets an agent author tasks for you:
 
 ```sh

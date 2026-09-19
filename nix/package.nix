@@ -88,6 +88,8 @@ stdenv.mkDerivation (finalAttrs: {
     $out/bin/tny ask --help > /dev/null
     $out/bin/tny doctor --json > /dev/null
     test -f $out/lib/tny/tny_extension_host.py
+    test -f $out/lib/tny/tny_improve.py
+    test -f $out/lib/tny/tny_improve_propose.py
     test -f $out/share/tny/tny-workflows.sh
     payload=$out/bin/tny
     if test -x $out/bin/.tny-wrapped; then payload=$out/bin/.tny-wrapped; fi

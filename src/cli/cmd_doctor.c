@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <sys/utsname.h>
 
+#ifndef __EMSCRIPTEN__
 static bool on_path(const char *bin) {
     if (strchr(bin, '/')) return access(bin, X_OK) == 0;
     const char *path = getenv("PATH");
@@ -27,6 +28,7 @@ static bool on_path(const char *bin) {
     free(dup);
     return found;
 }
+#endif
 
 int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = g->json;
