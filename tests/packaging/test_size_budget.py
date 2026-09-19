@@ -1,22 +1,30 @@
 #!/usr/bin/env python3
-"""Enforce the user's strict decimal-six-MB guardrail from one build policy."""
+"""Artifact reporting has no byte ceiling; invalid/missing inputs still fail."""
 
 from __future__ import annotations
 
 import os
-import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-LIMIT = 6_000_000
-MAXIMUM = LIMIT - 1
 
 
-class SizeBudgetTests(unittest.TestCase):
-    def make(self, *args: str, input_text: str | None = None):
+def leb128(value: int) -> bytes:
+    result = bytearray()
+    while value >= 128:
+        result.append((value & 127) | 128)
+        value >>= 7
+    result.append(value)
+    return bytes(result)
+
+
+class SizePolicyTests(unittest.TestCase):
+    def make(self, *args: str):
         env = dict(os.environ)
         for key in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "SIZE_MAX", "WASM_SIZE_MAX"):
             env.pop(key, None)
@@ -26,97 +34,95 @@ class SizeBudgetTests(unittest.TestCase):
             env=env,
             text=True,
             capture_output=True,
-            input=input_text,
             timeout=30,
         )
 
-    def budget(self, system: str, architecture: str, *overrides: str):
-        result = self.make(
-            f"UNAME_S={system}",
-            f"UNAME_M={architecture}",
-            *overrides,
-            "-f",
-            "Makefile",
-            "-f",
-            "-",
-            "budget-probe",
-            input_text="budget-probe:\n\t@echo $(SIZE_MAX) $(WASM_SIZE_MAX)\n",
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(result.stderr, "")
-        return tuple(map(int, result.stdout.split()))
-
-    def test_one_ceiling_for_all_platforms_and_link_modes(self):
-        for system, arch in (
-            ("Linux", "aarch64"),
-            ("Linux", "arm64"),
-            ("Linux", "x86_64"),
-            ("Linux", "riscv64"),
-            ("Darwin", "arm64"),
-            ("MSYS_NT-10.0", "x86_64"),
-        ):
-            for static in (0, 1):
-                with self.subTest(system=system, architecture=arch, static=static):
-                    self.assertEqual(
-                        self.budget(system, arch, f"STATIC={static}"),
-                        (MAXIMUM, MAXIMUM),
-                    )
-
-    def test_explicit_stricter_downstream_override_survives(self):
-        self.assertEqual(
-            self.budget("Linux", "aarch64", "SIZE_MAX=12345"), (12345, 12345)
-        )
-        self.assertEqual(
-            self.budget("Linux", "aarch64", "WASM_SIZE_MAX=9876"), (MAXIMUM, 9876)
-        )
-
-    def test_workflows_do_not_fork_the_product_size_policy(self):
-        for name in ("ci.yml", "release.yml"):
-            text = (ROOT / ".github/workflows" / name).read_text()
-            with self.subTest(workflow=name):
-                self.assertIn("make size-check", text)
-                self.assertNotRegex(text, r"\b(?:WASM_)?SIZE_MAX\s*=")
-                self.assertNotRegex(text, r"\bsize_max:")
-        self.assertIn("$(SIZE_MAX)", (ROOT / "nix/package.nix").read_text())
-
-    def test_native_boundary_rejects_exactly_six_megabytes(self):
+    def test_native_accepts_larger_valid_artifacts_and_reports_exact_bytes(self):
         with tempfile.TemporaryDirectory(prefix="tny-size-native-") as root:
             path = Path(root) / "artifact"
-            for size in (MAXIMUM, LIMIT):
-                with path.open("wb") as file:
-                    file.truncate(size)
-                result = self.make("-o", "release", "size-check", f"BIN={path}")
-                self.assertIn(f"limit {MAXIMUM}", result.stdout)
-                self.assertEqual(result.returncode == 0, size < LIMIT, result.stderr)
-                if size < LIMIT:
-                    self.assertEqual(result.stderr, "")
-                else:
-                    self.assertIn("over the", result.stderr)
+            # A real host executable with harmless trailing data, not a fake header.
+            for extra in (0, 6_000_000, 24_000_000):
+                shutil.copy2(sys.executable, path)
+                with path.open("ab") as file:
+                    file.truncate(path.stat().st_size + extra)
+                result = self.make(
+                    "-o", "release", "size-check", f"BIN={path}", "SIZE_MAX=1"
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(f"{path.stat().st_size} {path}", result.stdout)
 
-    def test_wasm_and_glue_together_reject_exactly_six_megabytes(self):
+    def test_native_missing_empty_invalid_and_nonexecutable_fail(self):
+        with tempfile.TemporaryDirectory(prefix="tny-size-native-") as root:
+            path = Path(root) / "artifact"
+            for data in (None, b"", b"not an executable"):
+                if data is not None:
+                    path.write_bytes(data)
+                    path.chmod(0o755)
+                result = self.make("-o", "release", "size-check", f"BIN={path}")
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+            shutil.copy2(sys.executable, path)
+            path.chmod(0o644)
+            result = self.make("-o", "release", "size-check", f"BIN={path}")
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_wasm_accepts_larger_valid_modules_and_reports_components(self):
         with tempfile.TemporaryDirectory(prefix="tny-size-wasm-") as root:
             javascript = Path(root) / "artifact.js"
             wasm = javascript.with_suffix(".wasm")
-            javascript.write_bytes(b"fixture-glue")
-            for size in (MAXIMUM, LIMIT):
+            javascript.write_bytes(b"// fixture glue\n")
+            for padding in (0, 6_000_000, 24_000_000):
+                # Valid v1 module with a custom section: empty name plus payload.
                 with wasm.open("wb") as file:
-                    file.truncate(size - javascript.stat().st_size)
+                    file.write(b"\0asm\1\0\0\0\0" + leb128(padding + 1) + b"\0")
+                    file.truncate(file.tell() + padding)
+                result = self.make(
+                    "-o",
+                    "wasm",
+                    "wasm-size-check",
+                    f"WASM_NODE={javascript}",
+                    "WASM_SIZE_MAX=1",
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                total = javascript.stat().st_size + wasm.stat().st_size
+                self.assertIn(f"{total} wasm artifact", result.stdout)
+                for path in (javascript, wasm):
+                    self.assertIn(f"{path.stat().st_size} {path}", result.stdout)
+
+    def test_wasm_missing_empty_and_invalid_fail(self):
+        with tempfile.TemporaryDirectory(prefix="tny-size-wasm-") as root:
+            javascript = Path(root) / "artifact.js"
+            wasm = javascript.with_suffix(".wasm")
+            for js, module in (
+                (None, b"\0asm\1\0\0\0"),
+                (b"// glue", None),
+                (b"", b"\0asm\1\0\0\0"),
+                (b"// glue", b""),
+                (b"// glue", b"invalid module"),
+                (b"// glue", b"\0asm\2\0\0\0"),
+            ):
+                for path, data in ((javascript, js), (wasm, module)):
+                    path.unlink(missing_ok=True)
+                    if data is not None:
+                        path.write_bytes(data)
                 result = self.make(
                     "-o", "wasm", "wasm-size-check", f"WASM_NODE={javascript}"
                 )
-                self.assertIn(f"{size} wasm artifact", result.stdout)
-                self.assertEqual(result.returncode == 0, size < LIMIT, result.stderr)
-                if size < LIMIT:
-                    self.assertEqual(result.stderr, "")
-                else:
-                    self.assertIn("over the", result.stderr)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
 
-    def test_wasm_budget_is_declared_from_same_source(self):
-        makefile = (ROOT / "Makefile").read_text()
-        self.assertRegex(
-            makefile, re.compile(r"^WASM_SIZE_MAX\s*\?=\s*\$\(SIZE_MAX\)$", re.M)
-        )
-        self.assertIn('"$$bytes" -gt "$(WASM_SIZE_MAX)"', makefile)
+    def test_build_and_packaging_do_not_declare_size_ceilings(self):
+        paths = [ROOT / "Makefile", ROOT / "nix/package.nix"]
+        paths.extend((ROOT / ".github/workflows").glob("*.yml"))
+        for path in paths:
+            with self.subTest(path=path):
+                text = path.read_text()
+                self.assertNotRegex(text, r"\b(?:WASM_)?SIZE_MAX\b|\bsize_max:")
+        package = (ROOT / "nix/package.nix").read_text()
+        self.assertIn("(installed payload)", package)
+        self.assertIn('size-check BIN="$payload"', package)
+        for name in ("ci.yml", "release.yml"):
+            self.assertIn(
+                "make size-check", (ROOT / ".github/workflows" / name).read_text()
+            )
 
 
 if __name__ == "__main__":

@@ -52,7 +52,7 @@ let
     ../nix/devshell.nix
     ../nix/tests.nix
     ../nix/source.nix
-    ../nix/package.nix # size-policy tests inspect the installed-payload guard
+    ../nix/package.nix # size-policy tests inspect installed-payload reporting
     ../scripts # includes tidy_cpp.py, which probes stdenv's C++ header paths
     ../sdk/conformance
     ../sdk/python # native SDK/workflow tests and bounded-context regression

@@ -277,7 +277,7 @@ jobs:
           version: 6.0.8   # the release the suite was validated against
           actions-cache-folder: emsdk-cache
 
-      - name: Build wasm, run the openai suite under node, size guard
+      - name: Build wasm, run the openai suite under node, size report
         run: |
           set -eu
           emcc --version | head -1

@@ -2452,6 +2452,162 @@ TEST image_data_url_roundtrip(void) {
     PASS();
 }
 
+/* Exercise the advertised tool dispatcher, not just the shared editor's
+ * metadata. Failed edits must not consume the session's previous undo entry. */
+static char *edit_feedback_call(tools_env *env, const char *path, const char *old_text,
+                                const char *new_text, bool all) {
+    buf_t args;
+    buf_init(&args);
+    buf_appends(&args, "{\"path\":");
+    jescape(&args, path);
+    buf_appends(&args, ",\"old_string\":");
+    jescape(&args, old_text);
+    buf_appends(&args, ",\"new_string\":");
+    jescape(&args, new_text);
+    buf_appendf(&args, ",\"replace_all\":%s}", all ? "true" : "false");
+    char *result = tools_execute(env, "edit_file", args.data);
+    buf_free(&args);
+    return result;
+}
+
+TEST edit_feedback_dispatch_preserves_failure_and_undo(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    ctx->tool_profile = TNY_TOOLS_ALL;
+    perm_engine *perm = perm_new(ctx);
+    tny_session_state *session = session_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm, .session = session};
+    char *path = path_join(g_ws, "edit-feedback.txt");
+    char *meta = path_join(session->dir, "undo.json");
+    char *blob = path_join(session->dir, "undo.blob");
+    ASSERT_EQ(0, mkdir_p(session->dir));
+    const struct {
+        const char *original, *old_text, *hint, *corrected, *expected;
+        bool all;
+    } cases[] = {
+        {"alpha\ncorrect target\nomega\n", "correct targat",
+         "\nAdvisory (first nonempty search line only), line 2: correct target", "correct target",
+         "alpha\nreplacement\nomega\n", false},
+        {"alpha\ncorrect target\ncorrect target\nomega\n", "correct targat", NULL, NULL, NULL,
+         false},
+        {"header\nfirst line\nsecond changed\nfooter\n", "\nfirst line\nsecond old",
+         "\nAdvisory (first nonempty search line only), line 2: first line",
+         "first line\nsecond changed", "header\nreplacement\nfooter\n", false},
+        {"old\nold\n", "old", NULL, "old", "replacement\nreplacement\n", true},
+        {"", "absent", NULL, NULL, NULL, false},
+        {"alpha\nbeta\n", "\n\n", NULL, NULL, NULL, false},
+        {"invalid \xff line\n", "invalid old line", NULL, NULL, NULL, false},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+        ASSERT_EQ(0, file_write_atomic(path, cases[i].original, strlen(cases[i].original)));
+        ASSERT_EQ(0, file_write_atomic(meta, "prior metadata", 14));
+        ASSERT_EQ(0, file_write_atomic(blob, "prior bytes", 11));
+        char *result = edit_feedback_call(&env, path, cases[i].old_text, "replacement", false);
+        ASSERT(result);
+        ASSERT(str_starts(result, "error: "));
+        ASSERT(strstr(result, cases[i].all ? "old_string occurs 2 times" : "old_string not found"));
+        if (cases[i].hint) {
+            const char *hint = strchr(result, '\n');
+            ASSERT(hint);
+            ASSERT_STR_EQ(cases[i].hint, hint);
+        } else ASSERT_FALSE(strstr(result, "Advisory"));
+        free(result);
+        char *actual = file_slurp(path, NULL);
+        ASSERT(actual);
+        ASSERT_STR_EQ(cases[i].original, actual);
+        free(actual);
+        actual = file_slurp(meta, NULL);
+        ASSERT(actual);
+        ASSERT_STR_EQ("prior metadata", actual);
+        free(actual);
+        actual = file_slurp(blob, NULL);
+        ASSERT(actual);
+        ASSERT_STR_EQ("prior bytes", actual);
+        free(actual);
+        if (cases[i].corrected) {
+            result =
+                edit_feedback_call(&env, path, cases[i].corrected, "replacement", cases[i].all);
+            ASSERT(result);
+            ASSERT(str_starts(result,
+                              cases[i].all ? "replaced 2 occurrences" : "replaced 1 occurrence"));
+            ASSERT_FALSE(strstr(result, "Advisory"));
+            free(result);
+            actual = file_slurp(path, NULL);
+            ASSERT(actual);
+            ASSERT_STR_EQ(cases[i].expected, actual);
+            free(actual);
+            actual = file_slurp(blob, NULL);
+            ASSERT(actual);
+            ASSERT_STR_EQ(cases[i].original, actual);
+            free(actual);
+        }
+    }
+    unlink(path);
+    free(path);
+    free(meta);
+    free(blob);
+    perm_free(perm);
+    session_close(session);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST edit_feedback_dispatch_bounds_utf8_snippet(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    ctx->tool_profile = TNY_TOOLS_ALL;
+    /* Like existing tool errors, this self-bounded diagnostic does not ride
+     * tool_bound_result's generic byte-preview/handle protocol. */
+    ctx->max_tool_result_bytes = 32;
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char *path = path_join(g_ws, "edit-feedback-long.txt");
+    const struct {
+        size_t ascii;
+        const char *tail;
+        size_t shown;
+    } cases[] = {
+        {300, "", 300},
+        {301, "", 300},
+        {600, "", 300},
+        {299, "\xc3\xa9", 299},
+        {298, "\xe2\x82\xac", 298},
+        {299, "\xf0\x9f\x8c\x8a", 299},
+        {296, "\xf0\x9f\x8c\x8a", 300},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+        char original[620];
+        memset(original, 'x', cases[i].ascii);
+        strcpy(original + cases[i].ascii, cases[i].tail);
+        size_t len = strlen(original);
+        ASSERT_EQ(0, file_write_atomic(path, original, len));
+        char *result = edit_feedback_call(&env, path, "absent", "replacement", false);
+        ASSERT(result);
+        ASSERT(str_starts(result, "error: old_string not found"));
+        const char *label = "\nAdvisory (first nonempty search line only), line 1: ";
+        const char *hint = strstr(result, label);
+        ASSERT(hint);
+        hint += strlen(label);
+        ASSERT_MEM_EQ(original, hint, cases[i].shown);
+        ASSERT_STR_EQ(cases[i].shown < len ? " [truncated]" : "", hint + cases[i].shown);
+        ASSERT(utf8_valid_bytes(result, strlen(result)));
+        free(result);
+        char *actual = file_slurp(path, NULL);
+        ASSERT(actual);
+        ASSERT_STR_EQ(original, actual);
+        free(actual);
+    }
+    unlink(path);
+    free(path);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST read_image_queues_user_message(void) {
     ensure_env();
     write_settings("{}");
@@ -5790,6 +5946,8 @@ TEST semantic_search_fanout_matches_serial_scan(void) {
 }
 
 SUITE(core_suite) {
+    RUN_TEST(edit_feedback_dispatch_preserves_failure_and_undo);
+    RUN_TEST(edit_feedback_dispatch_bounds_utf8_snippet);
     RUN_TEST(grep_files_fanout_matches_serial_scan);
     RUN_TEST(semantic_search_fanout_matches_serial_scan);
     RUN_TEST(context_checkpoint_preserves_resolved_selection);

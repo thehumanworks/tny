@@ -279,7 +279,53 @@ TEST edit_preserves_permission_bits_under_restrictive_umask(void) {
     PASS();
 }
 
+static void count_edit_write(const char *path, void *userdata) {
+    (void)path;
+    int *calls = userdata;
+    (*calls)++;
+}
+
+TEST edit_diagnostics_never_authorize_write_hooks(void) {
+    char *dir = edit_temp_dir();
+    char *path = edit_path(dir, "advisory.txt");
+    const struct {
+        const char *original, *old_text, *context;
+        size_t line;
+        tny_edit_status status;
+    } cases[] = {
+        {"alpha\ncorrect target\nomega\n", "correct targat", "correct target", 2,
+         TNY_EDIT_NOT_FOUND},
+        {"correct target\ncorrect target\n", "correct targat", NULL, 0, TNY_EDIT_NOT_FOUND},
+        {"first line\nchanged second\n", "\nfirst line\nold second", "first line", 1,
+         TNY_EDIT_NOT_FOUND},
+        {"old\nold\n", "old", NULL, 0, TNY_EDIT_AMBIGUOUS},
+    };
+    int writes = 0;
+    tny_edit_hooks hooks = {.before_write = count_edit_write, .before_write_userdata = &writes};
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+        ASSERT_EQ(0, file_write_atomic(path, cases[i].original, strlen(cases[i].original)));
+        tny_edit_result result = {0};
+        ASSERT_EQ(cases[i].status, tny_edit_file_exact(path, cases[i].old_text, "replacement",
+                                                       false, &hooks, &result));
+        ASSERT_EQ(0, writes);
+        ASSERT_EQ(0, result.replaced);
+        ASSERT_EQ(cases[i].line, result.nearest_line);
+        if (cases[i].context) ASSERT_STR_EQ(cases[i].context, result.nearest_context);
+        else ASSERT_EQ(NULL, result.nearest_context);
+        char *actual = read_file(path);
+        ASSERT_STR_EQ(cases[i].original, actual);
+        free(actual);
+        tny_edit_result_free(&result);
+    }
+    unlink(path);
+    rmdir(dir);
+    free(path);
+    free(dir);
+    PASS();
+}
+
 SUITE(edit_suite) {
+    RUN_TEST(edit_diagnostics_never_authorize_write_hooks);
     RUN_TEST(edit_preserves_permission_bits_under_restrictive_umask);
     RUN_TEST(edit_one_match);
     RUN_TEST(edit_zero_reports_nearest_unique_context);

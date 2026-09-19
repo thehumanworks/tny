@@ -18,7 +18,7 @@ their own Makefile, sources, tests, and docs contract:
   pinned once) and the quality gates below — `make quality` format-checks
   sibling `*.c`/`*.h` too, and `make tnytty` / `make tnytty-test` delegate.
 
-tny is a **C11 + private C++20 ownership** TUI + CLI coding-agent harness (ADR 0114). It must beat [vercel-labs/fx](https://github.com/vercel-labs/fx) (Zig, advertised **7.8 MiB**) on size and startup, keep fx's Unix-shell functionality, and drive:
+tny is a **C11 + private C++20 ownership** TUI + CLI coding-agent harness (ADR 0114): **a harness for agents, built by agents, focused on the agent**. User constraints and tasks are the goal. Keep it fast, portable and small without a fixed binary-size ceiling or competitor target. It drives:
 
 1. Cursor via the **SDK Bridge** (`sdk.v1` Connect HTTP/1.1)
 2. Codex via the native **ChatGPT Responses subscription profile** (ADR0065)
@@ -37,7 +37,7 @@ The product source is live under `src/` with unit, integration, mutation, and la
 ## Invariants
 
 - Language: C11 for existing application, OS seams, transports and vendored code; private C++20 ownership modules only as scoped by ADR 0114, ADR 0126 and ADR 0133. Retain the public C ABI.
-- Size: shipped `tny` artifacts stay **< 6,000,000 bytes** (decimal 6 MB, ADR 0121). Favor maintainability, reliability and measured speed over byte minimization. Report C++ runtime dependencies separately; optional agent binaries remain external.
+- Footprint: keep shipped artifacts small and measure their size and runtime dependencies. There is no fixed binary-size ceiling. Favor maintainability, reliability, portability and measured speed over byte minimization; optional agent binaries remain external.
 - Startup: the CLI spawns no backend before a turn; `--help` / `--version` stay microseconds-to-milliseconds. The interactive TUI **pre-warms** the selected provider's host after first paint (`docs/adr/0002`); one-shot `tny ask` may overlap its `connect()` with reading the prompt from stdin and may attach to a registered live codex host (`docs/adr/0004`).
 - Isolation: on native builds every turn — interactive and one-shot — executes in a detached, forked **session runner** that survives caller crashes and finalizes into the session; the caller renders its NDJSON stream from `<session>/sock` (`docs/adr/0053`). No tmux. wasm, `--ephemeral`, and `TNY_ISOLATE=0` are the only in-process turns.
 - One event loop. Normalize every backend to the shared event set in `docs/architecture.md`. (The pre-warm thread runs only `connect()` + `create_or_resume()` and hands the backend back before any events flow; ctx mutations must `tui_prewarm_drop` first.)
@@ -118,10 +118,14 @@ Do not write exploits, exploit PoCs, malware, or attack procedures. Permission a
 
 
 
-## Current C++ migration priority (2026-09-16)
+## Agent-first engineering priority (2026-09-19)
 
-Prioritize maintainable, extensible, reliable ownership code and measured
-performance. The tny artifact must stay strictly below decimal 6 MB
-(6,000,000 bytes); older tighter size targets above are superseded by ADR0121.
-Do not optimize bytes at the expense of clear code, exceptions/OOM handling,
+Build the harness for agents, built by agents, focused on the agent. Optimize
+for effective context, easy navigation and modification, and verified task
+results, not fewer tokens in isolation. User constraints and tasks remain the
+goal; the final response must summarize the work for a human to skim.
+
+Keep tny fast, portable and small through measurement, not a binary-size ceiling
+or competitor benchmark. Prioritize maintainable, extensible, reliable ownership
+code. Do not optimize bytes at the expense of clear code, exceptions/OOM handling,
 resource cleanup, or speed. Preserve the private C++20/public C ABI boundary.

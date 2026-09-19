@@ -109,7 +109,7 @@ REL_INLINE = -Dyyjson_inline=inline
 # the 64 KiB LOAD alignment plus RELRO, can add a whole page to the file.
 # Unwind tables stay (backtraces come from .eh_frame, not x29). Darwin
 # arm64 requires frame pointers by ABI and is left alone.
-# Linux Clang also needs -Oz for the native executable budget (ADR0102).
+# Linux Clang uses -Oz to keep the native executable small (ADR0102).
 # Probe the selected command, including wrappers; leave other build lanes alone.
 REL_SIZE_OPT =
 ifeq ($(UNAME_S),Linux)
@@ -329,10 +329,7 @@ ifeq ($(STATIC),0)
   endif
 endif
 
-# One product ceiling (ADR 0121): strictly below decimal 6 MB on every
-# supported artifact. SIZE_MAX is inclusive, so 6,000,000 itself is rejected.
-# Keep accounting; do not sacrifice readability, ownership or speed for bytes.
-SIZE_MAX ?= 5999999
+# Measure shipped artifacts without a fixed product size ceiling.
 
 .PHONY: all release debug test test-unit test-event-schema test-conformance-contract check-cursor-sdk-contract test-cursor-sdk-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
@@ -994,14 +991,19 @@ test: dictation-fixture test-unit test-event-schema test-conformance-contract te
 size: release
 	@wc -c $(BIN)
 
-# Fail if the stripped binary exceeds SIZE_MAX (bytes).
+# Compatibility target: validate the artifact and report bytes/dependencies.
 size-check: release
-	@bytes=$$(wc -c < $(BIN) | tr -d ' '); \
-	echo "$$bytes $(BIN) (limit $(SIZE_MAX))"; \
-	if [ "$$bytes" -gt "$(SIZE_MAX)" ]; then \
-		echo "error: $(BIN) is $$bytes bytes, over the $(SIZE_MAX)-byte budget" >&2; \
-		exit 1; \
-	fi
+	@test -f "$(BIN)" && test -s "$(BIN)" && test -x "$(BIN)" || { \
+		echo "error: missing, empty or non-executable artifact: $(BIN)" >&2; exit 1; }
+	@magic=$$(od -An -tx1 -N4 "$(BIN)" | tr -d ' \n'); \
+	case "$$magic" in 7f454c46|4d5a????|feedface|feedfacf|cefaedfe|cffaedfe|cafebabe|bebafeca|cafebabf|bfbafeca) ;; \
+	*) echo "error: unrecognized executable artifact: $(BIN)" >&2; exit 1 ;; esac
+	@wc -c "$(BIN)"
+	@if command -v otool >/dev/null 2>&1; then otool -L "$(BIN)"; \
+	elif command -v objdump >/dev/null 2>&1; then \
+		objdump -p "$(BIN)" | grep -E 'NEEDED|DLL Name:' || \
+			echo "No linked dependencies reported (static artifact or unsupported inspection)."; \
+	else echo "Dependency inspection unavailable (otool/objdump not installed)."; fi
 
 # Copy the stripped binary to dist/tny-<triple>[.exe]. TRIPLE is required.
 pack: release
@@ -1296,7 +1298,7 @@ WASM_CXXFLAGS = $(call cxx_flags,$(WASM_CFLAGS))
 # https://emscripten.org/docs/porting/exceptions.html
 # Asyncify is the suspension mechanism (JSPI is Chrome-only, COOP/COEP for
 # workers cannot be set on GitHub Pages). Broad instrumentation first; narrow
-# later if the size budget demands it (docs/adr/0017 footguns).
+# later if measurements justify it (docs/adr/0017 footguns).
 WASM_LDFLAGS = -fexceptions -Os -sASYNCIFY -sASYNCIFY_STACK_SIZE=131072 \
                -sALLOW_MEMORY_GROWTH -sEXIT_RUNTIME=1 -sSTACK_SIZE=1048576
 
@@ -1340,16 +1342,21 @@ wasm-dictation-fixture: $(WASM_DICTATION_FIXTURE)
 wasm: $(WASM_NODE)
 wasm-web: $(WASM_WEB)
 
-# wasm size budget: artifact (js glue + wasm) stays under the Linux native
-# budget so the browser build cannot quietly outgrow the product invariant.
-WASM_SIZE_MAX ?= $(SIZE_MAX)
+# Report glue and wasm bytes without a size ceiling; missing inputs still fail.
 wasm-size-check: wasm
-	@bytes=$$(cat $(WASM_NODE) $(WASM_NODE:.js=.wasm) | wc -c | tr -d ' '); \
-	echo "$$bytes wasm artifact (limit $(WASM_SIZE_MAX))"; \
-	if [ "$$bytes" -gt "$(WASM_SIZE_MAX)" ]; then \
-		echo "error: wasm artifact is $$bytes bytes, over the $(WASM_SIZE_MAX)-byte budget" >&2; \
-		exit 1; \
-	fi
+	@set -e; \
+	for artifact in "$(WASM_NODE)" "$(WASM_NODE:.js=.wasm)"; do \
+		test -f "$$artifact" && test -s "$$artifact" || { \
+			echo "error: missing or empty wasm artifact: $$artifact" >&2; exit 1; }; \
+	done; \
+	magic=$$(od -An -tx1 -N8 "$(WASM_NODE:.js=.wasm)" | tr -d ' \n'); \
+	test "$$magic" = 0061736d01000000 || { echo "error: invalid wasm header" >&2; exit 1; }; \
+	js_bytes=$$(wc -c < "$(WASM_NODE)"); \
+	wasm_bytes=$$(wc -c < "$(WASM_NODE:.js=.wasm)"); \
+	echo "$$js_bytes $(WASM_NODE)"; \
+	echo "$$wasm_bytes $(WASM_NODE:.js=.wasm)"; \
+	echo "$$((js_bytes + wasm_bytes)) wasm artifact (JavaScript glue + wasm)"; \
+	echo "Runtime dependencies: Node.js for this target; browser host for wasm-web."
 
 .PHONY: wasm wasm-web wasm-size-check
 

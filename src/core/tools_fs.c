@@ -572,10 +572,27 @@ static char *t_edit_file(tools_env *env, yyjson_val *args) {
         return e;
     }
     if (status == TNY_EDIT_NOT_FOUND) {
+        buf_t msg;
+        buf_init(&msg);
+        /* Do not put the hint through tool_err's fixed formatting buffer or
+         * tool_bound_result's byte cut: either could silently split it. */
+        buf_appendf(&msg, "error: old_string not found in %s", abs);
+        if (result.nearest_context) {
+            size_t len = strlen(result.nearest_context);
+            size_t cut = len > 300 ? 300 : len;
+            while (cut && ((unsigned char)result.nearest_context[cut] & 0xc0) == 0x80) cut--;
+            /* File bytes need not be text. Never introduce invalid UTF-8 into
+             * the tool result; the ordinary failure still reports the path. */
+            if (cut && utf8_valid_bytes(result.nearest_context, cut)) {
+                buf_appendf(&msg, "\nAdvisory (first nonempty search line only), line %zu: ",
+                            result.nearest_line);
+                buf_append(&msg, result.nearest_context, cut);
+                if (cut < len) buf_appends(&msg, " [truncated]");
+            }
+        }
         tny_edit_result_free(&result);
-        char *e = tool_err("old_string not found in %s", abs);
         free(abs);
-        return e;
+        return buf_detach(&msg);
     }
     if (status == TNY_EDIT_AMBIGUOUS) {
         char *e = tool_err("old_string occurs %zu times in %s; pass replace_all or a longer match",
