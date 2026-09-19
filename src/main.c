@@ -41,13 +41,11 @@ int main(int argc, char **argv) {
     if (cmd && (strcmp(cmd, "help") == 0 || strcmp(cmd, "--help") == 0 || strcmp(cmd, "-h") == 0)) {
         help_root();
         free(g.add_dirs);
-        free(g.agent_argv);
         return 0;
     }
     if (cmd && (strcmp(cmd, "--version") == 0 || strcmp(cmd, "-v") == 0)) {
         fputs(TNY_VERSION "\n", stdout);
         free(g.add_dirs);
-        free(g.agent_argv);
         return 0;
     }
     int rc = 1;
@@ -111,6 +109,22 @@ int main(int argc, char **argv) {
         if (ctx) rc = cmd_web(ctx, &g, cargc, cargv);
         goto done;
     }
+    /* Native sign-in must repair a retired/unusable store without first
+     * resolving it as a conversation credential. Explicit builtin only. */
+    if (cmd && g.backend && tny_builtin_profile_exists(g.backend) &&
+        (strcmp(cmd, "login") == 0 || strcmp(cmd, "logout") == 0)) {
+        ctx = tny_ctx_load(g.cwd);
+        if (!ctx) goto done;
+        if (!tny_custom_provider_exists(ctx, g.backend)) {
+            ctx->provider_name = xstrdup(g.backend);
+            if (!ctx->provider_name) goto done;
+            rc = strcmp(cmd, "login") == 0 ? cmd_login(ctx, &g, cargc, cargv)
+                                           : cmd_logout(ctx, &g, cargc, cargv);
+            goto done;
+        }
+        tny_ctx_free(ctx);
+        ctx = NULL;
+    }
     ctx = cli_make_ctx(&g);
     if (!ctx) goto done;
 
@@ -130,7 +144,7 @@ int main(int argc, char **argv) {
     } else if (strcmp(cmd, "resume") == 0) {
         rc = cmd_resume(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "acp") == 0) {
-        rc = cmd_acp_server(ctx, &g, cargc, cargv);
+        fputs("tny: ACP server was removed; use the C, Python or Node SDK\n", stderr);
     } else if (strcmp(cmd, "sessions") == 0) {
         rc = cmd_sessions(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "session") == 0) {
@@ -157,7 +171,7 @@ int main(int argc, char **argv) {
     } else if (strcmp(cmd, "usage") == 0) {
         rc = cmd_usage(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "cursor") == 0) {
-        rc = cmd_cursor(ctx, &g, cargc, cargv);
+        fputs("tny: Cursor bridge was removed; use an OpenAI-compatible HTTP provider\n", stderr);
     } else if (strcmp(cmd, "mcp") == 0) {
         rc = cmd_mcp(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "login") == 0) {
@@ -176,7 +190,6 @@ done:
     tny_ctx_free(ctx);
     worktree_close(g.active_worktree);
     free(g.add_dirs);
-    free(g.agent_argv);
 #ifdef __EMSCRIPTEN__
     /* an Asyncified main's return value is dropped after an unwind; only an
      * explicit exit() carries the code to the host (docs/adr/0017) */

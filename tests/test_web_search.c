@@ -215,8 +215,9 @@ TEST codex_search_uses_subscription_login_not_active_provider_key(void) {
     const char *apikey = "{\"auth_mode\":\"apikey\",\"OPENAI_API_KEY\":\"fixture-api-only\"}";
     ASSERT_EQ(0, file_write_atomic(path, apikey, strlen(apikey)));
     result = tool_web_search_codex(&env, "fixture", &handled);
-    ASSERT_FALSE(handled);
-    ASSERT_FALSE(result);
+    ASSERT(handled);
+    ASSERT(result);
+    free(result);
     ASSERT_EQ(0, file_write_atomic(path, "bad-json", 8));
     result = tool_web_search_codex(&env, "fixture", &handled);
     ASSERT(handled);

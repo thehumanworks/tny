@@ -1,0 +1,21 @@
+Exact summary lines from build/verify-tmp/nix-leaks.log; command exit 0.
+== leak: unit
+Total: 496 tests (58868440 ticks, 58.868 sec), 29067 assertions
+Pass: 496, fail: 0, skip: 0.
+==87379==    definitely lost: 0 bytes in 0 blocks
+==87379==    indirectly lost: 0 bytes in 0 blocks
+==87379== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+   ok
+== leak: tny --version
+==91429== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+   ok
+== leak: tny --help
+==91437== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+   ok
+== leak: tny ask --help
+==91451== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+   ok
+== leak: tny doctor --json
+==91455== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+   ok
+leaks: clean (valgrind)

@@ -93,7 +93,7 @@ def check_opencode_settings_profile(port, home, ws, log):
             {
                 "work": {
                     "base_url": f"http://127.0.0.1:{port}/v1",
-                    "api_key": "test-key-not-real",
+                    "api_key_env": "OPENAI_API_KEY",
                 }
             },
             f,

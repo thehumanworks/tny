@@ -32,8 +32,6 @@ typedef struct {
     char *label, *hint;
 } pick_item;
 
-typedef struct tui_prewarm tui_prewarm; /* tui_prewarm.c */
-
 typedef struct tui {
     tny_ctx *ctx;
     const cli_globals *g;
@@ -73,9 +71,8 @@ typedef struct tui {
     tny_engine *engine;
     tny_session_state *session;
     perm_engine *perm;
-    tui_prewarm *prewarm; /* host warm-up running in the background */
-    bool bk_adopted;      /* engine backend came pre-resumed from warm-up and has
-                           * not sent yet: one lazy retry if send() fails */
+    bool bk_adopted; /* engine backend came pre-resumed from warm-up and has
+                      * not sent yet: one lazy retry if send() fails */
 
     /* Native isolation (docs/adr/0053): turns run in a detached serve
      * runner; rc is its wire client and engine stays NULL. wasm and
@@ -113,7 +110,7 @@ typedef struct tui {
     /* /provider setup wizard (docs/adr/0018): while wiz_step > 0 the
      * composer feeds the wizard, not a prompt. */
     int wiz_step; /* 0 off; 1 name, 2 base url, 3 key, 4 model */
-    char *wiz_name, *wiz_base, *wiz_key, *wiz_key_env, *wiz_model;
+    char *wiz_name, *wiz_base, *wiz_key_env, *wiz_model;
 
     char *images[TUI_MAX_IMAGES + 1];
     int n_images;
@@ -227,17 +224,14 @@ void tui_handle_backend_event(tui *t, const tny_backend_event *ev);
  * background so the first turn pays neither the startup nor the session
  * round trip (docs/adr/0002; in isolation mode the serve runner is the
  * pre-warm and these delegate to tui_runner_*, docs/adr/0053). */
-void tui_prewarm_start(tui *t);        /* warm ctx->backend if it applies */
-tny_backend *tui_prewarm_take(tui *t); /* resumed backend or NULL; consumes */
+void tui_prewarm_start(tui *t); /* warm ctx->backend if it applies */
 /* Abandon whatever is pending. Waits out an in-flight create_or_resume, so
  * ctx fields it reads (model, tier, workspace dirs) are safe to mutate the
  * moment this returns. */
 void tui_prewarm_drop(tui *t);
-bool tui_prewarm_applicable(const struct tny_ctx *ctx, int backend_id);
 /* Internal seam, exposed for the unit tests: adopt an already-created
  * backend and run its connect() + create_or_resume() on the pre-warm
  * thread. resume_pointer may be NULL (new session). */
-int tui_prewarm_launch(tui *t, tny_backend *bk, int backend_id, const char *resume_pointer);
 
 /* tui_draw.c */
 void tui_size(tui *t);

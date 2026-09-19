@@ -904,8 +904,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         opts.initial_prompt = prompt.data;
         opts.initial_images = n_images ? images : NULL;
         opts.continue_recovery = continue_recovery;
-        opts.no_host_registry = true; /* decision 8: invisible process must
-                                       * not become the attach target */
         pid_t child = tny_runner_spawn(ctx, session, &opts, err, sizeof err);
         if (child < 0) {
             fprintf(stderr, "tny: %s; cannot background\n", err);

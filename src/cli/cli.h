@@ -39,26 +39,14 @@ typedef struct {
     bool resume_last;       /* -c / --continue */
     const char *resume;     /* --resume value */
     /* backend-specific */
-    const char *bridge_bin;
     const char *xai_api_key;        /* --xai-api-key: dictation only */
     const char *chatgpt_token;      /* --chatgpt-token (docs/adr/0066) */
     const char *chatgpt_account_id; /* --chatgpt-account-id */
-    const char **agent_argv;        /* --agent CMD -- args…, NULL-terminated */
     const char *base_url;
     const char *base_url_env; /* --base-url-env NAME: URL kept off argv */
     const char *api_key_env;
     const char *wire_api; /* --wire-api responses|chat */
 } cli_globals;
-
-/* Internal Cursor management stream seam. Kept here so unit tests can inject
- * a failing FILE without changing stdout or the public embedding ABI. */
-typedef struct {
-    FILE *stream;
-    size_t total;
-} cursor_artifact_output;
-
-int cursor_cli_artifact_frame(uint8_t flags, const char *payload, size_t len, void *ud, char *err,
-                              size_t errlen);
 
 /* Parse leading globals; returns index of the subcommand in argv or -1 on
  * error (message already printed). */
@@ -111,14 +99,12 @@ int cmd_workspace(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_provider(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_usage(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
-int cmd_cursor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_mcp(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_setup(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_tasks(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_task(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_logout(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
-int cmd_acp_server(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_agents(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_web(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_tui(tny_ctx *ctx, const cli_globals *g);

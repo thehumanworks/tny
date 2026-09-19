@@ -40,9 +40,17 @@ class SettingsSchemaTests(unittest.TestCase):
         names = self.image_input["propertyNames"]
         self.assertEqual(names["maxLength"], 256)
         pattern = re.compile(names["pattern"])
-        for key in ("codex", "claude", "my-gateway", "acp@agent", "acp@my_agent"):
+        for key in ("codex", "claude", "my-gateway"):
             self.assertTrue(pattern.fullmatch(key), key)
-        for key in ("", "open ai", "acp:agent", "acp@", "acp@bad name", "gate/way"):
+        for key in (
+            "",
+            "open ai",
+            "acp:agent",
+            "acp@agent",
+            "acp@",
+            "acp@bad name",
+            "gate/way",
+        ):
             self.assertFalse(pattern.fullmatch(key), key)
 
     def test_image_input_describes_configured_not_verified_support(self):
@@ -64,7 +72,7 @@ class SettingsSchemaTests(unittest.TestCase):
             self.skipTest("jsonschema is not installed in this environment")
         valid = [
             {"image_input": {}},
-            {"image_input": {"codex": True, "claude": False, "acp@agent": False}},
+            {"image_input": {"codex": True, "claude": False}},
             {"image_input": {"my-gateway": True}, "provider": "my-gateway"},
         ]
         invalid = [

@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>Architecture — tny</title>
-  <meta name="description" content="One event loop, four backends, host processes stay external.">
+  <meta name="description" content="One event loop, one native HTTP backend.">
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <link rel="canonical" href="https://thehumanworks.github.io/tny/docs/architecture.html">
   <meta property="og:title" content="Architecture — tny">
-  <meta property="og:description" content="One event loop, four backends, host processes stay external.">
+  <meta property="og:description" content="One event loop, one native HTTP backend.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://thehumanworks.github.io/tny/og.svg">
   <meta name="twitter:card" content="summary_large_image">
@@ -46,26 +46,17 @@
     <aside class="docs-sidebar"><nav aria-label="Documentation"><div class="docs-nav-group"><p>getting started</p><div><a href="index.html">Quick start</a><a href="install.html">Installation</a><a href="providers.html">Providers</a></div></div><div class="docs-nav-group"><p>using tny</p><div><a href="ask.html">tny ask</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="tui.html">Interactive shell</a><a href="sessions.html">Sessions</a></div></div><div class="docs-nav-group"><p>configure</p><div><a href="permissions.html">Permissions</a><a href="tools.html">Tools, MCP, skills</a></div></div><div class="docs-nav-group"><p>reference</p><div><a href="backends.html">Backends</a><a href="architecture.html" aria-current="page">Architecture</a><a href="size.html">Size and speed</a></div></div><div class="docs-nav-group"><p>tnytty</p><div><a href="tnytty.html">The tiny terminal</a><a href="tnytty-cli.html">CLI</a><a href="tnytty-config.html">Configuration</a><a href="tnytty-api.html">HTTP API</a><a href="tnytty-architecture.html">Architecture</a></div></div></nav></aside>
     <article class="article"><h1>Architecture</h1><p class="lede">A frontend plus one native loop. Not a fourth coding agent.</p>
 <h2 id="picture">Process model</h2>
-<pre><code>                 +-------------------------------------+
-                 |  cli / tui  (one event loop)        |
-                 +------------------+------------------+
-                                    | normalized events
-                 +------------------v------------------+
-                 |  session + permission + render bus  |
-                 +------------------+------------------+
-        +---------------+-----------+----------+
-        v               v                      v
-  cursor-bridge      acp-client          openai-native
-  Connect sdk.v1     stdio JSON-RPC      HTTP SSE + tools
-  + callbacks                            (openai, codex, claude, grok)</code></pre>
-<p>One tny process, one primary workspace. Host processes are children or attach targets. Always have a shutdown path: cancel turn → close stream → Shutdown/EOF → wait → kill. Drain host stderr on a dedicated reader — a full pipe stalls the bridge and most ACP agents.</p>
+<pre><code>CLI / TUI / SDK → detached session runner → native tool loop
+                                      → HTTP Responses / Chat Completions
+                                      → tools / MCP / permission gates</code></pre>
+<p>One event loop per runner, with portable session history and explicit cancellation and cleanup.</p>
 <h2 id="loop">One event loop</h2>
-<p>POSIX <code>poll</code>/<code>kqueue</code> only. No libuv. TUI pre-warm runs <code>connect()</code> plus <code>create_or_resume()</code> on one bounded thread and hands the backend back before events flow. Cursor's authenticated callback server normally shares the event loop; blocking Create/Resume may lend store traffic to one bounded pump thread, while owner-thread custom tools fail closed there.</p>
+<p>Blocking work uses the platform poll seam. Provider connections begin lazily; no vendor agent process is launched.</p>
 <h2 id="state">Config and state</h2>
 <table>
   <thead><tr><th>Path</th><th>Contents</th></tr></thead>
   <tbody>
-    <tr><td><code>~/.tny/settings.json</code></td><td>Model, permission mode, trusted Cursor local/cloud sdk.v1 options, UI, per-workspace overrides</td></tr>
+    <tr><td><code>~/.tny/settings.json</code></td><td>Model, permission mode, HTTP profiles, UI, per-workspace overrides</td></tr>
     <tr><td><code>~/.tny/mcp.json</code></td><td>Trusted MCP servers only</td></tr>
     <tr><td><code>~/.tny/sessions/</code></td><td>Transcripts and recovery</td></tr>
     <tr><td><code>~/.tny/skills/</code></td><td>Managed skill installs</td></tr>
@@ -75,10 +66,9 @@
     <tr><td><code>&lt;repo&gt;/AGENTS.md</code></td><td>Project instructions</td></tr>
   </tbody>
 </table>
-<p>Credentials stay in the OS store or env vars. Not in project JSON. Never log tokens or ready-line JSON.</p>
-<p>Cursor versioned pointers retain <code>agent_id</code>, <code>run_id</code>, <code>after_offset</code>, and local/cloud runtime. The bridge owns built-in tools; tny owns only explicit custom-tool and optional custom-store callbacks. The supported v1.0.30 bridge remains external; no private <code>agent.v1</code> HTTP/2 protocol is embedded. wasm returns distinct clean unsupported errors for conversations and management before bridge/callback work.</p>
+<p>BYOK keys come from environment variables; settings store only their names. Native subscription OAuth credentials can be refreshed and persisted privately. Never log credentials.</p>
 <h2 id="lang">Language</h2>
-<p>C11, vendored .c files you can see in <code>nm</code>: yyjson, picohttpparser, wslay. ANSI TUI, not a widget kit. macOS TLS is Security.framework, <code>dlopen</code>'d at first use. Never static OpenSSL or libcurl.</p>
+<p>C11, vendored .c files you can see in <code>nm</code>: yyjson, picohttpparser. ANSI TUI, not a widget kit. macOS TLS is Security.framework, <code>dlopen</code>'d at first use. Never static OpenSSL or libcurl.</p>
 </article>
     <aside class="toc"><p>on this page</p><a href="#picture">Process model</a><a href="#loop">Event loop</a><a href="#state">Config</a><a href="#lang">Language</a></aside>
   </main>

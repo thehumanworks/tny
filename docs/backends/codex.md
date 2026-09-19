@@ -4,8 +4,7 @@ The `codex` provider drives the user's **ChatGPT subscription** through the
 Responses-compatible backend the Codex CLI itself talks to
 (`https://chatgpt.com/backend-api/codex`), on tny's **native loop**
 ([ADR 0065](../adr/0065-codex-chatgpt-responses-backend.md)). It is a
-builtin profile of the [openai backend](openai-compatible.md), like `claude`
-and `grok` ([ADR 0019](../adr/0019-subscription-logins-claude-grok.md)):
+builtin profile of the [openai backend](openai-compatible.md), alongside `grok` ([ADR 0019](../adr/0019-subscription-logins-claude-grok.md)):
 tny owns tools, permissions, MCP, skills, sessions, steer, `--ssh`, and
 extensions there — no `codex app-server` process, no WebSocket, no host
 registry, and no Codex CLI at all: tny signs in itself.
@@ -26,7 +25,7 @@ Four sources, first hit wins ([ADR 0066](../adr/0066-native-chatgpt-login-and-cr
 | 1 | `--chatgpt-token TOKEN` (+ `--chatgpt-account-id ID`) | no | file-less; argv is visible to other local users, prefer 2 |
 | 2 | `CHATGPT_ACCESS_TOKEN` (+ `CHATGPT_ACCOUNT_ID`) | no | file-less: containers, CI, the browser wasm build, one-off runs |
 | 3 | `~/.tny/codex-auth.json` | yes, in place | written by `tny --provider codex login` (below); tny's own |
-| 4 | `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`) | yes, in place | written by the Codex CLI's `codex login`; API-key mode honored |
+| 4 | `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`) | yes, in place | written by the Codex CLI's `codex login`; OAuth tokens only |
 
 Any of them present auto-detects the provider ([cli.md](../cli.md#provider-selection)).
 `tny providers` / `tny doctor` name the source in use; tokens never print.
@@ -36,9 +35,7 @@ Any of them present auto-detects the provider ([cli.md](../cli.md#provider-selec
   else the `"https://api.openai.com/auth".chatgpt_account_id` claim of the
   access token (then the id token). It rides `chatgpt-account-id`; an
   opaque token with no derivable id still runs without the header.
-- **API-key mode** — a Codex CLI file whose `OPENAI_API_KEY` is set
-  (`codex login --with-api-key`) selects the public API instead:
-  `https://api.openai.com/v1`, plain bearer, no ChatGPT headers.
+- **Stored API keys are rejected.** Migrate to an env-key HTTP profile (`OPENAI_API_KEY` or `api_key_env`). Subscription OAuth tokens remain supported.
 
 Both files share the Codex CLI's shape (tny adds `expires_at`):
 
@@ -166,7 +163,7 @@ search and annotated message items, and echoes them on later requests. Hosted
 items never run again as local function tools. Explicit `web_search_command`
 or `web_search_url` settings retain priority and disable this hosted declaration;
 all other profiles use the shared search service. **The Codex login also powers
-search for Grok, Claude, OpenAI-compatible and other conversation providers.**
+search for Grok and configured OpenAI-compatible and other conversation providers.**
 `tny web search QUERY` uses that same independent service even with Codex selected.
 It defaults to a separate `gpt-5.6-sol` search model (`web_search_model` overrides),
 without changing the conversation model. Only absence of a Codex/ChatGPT login
@@ -199,9 +196,8 @@ query and normalizes the answer into the shared catalog shape
 (`[{"id","name","description","efforts":[…],"default_effort","context_window"}]`),
 dropping entries whose `visibility` is not `list` (`hide`, `none`). `--json`
 reports `{"kind":"models","provider":"codex","models":[…]}`; the plain
-listing shows `[effort: …]` per model like cursor, and the `efforts` tokens
-are what `--effort` accepts verbatim. API-key mode (`codex login
---with-api-key`) keeps the public `/v1/models` path and `data[].id` shape.
+listing shows `[effort: …]` per model and the `efforts` tokens
+are what `--effort` accepts verbatim.
 
 ## Selection, shadowing, overrides
 
@@ -211,8 +207,8 @@ are what `--effort` accepts verbatim. API-key mode (`codex login
 | `$CODEX_HOME/auth.json` present | auto-detected first among subscription logins |
 | `TNY_CODEX_BASE_URL` | redirect the ChatGPT-mode base URL (mocks, gateways) while keeping the profile's headers |
 | `TNY_CODEX_CLIENT_VERSION` | Codex CLI version claimed on `/models?client_version=` (catalog gating, above) |
-| `--base-url` | one-run override of any profile's URL (also API-key mode) |
-| settings `"codex": {"base_url": …}` or `CODEX_BASE_URL` | a **user profile named codex shadows the builtin** entirely (no ChatGPT headers, `CODEX_API_KEY` key) — explicit config wins, like `claude`/`grok` |
+| `--base-url` | one-run override of any profile's URL  |
+| settings `"codex": {"base_url": …}` or `CODEX_BASE_URL` | a **user profile named codex shadows the builtin** entirely (no ChatGPT headers, `CODEX_API_KEY` key) — explicit config wins, like `grok` |
 | `--chatgpt-token` / `CHATGPT_ACCESS_TOKEN`, `--chatgpt-account-id` / `CHATGPT_ACCOUNT_ID` | file-less credential (precedence above) |
 | `TNY_CODEX_OAUTH_ISSUER`, `TNY_CODEX_CALLBACK_PORT`, `CODEX_REFRESH_TOKEN_URL_OVERRIDE` | login/refresh endpoints for mocks and tests |
 
@@ -284,7 +280,7 @@ same mocks as the native binary, minus the callback run.
   PKCE challenge, base64url, form encoding, CSPRNG.
 - `tests/test_core.c` `builtin_codex_profile` / `codex_credential_precedence`:
   every source and its precedence, claim vs explicit account id, header
-  set, API-key mode, `TNY_CODEX_BASE_URL`, shadowing, model default, store
+  set, stored API-key rejection, `TNY_CODEX_BASE_URL`, shadowing, model default, store
   round-trip (`0600`, `expires_at`), logout.
 - `tests/integration/test_codex_chatgpt.py`: the full loop against the
   strict Responses mock with header assertions for each source, both

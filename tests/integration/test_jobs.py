@@ -3735,6 +3735,20 @@ class JobsReviewedRaces(JobsFixture):
         }
         return job_id, directory, owner, payload
 
+    def test_legacy_provider_payload_cannot_launch_or_replay_cursor_key(self):
+        job_id, directory, owner, payload = self.queued_owned()
+        payload["provider"] = "cursor"
+        payload["chat"]["provider"] = "cursor"
+        payload["chat"]["cursor_key"] = "fixture-retired-cursor-secret"
+        worker = self.private_worker(job_id, owner)
+        worker.communicate(json.dumps(payload).encode(), timeout=30)
+        owner.close()
+        final = self.status(job_id)
+        self.assertEqual(final["state"], "failed", final)
+        self.assertEqual(len(self.ask_requests()), self.prior_requests)
+        for artifact in directory.glob("*.log"):
+            self.assertNotIn(b"fixture-retired-cursor-secret", artifact.read_bytes())
+
     def test_accepted_launch_failure_keeps_owner_through_finalization(self):
         self.check_accepted_launch_failure(retry=False)
 

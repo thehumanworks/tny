@@ -67,7 +67,7 @@ instruction or a grant of authority.
 Native and wasm local tools share this behavior. The separate `--ssh`
 `edit_file` path is unchanged; the `tny edit` CLI retains its existing diagnostic
 format. No new tool schema or additional model-request context is needed on
-successful edits. See [ADR 0151](../adr/0151-actionable-exact-edit-failures.md)
+successful edits. See [ADR 0152](../adr/0151-actionable-exact-edit-failures.md)
 for the measured comparison and its limits.
 
 ### Native tool profiles
@@ -87,7 +87,7 @@ meta-tools and use `tny mcp call SERVER/TOOL`; replaying or directly requesting
 any hidden built-in, including `mcp_select_tool`, returns `unknown tool` before
 dispatch. The one exception is `subagent`, which answers with its stable
 `SUBAGENT_UNSUPPORTED_CONTEXT` line naming the shell fallback
-([Subagents](#subagents)). libtny, wasm, and `tny acp` keep `all`. wasm retains the existing
+([Subagents](#subagents)). libtny and wasm keep `all`. wasm retains the existing
 clean error for `terminal`; profiles do not add a browser shell.
 
 Foreground terminal results in either shell profile begin with `exit:`,
@@ -291,7 +291,7 @@ Streamable HTTP POST endpoint or use a local stdio proxy. wasm:
 HTTP MCP is remote-only over `fetch()` (subject to CORS); stdio spawn stays a
 clean error.
 
-Startup ([ADR 0049](../adr/0049-mcp-background-warmup.md)): a native session warms every profile server in the background at session start — TUI after first paint, `tny ask` overlapping its connect (after the `-B` fork) — one detached thread per server opening its transport, negotiating the protocol era, and running `tools/list`. Never for `--help`/`--version`, `tny acp` server mode, or libtny. A call that names a server mid-warm waits out its handshake (the prewarm-take contract); a failed warm-up is silent until a call names it, which retries and reports the usual error.
+Startup ([ADR 0049](../adr/0049-mcp-background-warmup.md)): a native session warms every profile server in the background at session start — TUI after first paint, `tny ask` overlapping its connect (after the `-B` fork) — one detached thread per server opening its transport, negotiating the protocol era, and running `tools/list`. Never for `--help`/`--version`, or libtny. A call that names a server mid-warm waits out its handshake (the prewarm-take contract); a failed warm-up is silent until a call names it, which retries and reports the usual error.
 
 Catalog, not schemas: the per-request system prompt lists the cached tools as `server/tool — one-line description` (capped per tool and per session; overflow says to use `mcp_search_tools`), so the model knows what exists with no extra round trip. Full MCP JSON schemas are never promoted into the function-schema `tools` array — the only MCP entries there are `mcp_search_tools`, `mcp_select_tool`, `mcp_features`, and every call goes through `mcp_select_tool` so the permission identity stays `mcp:server/tool`.
 
@@ -346,7 +346,7 @@ printed (`result_file` in `--json`). wasm: HTTP servers work remote-only,
 stdio keeps the clean spawn error, so `tny mcp call` against a stdio server in
 the browser reports that error and exits 1.
 
-ACP sessions (`tny acp`): use only client-supplied `mcpServers`, not the user profile (fx rule).
+The native harness owns MCP for all CLI and TUI profiles.
 
 tny is not an MCP server.
 
@@ -373,13 +373,7 @@ skill's `SKILL.md` ahead of the text, with no `skill` tool round trip:
 ship $deploy to staging
 ```
 
-`/foo` does not match `foobar`, `foo-bar`, `a/foo`, or `/foo/bar`; `$foo.`
-does. Several mentions inject each skill once, in order of first appearance.
-Bodies above `max_tool_result_bytes` are cut like a tool result (native: a
-`read_tool_result` handle; hosts: the file path). This applies wherever a
-prompt reaches a backend through the engine — `tny ask`, the TUI, `tny acp`
-server, and the host backends (cursor, ACP client), which cannot see
-tny's `skill` tool. The system-prompt catalog is unchanged.
+`/foo` does not match `foobar`, `foo-bar`, `a/foo`, or `/foo/bar`; `$foo.` does. Several mentions inject each skill once, in order of first appearance. Bodies above `max_tool_result_bytes` are cut with a `read_tool_result` handle. This applies to native CLI and TUI turns. The system-prompt catalog is unchanged.
 
 The native transcript stores the text the model saw; a top-level
 `skill_injections` record in `session.json` keeps the typed text for
@@ -389,7 +383,7 @@ it. In the TUI a builtin slash command always wins over a same-named skill.
 
 ## Subagents
 
-Durable child sessions ([ADR 0087](../adr/0087-explicit-subagent-contract-and-private-launch.md)). Each child is an ordinary workspace session run by a separate `tny ask` process; the parent receives only the child's final answer, never its transcript. The tool is owned by the native parent loop. A child may select any configured CLI provider, including a host provider; that host still owns its own loop. Host parents expose only the task events supplied by their adapter (e.g. Cursor `cursor/task`). See [ADR 0139](../adr/0139-subagent-provider-model-and-effort.md).
+Durable child sessions ([ADR 0087](../adr/0087-explicit-subagent-contract-and-private-launch.md)). Each child is an ordinary workspace session run by a separate `tny ask` process; the parent receives only the child's final answer, never its transcript. The tool is owned by the native parent loop. A child may select any configured native HTTP profile. See [ADR 0139](../adr/0139-subagent-provider-model-and-effort.md).
 
 Launch configuration is an owned snapshot, not a set of retained context or
 environment pointers ([ADR 0133](../adr/0133-owned-subagent-launch-snapshots.md)).
@@ -417,7 +411,7 @@ parent's resolved URL, wire format, credentials, model and effort. Explicit
 or configured effort, and an inherited parent default stays default.
 
 A different `provider` resolves through the normal child CLI, including named
-native profiles, builtin subscription profiles, Cursor and `acp@NAME` profiles.
+native HTTP profiles and builtin subscription profiles.
 It uses its own configuration and credentials, without the parent's resolved
 URL, wire, key, subscription token/account, model or effort. Ambient user
 environment and settings remain available, so their normal CLI precedence still

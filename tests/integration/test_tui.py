@@ -264,6 +264,7 @@ class Term:
     def close(self):
         if self.proc.poll() is None:
             self.proc.kill()
+        self.proc.wait(timeout=5)
         os.close(self.master)
         os.close(self.slave)
 
@@ -333,20 +334,15 @@ def test_slash_palette(home, ws):
     # settings.json profile, and a NAME_BASE_URL env provider.
     os.makedirs(os.path.join(home, ".tny"), exist_ok=True)
     with open(os.path.join(home, ".tny", "settings.json"), "w") as f:
-        f.write(
-            '{"openrouter":{"base_url":"https://openrouter.test/v1"},'
-            '"acp":{"claude-code":'
-            '{"command":"claude-agent-acp"}}}'
-        )
+        f.write('{"openrouter":{"base_url":"https://openrouter.test/v1"}}')
     t = Term([TNY], base_env(home, {"ORWELL_BASE_URL": "https://orwell.test/v1"}), ws)
     try:
         t.expect(BANNER)
         t.send("/")
         t.expect("clear the screen", 5.0)  # palette listed commands
         t.send("prov")
-        # The hint is clipped to the terminal width; prove the settings ACP
-        # profile is included before the env-only tail that may be off-screen.
-        t.expect("openai|cursor|acp|codex|claude|grok|openrouter|acp@claude-code|", 5.0)
+        # The settings profile precedes the environment-only profile.
+        t.expect("openai|codex|grok|openrouter|", 5.0)
         t.send("\x7f" * 4)  # back to a bare "/"
         t.send("help\r")
         t.expect("ctrl-o optimise", 5.0)
@@ -713,91 +709,6 @@ def descendants_of(pid):
     return out
 
 
-def test_prewarm_spawns_acp_agent(home, ws):
-    """docs/adr/0002: with a host provider selected, the TUI spawns and
-    initializes the host right after the first paint — before any prompt."""
-    agent = os.path.join(HERE, "fake_acp_agent.py")
-    settings = os.path.join(home, ".tny", "settings.json")
-    os.makedirs(os.path.dirname(settings), exist_ok=True)
-    previous = open(settings, "rb").read() if os.path.exists(settings) else None
-    with open(settings, "w") as f:
-        json.dump(
-            {
-                "acp": {
-                    "tui-fixture": {
-                        # Resolve the real interpreter: the pty env overrides HOME, which
-                        # breaks version-manager shims used by /usr/bin/env python3.
-                        "command": sys.executable,
-                        "args": [agent],
-                        "model": "selected-model",
-                    }
-                }
-            },
-            f,
-        )
-    state = os.path.join(home, "acp-prewarm-state.json")
-    t = Term(
-        [TNY, "--provider", "acp@tui-fixture"],
-        base_env(home, {"FAKE_ACP_STATE": state}),
-        ws,
-    )
-    try:
-        t.expect(BANNER)
-        end = time.time() + 8
-        spawned = []
-        while time.time() < end:
-            spawned = [
-                c for c in descendants_of(t.proc.pid) if "fake_acp_agent" in c[1]
-            ]
-            if spawned:
-                break
-            t.pump(0.2)
-        assert spawned, "agent not pre-warmed after startup; children: %r\n%s" % (
-            descendants_of(t.proc.pid),
-            clean(t.buf),
-        )
-        # the warm host is adopted by the first turn, not respawned
-        t.send("hello\r")
-        t.expect("Hello from the fake ACP agent.", 20.0)
-        assert json.load(open(state))["model_at_prompt"] == "selected-model"
-        agents = [c for c in descendants_of(t.proc.pid) if "fake_acp_agent" in c[1]]
-        assert len(agents) == 1, "prewarmed agent was not adopted: %r" % agents
-        assert agents[0][0] == spawned[0][0], "agent was respawned for the turn"
-        # /new drops the bound backend and re-warms: a fresh agent must be
-        # up (with its session created) before the next prompt is typed
-        first_pid = agents[0][0]
-        t.send("/new\r")
-        t.expect("new session")
-        end = time.time() + 8
-        fresh = []
-        while time.time() < end:
-            fresh = [
-                c
-                for c in descendants_of(t.proc.pid)
-                if "fake_acp_agent" in c[1] and c[0] != first_pid
-            ]
-            if fresh:
-                break
-            t.pump(0.2)
-        assert fresh, "no re-warmed agent after /new; children: %r\n%s" % (
-            descendants_of(t.proc.pid),
-            clean(t.buf),
-        )
-        t.send("/quit\r")
-        assert t.wait() == 0
-    finally:
-        t.close()
-        if previous is None:
-            if os.path.exists(settings):
-                os.remove(settings)
-        else:
-            with open(settings, "wb") as f:
-                f.write(previous)
-    print(
-        "ok  named acp profile selected its model, pre-warmed, adopted, and re-warmed"
-    )
-
-
 def test_version_fast_path():
     out = subprocess.run([TNY, "--version"], capture_output=True, text=True, timeout=10)
     assert out.returncode == 0, out
@@ -834,19 +745,19 @@ def test_provider_setup_wizard(home, ws, port):
     profile, switches to it, and the next turn runs on the new provider with
     the stored key — no OPENAI_* env at all."""
     wizhome = tempfile.mkdtemp(prefix="tny-wizhome-")
-    t = Term([TNY], base_env(wizhome), ws)
+    t = Term([TNY], dict(base_env(wizhome), WIZPROV_KEY="synthetic-key"), ws)
     try:
         t.expect(BANNER)
         t.send("/provider setup wizprov\r")
         t.expect("base url", 10.0)
         t.send("http://127.0.0.1:%d/v1\r" % port)
         t.expect("api key", 10.0)
-        t.send("sk-wiz-not-a-secret\r")
+        t.send("WIZPROV_KEY\r")
         t.expect("default model", 10.0)
         t.send("\r")
         t.expect("provider 'wizprov' ready", 10.0)
         settings = open(os.path.join(wizhome, ".tny", "settings.json")).read()
-        assert '"wizprov"' in settings and '"sk-wiz-not-a-secret"' in settings, settings
+        assert '"wizprov"' in settings and '"WIZPROV_KEY"' in settings, settings
         t.send("list the files here\r")
         t.expect("MOCK-OK", 20.0)
         # /cancel aborts a wizard without touching settings
@@ -910,59 +821,11 @@ def test_steer_mid_turn(home, ws):
     print("ok  enter mid-turn steers the native loop after the tool result")
 
 
-def test_queue_sends_after_turn(home, ws):
-    """A backend without steer (ACP) queues: the second message shows in the
-    queue row, not the transcript, and is sent once the first turn ends. Esc
-    during a turn drops whatever is queued."""
-    agent = os.path.join(HERE, "fake_acp_agent.py")
-    env = base_env(
-        home,
-        {
-            "FAKE_ACP_SLOW_MS": "1500",
-            "FAKE_ACP_STATE": os.path.join(home, "acp-state.json"),
-        },
-    )
-    t = Term(
-        [TNY, "--provider", "acp", "--agent", sys.executable, "--", agent], env, ws
-    )
-    try:
-        t.expect(BANNER)
-        t.send("first question\r")
-        t.expect("working", 5.0)
-        t.send("second question\r")
-        t.expect("queued (1): second question", 5.0)
-        assert "already running" not in clean(t.buf), clean(t.buf)
-        t.expect("[asked: first question]", 20.0)
-        t.expect_next("[asked: second question]", 20.0)  # sent after turn 1 ended
-        # turn 1 already printed "ALLOWED."; anchor on turn 2's copy so a slow
-        # runner (aarch64 CI) cannot type "third question" while turn 2 is
-        # still live — that would queue it and make "fourth" queued (2)
-        t.expect_next("ALLOWED.", 20.0)
-        # esc while a turn runs drops the queue
-        t.send("third question\r")
-        t.expect_next("working", 5.0)
-        t.send("fourth question\r")
-        t.expect_next("queued (1): fourth question", 5.0)
-        t.send("\x1b")
-        t.expect("dropped 1 queued message", 10.0)
-        t.expect("DENIED.", 20.0)  # the fake agent finishes turn 3 cancelled
-        time.sleep(1.0)  # long enough for a wrongly-sent turn 4 to echo
-        assert "[asked: fourth question]" not in clean(t.buf), clean(t.buf)
-        t.send("/quit\r")
-        assert t.wait() == 0
-    finally:
-        t.close()
-    print("ok  queued message sent after the turn; esc drops the queue")
-
-
-def test_clipboard_image_pastes_path(home, ws):
+def test_clipboard_image_pastes_path(home, ws, port):
     """Ctrl-V materializes clipboard pixels but submits only their path.
 
-    ACP deliberately advertises no image prompt capability, so this also
-    proves the paste never enters tny's provider-specific image channel and
-    cannot poison later sends (including after /clear).
+    Verify the native HTTP path remains usable after paste and /clear.
     """
-    agent = os.path.join(HERE, "fake_acp_agent.py")
     helpers = tempfile.mkdtemp(prefix="tny-clipboard-")
     helper_body = (
         "#!%s\n" % sys.executable + "import os, sys\n"
@@ -979,11 +842,14 @@ def test_clipboard_image_pastes_path(home, ws):
         os.chmod(helper, 0o755)
 
     env = base_env(
-        home, {"PATH": helpers + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin")}
+        home,
+        {
+            "PATH": helpers + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
+            "OPENAI_BASE_URL": f"http://127.0.0.1:{port}/v1",
+            "OPENAI_API_KEY": "fixture",
+        },
     )
-    t = Term(
-        [TNY, "--provider", "acp", "--agent", sys.executable, "--", agent], env, ws
-    )
+    t = Term([TNY, "--provider", "openai"], env, ws)
     pasted = None
     try:
         t.expect(BANNER)
@@ -1005,14 +871,11 @@ def test_clipboard_image_pastes_path(home, ws):
         assert "[Image #" not in t.screen(), t.screen()
 
         t.send("\r")
-        t.expect(
-            "[asked: `%s`]" % pasted, 20.0, absent="image prompts are not supported"
-        )
-        t.expect("Hello from the fake ACP agent.", 20.0)
+        t.expect("MOCK-OK", 20.0, absent="image prompts are not supported")
 
         t.send("/clear\r")
         t.send("after clear\r")
-        t.expect("[asked: after clear]", 20.0, absent="image prompts are not supported")
+        t.expect_next("MOCK-OK", 20.0, absent="image prompts are not supported")
         t.send("/quit\r")
         assert t.wait() == 0
     finally:
@@ -1020,7 +883,7 @@ def test_clipboard_image_pastes_path(home, ws):
         if pasted and os.path.exists(pasted):
             os.unlink(pasted)
         shutil.rmtree(helpers, ignore_errors=True)
-    print("ok  ctrl-v image pasted a path; image-less ACP and post-clear send work")
+    print("ok  ctrl-v image pasted a path; native HTTP and post-clear send work")
 
 
 def main():
@@ -1052,11 +915,9 @@ def main():
             test_clicolor_force_beats_no_color(home, ws)
             test_dumb_mode_announces_itself(home, ws)
             test_dumb_mode_turn_status(home, ws, port)
-            test_prewarm_spawns_acp_agent(home, ws)
             test_provider_setup_wizard(home, ws, port)
             test_steer_mid_turn(home, ws)
-            test_queue_sends_after_turn(home, ws)
-            test_clipboard_image_pastes_path(home, ws)
+            test_clipboard_image_pastes_path(home, ws, port)
         finally:
             shutil.rmtree(home, ignore_errors=True)
             shutil.rmtree(ws, ignore_errors=True)

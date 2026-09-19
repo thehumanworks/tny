@@ -14,12 +14,7 @@ in parallel up to a configured limit. A dependent task starts only after all of
 its direct dependencies succeed. Their outputs are appended to its prompt in
 declaration order, unless the edge is marked as ordering-only.
 
-This is orchestration around existing tny turns, not a second agent protocol.
-The shell surface can select Cursor, Codex, ACP, builtin subscription profiles,
-named OpenAI-compatible profiles, or SSH execution through the normal CLI.
-The native SDK surfaces can select the OpenAI-compatible or Cursor sdk.v1
-libtny providers. Cursor tasks require explicit state directory, API key, and
-model configuration plus an external bridge.
+The shell surface selects native HTTP profiles, including Codex and Grok. SDK tasks embed the same OpenAI-compatible backend using explicit endpoint and in-memory credentials. Neither surface launches a vendor agent binary.
 
 ## Shell functions
 
@@ -55,7 +50,7 @@ Audit the architecture. Return concrete risks and file references.
 PROMPT
 
 tny_task tests \
-    --provider cursor \
+    --provider openai \
     --stdin <<'PROMPT'
 Inspect the test suite. Identify missing coverage for the requested change.
 PROMPT
@@ -122,7 +117,6 @@ Task names begin with a letter or digit and contain only letters, digits, `.`,
 | `--max-steps N` | Bound the native model/tool loop |
 | `--ssh TARGET` | Run native workspace tools over SSH |
 | `--ssh-cwd DIR` | Set the remote working directory for an SSH task |
-| `--agent CMD` | Select an ad-hoc ACP agent command |
 | `--fast` | Request the provider's fast tier |
 | `--persist` | Use normal CLI session persistence instead of the default ephemeral turn |
 | `--stdin` | Read the prompt verbatim from standard input |
@@ -619,17 +613,7 @@ and always call `tny_workflow_cleanup`.
 
 ## Deliberate limits
 
-- A run is in-process orchestration, not a persistent distributed queue.
-- There is no retry, cache, conditional edge, or cross-run resume policy yet;
-  scripts can inspect statuses and define those policies explicitly.
-- Context contains direct dependency output, not a recursively materialized
-  transcript.
-- Parallel agents that mutate one checkout can conflict. Prefer read-only fan-
-  out, task-specific `--cwd` worktrees, or an explicit merge task.
-- Shell tasks default to `--ephemeral`; provider-side retention remains the
-  provider's policy.
-- SDK tasks use the native OpenAI-compatible or Cursor sdk.v1 backend. Cursor
-  management and image inputs remain CLI-only.
+- SDK tasks use the native OpenAI-compatible HTTP backend with explicit endpoint and in-memory credentials.
 
 See [ADR 0047](adr/0047-scriptable-workflow-dags.md) for the execution and
 failure-semantics decision.

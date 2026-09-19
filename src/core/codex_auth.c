@@ -87,21 +87,26 @@ char *tny_codex_store_path(void) {
     return p;
 }
 
-static bool path_present(char *p) {
-    if (!p) return false;
-    bool ok = file_exists(p);
-    free(p);
-    return ok;
-}
-
 static const char *env_token(void) {
     const char *t = getenv("CHATGPT_ACCESS_TOKEN");
     return t && *t ? t : NULL;
 }
 
+bool tny_codex_auth_configured(void) {
+    char *store = tny_codex_store_path();
+    char *cli = tny_codex_auth_path();
+    bool configured = env_token() || (store && file_exists(store)) || (cli && file_exists(cli));
+    free(store);
+    free(cli);
+    return configured;
+}
+
 bool tny_codex_auth_present(void) {
-    return env_token() || path_present(tny_codex_store_path()) ||
-           path_present(tny_codex_auth_path());
+    tny_codex_creds c;
+    int rc = tny_codex_credentials(NULL, &c);
+    bool usable = rc == 0 && c.access_token && *c.access_token;
+    tny_codex_creds_free(&c);
+    return usable;
 }
 
 const char *tny_codex_cred_source_name(tny_codex_cred_source s) {
@@ -142,16 +147,20 @@ static int64_t jwt_expiry(const char *jwt) {
 void tny_codex_creds_free(tny_codex_creds *c) {
     if (!c) return;
     if (c->access_token) secure_free(c->access_token);
-    if (c->api_key) secure_free(c->api_key);
     free(c->account_id);
     memset(c, 0, sizeof *c);
 }
 
-static void set_token(tny_codex_creds *c, const char *token, const char *account,
-                      tny_codex_cred_source src) {
+static int set_token(tny_codex_creds *c, const char *token, const char *account,
+                     tny_codex_cred_source src) {
     c->access_token = xstrdup(token);
     c->account_id = account && *account ? xstrdup(account) : jwt_account_id(token);
     c->source = src;
+    if (!c->access_token || (account && *account && !c->account_id)) {
+        tny_codex_creds_free(c);
+        return -3;
+    }
+    return 0;
 }
 
 /* Read one Codex-shaped auth file. 0 when it yields a credential. */
@@ -164,33 +173,34 @@ static int read_auth_file(char *path, tny_codex_creds *c, tny_codex_cred_source 
     yyjson_val *tokens = jget(root, "tokens");
     const char *access = jget_str(tokens, "access_token");
     if (access && *access) {
-        set_token(c, access, jget_str(tokens, "account_id"), src);
+        if (set_token(c, access, jget_str(tokens, "account_id"), src) != 0) {
+            yyjson_doc_free(doc);
+            return -3;
+        }
         if (!c->account_id) c->account_id = jwt_account_id(jget_str(tokens, "id_token"));
     }
     const char *key = jget_str(root, "OPENAI_API_KEY");
-    if (key && *key && !c->access_token) {
-        c->api_key = xstrdup(key);
-        c->source = src;
-    }
+    bool stored_key = key && *key && !c->access_token;
     yyjson_doc_free(doc);
-    return c->access_token || c->api_key ? 0 : -1;
+    if (stored_key) return -2;
+    return c->access_token ? 0 : -1;
 }
 
 int tny_codex_credentials(const tny_ctx *ctx, tny_codex_creds *c) {
     memset(c, 0, sizeof *c);
     if (ctx && ctx->chatgpt_token && *ctx->chatgpt_token) {
-        set_token(c, ctx->chatgpt_token, ctx->chatgpt_account_id, TNY_CODEX_CRED_FLAG);
-        return 0;
+        return set_token(c, ctx->chatgpt_token, ctx->chatgpt_account_id, TNY_CODEX_CRED_FLAG);
     }
     const char *env = env_token();
     if (env) {
         const char *acct = getenv("CHATGPT_ACCOUNT_ID");
-        set_token(c, env, ctx && ctx->chatgpt_account_id ? ctx->chatgpt_account_id : acct,
-                  TNY_CODEX_CRED_ENV);
-        return 0;
+        return set_token(c, env, ctx && ctx->chatgpt_account_id ? ctx->chatgpt_account_id : acct,
+                         TNY_CODEX_CRED_ENV);
     }
-    if (read_auth_file(tny_codex_store_path(), c, TNY_CODEX_CRED_TNY_STORE) == 0) return 0;
-    if (read_auth_file(tny_codex_auth_path(), c, TNY_CODEX_CRED_CODEX_CLI) == 0) return 0;
+    int rc = read_auth_file(tny_codex_store_path(), c, TNY_CODEX_CRED_TNY_STORE);
+    if (rc != -1) return rc;
+    rc = read_auth_file(tny_codex_auth_path(), c, TNY_CODEX_CRED_CODEX_CLI);
+    if (rc != -1) return rc;
     return -1;
 }
 

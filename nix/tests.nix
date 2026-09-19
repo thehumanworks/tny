@@ -1,6 +1,6 @@
 # `make test` as a derivation: the greatest unit suite under ASan/UBSan, the
 # event-schema and conformance-contract checks, and the fixture-driven
-# integration suite for every backend. No live keys, no network (AGENTS.md).
+# integration suite for native HTTP profiles. No live keys, no network (AGENTS.md).
 {
   lib,
   stdenv,
@@ -125,6 +125,8 @@ stdenv.mkDerivation {
     # fixtures: the Python families run under python3 above, the C ones
     # compile with the stdenv cc already on the builder's PATH.
   ]
+  # test_native_profiles.py needs only Python stdlib local HTTP/OAuth mocks
+  # and shell sentinels; no vendor agent binary is a test dependency.
   # tests/integration/test_tui.py reads `ps` to prove the TUI pre-warm spawned
   # exactly one host, and test_ask_events.py reads it for the resident size of
   # a backpressured writer and for the owned MCP child a SIGINT must reap

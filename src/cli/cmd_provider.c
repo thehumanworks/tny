@@ -58,15 +58,19 @@ static int provider_setup(tny_ctx *ctx, int argc, char **argv) {
     for (int i = 0; i < argc; i++) {
         const char *a = argv[i];
         if (strcmp(a, "--base-url") == 0 && i + 1 < argc) base_url = argv[++i];
-        else if (strcmp(a, "--api-key") == 0 && i + 1 < argc) api_key = argv[++i];
-        else if (strcmp(a, "--api-key-env") == 0 && i + 1 < argc) api_key_env = argv[++i];
+        else if (strcmp(a, "--api-key") == 0) {
+            fputs("tny: --api-key persistence was removed; export the key and use --api-key-env "
+                  "NAME\n",
+                  stderr);
+            return 1;
+        } else if (strcmp(a, "--api-key-env") == 0 && i + 1 < argc) api_key_env = argv[++i];
         else if (strcmp(a, "--model") == 0 && i + 1 < argc) model = argv[++i];
         else if (strcmp(a, "--wire-api") == 0 && i + 1 < argc) wire_api = argv[++i];
         else if (a[0] == '-') {
             fprintf(stderr,
                     "tny: provider setup: unknown flag %s\n"
                     "Example: tny provider setup openrouter "
-                    "--base-url https://openrouter.ai/api/v1 --api-key sk-…\n",
+                    "--base-url https://openrouter.ai/api/v1 --api-key-env OPENROUTER_API_KEY\n",
                     a);
             return 1;
         } else if (!name) name = a;
@@ -118,11 +122,8 @@ static int provider_setup(tny_ctx *ctx, int argc, char **argv) {
         return 1;
     }
     if (tty && !api_key && !api_key_env) {
-        p_key = prompt_line("api key (stored in ~/.tny/settings.json; $ENV_NAME to read an "
-                            "env var instead; empty to skip): ",
-                            true);
-        if (p_key && p_key[0] == '$' && p_key[1]) api_key_env = p_key + 1;
-        else if (p_key && *p_key) api_key = p_key;
+        p_key = prompt_line("API key environment variable name: ", false);
+        if (p_key && *p_key) api_key_env = p_key;
     }
     if (tty && !model) {
         p_model = prompt_line("default model (empty to skip): ", false);
@@ -136,10 +137,9 @@ static int provider_setup(tny_ctx *ctx, int argc, char **argv) {
         fprintf(stderr, "tny: %s\n", err);
     } else {
         tny_settings_set_str(ctx, "last_provider", name);
-        printf("provider '%s' written to %s%s\n", name, ctx->settings_path,
-               api_key ? " (key stored; file is 0600)" : "");
+        printf("provider '%s' written to %s\n", name, ctx->settings_path);
         if (api_key_env && !getenv(api_key_env))
-            printf("note: $%s is not set in this shell\n", api_key_env);
+            fprintf(stderr, "tny: warning: $%s is not set in this shell\n", api_key_env);
         printf("try: tny --provider %s ask \"hello\"\n", name);
     }
     free(p_name);
@@ -157,7 +157,7 @@ int cmd_provider(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     fprintf(stderr,
             "tny: provider: unknown subcommand '%s'\n"
             "Usage: tny provider [list] | tny provider setup NAME "
-            "[--base-url URL] [--api-key KEY | --api-key-env ENV] "
+            "[--base-url URL] [--api-key-env ENV] "
             "[--model M] [--wire-api responses|chat]\n",
             argv[0]);
     return 1;

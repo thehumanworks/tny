@@ -71,31 +71,11 @@ static int turn_sweep_case(const char *provider, const char *index, const char *
     ctx->base_url = xstrdup(url);
     free(ctx->wire_api);
     ctx->wire_api = xstrdup(strcmp(provider, "openai-chat") == 0 ? "chat" : "responses");
-    char script[4096];
-    char *agent[] = {"python3", script, NULL};
-    if (strcmp(provider, "cursor") == 0) {
-        ctx->backend = TNY_BK_CURSOR;
-        setenv("CURSOR_API_KEY", "fault-test-key", 1);
-        if (!realpath("tests/integration/mock_bridge.py", script)) return 11;
-        free(ctx->bridge_bin);
-        ctx->bridge_bin = xstrdup(script);
-        setenv("TNY_MOCK_DIR", root, 1);
-        setenv("TNY_MOCK_CWD", root, 1);
-    } else if (strncmp(provider, "acp", 3) == 0) {
-        ctx->backend = TNY_BK_ACP;
-        if (!realpath("tests/integration/fake_acp_agent.py", script)) return 11;
-        if (strcmp(provider, "acp-ws") == 0) {
-            agent[0] = (char *)url;
-            agent[1] = NULL;
-        }
-        ctx->agent_argv = agent;
-    } else ctx->backend = TNY_BK_OPENAI;
+    ctx->backend = TNY_BK_OPENAI;
     tny_session_state *session = session_new(ctx);
     perm_engine *perm = perm_new(ctx);
     tny_engine *engine = tny_engine_new(ctx, session, perm, NULL, NULL);
-    tny_backend *backend = ctx->backend == TNY_BK_CURSOR ? tny_backend_cursor_new(ctx)
-                           : ctx->backend == TNY_BK_ACP  ? tny_backend_acp_new(ctx)
-                                                         : tny_backend_openai_new(ctx);
+    tny_backend *backend = tny_backend_openai_new(ctx);
     char err[512];
     if (!engine || !backend ||
         tny_engine_prepare(engine, backend, TNY_ENGINE_PREPARE_FRESH, err, sizeof err) != 0) {
@@ -129,7 +109,6 @@ static int turn_sweep_case(const char *provider, const char *index, const char *
     tny_engine_free(engine);
     perm_free(perm);
     session_close(session);
-    ctx->agent_argv = NULL;
     tny_ctx_free(ctx);
     FILE *out = fopen(report, "w");
     if (!out) return 28;
@@ -138,10 +117,7 @@ static int turn_sweep_case(const char *provider, const char *index, const char *
     return rc;
 }
 
-SUITE_EXTERN(cursor_callbacks_suite);
 SUITE_EXTERN(openai_suite);
-SUITE_EXTERN(acp_suite);
-SUITE_EXTERN(cursor_suite);
 GREATEST_MAIN_DEFS();
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--native-storage-guard") == 0) {
@@ -154,9 +130,6 @@ int main(int argc, char **argv) {
     if (argc == 7 && strcmp(argv[1], "--turn-sweep") == 0)
         return turn_sweep_case(argv[2], argv[3], argv[4], argv[5], argv[6]);
     GREATEST_MAIN_BEGIN();
-    RUN_SUITE(cursor_callbacks_suite);
     RUN_SUITE(openai_suite);
-    RUN_SUITE(acp_suite);
-    RUN_SUITE(cursor_suite);
     GREATEST_MAIN_END();
 }

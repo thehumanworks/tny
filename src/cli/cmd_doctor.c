@@ -28,9 +28,6 @@ static bool on_path(const char *bin) {
     return found;
 }
 
-static const char *ACP_AGENTS[] = {"gemini",   "claude-agent-acp", "agent", "goose",
-                                   "opencode", "copilot",          NULL};
-
 int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = g->json;
     for (int i = 0; i < argc; i++)
@@ -42,9 +39,6 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     /* backend one-liners */
     char lines[TNY_BK_COUNT][256];
     int health[TNY_BK_COUNT];
-    const char *old_no_spawn_value = getenv("TNY_DOCTOR_NO_SPAWN");
-    char *old_no_spawn = old_no_spawn_value ? xstrdup(old_no_spawn_value) : NULL;
-    if (json) setenv("TNY_DOCTOR_NO_SPAWN", "1", 1);
     for (int i = 0; i < TNY_BK_COUNT; i++) {
         snprintf(lines[i], sizeof lines[i], "no probe");
         health[i] = 1;
@@ -52,13 +46,7 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (bk && bk->doctor) health[i] = bk->doctor(ctx, lines[i], sizeof lines[i]);
         if (bk) bk->destroy(bk);
     }
-    if (json) {
-        if (old_no_spawn) setenv("TNY_DOCTOR_NO_SPAWN", old_no_spawn, 1);
-        else unsetenv("TNY_DOCTOR_NO_SPAWN");
-    }
-    free(old_no_spawn);
 
-    bool bridge = on_path(ctx->bridge_bin);
     bool codex = ctx->chatgpt_token || tny_codex_auth_present(); /* a ChatGPT credential */
     bool settings_ok = !file_exists(ctx->settings_path) || ctx->settings != NULL;
 #ifdef __EMSCRIPTEN__
@@ -89,14 +77,6 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         sandbox_note = "auto resolved to none; no supported wrapper is available";
     else sandbox_note = "terminal commands run without a tny OS wrapper";
 
-    buf_t acp_found;
-    buf_init(&acp_found);
-    for (int i = 0; ACP_AGENTS[i]; i++)
-        if (on_path(ACP_AGENTS[i])) {
-            if (acp_found.len) buf_appends(&acp_found, ", ");
-            buf_appends(&acp_found, ACP_AGENTS[i]);
-        }
-
     if (json) {
         buf_t b;
         buf_init(&b);
@@ -116,10 +96,7 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                     tny_tool_profile_name(ctx->tool_profile), tny_sandbox_kind_name(sandbox));
         jescape(&b, sandbox_note);
         buf_appends(&b, ",");
-        buf_appendf(&b, "\"hosts\":{\"cursor_sdk_bridge\":%s,\"codex\":%s,\"acp_agents\":",
-                    bridge ? "true" : "false", codex ? "true" : "false");
-        jescape(&b, acp_found.len ? acp_found.data : "");
-        buf_appends(&b, "},\"providers\":[");
+        buf_appends(&b, "\"providers\":[");
         for (int i = 0; i < TNY_BK_COUNT; i++) {
             if (i) buf_appends(&b, ",");
             buf_appendf(&b, "{\"name\":\"%s\",\"healthy\":%s,\"detail\":",
@@ -145,19 +122,14 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         printf("%s sandbox: %s (%s)\n", sandbox == TNY_SANDBOX_NONE ? "note" : "ok ",
                tny_sandbox_kind_name(sandbox), sandbox_note);
         printf("ok  tools: %s\n", tny_tool_profile_name(ctx->tool_profile));
-        printf("%s cursor-sdk-bridge: %s\n", bridge ? "ok " : "miss",
-               bridge ? ctx->bridge_bin : "not on PATH (set CURSOR_SDK_BRIDGE_BIN)");
         printf("%s codex: %s\n", codex ? "ok " : "miss",
                codex ? "ChatGPT credential found (flag, env, ~/.tny/codex-auth.json, or "
                        "$CODEX_HOME/auth.json)"
                      : "no ChatGPT credential (run `tny --provider codex login`)");
-        printf("%s ACP agents: %s\n", acp_found.len ? "ok " : "miss",
-               acp_found.len ? acp_found.data : "none detected");
         printf("\nproviders:\n");
         for (int i = 0; i < TNY_BK_COUNT; i++)
             printf("  %s %s\n", health[i] == 0 ? "ok " : "warn", lines[i]);
     }
     free(capabilities);
-    buf_free(&acp_found);
     return 0;
 }

@@ -565,20 +565,7 @@ static bool ensure_backend(tui *t) {
     }
     tny_engine_set_frontend_control(engine, ask_user_hook, t, NULL, NULL, NULL, t->session->id);
     tny_engine_set_cancel_probe(engine, tui_cancel_probe, t);
-    tny_backend *bk = tui_prewarm_take(t);
-    if (bk) {
-        if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_RESUMED, err, sizeof err) != 0) {
-            tny_engine_preserve_session_on_free(engine);
-            tny_engine_free(engine);
-            tui_err(t, err);
-            return false;
-        }
-        t->engine = engine;
-        t->bk_adopted = true;
-        tny_settings_remember_use(t->ctx);
-        return true;
-    }
-    bk = tny_backend_create((tny_backend_id)t->ctx->backend, t->ctx);
+    tny_backend *bk = tny_backend_create((tny_backend_id)t->ctx->backend, t->ctx);
     if (!bk || tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_FRESH, err, sizeof err) != 0) {
         tny_engine_preserve_session_on_free(engine);
         tny_engine_free(engine);

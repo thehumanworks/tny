@@ -16,7 +16,6 @@
 struct tny_extensions;
 struct tny_host_services_state;
 struct custom_tool_registry;
-struct tny_cursor_config;
 
 /* TNY_VERSION lives in build/generated/tny_version.h, written by make from
  * `git describe` (docs/adr/0014). The fallback keeps editors and static
@@ -59,8 +58,9 @@ typedef struct tny_ctx {
     int n_extra_dirs;
 
     /* selection */
-    int backend;         /* tny_backend_id, resolved */
-    char *provider_name; /* effective named profile (OpenAI or acp@NAME) */
+    bool provider_resolution_failed; /* transient staging allocation failure */
+    int backend;                     /* tny_backend_id, resolved */
+    char *provider_name;             /* effective native HTTP profile */
     char *model;
     bool model_from_flag; /* --model on the command line beats settings and
                            * saved models */
@@ -92,21 +92,16 @@ typedef struct tny_ctx {
     char *wire_api;           /* "responses" (default) | "chat" (docs/adr/0016) */
     char *output_schema;      /* normalized response_format JSON, or NULL */
     char **extra_headers;     /* NULL-terminated extra request header lines set
-                               * by builtin profiles (claude oauth beta, grok
+                               * by builtin profiles (ChatGPT account, grok
                                * proxy auth — docs/adr/0019); never persisted */
 
-    /* cursor */
-    char *bridge_bin;
-    struct tny_cursor_config *cursor_config; /* user-level sdk.v1 options */
-    char *xai_api_key;                       /* explicit STT credential only; never selects chat */
+    char *xai_api_key; /* explicit STT credential only; never selects chat */
     /* codex (docs/adr/0065, 0066): a ChatGPT token + account id handed in
      * by flag (--chatgpt-token / --chatgpt-account-id) — the file-less
      * credential source; env and the stores are read in codex_auth.c */
     char *chatgpt_token;
     char *chatgpt_account_id;
-    char *codex_base_url;  /* explicit standalone SDK gateway; never a chat-provider URL */
-    bool no_host_registry; /* background ask child: never publish a spawned
-                            * host as an attach target (docs/adr/0031) */
+    char *codex_base_url; /* explicit standalone SDK gateway; never a chat-provider URL */
     /* remote tool runtime (core/ssh.c, docs/adr/0022): when ssh_host is set
      * every workspace tool runs on that host over one ControlMaster */
     char *ssh_host;    /* user@host or [v6], NULL = local tools */
@@ -125,10 +120,7 @@ typedef struct tny_ctx {
      * through tny_image_input_configured() and friends, not as a live probe. */
     tny_image_input_policy image_input;
 
-    /* user system prompt (--system-prompt, all providers). The openai
-     * backend carries it on its native system/instructions field; host
-     * backends with no such schema field (cursor, acp) get it
-     * prepended to the session's first user message instead (runtime.c). */
+    /* User system prompt carried on the native system/instructions field. */
     char *system_prompt;
 
     /* Runtime-owned task preset selection. Bodies are resolved lazily for CLI
@@ -151,10 +143,6 @@ typedef struct tny_ctx {
     bool effort_from_settings; /* current value came from settings.json, so
                                 * switching provider recomputes it instead
                                 * of leaking one provider's default */
-    /* acp */
-    char **agent_argv;       /* NULL-terminated, or NULL */
-    bool agent_from_profile; /* agent_argv belongs to settings acp.NAME */
-
     /* repo limits (.tny.json — never authority, only limits) */
     bool workspace_read_only;     /* inherited team policy, before rules/yolo */
     int max_steps;                /* 0 = unlimited (default); a cap comes
@@ -167,7 +155,7 @@ typedef struct tny_ctx {
     int n_instruction_paths;
     char instructions_digest[17];
     bool instructions_snapshot_ready;
-    bool mcp_disabled;            /* `tny acp` server: client owns MCP */
+    bool mcp_disabled;            /* explicit embedding disables ambient MCP */
     unsigned mcp_import_mask;     /* explicit settings mcp.import_from opt-ins */
     unsigned mcp_import_order[4]; /* source bits, in user-authored order */
     int n_mcp_import_sources;
@@ -197,7 +185,7 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value);
 
 /* ---- builtin subscription profiles (profiles.c, docs/adr/0019, 0065) ----
  * "codex" (ChatGPT subscription against chatgpt.com/backend-api/codex),
- * "claude" (Anthropic OpenAI-compat + Claude Code OAuth token) and "grok"
+ * and "grok"
  * (xAI CLI session token / XAI_API_KEY) run on the openai backend like
  * user-named profiles, but ship with tny. A settings.json object or
  * NAME_BASE_URL env var with the same name shadows the builtin. */
@@ -217,15 +205,17 @@ typedef enum {
 typedef struct {
     char *access_token; /* ChatGPT OAuth bearer */
     char *account_id;   /* explicit, or the JWT `chatgpt_account_id` claim */
-    char *api_key;      /* Codex CLI auth.json OPENAI_API_KEY (API-key mode) */
     tny_codex_cred_source source;
 } tny_codex_creds;
 char *tny_codex_home(void);       /* $CODEX_HOME or ~/.codex, malloc'd */
 char *tny_codex_auth_path(void);  /* Codex CLI …/auth.json, malloc'd */
 char *tny_codex_store_path(void); /* ~/.tny/codex-auth.json, malloc'd */
-/* Any env or file credential source present (the flag is on ctx). */
+/* A usable OAuth credential is present (the flag is on ctx); no stderr. */
 bool tny_codex_auth_present(void);
-/* 0 when a credential resolved; ctx may be NULL (no flag source). */
+/* Includes unreadable/retired stores: standalone services must fail closed. */
+bool tny_codex_auth_configured(void);
+/* 0 resolved, -1 absent/unreadable, -2 retired key-only, -3 OOM. No stderr.
+ * ctx may be NULL (no flag source). */
 int tny_codex_credentials(const tny_ctx *ctx, tny_codex_creds *out);
 void tny_codex_creds_free(tny_codex_creds *c);
 /* Standalone media services: explicit trusted gateway, then environment/default. */
@@ -245,13 +235,8 @@ int tny_codex_http_post(const char *url, const char *content_type, const char *b
 /* codex_login.c: native ChatGPT sign-in — browser PKCE flow with the
  * localhost callback, or the device-code flow (docs/adr/0066). Exit code. */
 int tny_codex_login(tny_ctx *ctx, bool device);
-int tny_codex_logout(void);         /* delete ~/.tny/codex-auth.json */
-bool tny_claude_auth_present(void); /* subscription login artifacts only */
-bool tny_grok_auth_present(void);   /* ~/.grok/auth.json session */
-/* Resolved Claude credential: CLAUDE_CODE_OAUTH_TOKEN, then
- * ANTHROPIC_API_KEY, then ~/.claude/.credentials.json accessToken.
- * malloc'd; *source (optional) names where it came from. */
-char *tny_claude_token(const char **source);
+int tny_codex_logout(void); /* delete ~/.tny/codex-auth.json */
+bool tny_grok_auth_present(void);
 /* Session token from ~/.grok/auth.json (tny's own login or the grok
  * CLI's). malloc'd. */
 char *tny_grok_session_token(void);
@@ -261,7 +246,7 @@ char *tny_grok_session_token(void);
 int tny_grok_login(void);
 int tny_grok_logout(void);
 void tny_grok_refresh_if_stale(void);
-void tny_apply_builtin_profile(tny_ctx *ctx, const char *name);
+int tny_apply_builtin_profile(tny_ctx *ctx, const char *name);
 /* True when the codex profile is bound to the ChatGPT backend (OAuth
  * token + the responses beta header), as opposed to API-key mode on
  * api.openai.com. Decides the `/models` dialect below. */
@@ -281,17 +266,16 @@ void tny_ctx_clear_extra_headers(tny_ctx *ctx);
 void tny_ctx_add_extra_header(tny_ctx *ctx, const char *line);
 
 /* Effective provider name: a settings profile name ("openrouter" or
- * "acp@claude") when active, else the builtin backend name. Never NULL after
+ * "my-gateway") when active, else the builtin backend name. Never NULL after
  * tny_resolve_backend. */
 const char *tny_provider_name(const tny_ctx *ctx);
 /* ---- conversation image input (docs/adr/0089) ----
  * settings.json holds one additive top-level `image_input` object mapping
- * canonical provider selectors ("codex", "my-gateway", "acp@agent") to
+ * canonical provider selectors ("codex", "my-gateway", "openrouter") to
  * booleans. It is separate from provider objects so configuring image input
  * can never shadow a builtin subscription profile's auth wiring. The value
  * is resolved once the effective provider is known and reset on every
- * provider resolution; a `acp:NAME` selector resolves to the same
- * `acp@NAME` key. */
+ * provider resolution. */
 #define TNY_IMAGE_INPUT_KEY_MAX     256u
 #define TNY_IMAGE_INPUT_MAX_ENTRIES 1024u
 /* The one refusal sentence every image gate reports (CLI, engine start,
@@ -314,12 +298,8 @@ bool tny_tool_profile_is_shell(const tny_ctx *ctx);
 void tny_tool_profile_ignore(tny_ctx *ctx, const char *surface);
 /* True when `name` is a user-named OpenAI-compatible provider: a top-level
  * settings.json object with a base_url, or NAME_BASE_URL set in the
- * environment. Builtin names (openai|cursor|acp) are never custom. */
+ * environment. The default openai profile and removed protocol names are never custom. */
 bool tny_custom_provider_exists(tny_ctx *ctx, const char *name);
-/* True when provider is an `acp@NAME` (or legacy `acp:NAME`) selector whose
- * NAME is present under settings.json acp. The profile is validated when selected, so an
- * unused malformed entry never breaks startup. */
-bool tny_acp_profile_exists(tny_ctx *ctx, const char *provider);
 /* malloc'd env-var name holding the profile's API key: its api_key_env,
  * or NAME_API_KEY derived from the profile name. NULL if no such profile. */
 char *tny_custom_provider_key_env(tny_ctx *ctx, const char *name);
@@ -349,7 +329,7 @@ int tny_settings_set_str(tny_ctx *ctx, const char *key, const char *value);
  * (docs/adr/0018). */
 typedef struct {
     const char *base_url;
-    const char *api_key; /* stored in settings.json; env still wins */
+    const char *api_key; /* legacy setup input: rejected; use api_key_env */
     const char *api_key_env;
     const char *model;
     const char *wire_api; /* "responses" | "chat" */

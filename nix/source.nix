@@ -69,7 +69,7 @@ let
     # mutation/checkpoint_ownership.py with the same full injected object graph.
     # Runtime ownership also uses test_runtime.c and mutation/runtime_critical.py.
     # tests/build/test_cpp_analyzer.py checks real factories and negative GCC controls.
-    # Provider OOM hosts (integration/libtny_provider_fault_host.c, test_cursor_callbacks.c)
+    # Provider OOM hosts (integration/libtny_provider_fault_host.c, test_openai.c)
     # and the C++ custom-tool completion-OOM sanitizer host reuse this fileset and toolchain.
     # test_fault_sweep_inventory.py prevents shrinking discovered fault indices.
     # Runner/job ownership (fixtures/runner_ownership.cpp, fixtures/resource_host_faults.c,
@@ -91,7 +91,9 @@ let
     # temporary directory; no external assets or image libraries.
     # test_image_input.py adds the image-input capability gates: a throwaway
     # HOME with its own settings.json, fake credentials, the stdlib loopback
-    # provider and tests/integration/fake_acp_agent.py, all already in ../tests.
+    # HTTP provider, all already in ../tests.
+    # test_native_profiles.py adds synthetic HOME, vendor sentinels and local
+    # OpenRouter/AIProxy/Grok HTTP/OAuth fixtures; ../tests includes all inputs.
     # test_image_exports.py (#125) adds no source inputs either — its images
     # are generated with stdlib struct/zlib and decoded the same way — but it
     # does drive the optional ImageMagick 7 `magick` executable, which

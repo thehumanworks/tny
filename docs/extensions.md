@@ -42,7 +42,7 @@ module's annotations allow editors and type checkers to validate extensions
 without tny shipping an interpreter.
 
 `api.capabilities` is an immutable `CapabilityView`. It contains the provider
-selected during setup plus complete native OpenAI, Cursor, Codex, and ACP
+selected during setup plus native HTTP profile
 matrices. Capability entries have stable names, a current `supported`,
 `unsupported`, or `unavailable` state, and a reason. Unknown names, unknown
 future state strings, and optional fields are retained.
@@ -195,9 +195,7 @@ unsupported action produces a visible typed diagnostic and acts as `none`.
 | `annotate_tool(content, display)` / `tool_annotate` | add attributed post-tool metadata | `extensions.tool.post.annotate` |
 | `replace_tool_result(content, is_error)` / `tool_result_replace` | select next-model result while retaining original | `extensions.tool.post.replace` |
 
-Cursor reports its missing permission and host-tool control surfaces as
-`unsupported`. Codex and ACP decisions remain unavailable until their adapter
-lanes correlate the shared fold to a real live host request.
+All supported profiles run the native loop and expose its tool and permission capabilities. Legacy protocol adapters are removed.
 
 All matching listeners run before actions are folded. Context items retain
 listener order. `stop` wins over continuation. Multiple continuation
@@ -290,9 +288,7 @@ over global extensions.
 
 | Provider | Turn completion | Continue action | Stop confirmation | Important limit |
 | --- | --- | --- | --- | --- |
-| Native Responses/Chat (openai, codex, claude, grok profiles) | tny finishes its tool/model loop | another native model iteration with visible context | tny drains/synthesizes terminal | only backend where tny owns tools |
-| Cursor SDK Bridge | `result`, then `done` | new `Send` on the same agent | cancelled `result`, then `done` | host owns tools; no portable pre-tool veto |
-| ACP v1 | original `session/prompt` response | another prompt on the same session | response stop reason `cancelled` after final updates | client must keep draining after cancel |
+| Native Responses/Chat (openai, codex, grok and configured profiles) | tny finishes its tool/model loop | another native model iteration with visible context | tny drains/synthesizes terminal | only backend where tny owns tools |
 | OpenRouter/generic compatible | terminal SSE/provider close | next HTTP model iteration | abort may not stop every upstream | mid-stream errors may still use HTTP 200 |
 
 Provider terminal events remain true. `continue` creates a later turn; it
@@ -317,7 +313,7 @@ real protocol surface.
 ## libtny and wasm
 
 libtny ABI 0 never discovers or executes `~/.tny/extensions`; a public
-authority opt-in is deferred. CLI, TUI, and the ACP server use hooks through
+authority opt-in is deferred. CLI and TUI use hooks through
 the shared private runtime engine.
 
 Python extensions are unavailable in wasm. Explicitly requesting them returns
@@ -337,9 +333,7 @@ host.
 | Continuation | visible custom attribution, explicit user follow-up, multiple messages, positive cap, `0` unlimited |
 | Settlement | repeated candidate `agent_end`, exactly one final `agent_settled`, user cancel wins |
 | Native provider | prompt/tool rewrite and deny, permission allow/deny/abstain, post replacement/annotation, deterministic parallel batch, cancellation, recovery/resume, redacted request attempts, and Responses/Chat regressions |
-| Cursor | SDK messages, deltas, tool lifecycle, result/done, cancelled and expired runs |
 | Codex | item lifecycle, reasoning/tool deltas, usage, error-before-completed, interrupt |
-| ACP | all v1 update variants, sparse tool updates, stop reasons, final updates after cancel |
 | OpenRouter | comments, reasoning details, final usage, HTTP error and HTTP-200 mid-stream error |
 | libtny | ABI 0 stays off, owner-thread behavior unchanged, no surprise stdout/stderr |
 | wasm | default agent parity unchanged; explicit extension request fails cleanly |

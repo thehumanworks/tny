@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
         }
         yyjson_doc_free(doc); free(request); buf_free(&input); buf_free(&out);
     }
-    free(g.add_dirs); free(g.agent_argv); tny_ctx_free(ctx);
+    free(g.add_dirs); tny_ctx_free(ctx);
     return rc;
 }
 """

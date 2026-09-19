@@ -55,13 +55,7 @@ void sse_event(const char *data, size_t len, void *ud) {
     int rc = oa_decoder_feed(&s.decoder, &s.calls, s.chat, true, data, len, event, &s.result);
     if (rc == TNY_PARSE_OOM) s.status = rc;
 }
-void frame(uint8_t flags, const char *data, size_t len, void *ud) {
-    auto &d = *static_cast<digest *>(ud);
-    ++d.count;
-    d.number(flags);
-    d.number(len);
-    d.bytes(data, len);
-}
+
 size_t portion(size_t left, size_t position, int mode) {
     return mode == 0 ? left : mode == 1 ? 1 : std::min(left, 1 + position % 23);
 }
@@ -95,22 +89,7 @@ digest sse_run(const char *data, size_t len, int mode, bool chat) {
     if (extras) s.result.bytes(extras, std::strlen(extras));
     return s.result;
 }
-digest connect_run(const char *data, size_t len, int mode) {
-    digest d;
-    connect_decoder decoder;
-    connect_decoder_init(&decoder);
-    int rc = TNY_PARSE_OK;
-    for (size_t pos = 0; pos < len;) {
-        size_t take = portion(len - pos, pos, mode);
-        rc = connect_decoder_feed(&decoder, data + pos, take, frame, &d);
-        pos += take;
-        if (rc) break;
-    }
-    d.number(static_cast<uint64_t>(rc));
-    d.number(static_cast<uint64_t>(connect_decoder_finish(&decoder)));
-    connect_decoder_free(&decoder);
-    return d;
-}
+
 } // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
@@ -122,9 +101,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         stream s(chat);
         (void)oa_decoder_feed(&s.decoder, &s.calls, chat, true, bytes, size, event, &s.result);
     }
-    digest whole = connect_run(bytes, size, 0);
-    assert(whole == connect_run(bytes, size, 1));
-    assert(whole == connect_run(bytes, size, 2));
     return 0;
 }
 #ifdef TNY_FUZZ_STANDALONE

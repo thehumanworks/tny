@@ -39,18 +39,12 @@ unset OPENAI_API_KEY OPENAI_BASE_URL OPENCODE_API_KEY OPENCODE_BASE_URL || true
 
 # ---- setup writes the profile, makes it the default, chmods 0600 --------
 OUT=$(HOME="$TMP/home" "$TNY" provider setup opencode \
-    --base-url "http://127.0.0.1:$PORT/v1" --api-key sk-setup-not-real \
+    --base-url "http://127.0.0.1:$PORT/v1" --api-key-env OPENCODE_API_KEY \
     --model mock-model 2>&1) || fail "setup exited $? ($OUT)"
 contains "$OUT" "provider 'opencode'"
-grep -q '"api_key": "sk-setup-not-real"' "$TMP/home/.tny/settings.json" ||
-    fail "key not stored: $(cat "$TMP/home/.tny/settings.json")"
-grep -q '"last_provider": "opencode"' "$TMP/home/.tny/settings.json" ||
-    fail "last_provider not set"
-case "$(ls -l "$TMP/home/.tny/settings.json" | cut -c1-10)" in
-    -rw-------) ;;
-    *) fail "settings.json not 0600 after storing a key: $(ls -l "$TMP/home/.tny/settings.json")" ;;
-esac
-echo "ok  setup wrote the profile (0600, last_provider)"
+grep -q '"api_key_env": "OPENCODE_API_KEY"' "$TMP/home/.tny/settings.json" || fail "env name not stored"
+grep -q '"api_key"' "$TMP/home/.tny/settings.json" && fail "raw key persisted"
+export OPENCODE_API_KEY=sk-setup-not-real
 
 # ---- a bare ask runs on the stored profile with no env at all -----------
 OUT=$(HOME="$TMP/home" "$TNY" --cwd "$TMP/ws" ask --json --no-save \
@@ -68,8 +62,8 @@ echo "ok  key stayed out of the output"
 # ---- error paths: host provider, missing base url, no tty no flags ------
 HOME="$TMP/home" "$TNY" provider setup cursor --base-url http://h/v1 \
     > /dev/null 2> "$TMP/err2" && fail "host provider accepted"
-contains "$(cat "$TMP/err2")" "host provider"
-HOME="$TMP/home" "$TNY" provider setup fresh --api-key sk-x \
+contains "$(cat "$TMP/err2")" "removed"
+HOME="$TMP/home" "$TNY" provider setup fresh --api-key-env FRESH_KEY \
     > /dev/null 2> "$TMP/err3" && fail "profile without base url accepted"
 contains "$(cat "$TMP/err3")" "base-url"
 HOME="$TMP/home" "$TNY" provider setup < /dev/null \
@@ -104,22 +98,10 @@ grep -q "dangler" "$TMP/home/.tny/settings.json" && fail "dangler profile writte
 echo "ok  dangling flag refused"
 
 # ---- bare `provider` / `provider list` route to the listing -------------
-SETTINGS="$TMP/home/.tny/settings.json" "$PY" -c '
-import json, os
-path = os.environ["SETTINGS"]
-data = json.load(open(path))
-data["acp"] = {"fixture": {"command": "python3", "args": ["-V"],
-                            "model": "selected-model"}}
-with open(path, "w") as fh:
-    json.dump(data, fh)
-'
 OUT=$(HOME="$TMP/home" "$TNY" provider --json 2>&1) || fail "provider listing failed"
 contains "$OUT" "opencode"
-contains "$OUT" '"name":"acp@fixture"'
-contains "$OUT" '"backend":"acp"'
 OUT=$(HOME="$TMP/home" "$TNY" provider list --json 2>&1) || fail "provider list failed"
 contains "$OUT" "opencode"
-contains "$OUT" '"name":"acp@fixture"'
 HOME="$TMP/home" "$TNY" provider frobnicate > /dev/null 2> "$TMP/err7" &&
     fail "unknown subcommand accepted"
 contains "$(cat "$TMP/err7")" "unknown subcommand"
@@ -194,23 +176,14 @@ def drive(args, steps, expect_rc=0, refuse=None):
 drive(["provider", "setup"],
       [("provider name", "ptyprov"),
        ("base url", "http://127.0.0.1:%s/v1" % port),
-       ("api key", "$PTYPROV_KEY_VAR"),
+       ("API key environment variable", "PTYPROV_KEY_VAR"),
        ("default model", "pty-model")])
 s = open(os.path.join(home, ".tny", "settings.json")).read()
 assert '"ptyprov"' in s and '"PTYPROV_KEY_VAR"' in s and '"pty-model"' in s, s
 
-# a raw key answer is stored AND never echoed back (echo off)
-drive(["provider", "setup", "maskprov"],
-      [("base url", "http://127.0.0.1:%s/v1" % port),
-       ("api key", "sk-masked-secret"),
-       ("default model", "")],
-      refuse="sk-masked-secret")
-s = open(os.path.join(home, ".tny", "settings.json")).read()
-assert '"sk-masked-secret"' in s, s
-
-# existing provider: the base url prompt is skipped (api key comes first)
-buf = drive(["provider", "setup", "maskprov"],
-            [("api key", ""), ("default model", "")])
+# Existing profile updates keep the base URL and environment name.
+buf = drive(["provider", "setup", "ptyprov"],
+            [("API key environment variable", ""), ("default model", "")])
 assert b"base url" not in buf, buf[-400:]
 
 # empty name cancels with exit 1

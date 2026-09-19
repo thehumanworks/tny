@@ -10,7 +10,7 @@
 struct tny_ctx; /* core/config.h */
 
 // C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
-typedef enum { TNY_BK_OPENAI = 0, TNY_BK_CURSOR, TNY_BK_ACP, TNY_BK_COUNT } tny_backend_id;
+typedef enum { TNY_BK_OPENAI = 0, TNY_BK_COUNT } tny_backend_id;
 
 const char *tny_backend_name(tny_backend_id id);
 int tny_backend_from_name(const char *name); /* -1 if unknown */
@@ -108,8 +108,6 @@ struct tny_backend {
 
 /* Constructors (each backend dir provides one). */
 tny_backend *tny_backend_openai_new(struct tny_ctx *ctx);
-tny_backend *tny_backend_cursor_new(struct tny_ctx *ctx);
-tny_backend *tny_backend_acp_new(struct tny_ctx *ctx);
 
 tny_backend *tny_backend_create(tny_backend_id id, struct tny_ctx *ctx);
 

@@ -27,7 +27,7 @@ TMUX_BIN ?= tmux
 STD      = -std=c11
 WARN     = -Wall -Wextra -Werror -Wno-deprecated-declarations
 INC      = -Iinclude -Isrc -Ithird_party -Ithird_party/yyjson -Ithird_party/picohttpparser \
-           -Ithird_party/wslay -Ithird_party/wslay/wslay -Ithird_party/greatest
+           -Ithird_party/greatest
 DEFS     = -DHAVE_ARPA_INET_H -DHAVE_NETINET_IN_H -D_DARWIN_C_SOURCE \
            -D_DEFAULT_SOURCE -D_BSD_SOURCE \
            -DTNY_SHELL_PATH=\"$(TNY_SHELL_PATH)\"
@@ -166,26 +166,20 @@ CPP_SRC := $(wildcard src/util/*.cpp src/json/*.cpp src/net/*.cpp \
 SRC_PUBLIC_API := $(wildcard src/lib/*.c)
 C_SRC_ALL := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
         src/net/*.c src/mcp/*.c src/tui/*.c \
-        src/backends/openai/*.c src/backends/acp/*.c \
-        src/backends/cursor/*.c) src/lib/host_services.c
+        src/backends/openai/*.c) src/lib/host_services.c
 SRC_ALL := $(C_SRC_ALL) $(CPP_SRC)
 
 # Per-platform source lists (docs/adr/0017). Native transports (sockets, TLS,
-# hand-rolled HTTP/1.1 + wslay WebSocket) and the poll(2) wrapper are excluded
+# hand-rolled HTTP/1.1) and the poll(2) wrapper are excluded
 # from the wasm build wholesale rather than #ifdef-riddled; src/net/net_wasm.c
 # replaces the whole seam there (fetch, browser WebSocket, pseudo-fd registry).
-SRC_NATIVE := src/net/tcp.c src/net/stream.c src/net/http1.c src/net/http_server.c src/net/ws.c \
-              src/util/tny_poll.c src/backends/cursor/callbacks.c
-SRC_WASM_ONLY := src/net/net_wasm.c src/backends/cursor/callbacks_wasm.c
+SRC_NATIVE := src/net/tcp.c src/net/stream.c src/net/http1.c src/net/http_server.c \
+              src/util/tny_poll.c
+SRC_WASM_ONLY := src/net/net_wasm.c
 SRC_SHARED := $(filter-out $(SRC_NATIVE) $(SRC_WASM_ONLY),$(SRC_ALL))
 SRC := $(SRC_SHARED) $(SRC_NATIVE)
 
-TP  := third_party/yyjson/yyjson.c third_party/picohttpparser/picohttpparser.c \
-       third_party/wslay/wslay_event.c third_party/wslay/wslay_frame.c \
-       third_party/wslay/wslay_net.c third_party/wslay/wslay_queue.c \
-       third_party/wslay/wslay_stack.c
-# wslay + picohttpparser serve the native transports only; the wasm build
-# keeps just yyjson so `nm` stays honest about dead code.
+TP := third_party/yyjson/yyjson.c third_party/picohttpparser/picohttpparser.c
 TP_WASM := third_party/yyjson/yyjson.c
 
 REL_OBJS := $(call objects,$(OBJ_REL),$(SRC)) $(call objects,$(OBJ_REL),$(TP))
@@ -207,8 +201,7 @@ endif
 
 # libtny ABI 1: headless runtime only. ACP server/turn are application
 # adapters; the ACP client wire remains a library backend.
-LIB_APP_EXCLUDE := src/main.c $(filter-out src/cli/globals.c,$(wildcard src/cli/*.c src/tui/*.c)) \
-                   src/backends/acp/acp_server.c src/backends/acp/acp_turn.c
+LIB_APP_EXCLUDE := src/main.c $(filter-out src/cli/globals.c,$(wildcard src/cli/*.c src/tui/*.c))
 LIB_SRC := $(SRC_PUBLIC_API) \
            $(filter-out $(LIB_APP_EXCLUDE) $(SRC_PUBLIC_API),$(SRC_SHARED)) \
            $(SRC_NATIVE)
@@ -331,7 +324,7 @@ endif
 
 # Measure shipped artifacts without a fixed product size ceiling.
 
-.PHONY: all release debug test test-unit test-event-schema test-conformance-contract check-cursor-sdk-contract test-cursor-sdk-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
+.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
 all: release
 
@@ -548,13 +541,6 @@ test-conformance-contract:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 		-s tests/conformance -p 'test_*.py' -v
 
-check-cursor-sdk-contract:
-	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_cursor_sdk_v1.py
-
-test-cursor-sdk-contract: check-cursor-sdk-contract
-	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
-		tests.integration.test_cursor_sdk_contract -v
-
 test-extensions-python:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/extensions -p 'test_*.py' -v
 
@@ -732,7 +718,7 @@ test-native-request-ownership: $(NATIVE_REQUEST_TEST)
 # same allocator-instrumented owner objects as the backend ownership suite.
 PARSER_OWNER_SRC := src/util/alloc.c src/util/util.c src/json/json.c \
                     third_party/yyjson/yyjson.c src/net/sse.cpp \
-                    src/net/connectrpc.cpp src/backends/openai/toolcalls.cpp \
+                    src/backends/openai/toolcalls.cpp \
                     src/backends/openai/stream_decode.cpp
 PARSER_OWNER_OBJS := $(call objects,$(OWNER_OBJ_ROOT),$(PARSER_OWNER_SRC))
 PARSER_OWNER_TEST_OBJ := $(BUILD)/parser-ownership/test_ownership.cpp.o
@@ -856,8 +842,7 @@ $(SAN_CUSTOM_CPP_HOST): tests/integration/libtny_custom_tools_cpp.cpp $(LIB_FAUL
 
 # Provider OOM regressions use the complete allocator-instrumented object graph
 # (ADR 0117): real ACP/Cursor/OpenAI backends with injected C and C++ owners.
-PROVIDER_FAULT_TEST_SRC := tests/test_cursor_callbacks.c tests/test_acp.c tests/test_cursor.c \
-                           tests/test_openai.c tests/test_ownership.cpp \
+PROVIDER_FAULT_TEST_SRC :=                            tests/test_openai.c tests/test_ownership.cpp \
                            tests/integration/libtny_provider_fault_host.c
 PROVIDER_FAULT_TEST := $(BUILD)/lib-fault/provider-faults
 PROVIDER_FAULT_SAN_TEST := $(BUILD)/lib-fault-san/provider-faults
@@ -985,7 +970,7 @@ test-libtny-tsan:
 	@exit 2
 endif
 
-test: dictation-fixture test-unit test-event-schema test-conformance-contract test-cursor-sdk-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
+test: dictation-fixture test-unit test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
 	tests/integration/run.sh
 
 size: release
@@ -1197,7 +1182,7 @@ else
   QUALITY_ANALYZE :=
 endif
 
-quality: check-cursor-sdk-contract format-check tidy warn-strict lint-py lint-sh lint-workflows lint-js $(QUALITY_ANALYZE)
+quality: format-check tidy warn-strict lint-py lint-sh lint-workflows lint-js $(QUALITY_ANALYZE)
 	@if [ -z "$(QUALITY_ANALYZE)" ]; then \
 		echo "quality: GCC -fanalyzer skipped on $(UNAME_S); CI runs it on Linux"; \
 	fi
@@ -1234,7 +1219,7 @@ LEAKS         ?= leaks
 # its correlation tests fork a runner and a terminal child.
 # terminal_task_suite also forks a detached waiter; the inherited atExit hook
 # stops that waiter before its launch handshake (ADR 0136).
-LEAK_SUITE_SKIP := cursor_suite cursor_sdk_suite mcp_suite runner_suite \
+LEAK_SUITE_SKIP := mcp_suite runner_suite \
 	session_bg_suite ssh_suite terminal_task_suite task_workspace_process_suite
 LEAK_SUITES = $(filter-out $(LEAK_SUITE_SKIP),\
 	$(if $(wildcard tests/test_main.c),$(shell sed -n 's/.*RUN_SUITE(\([A-Za-z0-9_]*\)).*/\1/p' tests/test_main.c)))

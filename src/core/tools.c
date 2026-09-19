@@ -185,7 +185,7 @@ static const char *SCHEMA_JSON =
     "\"id\":{\"type\":\"string\",\"description\":\"Child id returned by create; never set on "
     "create.\"},\"prompt\":{\"type\":\"string\"},"
     "\"provider\":{\"type\":\"string\",\"minLength\":1,\"description\":\"create/message only. "
-    "Any user-configured CLI provider, including named profiles and host providers. Omit to "
+    "Any native HTTP provider, including user-configured named profiles. Omit to "
     "inherit the parent provider. The same provider inherits resolved parent configuration; "
     "a different provider uses its own CLI configuration and credentials, not the parent's. "
     "On message, repeat a different provider to continue with it.\"},"

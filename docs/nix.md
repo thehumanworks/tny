@@ -88,11 +88,7 @@ against `<nixpkgs>`.
 
 ## What is and is not in the closure
 
-Host agents stay external processes, exactly as they do everywhere else in tny.
-`cursor-sdk-bridge`, `codex` and ACP agents are **not** dependencies of this
-package; put them on PATH yourself (for example in the same `mkShell`
-`packages` list, or via `--agent CMD`). `tny doctor` reports which ones it can
-see.
+No vendor agent binary is a runtime dependency. Provider traffic and native Codex/Grok OAuth use HTTP directly.
 
 `python3` is not required for tny itself. The extension host
 ([extensions.md](extensions.md)) `execlp`s `python3` from PATH, and the

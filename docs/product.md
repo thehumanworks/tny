@@ -18,16 +18,15 @@ An agent-first harness is measured by:
 | Reversible operations | Undo, worktree keep/remove/merge, session recover, and cancel are first-class. |
 | Observed completion | A turn is done when required checks ran or blockers are named. CLI exit codes, `--json`, and the docs/test/quality contract are the evidence. |
 | Task constraints preserved | User flags, project `AGENTS.md`, provider/model/effort, workspace and extra dirs survive the turn. |
-| Model-agnostic interfaces | One event set and one CLI/TUI over Cursor, Codex, ACP and OpenAI-compatible providers. |
+| Model-agnostic interfaces | One event set and one CLI/TUI over native OpenAI-compatible HTTP profiles. |
 
 The final report stays skim-readable. Private reasoning need not be dumped.
 
-Required backends (all first-class):
-
-1. **Cursor Agent** via the [Cursor SDK Bridge](https://cursor.com/docs/sdk/bridge) (`sdk.v1`, Connect over HTTP/1.1).
-2. **Codex** subscriptions via the Responses-compatible **ChatGPT backend** (`chatgpt.com/backend-api/codex`), a builtin profile of the native loop ([ADR 0065](adr/0065-codex-chatgpt-responses-backend.md)).
-3. **Other agents** via [ACP](https://agentclientprotocol.com/) (JSON-RPC over stdio).
-4. **OpenAI-compatible** HTTP providers (native tool loop owned by tny).
+One native HTTP backend supports Responses and Chat Completions. Named
+profiles cover environment-key gateways (OpenRouter, explicitly configured
+AIProxy and others), Codex's ChatGPT Responses subscription, and Grok's public
+API or compatible subscription proxy. No external agent binary is required.
+See [ADR 0152](adr/0152-native-http-only-providers.md).
 
 tny uses **C11 with scoped private C++20 ownership modules** (ADR 0114, ADR 0126
 and ADR 0133). Prioritize fast startup, extensibility and reliability. Measure
@@ -48,21 +47,18 @@ Keep the *user-visible harness*, not another vendor's branding:
 - Permissions: `ask` / `auto` / `yolo`, persistent rules, session grants, command sandbox.
 - Built-in tools (files, grep/glob, shell, web fetch/search, vision fallback, memory, speech, image generation/editing).
 - Skills (`SKILL.md`), MCP client, session-backed subagents.
-- ACP **server** so editors can drive tny's native loop (`tny acp`).
 - `status`, `doctor`, models, usage, workspace extra dirs, project `AGENTS.md` (over `--ssh`: remote cwd, not the launch directory).
 
 ## What tny adds
 
-tny is a **thin multiplexed frontend** over host harnesses (Cursor, ACP
-agents), plus a native OpenAI-compatible loop for BYOK providers (OpenRouter,
-Groq, local llama.cpp, Azure, etc.) and subscription logins (Codex, Claude,
-Grok). Host binaries stay external.
+tny owns tools, permissions, context and the agent loop for every provider.
+BYOK keys come from environment variables; OAuth subscription login and
+refresh are native. Claude models work through configured compatible gateways.
 
 ## Embedding
 
 The native harness is being extracted behind an experimental headless C ABI
-(`libtny`, [ADR 0023](adr/0023-libtny-embedding-abi.md)). The CLI, TUI, ACP
-server, and C embedders share one runtime; the public ABI does not expose the
+(`libtny`, [ADR 0023](adr/0023-libtny-embedding-abi.md)). The CLI, TUI, and C embedders share one runtime; the public ABI does not expose the
 private backend or `tny_backend_event` structs. Python/cffi and native
 TypeScript/Node-API packages are thin scheduler and type adapters over that
 same ABI ([SDK contract](sdks.md)); they do not contain provider-wire logic.
@@ -73,8 +69,7 @@ same ABI ([SDK contract](sdks.md)); they do not contain provider-wire logic.
   for the GitHub Pages terminal ([ADR 0017](adr/0017-wasm-browser-parity.md));
   the native Node-API SDK is a separate shared-library artifact and does not
   imply browser support.
-- Reimplementing Cursor or Codex agent loops inside tny.
-- Bundling `cursor-sdk-bridge` or ACP agents into the tny binary (spawn or attach).
+- Depending on another vendor's agent executable.
 - Vercel OAuth, AI Gateway team picker, or vendor login lock-in.
 - Completion sounds, terminal recordings, or issue/PR wrappers (optional later).
 - A heavy full-screen IDE TUI (ratatui/ncurses panels, mouse-first layouts).
@@ -92,6 +87,6 @@ same ABI ([SDK contract](sdks.md)); they do not contain provider-wire logic.
 | First token display after backend stream starts | UI overhead **< 2 ms** |
 | Feature gate | Parity table in [features/parity-with-fx.md](features/parity-with-fx.md) is green for v1 rows |
 
-Host binaries (bridge, ACP agents) are **not** part of the tny artifact.
+No vendor agent binary is a runtime dependency.
 Dated bake-off numbers versus fx v0.0.3 live in
 [size-and-speed.md](size-and-speed.md) as historical measurements.

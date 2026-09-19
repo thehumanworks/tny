@@ -86,7 +86,7 @@ static char *sa_context_error(const tools_env *env) {
                         "the work in this session");
     if (ctx->backend != TNY_BK_OPENAI)
         return tool_err("SUBAGENT_UNSUPPORTED_CONTEXT: subagent needs tny's native "
-                        "OpenAI-compatible loop; host providers run their own agents");
+                        "OpenAI-compatible loop");
     return NULL;
 }
 

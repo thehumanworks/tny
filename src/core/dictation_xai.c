@@ -13,8 +13,8 @@ static bool usable(const char *key) {
 /* Resolve only the user xai credential object. A standalone caller deliberately
  * has no loaded settings/context; do not invoke tny_ctx_load/profile resolution.
  * Presence wins: an explicitly supplied empty/invalid secret is an error, never
- * permission to fall through to a different account. Unset api_key_env falls
- * back to stored api_key, as in apply_custom_provider. */
+ * permission to fall through to a different account. A configured missing
+ * api_key_env fails closed; Grok login is used only without an explicit source. */
 static char *credential(const tny_ctx *ctx, bool refresh, char *err, size_t len) {
     const char *key = ctx ? ctx->xai_api_key : NULL;
     yyjson_doc *loaded = NULL;
@@ -30,16 +30,16 @@ static char *credential(const tny_ctx *ctx, bool refresh, char *err, size_t len)
             settings = loaded;
         }
         yyjson_val *profile = settings ? jget(yyjson_doc_get_root(settings), "xai") : NULL;
-        const char *base = jget_str(profile, "base_url");
-        if (base && *base) {
+        if (profile) {
             const char *env = jget_str(profile, "api_key_env");
             if (env && *env) key = getenv(env);
-            if (!key) {
-                yyjson_val *stored = jget(profile, "api_key");
-                key = yyjson_get_str(stored);
-                /* JSON strings can contain NUL; never silently truncate a key. */
-                if (key && strlen(key) != yyjson_get_len(stored)) key = "";
+            if (jget(profile, "api_key")) {
+                yyjson_doc_free(loaded);
+                snprintf(err, len,
+                         "stored api_key was removed; export XAI_API_KEY or configure api_key_env");
+                return NULL;
             }
+            if (!key && env && *env) key = "";
         }
     }
     bool login = !key;

@@ -252,7 +252,7 @@ def run_ctypes(
     lib.tny_error_free(invalid_error)
 
     unsupported = RuntimeOptions.from_buffer_copy(opts)
-    acp_raw = b"acp"  # host loops are not embeddable (codex is a native profile now)
+    acp_raw = b"acp"  # reserved legacy provider: unsupported, no host startup
     unsupported.provider = TnyBytes(acp_raw, len(acp_raw))
     unsupported_runtime = ctypes.c_void_p()
     unsupported_error = ctypes.c_void_p()
@@ -345,7 +345,7 @@ def run_ctypes(
     assert caps.provider_selected == 1 and caps.provider_initialized == 0
     assert caps.endpoint_reachability == 0
     assert caps.threading_model == 1 and caps.cancel_model == 2
-    assert caps.provider_available_mask == 3
+    assert caps.provider_available_mask == 1
     # ABI 1.1 advertises the task-preset capability (bit 12) in addition to
     # the frozen 1.0 feature set.
     expected_features = 0x8A7 | (1 << 12)

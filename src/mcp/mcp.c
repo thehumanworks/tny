@@ -635,8 +635,7 @@ void mcp_warm_start(struct tny_ctx *ctx) {
 }
 
 static mcp_catalog *load_profile(tools_env *env) {
-    /* server mode (`tny acp`): the ACP client owns MCP — never read the
-     * local profile (docs/backends/acp.md) */
+    /* Explicit contexts can disable local MCP discovery. */
     if (!env || !env->ctx || env->ctx->mcp_disabled) return NULL;
     return mcp_catalog_load(env->ctx);
 }

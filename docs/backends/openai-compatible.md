@@ -1,6 +1,6 @@
 # OpenAI-compatible providers
 
-This backend is the **native harness**. tny owns the tool loop, permissions, MCP, skills, sessions, and `tny acp`.
+This backend is the **native harness**. tny owns the tool loop, permissions, MCP, skills, and sessions.
 
 ## System prompt
 
@@ -269,31 +269,15 @@ schema constrains the final assistant text.
 
 Also implement `GET {base_url}/models` for `/models` when the provider has it; otherwise show configured ids only. The builtin codex profile in ChatGPT mode speaks a different catalog dialect (`?client_version=`, `models[].slug`); see [codex.md](codex.md#model-catalog-tny-models-models).
 
-## Builtin subscription profiles: claude and grok
+## Builtin subscription profiles
 
-Two profiles ship with tny ([ADR 0019](../adr/0019-subscription-logins-claude-grok.md)).
-They behave exactly like user-named profiles (openai backend, own name /
-saved model / key resolution) but need no settings entry, and they resolve
-subscription credentials other CLIs minted. A settings object or
-`NAME_BASE_URL` env var named `claude` / `grok` shadows the builtin.
+`codex` uses native ChatGPT OAuth login and the Responses backend; see
+[codex.md](codex.md). `grok` uses native OAuth or an environment API key.
+There is no Claude subscription profile or token discovery. Claude models work
+through configured OpenAI-compatible gateways. All profiles use the same HTTP
+backend; none launches an agent executable (ADR 0151).
 
-**claude** — Anthropic's OpenAI-compat endpoint
-(`https://api.anthropic.com/v1`, chat wire, default model
-`claude-sonnet-4-6`). Credential order:
-
-1. `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`; `tny --provider
-   claude login` runs it when nothing resolves),
-2. `ANTHROPIC_API_KEY` (Console key),
-3. `~/.claude/.credentials.json` → `claudeAiOauth.accessToken`
-   (`$CLAUDE_CONFIG_DIR` honored; written by `claude /login` on
-   Linux/Windows — macOS keeps it in the Keychain, use the env var there).
-
-OAuth-sourced tokens (or the `sk-ant-oat` prefix) ride
-`Authorization: Bearer` **plus** `anthropic-beta: oauth-2025-04-20`; a
-Console key must not carry the beta header. These extra headers live in
-`ctx->extra_headers` and are appended to every request.
-
-**grok** — two credential modes:
+**grok** — two credential modes (`TNY_GROK_BASE_URL` redirects either wire only to an HTTP(S) numeric `127.0.0.1` loopback fixture; remote hosts, userinfo and invalid ports are rejected):
 
 1. session token from `~/.grok/auth.json` — the legacy
    `"https://accounts.x.ai/sign-in".key` entry, or an OIDC
@@ -375,7 +359,7 @@ Named-provider rules:
   `OPENAI_BASE_URL` beats the `"openai"` object. The settings `base_url` is
   what marks the object as a provider profile (reserved objects like
   `workspaces` and `models` never have one). The four builtin names
-  (`openai|cursor|codex|acp`) are never named providers.
+  (`openai`) and removed protocol selectors cannot be custom providers. Explicit `codex`/`grok` gateway profiles shadow their subscription defaults.
 - The API key comes from the profile's `api_key_env`, defaulting to
   `NAME_API_KEY` (e.g. `xai` → `XAI_API_KEY`). `OPENAI_API_KEY` is **not** a
   fallback: it belongs to a different provider.
@@ -420,7 +404,7 @@ wasm: same source, same header; the gateway's CORS policy must allow it.
 3. On tool calls: run `pre_tool_use` before validation, fold rewrite/deny, schema-validate and permission-check the effective call, resolve a real outstanding permission, execute admitted calls serially in stable provider order, run success/failure and batch hooks, then persist the effective `role: tool` messages. Original/effective values stay separately attributed in the top-level extension audit. `read_image` then injects a **user** message with `image_url` data-URL parts (providers reject image parts on `role: tool`; [ADR 0008](../adr/0008-native-loop-images.md)) → POST again.
 4. Stop on final text, cancel, permission deny, or the optional step limit (unlimited by default; `--max-steps` / `/max-steps` / `.tny.json` `"steps"` set a cap — [ADR 0024](../adr/0024-unlimited-steps-default.md)).
 
-This is the only backend that uses [features/permissions.md](../features/permissions.md) and [features/mcp-and-skills.md](../features/mcp-and-skills.md) as the execution engine. Host backends have their own loops; tny only maps events.
+This is the only backend that uses [features/permissions.md](../features/permissions.md) and [features/mcp-and-skills.md](../features/mcp-and-skills.md) as the execution engine.
 
 Each physical HTTP attempt is surrounded by bounded `provider_request` and
 `provider_response` extension events sharing a logical request ID and attempt

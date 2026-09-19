@@ -49,14 +49,6 @@ static const tny_extension_capability_state OPENAI_CAPS[TNY_EXT_CAP_COUNT] = {
     S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, U, U,
 };
 
-static const tny_extension_capability_state CURSOR_CAPS[TNY_EXT_CAP_COUNT] = {
-    S, S, S, S, S, S, U, S, S, S, S, U, U, X, X, X, X, X, X, S, X, X, U, U, U, S, S, U, U,
-};
-
-static const tny_extension_capability_state ACP_CAPS[TNY_EXT_CAP_COUNT] = {
-    S, S, S, S, S, S, U, S, S, S, S, U, U, X, X, S, U, U, U, S, X, X, U, U, U, S, S, U, U,
-};
-
 #undef S
 #undef X
 #undef U
@@ -64,8 +56,6 @@ static const tny_extension_capability_state ACP_CAPS[TNY_EXT_CAP_COUNT] = {
 static const tny_extension_capability_state *provider_caps(tny_backend_id provider) {
     switch (provider) {
     case TNY_BK_OPENAI: return OPENAI_CAPS;
-    case TNY_BK_CURSOR: return CURSOR_CAPS;
-    case TNY_BK_ACP: return ACP_CAPS;
     default: return NULL;
     }
 }
@@ -98,11 +88,7 @@ const char *tny_extension_capability_reason(tny_backend_id provider,
     switch (tny_extension_capability_get(provider, id)) {
     case TNY_EXT_CAP_SUPPORTED: return "implemented";
     case TNY_EXT_CAP_UNAVAILABLE: return "contracted_not_implemented";
-    case TNY_EXT_CAP_UNSUPPORTED:
-        if (provider == TNY_BK_CURSOR && id >= TNY_EXT_CAP_PERMISSION_OBSERVE &&
-            id <= TNY_EXT_CAP_PERMISSION_ABSTAIN)
-            return "protocol_missing";
-        return "provider_owned";
+    case TNY_EXT_CAP_UNSUPPORTED: return "provider_owned";
     }
     return "unknown_state";
 }

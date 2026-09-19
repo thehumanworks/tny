@@ -184,46 +184,12 @@ def provider_failure_mutations(directory):
             "0 != tny_alloc_test_settlement_allocations()",
         ),
         (
-            "decoder-observe-recovery",
-            "src/backends/cursor/cursor.c",
-            "if (rc == -2 || tny_alloc_scope_failed()) {",
-            "if (rc == -2 || tny_alloc_scope_failed()) { free(tny_alloc_malloc(1));",
-            "decoder_oom_mid_stream",
-            "0 != tny_alloc_test_settlement_allocations()",
-        ),
-        (
-            "acp-block-before-kill",
-            "src/backends/acp/acp_client.c",
-            "if (kill(-pgid, SIGKILL) != 0 && o->pid > 0) kill(o->pid, SIGKILL);",
-            "/* mutant: omit escalation before blocking wait */",
-            "emergency_cancel_reaps",
-            "monotonic_ms() - start < 2000",
-        ),
-        (
             "request-oom-persists-usage",
             "src/backends/openai/openai.c",
             "request_oom:\n",
             "request_oom:\n    session_save(o->env.session);\n",
             "request_construction_oom",
             "0 != tny_alloc_test_settlement_allocations()",
-        ),
-        (
-            "sdk-error-oom-fallback",
-            "src/backends/cursor/sdk_error.c",
-            "oom:\n    tny_alloc_provider_failed();",
-            'oom:\n    free(xstrdup("fallback after decoder OOM"));\n'
-            "    tny_alloc_provider_failed();",
-            "error_decode_oom",
-            "fault != tny_alloc_test_scope_count()",
-        ),
-        (
-            "acp-parser-oom-next-line",
-            "src/backends/acp/acp_proc.c",
-            "oom:\n    tny_alloc_provider_failed();",
-            'oom:\n    free(xstrdup("next buffered line after OOM"));\n'
-            "    tny_alloc_provider_failed();",
-            "message_oom",
-            "fault != tny_alloc_test_scope_count()",
         ),
     ]
     results = []

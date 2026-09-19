@@ -40,13 +40,6 @@ static void observe(const char *data, size_t len, void *ud) {
     o->events++;
 }
 
-static void observe_frame(uint8_t flags, const char *data, size_t len, void *ud) {
-    observation *o = ud;
-    o->hash ^= flags;
-    o->hash *= FNV_PRIME;
-    observe(data, len, ud);
-}
-
 static size_t fragment_size(const char *pattern, size_t remaining, uint32_t *seed) {
     if (strcmp(pattern, "whole") == 0) return remaining;
     if (strcmp(pattern, "byte") == 0) return 1;
@@ -57,7 +50,7 @@ static size_t fragment_size(const char *pattern, size_t remaining, uint32_t *see
     return n < remaining ? n : remaining;
 }
 
-static bool make_wire(const char *mode, buf_t *wire) {
+static bool make_wire(buf_t *wire) {
     char payload[512];
     for (int i = 0; i < 32; i++) {
         int n = snprintf(payload, sizeof payload,
@@ -66,17 +59,13 @@ static bool make_wire(const char *mode, buf_t *wire) {
                          "the parser must preserve every byte and event boundary.\"}",
                          i);
         if (n < 0 || (size_t)n >= sizeof payload) return false;
-        if (strcmp(mode, "sse") == 0) {
+        {
             buf_appends(wire, ": keepalive\r\nevent: ignored\r\ndata: ");
             buf_append(wire, payload, (size_t)n);
             buf_appends(wire, "\r\ndata: continuation\r\n\r\n");
-        } else {
-            connect_frame_encode(wire, 0, "", 0);
-            connect_frame_encode(wire, 0, payload, (size_t)n);
         }
     }
-    if (strcmp(mode, "sse") == 0) buf_appends(wire, "data: [DONE]");
-    else connect_frame_encode(wire, CONNECT_FLAG_END, "{\"metadata\":{}}", 15);
+    buf_appends(wire, "data: [DONE]");
     return !buf_oom(wire);
 }
 
@@ -119,10 +108,10 @@ static bool make_tools(const char *pattern, tool_corpus *corpus) {
     return true;
 }
 
-static bool run_wire(const char *mode, const char *pattern, const buf_t *wire, observation *out) {
+static bool run_wire(const char *pattern, const buf_t *wire, observation *out) {
     size_t at = 0;
     uint32_t seed = 0x12345678u;
-    if (strcmp(mode, "sse") == 0) {
+    {
         sse_parser parser;
         sse_parser_init(&parser);
         while (at < wire->len) {
@@ -132,18 +121,6 @@ static bool run_wire(const char *mode, const char *pattern, const buf_t *wire, o
         }
         sse_flush(&parser, observe, out);
         sse_parser_free(&parser);
-    } else {
-        connect_decoder parser;
-        connect_decoder_init(&parser);
-        while (at < wire->len) {
-            size_t n = fragment_size(pattern, wire->len - at, &seed);
-            if (connect_decoder_feed(&parser, wire->data + at, n, observe_frame, out) != 0) {
-                connect_decoder_free(&parser);
-                return false;
-            }
-            at += n;
-        }
-        connect_decoder_free(&parser);
     }
     return !tny_alloc_scope_failed();
 }
@@ -176,10 +153,9 @@ static uint64_t nanoseconds(void) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 4 ||
-        (strcmp(argv[1], "sse") && strcmp(argv[1], "connect") && strcmp(argv[1], "tools")) ||
+    if (argc != 4 || (strcmp(argv[1], "sse") && strcmp(argv[1], "tools")) ||
         (strcmp(argv[2], "whole") && strcmp(argv[2], "byte") && strcmp(argv[2], "split"))) {
-        fputs("usage: bench-parsers sse|connect|tools whole|byte|split ITERATIONS\n", stderr);
+        fputs("usage: bench-parsers sse|tools whole|byte|split ITERATIONS\n", stderr);
         return 2;
     }
     errno = 0;

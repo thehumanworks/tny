@@ -500,7 +500,7 @@ bool random_bytes(uint8_t *out, size_t n) {
     return got == n;
 }
 
-/* Minimal SHA-1 (needed only for the WebSocket accept key). */
+/* Minimal SHA-1 (used for stable task/session digests). */
 static uint32_t rol(uint32_t x, int c) { return (x << c) | (x >> (32 - c)); }
 
 bool sha1(const uint8_t *in, size_t n, uint8_t out[20]) {

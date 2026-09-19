@@ -666,11 +666,10 @@ void tui_command(tui *t, const char *line) {
         }
         if (arg && *arg) {
             bool known = tny_backend_from_name(arg) >= 0 || tny_builtin_profile_exists(arg) ||
-                         tny_custom_provider_exists(t->ctx, arg) || str_starts(arg, "acp@") ||
-                         str_starts(arg, "acp:");
+                         tny_custom_provider_exists(t->ctx, arg);
             if (!known)
-                tui_err(t, "unknown provider (openai|cursor|acp|codex|"
-                           "claude|grok|acp@NAME, a settings.json profile, or "
+                tui_err(t, "unknown or removed provider (openai|codex|"
+                           "grok, a settings.json profile, or "
                            "NAME_BASE_URL) — /provider setup adds one");
             else {
                 if (t->turn_active) tui_sys(t, "finish the turn first");
@@ -680,9 +679,12 @@ void tui_command(tui *t, const char *line) {
                     char *previous_effort =
                         t->ctx->reasoning_effort ? xstrdup(t->ctx->reasoning_effort) : NULL;
                     /* full resolve: also swaps in the provider's saved model */
+                    tui_raw_begin(t);
                     int resolved = tny_resolve_backend(t->ctx, arg);
+                    tui_raw_end(t);
                     if (resolved < 0) {
-                        tui_err(t, "provider switch failed; check settings.json");
+                        tui_err(t, "provider switch failed; previous configuration retained (see "
+                                   "diagnostic)");
                         if (!t->engine) tui_prewarm_start(t);
                     } else {
                         tny_engine_model_changed(t->engine, previous_model, t->ctx->model,
@@ -911,8 +913,7 @@ static void wiz_prompt(tui *t) {
                    " the current one for an existing provider):");
         break;
     case 3:
-        tui_sys(t, "  api key — typed input is visible; $ENV_NAME reads an"
-                   " env var instead; empty skips:");
+        tui_sys(t, "  api key environment variable name (e.g. OPENROUTER_API_KEY); empty skips:");
         break;
     case 4: tui_sys(t, "  default model (empty skips):"); break;
     }
@@ -938,8 +939,6 @@ void tui_wizard_cancel(tui *t) {
     t->wiz_name = NULL;
     free(t->wiz_base);
     t->wiz_base = NULL;
-    free(t->wiz_key);
-    t->wiz_key = NULL;
     free(t->wiz_key_env);
     t->wiz_key_env = NULL;
     free(t->wiz_model);
@@ -953,17 +952,31 @@ static bool wiz_base_ok(const char *url) {
 }
 
 static void wiz_finish(tui *t) {
-    tny_provider_fields f = {t->wiz_base, t->wiz_key, t->wiz_key_env, t->wiz_model, NULL};
+    tny_provider_fields f = {t->wiz_base, NULL, t->wiz_key_env, t->wiz_model, NULL};
     char err[256];
     if (tny_provider_write_profile(t->ctx, t->wiz_name, &f, err, sizeof err) != 0) {
         tui_err(t, err);
         tui_wizard_cancel(t);
         return;
     }
+    if (t->wiz_key_env && !getenv(t->wiz_key_env))
+        tui_linef(t, "  warning: $%s is not set in this shell", t->wiz_key_env);
     char *name = xstrdup(t->wiz_name);
     tui_wizard_cancel(t);
+    if (!name) {
+        tui_err(t, "provider saved, but selection failed: out of memory");
+        return;
+    }
     tui_prewarm_drop(t);
-    tny_resolve_backend(t->ctx, name);
+    tui_raw_begin(t);
+    int resolved = tny_resolve_backend(t->ctx, name);
+    tui_raw_end(t);
+    if (resolved < 0) {
+        tui_err(t, "provider saved, but switch failed; previous configuration retained");
+        free(name);
+        if (!t->engine) tui_prewarm_start(t);
+        return;
+    }
     tui_drop_backend(t);
     tny_settings_remember_use(t->ctx);
     tui_linef(t, "  provider '%s' ready (model %s) — saved to settings.json", name,
@@ -987,8 +1000,8 @@ void tui_wizard_feed(tui *t, const char *line) {
             wiz_prompt(t);
             return;
         }
-        if (tny_backend_from_name(line) >= 0 && strcmp(line, "openai") != 0) {
-            tui_err(t, "host providers (cursor|acp) have no base_url; "
+        if (strcmp(line, "cursor") == 0 || strcmp(line, "acp") == 0) {
+            tui_err(t, "ACP/Cursor providers were removed; "
                        "pick another name");
             wiz_prompt(t);
             return;
@@ -1017,7 +1030,7 @@ void tui_wizard_feed(tui *t, const char *line) {
     }
     case 3:
         if (line[0] == '$' && line[1]) t->wiz_key_env = xstrdup(line + 1);
-        else if (*line) t->wiz_key = xstrdup(line);
+        else if (*line) t->wiz_key_env = xstrdup(line);
         t->wiz_step = 4;
         wiz_prompt(t);
         return;

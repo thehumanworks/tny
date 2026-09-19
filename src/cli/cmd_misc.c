@@ -594,95 +594,6 @@ static void custom_provider_row(tny_ctx *ctx, buf_t *b, bool json, const char *n
     }
 }
 
-static bool acp_name_valid(const char *name) {
-    if (!name || !*name) return false;
-    for (const char *p = name; *p; p++) {
-        char c = *p;
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-              c == '-' || c == '_'))
-            return false;
-    }
-    return true;
-}
-
-static bool executable_on_path(const char *bin) {
-    if (!bin || !*bin) return false;
-    if (strchr(bin, '/')) return access(bin, X_OK) == 0;
-    const char *path = getenv("PATH");
-    if (!path) return false;
-    char *dup = xstrdup(path);
-    bool found = false;
-    for (char *p = strtok(dup, ":"); p && !found; p = strtok(NULL, ":")) {
-        char *full = path_join(p, bin);
-        found = full && access(full, X_OK) == 0;
-        free(full);
-    }
-    free(dup);
-    return found;
-}
-
-/* One provider-list row for settings.acp.NAME (legacy acp.agents supported).
- * Never render argv: command arguments may contain local paths or user
- * mistakes that should not become diagnostic output. */
-static void acp_provider_row(tny_ctx *ctx, buf_t *b, bool json, const char *name,
-                             yyjson_val *profile) {
-    if (!acp_name_valid(name) || !yyjson_is_obj(profile)) return;
-    yyjson_val *command = jget(profile, "command");
-    yyjson_val *args = jget(profile, "args");
-    bool legacy = yyjson_is_arr(command);
-    bool valid =
-        legacy ? yyjson_arr_size(command) > 0 : yyjson_is_str(command) && *yyjson_get_str(command);
-    const char *exe = legacy ? NULL : yyjson_get_str(command);
-    if (valid && args && (!yyjson_is_arr(args) || legacy)) valid = false;
-    if (valid && legacy) {
-        size_t idx, max;
-        yyjson_val *v;
-        yyjson_arr_foreach(command, idx, max, v) {
-            const char *arg = yyjson_is_str(v) ? yyjson_get_str(v) : NULL;
-            if (!arg || !*arg) {
-                valid = false;
-                break;
-            }
-            if (idx == 0) exe = arg;
-        }
-    } else if (valid && yyjson_is_arr(args)) {
-        size_t idx, max;
-        yyjson_val *v;
-        yyjson_arr_foreach(args, idx, max, v) {
-            const char *arg = yyjson_is_str(v) ? yyjson_get_str(v) : NULL;
-            if (!arg || !*arg) {
-                valid = false;
-                break;
-            }
-        }
-    }
-    bool remote = exe && (str_starts(exe, "ws://") || str_starts(exe, "wss://"));
-    size_t nargs = yyjson_is_arr(args) ? yyjson_arr_size(args) : 0;
-    if (remote && ((legacy && yyjson_arr_size(command) != 1) || nargs != 0)) valid = false;
-    yyjson_val *model = jget(profile, "model");
-    if (model && (!yyjson_is_str(model) || !*yyjson_get_str(model))) valid = false;
-    bool healthy = valid && (remote || executable_on_path(exe));
-    const char *hint = !valid    ? "invalid settings.json ACP profile"
-                       : healthy ? (remote ? "configured remote ACP agent"
-                                           : "configured ACP agent; command resolves")
-                                 : "configured ACP agent; command not found on PATH";
-    buf_t full;
-    buf_init(&full);
-    buf_appendf(&full, "acp@%s", name);
-    bool active = ctx->provider_name && strcmp(ctx->provider_name, full.data) == 0;
-    if (json) {
-        buf_appends(b, ",{\"name\":");
-        jescape(b, full.data);
-        buf_appendf(b, ",\"backend\":\"acp\",\"active\":%s,\"healthy\":%s,\"hint\":",
-                    active ? "true" : "false", healthy ? "true" : "false");
-        jescape(b, hint);
-        buf_appends(b, "}");
-    } else {
-        buf_appendf(b, "%s %s — %s\n", active ? "*" : " ", full.data, hint);
-    }
-    buf_free(&full);
-}
-
 int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = wants_json(g, argc, argv);
     buf_t b;
@@ -709,7 +620,7 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     }
     /* builtin subscription profiles (docs/adr/0019); a settings/env profile
      * of the same name shadows the builtin and is listed below instead */
-    static const char *const builtin_profiles[] = {"codex", "claude", "grok"};
+    static const char *const builtin_profiles[] = {"codex", "grok"};
     for (size_t bi = 0; bi < sizeof builtin_profiles / sizeof *builtin_profiles; bi++) {
         const char *name = builtin_profiles[bi];
         if (tny_custom_provider_exists(ctx, name)) continue;
@@ -717,32 +628,22 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         bool healthy;
         if (strcmp(name, "codex") == 0) {
             tny_codex_creds c;
-            healthy = tny_codex_credentials(ctx, &c) == 0;
+            int credential_rc = tny_codex_credentials(ctx, &c);
+            healthy = credential_rc == 0;
             if (c.access_token)
                 snprintf(line, sizeof line,
                          "codex: ChatGPT login from %s (chatgpt.com/backend-api/codex)%s",
                          tny_codex_cred_source_name(c.source),
                          c.account_id ? "" : " — no account id in the token");
-            else if (c.api_key)
+            else if (credential_rc == -2)
                 snprintf(line, sizeof line,
-                         "codex: API key from $CODEX_HOME/auth.json (api.openai.com)");
+                         "codex: stored OPENAI_API_KEY was removed; export "
+                         "OPENAI_API_KEY and select openai, or run tny --provider codex login");
             else
                 snprintf(line, sizeof line,
                          "codex: no login (run `tny --provider codex login`, or set "
                          "CHATGPT_ACCESS_TOKEN)");
             tny_codex_creds_free(&c);
-        } else if (strcmp(name, "claude") == 0) {
-            const char *source = NULL;
-            char *tok = tny_claude_token(&source);
-            healthy = tok != NULL;
-            if (tok) {
-                memset(tok, 0, strlen(tok));
-                free(tok);
-            }
-            snprintf(line, sizeof line,
-                     healthy ? "claude: credential from %s (Anthropic OpenAI-compat)"
-                             : "claude: no credential (run `tny --provider claude login`)%s",
-                     healthy ? source : "");
         } else {
             char *sess = tny_grok_session_token();
             const char *xk = getenv("XAI_API_KEY");
@@ -783,13 +684,6 @@ int cmd_backends(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 const char *bu = jget_str(v, "base_url");
                 if (!bu || !*bu || !tny_custom_provider_exists(ctx, name)) continue;
                 custom_provider_row(ctx, &b, json, name, bu, "settings");
-            }
-        yyjson_val *acp = jget(root, "acp");
-        yyjson_val *agents = jget(acp, "agents");
-        if (!yyjson_is_obj(agents)) agents = acp;
-        if (yyjson_is_obj(agents)) yyjson_obj_foreach(agents, idx, max, k, v) {
-                const char *name = yyjson_get_str(k);
-                if (name && strcmp(name, "agents") != 0) acp_provider_row(ctx, &b, json, name, v);
             }
     }
     int n_env = 0;
@@ -973,44 +867,6 @@ int cmd_setup(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     return 0;
 }
 
-/* Claude: report the credential tny would use, or hand the browser ceremony
- * to `claude setup-token` (prints a one-year OAuth token the user exports as
- * CLAUDE_CODE_OAUTH_TOKEN). tny never captures or stores the token itself. */
-static int login_claude(tny_ctx *ctx) {
-    (void)ctx;
-    const char *source = NULL;
-    char *tok = tny_claude_token(&source);
-    if (tok) {
-        printf("Claude credential found (%s) — `tny --provider claude` uses it.\n", source);
-        memset(tok, 0, strlen(tok));
-        free(tok);
-        return 0;
-    }
-    const char *bin = getenv("TNY_CLAUDE_BIN");
-    if (!bin || !*bin) bin = "claude";
-    printf("No Claude credential. Starting `%s setup-token` (browser sign-in;\n"
-           "requires a Pro/Max/Team/Enterprise subscription)…\n",
-           bin);
-    fflush(stdout);
-    buf_t cmd;
-    buf_init(&cmd);
-    buf_appendf(&cmd, "%s setup-token", bin);
-    int rc = system(cmd.data);
-    buf_free(&cmd);
-    if (rc != 0) {
-        fprintf(stderr,
-                "tny: `%s setup-token` failed. Install the Claude Code CLI "
-                "(or set TNY_CLAUDE_BIN), run `claude /login` once, or set "
-                "CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY.\n",
-                bin);
-        return 1;
-    }
-    printf("Copy the token it printed and export it:\n"
-           "  export CLAUDE_CODE_OAUTH_TOKEN=<token>\n"
-           "tny also auto-detects ~/.claude/.credentials.json from `claude /login`.\n");
-    return 0;
-}
-
 /* Grok: native RFC 8628 device-code sign-in against auth.x.ai
  * (grok_login.c, docs/adr/0021) — no grok CLI needed. */
 static int login_grok(tny_ctx *ctx) {
@@ -1026,23 +882,10 @@ int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             device = true;
     const char *pn = tny_provider_name(ctx);
     if (strcmp(pn, "codex") == 0) return tny_codex_login(ctx, device); /* docs/adr/0066 */
-    if (strcmp(pn, "claude") == 0) return login_claude(ctx);
     if (strcmp(pn, "grok") == 0) return login_grok(ctx);
-    const char *cursor_key = getenv("CURSOR_API_KEY");
-    switch (ctx->backend) {
-    case TNY_BK_CURSOR:
-        printf(cursor_key && *cursor_key
-                   ? "CURSOR_API_KEY is set — the bridge will use it.\n"
-                   : "Set CURSOR_API_KEY (user or service-account key) for the SDK bridge.\n");
-        return 0;
-    case TNY_BK_ACP:
-        printf("ACP agents authenticate themselves; pre-authorize the agent CLI.\n");
-        return 0;
-    default:
-        printf(ctx->api_key ? "Provider key found.\n"
-                            : "Set OPENAI_API_KEY (or run tny setup --api-key-env NAME).\n");
-        return ctx->api_key ? 0 : 1;
-    }
+    printf(ctx->api_key ? "Provider key found.\n"
+                        : "Export the provider key and configure api_key_env.\n");
+    return ctx->api_key ? 0 : 1;
 }
 
 int cmd_logout(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
@@ -1050,12 +893,6 @@ int cmd_logout(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     (void)argc;
     (void)argv;
     const char *pn = tny_provider_name(ctx);
-    if (strcmp(pn, "claude") == 0) {
-        printf("Unset CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY, or remove "
-               "~/.claude/.credentials.json (`claude /logout`). tny stores no "
-               "secrets itself.\n");
-        return 0;
-    }
     if (strcmp(pn, "grok") == 0) return tny_grok_logout();
     if (strcmp(pn, "codex") == 0) return tny_codex_logout();
     printf("tny stores no provider secrets; unset the environment variable to log out.\n");

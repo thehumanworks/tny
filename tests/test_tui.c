@@ -433,258 +433,6 @@ TEST status_row_keeps_session_identity_ahead_of_task(void) {
     PASS();
 }
 
-/* ---- pre-warm handoff ---- */
-
-typedef struct {
-    volatile int connects, disconnects, destroys, resumes;
-    int connect_rc, resume_rc;
-    int delay_ms;
-    char resume_ptr[128]; /* "(null)" when called with NULL */
-    pthread_t resume_thread;
-} stub_state;
-
-static int stub_connect(tny_backend *b, char *err, size_t errlen) {
-    stub_state *s = b->impl;
-    if (s->delay_ms) poll(NULL, 0, s->delay_ms);
-    s->connects++;
-    if (s->connect_rc != 0) snprintf(err, errlen, "stub connect failed");
-    return s->connect_rc;
-}
-
-static int stub_resume(tny_backend *b, const char *ptr, char *err, size_t errlen) {
-    stub_state *s = b->impl;
-    s->resume_thread = pthread_self();
-    snprintf(s->resume_ptr, sizeof s->resume_ptr, "%s", ptr ? ptr : "(null)");
-    s->resumes++;
-    if (s->resume_rc != 0) snprintf(err, errlen, "stub resume failed");
-    return s->resume_rc;
-}
-
-static void stub_disconnect(tny_backend *b) {
-    stub_state *s = b->impl;
-    s->disconnects++;
-}
-
-static void stub_destroy(tny_backend *b) {
-    stub_state *s = b->impl;
-    s->destroys++;
-    free(b);
-}
-
-static tny_backend *stub_backend(stub_state *s) {
-    tny_backend *b = calloc(1, sizeof *b);
-    b->id = TNY_BK_ACP;
-    b->impl = s;
-    b->connect = stub_connect;
-    b->disconnect = stub_disconnect;
-    b->destroy = stub_destroy;
-    return b;
-}
-
-static void wait_for(volatile int *flag, int ms) {
-    for (int i = 0; i < ms / 10 && !*flag; i++) poll(NULL, 0, 10);
-}
-
-TEST prewarm_take_returns_connected_backend(void) {
-    tui t;
-    struct tny_ctx ctx;
-    memset(&ctx, 0, sizeof ctx);
-    memset(&t, 0, sizeof t);
-    t.ctx = &ctx;
-    ctx.backend = TNY_BK_ACP;
-
-    stub_state s = {0};
-    s.delay_ms = 30;
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_ACP, NULL));
-    ASSERT(t.prewarm != NULL);
-
-    tny_backend *bk = tui_prewarm_take(&t); /* blocks until connect() lands */
-    ASSERT(bk != NULL);
-    ASSERT(t.prewarm == NULL);
-    ASSERT_EQ(1, s.connects);
-    ASSERT_EQ(0, s.destroys);
-    bk->disconnect(bk);
-    bk->destroy(bk);
-    ASSERT_EQ(1, s.destroys);
-    PASS();
-}
-
-TEST prewarm_failed_connect_is_silent_and_discarded(void) {
-    tui t;
-    struct tny_ctx ctx;
-    memset(&ctx, 0, sizeof ctx);
-    memset(&t, 0, sizeof t);
-    t.ctx = &ctx;
-    ctx.backend = TNY_BK_ACP;
-
-    stub_state s = {0};
-    s.connect_rc = -1;
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_ACP, NULL));
-    ASSERT(tui_prewarm_take(&t) == NULL); /* caller falls back to lazy path */
-    ASSERT_EQ(1, s.connects);
-    ASSERT_EQ(1, s.destroys);
-    PASS();
-}
-
-TEST prewarm_drop_mid_connect_cleans_up_on_the_thread(void) {
-    tui t;
-    struct tny_ctx ctx;
-    memset(&ctx, 0, sizeof ctx);
-    memset(&t, 0, sizeof t);
-    t.ctx = &ctx;
-    ctx.backend = TNY_BK_ACP;
-
-    stub_state s = {0};
-    s.delay_ms = 60;
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_ACP, NULL));
-    tui_prewarm_drop(&t); /* abandon while connect() is still sleeping */
-    ASSERT(t.prewarm == NULL);
-    wait_for(&s.destroys, 2000);
-    ASSERT_EQ(1, s.destroys);
-    ASSERT_EQ(1, s.disconnects);
-    PASS();
-}
-
-TEST prewarm_take_rejects_a_switched_provider(void) {
-    tui t;
-    struct tny_ctx ctx;
-    memset(&ctx, 0, sizeof ctx);
-    memset(&t, 0, sizeof t);
-    t.ctx = &ctx;
-    ctx.backend = TNY_BK_ACP;
-
-    stub_state s = {0};
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_ACP, NULL));
-    ctx.backend = TNY_BK_OPENAI; /* /provider switch happened meanwhile */
-    ASSERT(tui_prewarm_take(&t) == NULL);
-    ASSERT(t.prewarm == NULL);
-    wait_for(&s.destroys, 2000);
-    ASSERT_EQ(1, s.destroys);
-    PASS();
-}
-
-TEST prewarm_start_keeps_a_matching_warmup(void) {
-    /* /model, /fast and /resume drop the backend and re-kick the pre-warm;
-     * a pending warm-up for the SAME provider must be kept, not respawned.
-     * (cursor without a key: if the guard misfires and drops, no new warm-up
-     * can start, so t->prewarm going NULL exposes the bug.) */
-    tui t;
-    struct tny_ctx ctx;
-    memset(&ctx, 0, sizeof ctx);
-    memset(&t, 0, sizeof t);
-    t.ctx = &ctx;
-    ctx.backend = TNY_BK_CURSOR;
-    unsetenv("CURSOR_API_KEY");
-
-    stub_state s = {0};
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_CURSOR, NULL));
-    tui_prewarm *kept = t.prewarm;
-    tui_prewarm_start(&t);
-    ASSERT_EQ(kept, t.prewarm); /* same pending warm-up, untouched */
-    ASSERT_EQ(0, s.destroys);
-    tui_prewarm_drop(&t);
-    wait_for(&s.destroys, 2000);
-    ASSERT_EQ(1, s.destroys);
-    PASS();
-}
-
-TEST prewarm_runs_create_or_resume_on_the_thread(void) {
-    tui t;
-    struct tny_ctx ctx;
-    memset(&ctx, 0, sizeof ctx);
-    memset(&t, 0, sizeof t);
-    t.ctx = &ctx;
-    ctx.backend = TNY_BK_ACP;
-
-    stub_state s = {0};
-    s.delay_ms = 20;
-    tny_backend *b = stub_backend(&s);
-    b->create_or_resume = stub_resume;
-    ASSERT_EQ(0, tui_prewarm_launch(&t, b, TNY_BK_ACP, "thread-42"));
-
-    tny_backend *bk = tui_prewarm_take(&t); /* blocks until the warm-up lands */
-    ASSERT(bk != NULL);
-    ASSERT_EQ(1, s.connects);
-    ASSERT_EQ(1, s.resumes);
-    ASSERT_STR_EQ("thread-42", s.resume_ptr); /* the frozen pointer arrived */
-    ASSERT_FALSE(pthread_equal(pthread_self(), s.resume_thread));
-    bk->disconnect(bk);
-    bk->destroy(bk);
-    ASSERT_EQ(1, s.destroys);
-    PASS();
-}
-
-TEST prewarm_failed_resume_is_silent_and_discarded(void) {
-    tui t;
-    struct tny_ctx ctx;
-    memset(&ctx, 0, sizeof ctx);
-    memset(&t, 0, sizeof t);
-    t.ctx = &ctx;
-    ctx.backend = TNY_BK_ACP;
-
-    stub_state s = {0};
-    s.resume_rc = -1;
-    tny_backend *b = stub_backend(&s);
-    b->create_or_resume = stub_resume;
-    ASSERT_EQ(0, tui_prewarm_launch(&t, b, TNY_BK_ACP, "thread-42"));
-    ASSERT(tui_prewarm_take(&t) == NULL); /* caller falls back to lazy path */
-    ASSERT_EQ(1, s.connects);
-    ASSERT_EQ(1, s.resumes);
-    ASSERT_EQ(1, s.disconnects);
-    ASSERT_EQ(1, s.destroys);
-    PASS();
-}
-
-TEST prewarm_start_restarts_on_a_stale_resume_pointer(void) {
-    /* /new after a resumed session (or a session switch) leaves the pending
-     * warm-up holding the wrong pointer: it must be dropped and re-kicked,
-     * never adopted stale. An ACP agent with an unspawnable command keeps
-     * the restarted warm-up real but guarantees its connect() fails fast. */
-    tui t;
-    struct tny_ctx ctx;
-    memset(&ctx, 0, sizeof ctx);
-    memset(&t, 0, sizeof t);
-    t.ctx = &ctx;
-    ctx.backend = TNY_BK_ACP;
-    char *agent_argv[] = {"/nonexistent/acp-agent", NULL};
-    ctx.agent_argv = agent_argv;
-    ctx.cwd = (char *)".";
-
-    /* this exercises the thread pre-warm (the wasm / TNY_ISOLATE=0 path);
-     * with isolation on, prewarm_start maps to the serve runner instead
-     * (docs/adr/0053) and never touches the pending thread warm-up */
-    setenv("TNY_ISOLATE", "0", 1);
-
-    stub_state s = {0};
-    ASSERT_EQ(0, tui_prewarm_launch(&t, stub_backend(&s), TNY_BK_ACP, "thread-old"));
-    tui_prewarm_start(&t); /* no session: the pending pointer is now stale */
-    unsetenv("TNY_ISOLATE");
-    ASSERT(t.prewarm != NULL);
-    wait_for(&s.destroys, 2000);
-    ASSERT_EQ(1, s.destroys);             /* the stale stub was dropped */
-    ASSERT(tui_prewarm_take(&t) == NULL); /* fresh warm-up fails to connect */
-    ASSERT(t.prewarm == NULL);
-    PASS();
-}
-
-TEST prewarm_applicability(void) {
-    struct tny_ctx ctx;
-    memset(&ctx, 0, sizeof ctx);
-    ASSERT_FALSE(tui_prewarm_applicable(&ctx, TNY_BK_OPENAI)); /* codex profile too */
-    ASSERT_FALSE(tui_prewarm_applicable(&ctx, TNY_BK_ACP));    /* no --agent argv */
-    char *argv[] = {"fake-agent", NULL};
-    ctx.agent_argv = argv;
-    ASSERT(tui_prewarm_applicable(&ctx, TNY_BK_ACP));
-    ctx.agent_argv = NULL;
-
-    unsetenv("CURSOR_API_KEY");
-    ASSERT_FALSE(tui_prewarm_applicable(&ctx, TNY_BK_CURSOR));
-    setenv("CURSOR_API_KEY", "key_test", 1);
-    ASSERT(tui_prewarm_applicable(&ctx, TNY_BK_CURSOR));
-    unsetenv("CURSOR_API_KEY");
-    PASS();
-}
-
 /* /fast is capability-gated (TNY_CAP_FAST), not codex-only: capable
  * providers toggle ctx->service_tier, incapable ones must leave it alone. */
 TEST fast_command_is_capability_gated(void) {
@@ -695,7 +443,7 @@ TEST fast_command_is_capability_gated(void) {
     t.ctx = &ctx;
     unsetenv("CURSOR_API_KEY"); /* keep the cursor warm-up out of the test */
 
-    ctx.backend = TNY_BK_ACP; /* no fast tier: the command must refuse */
+    ctx.backend = TNY_BK_COUNT; /* no fast tier: the command must refuse */
     tui_command(&t, "/fast");
     ASSERT_EQ(NULL, ctx.service_tier);
     tui_command(&t, "/fast priority");
@@ -1297,7 +1045,33 @@ TEST render_partial_line_at_the_margin_does_not_duplicate(void) {
     PASS();
 }
 
+TEST agents_reject_legacy_provider_before_context_changes(void) {
+    const char *names[] = {"cursor", "acp", "acp@fixture", "acp:fixture"};
+    for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+        tui t;
+        mk_tui(&t, 24);
+        tny_ctx ctx = {0};
+        ctx.provider_name = "gateway";
+        ctx.api_key = "fixture-key";
+        session_meta meta = {0};
+        meta.backend = (char *)names[i];
+        meta.workspace = "/must-not-load";
+        t.ctx = &ctx;
+        t.agents = &meta;
+        t.n_agents = 1;
+        tui_agents_select(&t);
+        ASSERT_EQ(&ctx, t.ctx);
+        ASSERT_STR_EQ("gateway", ctx.provider_name);
+        ASSERT_STR_EQ("fixture-key", ctx.api_key);
+        ASSERT_EQ(NULL, t.session);
+        ASSERT(t.out.data && strstr(t.out.data, "removed provider"));
+        free_tui(&t);
+    }
+    PASS();
+}
+
 SUITE(tui_suite) {
+    RUN_TEST(agents_reject_legacy_provider_before_context_changes);
     RUN_TEST(push_ansi_plain_truncates);
     RUN_TEST(push_ansi_sgr_is_zero_width);
     RUN_TEST(push_ansi_reset_survives_the_cut);
@@ -1320,15 +1094,6 @@ SUITE(tui_suite) {
     RUN_TEST(status_row_fallback_truncates_to_width);
     RUN_TEST(status_row_keeps_session_identity_ahead_of_task);
     RUN_TEST(status_row_shows_one_sided_token_counts);
-    RUN_TEST(prewarm_take_returns_connected_backend);
-    RUN_TEST(prewarm_failed_connect_is_silent_and_discarded);
-    RUN_TEST(prewarm_drop_mid_connect_cleans_up_on_the_thread);
-    RUN_TEST(prewarm_take_rejects_a_switched_provider);
-    RUN_TEST(prewarm_start_keeps_a_matching_warmup);
-    RUN_TEST(prewarm_runs_create_or_resume_on_the_thread);
-    RUN_TEST(prewarm_failed_resume_is_silent_and_discarded);
-    RUN_TEST(prewarm_start_restarts_on_a_stale_resume_pointer);
-    RUN_TEST(prewarm_applicability);
     RUN_TEST(fast_command_is_capability_gated);
     RUN_TEST(ssh_command_rejects_local_custom_task);
     RUN_TEST(wrap_empty_is_one_row);

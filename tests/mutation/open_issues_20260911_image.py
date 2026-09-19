@@ -356,16 +356,6 @@ CASES = (
         "assertion": 'ASSERT_STR_EQ("configured, unverified", tny_image_input_label(ctx))',
     },
     {
-        "id": "M126.C13",
-        "path": CONFIG,
-        "intent": "look up the raw provider selector instead of canonical acp@NAME",
-        "before": "    const char *agent = acp_provider_name(provider);",
-        "after": "    const char *agent = NULL;",
-        "oracle": unit(MAP_TEST),
-        "assertion": "the acp:claude selector must resolve the acp@claude entry and stay "
-        "refused",
-    },
-    {
         "id": "M126.C14",
         "path": TOOLS,
         "intent": "gate image generation on conversation image input",

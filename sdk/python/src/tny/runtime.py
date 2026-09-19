@@ -77,7 +77,7 @@ class PermissionDecision(IntEnum):
     DENY = 2
 
 
-ProviderName = Literal["openai", "cursor"]
+ProviderName = Literal["openai"]
 
 
 @dataclass(frozen=True, slots=True, repr=False)

@@ -147,3 +147,11 @@ files in this directory are the complete record.
 - [0149 — Native team boundaries and safe delivery](0149-native-team-boundaries.md)
 - [0150 — Agent-first harness and measured footprint](0150-agent-first-harness-and-measured-footprint.md)
 - [0151 — Actionable exact-edit failures](0151-actionable-exact-edit-failures.md)
+
+## Current provider scope
+
+[ADR 0152](0152-native-http-only-providers.md) supersedes external ACP/Cursor
+providers, built-in Claude subscription authentication, and stored BYOK keys.
+Earlier records above are historical; the new ADR lists the affected decisions.
+
+- [0153: Environment keys, OAuth stores and atomic provider selection](0153-environment-keys-and-oauth-credentials.md)

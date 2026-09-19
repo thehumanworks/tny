@@ -1,8 +1,8 @@
 /* net_wasm.c — the whole net seam on WebAssembly (docs/adr/0017).
  *
- * Replaces tcp.c/stream.c/http1.c/ws.c wholesale in the wasm build:
- * http_conn rides fetch() + ReadableStream, ws_conn rides the browser/node
- * WebSocket, and tny_poll waits on the pseudo-fd registry with Asyncify.
+ * Replaces tcp.c/stream.c/http1.c wholesale in the wasm build:
+ * http_conn rides fetch() + ReadableStream, and tny_poll waits on the pseudo-fd registry with
+ * Asyncify.
  *
  * Re-entry contract (the load-bearing part): JS never calls into C. Every
  * event handler only appends bytes/messages to per-fd queues held in JS and
@@ -31,17 +31,17 @@
 
 /* ---- shared JS registry ----
  * Module.__tny = { fds: Map(fd -> entry), next, wakers, wake() }
- * entry = { q: [Uint8Array], msgs: [string], done, err, status, hdrs,
- *           hdrsReady, ws, ctl }                                        */
+ * entry = { q: [Uint8Array], done, err, status, hdrs,
+ *           hdrsReady, ctl }                                        */
 
 EM_JS(int, js_net_alloc, (void), {
   const T = Module.__tny || (Module.__tny = {fds: new Map(), next: 64,
     wakers: [],
     wake() { const w = this.wakers; this.wakers = []; w.forEach((f) => f()); }});
   const fd = T.next++;
-  T.fds.set(fd, {q: [], msgs: [], done: false, err: null, status: 0,
+  T.fds.set(fd, {q: [], done: false, err: null, status: 0,
                  hdrs: null, hdrsReady: false, hdrsTaken: false,
-                 ws: null, ctl: null});
+                 ctl: null});
   return fd;
 });
 
@@ -51,7 +51,6 @@ EM_JS(void, js_net_free, (int fd), {
   const e = T.fds.get(fd);
   if (e) {
     if (e.ctl) { try { e.ctl.abort(); } catch (_) {} }
-    if (e.ws) { try { e.ws.close(); } catch (_) {} }
     T.fds.delete(fd);
   }
 });
@@ -64,7 +63,7 @@ EM_JS(int, js_fd_ready, (int fd), {
   if (fd === 0) return (Module.__tnyStdin && Module.__tnyStdin.length) ? 1 : 0;
   const e = Module.__tny && Module.__tny.fds.get(fd);
   if (!e) return 0;
-  return (e.q.length || e.msgs.length || e.done || e.err ||
+  return (e.q.length || e.done || e.err ||
           (e.hdrsReady && !e.hdrsTaken)) ? 1 : 0;
 });
 
@@ -357,125 +356,6 @@ void http_close(http_conn *c) {
   if (!c) return;
   js_net_free(c->fd);
   free(c);
-}
-
-/* ---- WebSocket ---- */
-
-struct ws_conn {
-  int fd;
-  bool dead;
-};
-
-/* Open a WebSocket; complete text messages queue in e.msgs. Returns 0 on
- * open, -1 on failure. The browser API cannot attach an Authorization
- * header, so a required bearer is refused up front (docs/adr/0017). */
-EM_ASYNC_JS(int, js_ws_open, (int fd, const char *url, int timeout_ms), {
-  const T = Module.__tny;
-  const e = T.fds.get(fd);
-  const WS = (typeof WebSocket !== "undefined")
-      ? WebSocket
-      : (typeof globalThis !== "undefined" ? globalThis.WebSocket : undefined);
-  if (!WS) return -1;
-  return await new Promise((res) => {
-    let ws;
-    try { ws = new WS(UTF8ToString(url)); } catch (_) { res(-1); return; }
-    const t = setTimeout(() => { try { ws.close(); } catch (_) {} res(-1); },
-                         timeout_ms);
-    ws.onopen = () => { clearTimeout(t); e.ws = ws; res(0); };
-    ws.onmessage = (ev) => {
-      if (typeof ev.data === "string") { e.msgs.push(ev.data); T.wake(); }
-    };
-    ws.onerror = () => {};
-    ws.onclose = () => {
-      clearTimeout(t);
-      e.done = true;
-      T.wake();
-      if (!e.ws) res(-1);
-    };
-  });
-});
-
-EM_JS(int, js_ws_send, (int fd, const char *data, int len), {
-  const e = Module.__tny.fds.get(fd);
-  if (!e || !e.ws || e.ws.readyState !== 1) return -1;
-  try { e.ws.send(UTF8ToString(data, len)); } catch (_) { return -1; }
-  return 0;
-});
-
-/* Pop one queued message into malloc'd heap memory; returns ptr or 0.
- * len_out receives the byte length. */
-EM_JS(char *, js_ws_next, (int fd, int *len_out), {
-  const e = Module.__tny.fds.get(fd);
-  if (!e || !e.msgs.length) return 0;
-  const s = e.msgs.shift();
-  const n = lengthBytesUTF8(s);
-  const p = _malloc(n + 1);
-  stringToUTF8(s, p, n + 1);
-  HEAP32[len_out >> 2] = n;
-  return p;
-});
-
-EM_JS(int, js_ws_dead, (int fd), {
-  const e = Module.__tny.fds.get(fd);
-  return (!e || (e.done && !e.msgs.length)) ? 1 : 0;
-});
-
-ws_conn *ws_connect(const char *url, const char *bearer, int timeout_ms,
-                    char *err, size_t errlen) {
-  url_parts u;
-  if (url_parse(url, &u) != 0) {
-    snprintf(err, errlen, "bad ws URL: %s", url);
-    return NULL;
-  }
-  if (strcmp(u.scheme, "ws") != 0 && strcmp(u.scheme, "wss") != 0) {
-    snprintf(err, errlen, "unsupported scheme %s (wasm has no unix sockets)",
-             u.scheme);
-    return NULL;
-  }
-  if (bearer && *bearer) {
-    snprintf(err, errlen,
-             "wasm WebSocket cannot send an Authorization header; run the "
-             "host without token auth on loopback");
-    return NULL;
-  }
-  ws_conn *w = calloc(1, sizeof *w);
-  if (!w) return NULL;
-  w->fd = js_net_alloc();
-  if (js_ws_open(w->fd, url, timeout_ms) != 0) {
-    snprintf(err, errlen, "ws connect %s failed", url);
-    js_net_free(w->fd);
-    free(w);
-    return NULL;
-  }
-  return w;
-}
-
-int ws_send_text(ws_conn *w, const char *data, size_t len) {
-  if (w->dead) return -1;
-  return js_ws_send(w->fd, data, (int)len);
-}
-
-int ws_fd(ws_conn *w) { return w->fd; }
-
-bool ws_want_write(ws_conn *w) { (void)w; return false; }
-
-int ws_pump(ws_conn *w, ws_msg_cb cb, void *ud) {
-  if (w->dead) return -1;
-  for (;;) {
-    int len = 0;
-    char *msg = js_ws_next(w->fd, &len);
-    if (!msg) break;
-    if (cb) cb(msg, (size_t)len, ud);
-    free(msg);
-  }
-  if (js_ws_dead(w->fd)) { w->dead = true; return -1; }
-  return 0;
-}
-
-void ws_close(ws_conn *w) {
-  if (!w) return;
-  js_net_free(w->fd);
-  free(w);
 }
 
 #endif /* __EMSCRIPTEN__ */

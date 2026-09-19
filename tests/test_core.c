@@ -20,7 +20,6 @@
 #include "core/speech.h"
 #include "lib/custom_tools.h"
 #include "backends/openai/openai.h"
-#include "backends/cursor/cursor.h"
 #include "cli/cli.h"
 #include "util/util.h"
 #include "tny/tny.h"
@@ -288,23 +287,18 @@ TEST effort_wire_mapping(void) {
     ASSERT_FALSE(tny_effort_canonical(NULL));
 
     /* off and light translate; medium/high/xhigh are shared spellings */
-    ASSERT_STR_EQ("none", tny_effort_wire(TNY_BK_CURSOR, "off"));
     ASSERT_STR_EQ("none", tny_effort_wire(TNY_BK_OPENAI, "off"));
     ASSERT_STR_EQ("low", tny_effort_wire(TNY_BK_OPENAI, "light"));
-    ASSERT_STR_EQ("low", tny_effort_wire(TNY_BK_CURSOR, "light"));
     ASSERT_STR_EQ("medium", tny_effort_wire(TNY_BK_OPENAI, "medium"));
     ASSERT_STR_EQ("high", tny_effort_wire(TNY_BK_OPENAI, "high"));
-    ASSERT_STR_EQ("xhigh", tny_effort_wire(TNY_BK_CURSOR, "xhigh"));
 
     /* "max" exists on cursor but not in the OpenAI API (the codex profile
      * rides the openai mapping): clamp there */
-    ASSERT_STR_EQ("max", tny_effort_wire(TNY_BK_CURSOR, "max"));
     ASSERT_STR_EQ("xhigh", tny_effort_wire(TNY_BK_OPENAI, "max"));
 
     /* provider-advertised tokens pass through untouched, every backend */
-    ASSERT_STR_EQ("ultra", tny_effort_wire(TNY_BK_CURSOR, "ultra"));
     ASSERT_STR_EQ("minimal", tny_effort_wire(TNY_BK_OPENAI, "minimal"));
-    ASSERT_STR_EQ("whatever", tny_effort_wire(TNY_BK_ACP, "whatever"));
+    ASSERT_STR_EQ("whatever", tny_effort_wire(TNY_BK_COUNT, "whatever"));
     PASS();
 }
 
@@ -359,7 +353,7 @@ TEST effort_settings_per_provider(void) {
      * provider with no entry falls back to unset */
     tny_resolve_backend(ctx, "codex");
     ASSERT_STR_EQ("xhigh", ctx->reasoning_effort);
-    tny_resolve_backend(ctx, "cursor");
+    tny_resolve_backend(ctx, "grok");
     ASSERT_EQ(NULL, ctx->reasoning_effort);
     tny_ctx_free(ctx);
     PASS();
@@ -937,8 +931,10 @@ static void codex_auth_write(bool present) {
     snprintf(path, sizeof path, "%s/.codex", g_home);
     mkdir_p(path);
     snprintf(path, sizeof path, "%s/.codex/auth.json", g_home);
-    if (present) file_write_atomic(path, "{}", 2);
-    else unlink(path);
+    if (present) {
+        const char *auth = "{\"tokens\":{\"access_token\":\"fixture-oauth\"}}";
+        file_write_atomic(path, auth, strlen(auth));
+    } else unlink(path);
 }
 
 TEST backend_default_prefers_codex_login(void) {
@@ -959,7 +955,7 @@ TEST backend_default_prefers_codex_login(void) {
     /* subscription wins: the codex builtin profile on the openai backend */
     ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
     ASSERT_STR_EQ("codex", tny_provider_name(ctx));
-    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp")); /* flag beats it */
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, "acp")); /* flag beats it */
     tny_ctx_free(ctx);
 
     setenv("OPENAI_API_KEY", "sk-test", 1); /* explicit key beats detection */
@@ -984,14 +980,14 @@ TEST provider_last_used_and_scoped_models(void) {
     codex_auth_write(true); /* codex detectable, but last-used must win */
 
     tny_ctx *ctx = tny_ctx_load(g_ws);
-    ctx->backend = TNY_BK_CURSOR;
+    ctx->backend = TNY_BK_OPENAI;
     free(ctx->model);
     ctx->model = xstrdup("grok-4.6");
     ASSERT_EQ(0, tny_settings_remember_use(ctx));
     tny_ctx_free(ctx);
 
     ctx = tny_ctx_load(g_ws); /* fresh launch: last provider + its model */
-    ASSERT_EQ(TNY_BK_CURSOR, tny_resolve_backend(ctx, NULL));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
     ASSERT(ctx->model);
     ASSERT_STR_EQ("grok-4.6", ctx->model);
     tny_ctx_free(ctx);
@@ -1006,7 +1002,7 @@ TEST provider_last_used_and_scoped_models(void) {
     free(ctx->model);
     ctx->model = xstrdup("flag-model");
     ctx->model_from_flag = true;
-    ASSERT_EQ(TNY_BK_CURSOR, tny_resolve_backend(ctx, NULL));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
     ASSERT_STR_EQ("flag-model", ctx->model);
     tny_ctx_free(ctx);
 
@@ -1139,179 +1135,6 @@ TEST settings_general_defaults(void) {
     PASS();
 }
 
-TEST acp_named_provider_profiles(void) {
-    ensure_env();
-    codex_auth_write(false);
-    unsetenv("CURSOR_API_KEY");
-    unsetenv("OPENAI_API_KEY");
-    write_settings("{\"acp\":{\"agents\":{"
-                   "\"claude\":{\"command\":[\"npx\",\"-y\",\"claude-agent-acp\"],"
-                   "\"model\":\"profile-model\"},"
-                   "\"gemini\":{\"command\":[\"gemini\",\"--acp\"]}}},"
-                   "\"models\":{\"acp:claude\":\"saved-model\"}}");
-
-    tny_ctx *ctx = tny_ctx_load(g_ws);
-    ASSERT(tny_acp_profile_exists(ctx, "acp:claude"));
-    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:claude"));
-    ASSERT_STR_EQ("acp:claude", tny_provider_name(ctx));
-    ASSERT(ctx->agent_from_profile);
-    ASSERT_STR_EQ("npx", ctx->agent_argv[0]);
-    ASSERT_STR_EQ("-y", ctx->agent_argv[1]);
-    ASSERT_STR_EQ("claude-agent-acp", ctx->agent_argv[2]);
-    ASSERT_EQ(NULL, ctx->agent_argv[3]);
-    ASSERT_STR_EQ("saved-model", ctx->model); /* saved beats profile */
-
-    /* Rewriting settings frees and reparses its yyjson doc. The copied argv
-     * remains valid, proving no document-storage pointer escaped. */
-    ASSERT_EQ(0, tny_settings_set_str(ctx, "marker", "reparsed"));
-    ASSERT_STR_EQ("claude-agent-acp", ctx->agent_argv[2]);
-
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
-    ASSERT_EQ(NULL, ctx->agent_argv); /* profile argv does not leak */
-    ASSERT_FALSE(ctx->agent_from_profile);
-    ASSERT_EQ(NULL, ctx->model); /* ACP model does not leak either */
-
-    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:gemini"));
-    ASSERT_STR_EQ("gemini", ctx->agent_argv[0]);
-    ASSERT_STR_EQ("--acp", ctx->agent_argv[1]);
-    ASSERT_EQ(NULL, ctx->model); /* no saved/profile model -> agent default */
-    tny_ctx_free(ctx);
-
-    /* A previously used namespaced profile is restored like every other
-     * effective provider; defining the profile alone is not auto-selection. */
-    write_settings("{\"last_provider\":\"acp:claude\",\"acp\":{\"agents\":{"
-                   "\"claude\":{\"command\":[\"claude-agent-acp\"]}}}}");
-    ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, NULL));
-    ASSERT_STR_EQ("acp:claude", tny_provider_name(ctx));
-    ASSERT_STR_EQ("claude-agent-acp", ctx->agent_argv[0]);
-    tny_ctx_free(ctx);
-    /* Preferred shape + selector: command string and separate args array. */
-    write_settings("{\"acp\":{\"claude\":{\"command\":\"npx\","
-                   "\"args\":[\"-y\",\"@agentclientprotocol/claude-agent-acp\"]},"
-                   "\"pi\":{\"command\":\"pi-acp\"}}}");
-    ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp@claude"));
-    ASSERT_STR_EQ("acp@claude", tny_provider_name(ctx));
-    ASSERT_STR_EQ("npx", ctx->agent_argv[0]);
-    ASSERT_STR_EQ("-y", ctx->agent_argv[1]);
-    ASSERT_STR_EQ("@agentclientprotocol/claude-agent-acp", ctx->agent_argv[2]);
-    ASSERT_EQ(NULL, ctx->agent_argv[3]);
-    tny_ctx_free(ctx);
-    ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp@pi"));
-    ASSERT_STR_EQ("pi-acp", ctx->agent_argv[0]);
-    ASSERT_EQ(NULL, ctx->agent_argv[1]);
-    tny_ctx_free(ctx);
-
-    write_settings("{}");
-    PASS();
-}
-
-TEST acp_profile_model_precedence(void) {
-    ensure_env();
-    setenv("ACP_A_DEFAULT_MODEL", "env-default", 1);
-    write_settings("{\"acp\":{\"agents\":{\"a\":{\"command\":[\"agent-a\"],"
-                   "\"model\":\"profile\"}}},\"models\":{\"acp:a\":\"saved\"}}");
-    tny_ctx *ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:a"));
-    ASSERT_STR_EQ("saved", ctx->model);
-    tny_ctx_free(ctx);
-
-    ctx = tny_ctx_load(g_ws);
-    ctx->model = xstrdup("flag");
-    ctx->model_from_flag = true;
-    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:a"));
-    ASSERT_STR_EQ("flag", ctx->model);
-    tny_ctx_free(ctx);
-
-    write_settings("{\"acp\":{\"agents\":{\"a\":{\"command\":[\"agent-a\"],"
-                   "\"model\":\"profile\"}}}}");
-    ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:a"));
-    ASSERT_STR_EQ("profile", ctx->model);
-    tny_ctx_free(ctx);
-
-    write_settings("{\"acp\":{\"agents\":{\"a\":{\"command\":[\"agent-a\"]}}}}");
-    ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:a"));
-    ASSERT_STR_EQ("env-default", ctx->model);
-    tny_ctx_free(ctx);
-    unsetenv("ACP_A_DEFAULT_MODEL");
-    write_settings("{}");
-    PASS();
-}
-
-TEST acp_profiles_validate_when_selected(void) {
-    ensure_env();
-    write_settings("{\"acp\":{\"agents\":{"
-                   "\"bad name\":{\"command\":[\"x\"]},"
-                   "\"missing\":{},\"not_array\":{\"command\":7},"
-                   "\"empty\":{\"command\":[]},"
-                   "\"non_string\":{\"command\":[\"x\",7]},"
-                   "\"empty_arg\":{\"command\":[\"x\",\"\"]},"
-                   "\"remote_args\":{\"command\":[\"wss://agent.test/acp\",\"extra\"]},"
-                   "\"bad_model\":{\"command\":[\"x\"],\"model\":7}}}}");
-    const char *bad[] = {
-        "acp:",      "acp:unknown",    "acp:bad name",  "acp:missing",     "acp:not_array",
-        "acp:empty", "acp:non_string", "acp:empty_arg", "acp:remote_args", "acp:bad_model"};
-    for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) {
-        tny_ctx *ctx = tny_ctx_load(g_ws);
-        ASSERT_EQ(-1, tny_resolve_backend(ctx, bad[i]));
-        tny_ctx_free(ctx);
-    }
-
-    /* Pin every inclusive boundary in the profile-name alphabet. */
-    write_settings("{\"acp\":{\"agents\":{"
-                   "\"a\":{\"command\":[\"x\"]},\"z\":{\"command\":[\"x\"]},"
-                   "\"A\":{\"command\":[\"x\"]},\"Z\":{\"command\":[\"x\"]},"
-                   "\"0\":{\"command\":[\"x\"]},\"9\":{\"command\":[\"x\"]},"
-                   "\"-\":{\"command\":[\"x\"]},\"_\":{\"command\":[\"x\"]}}}}");
-    const char *edges[] = {"a", "z", "A", "Z", "0", "9", "-", "_"};
-    for (size_t i = 0; i < sizeof edges / sizeof *edges; i++) {
-        char provider[8];
-        snprintf(provider, sizeof provider, "acp:%s", edges[i]);
-        tny_ctx *edge_ctx = tny_ctx_load(g_ws);
-        ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(edge_ctx, provider));
-        tny_ctx_free(edge_ctx);
-    }
-
-    /* Explicit --agent is the ad-hoc `acp` form, never an override for a
-     * named profile. Resolver rejects the ambiguous combination. */
-    write_settings("{\"acp\":{\"agents\":{\"named\":{\"command\":[\"profile\"]}}}}");
-    tny_ctx *ctx = tny_ctx_load(g_ws);
-    ctx->agent_argv = calloc(2, sizeof *ctx->agent_argv);
-    ctx->agent_argv[0] = xstrdup("explicit");
-    ASSERT_EQ(-1, tny_resolve_backend(ctx, "acp:named"));
-    ASSERT_STR_EQ("explicit", ctx->agent_argv[0]);
-    ASSERT_FALSE(ctx->agent_from_profile);
-    tny_ctx_free(ctx);
-    write_settings("{}");
-    PASS();
-}
-
-TEST acp_profiles_list_without_auto_select(void) {
-    ensure_env();
-    codex_auth_write(false);
-    unsetenv("CURSOR_API_KEY");
-    unsetenv("OPENAI_API_KEY");
-    unsetenv("OPENAI_BASE_URL");
-    write_settings("{\"acp\":{\"agents\":{\"\":{\"command\":[\"empty\"]},"
-                   "\"claude\":{\"command\":[\"claude\"]},"
-                   "\"bad name\":{\"command\":[\"bad\"]}}}}");
-    tny_ctx *ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
-    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
-    char *names = tny_provider_names_joined(ctx);
-    ASSERT(strstr(names, "|acp@claude") != NULL);
-    ASSERT(strstr(names, "acp:bad name") == NULL);
-    ASSERT(strstr(names, "|acp:|") == NULL);
-    free(names);
-    tny_ctx_free(ctx);
-    write_settings("{}");
-    PASS();
-}
-
 /* Providers can also be defined purely by environment variables:
  * NAME_BASE_URL makes NAME a valid provider, NAME_API_KEY supplies the key,
  * NAME_DEFAULT_MODEL the fallback model. Exactly one BASE_URL+API_KEY pair
@@ -1383,12 +1206,12 @@ TEST env_defined_providers(void) {
 
     /* NAME_DEFAULT_MODEL also works for builtin providers */
     write_settings("{}");
-    setenv("CURSOR_DEFAULT_MODEL", "o4-mini", 1);
+    setenv("OPENAI_DEFAULT_MODEL", "o4-mini", 1);
     ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_CURSOR, tny_resolve_backend(ctx, "cursor"));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
     ASSERT(ctx->model);
     ASSERT_STR_EQ("o4-mini", ctx->model);
-    unsetenv("CURSOR_DEFAULT_MODEL");
+    unsetenv("OPENAI_DEFAULT_MODEL");
     tny_ctx_free(ctx);
 
     /* the scan itself: builtin exclusion, every prefix char class, and the
@@ -1422,12 +1245,10 @@ TEST env_defined_providers(void) {
     unsetenv("ORWELL_API_KEY");
     unsetenv("ORWELL_DEFAULT_MODEL");
 
-    /* a stale last_provider naming a vanished provider falls back cleanly */
+    /* A stale saved selector fails instead of silently changing accounts. */
     write_settings("{\"last_provider\":\"ghost\"}");
     ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
-    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
-    ASSERT_STR_EQ("https://api.openai.com/v1", ctx->base_url);
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, NULL));
     tny_ctx_free(ctx);
 
     write_settings("{}");
@@ -1442,25 +1263,6 @@ static bool has_extra_header(tny_ctx *ctx, const char *prefix) {
     for (char **h = ctx->extra_headers; h && *h; h++)
         if (str_starts(*h, prefix)) return true;
     return false;
-}
-
-static void claude_credentials_write(const char *token) {
-    char path[600];
-    snprintf(path, sizeof path, "%s/.claude", g_home);
-    mkdir_p(path);
-    snprintf(path, sizeof path, "%s/.claude/.credentials.json", g_home);
-    if (!token) {
-        unlink(path);
-        return;
-    }
-    buf_t b;
-    buf_init(&b);
-    buf_appendf(&b,
-                "{\"claudeAiOauth\":{\"accessToken\":\"%s\","
-                "\"refreshToken\":\"r\",\"expiresAt\":9999999999999}}",
-                token);
-    file_write_atomic(path, b.data, b.len);
-    buf_free(&b);
 }
 
 static void grok_auth_write(const char *token) {
@@ -1509,6 +1311,50 @@ static void codex_auth_write_json(const char *json) {
 /* The codex builtin (docs/adr/0065): the ChatGPT login from auth.json
  * drives chatgpt.com/backend-api/codex on the Responses wire with the
  * account-id and beta headers; an API-key auth.json means api.openai.com. */
+TEST failed_provider_switch_is_atomic(void) {
+    ensure_env();
+    unsetenv("CODEX_HOME");
+    unsetenv("CHATGPT_ACCESS_TOKEN");
+    write_settings("{\"gateway\":{\"base_url\":\"http://127.0.0.1:1/v1\","
+                   "\"api_key_env\":\"fixture_key\",\"model\":\"saved-model\"}}");
+    setenv("fixture_key", "fixture-secret", 1);
+    codex_auth_write_json("{\"OPENAI_API_KEY\":\"retired-key\"}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "gateway"));
+    tny_ctx_add_extra_header(ctx, "X-Fixture: retained");
+    char *model = ctx->model, *key = ctx->api_key, *url = ctx->base_url;
+    char **headers = ctx->extra_headers;
+    struct tny_extensions *extensions = ctx->extensions;
+    ASSERT_FALSE(tny_codex_auth_present());
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, "codex"));
+    ASSERT_STR_EQ("gateway", tny_provider_name(ctx));
+    ASSERT_EQ(model, ctx->model);
+    ASSERT_EQ(key, ctx->api_key);
+    ASSERT_EQ(url, ctx->base_url);
+    ASSERT_EQ(headers, ctx->extra_headers);
+    ASSERT_EQ(extensions, ctx->extensions);
+    ASSERT_STR_EQ("saved-model", ctx->model);
+    ASSERT_STR_EQ("fixture-secret", ctx->api_key);
+    ASSERT_STR_EQ("X-Fixture: retained", ctx->extra_headers[0]);
+    ASSERT_EQ(0, tny_settings_set_str(ctx, "fast", "invalid-tier"));
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, "openai"));
+    ASSERT_STR_EQ("gateway", tny_provider_name(ctx));
+    ASSERT_EQ(model, ctx->model);
+    ASSERT_EQ(key, ctx->api_key);
+    ASSERT_EQ(url, ctx->base_url);
+    ASSERT_EQ(headers, ctx->extra_headers);
+    ASSERT_EQ(0, tny_settings_set_str(ctx, "fast", "default"));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_FALSE(has_extra_header(ctx, "X-Fixture:"));
+    ASSERT_EQ(NULL, ctx->api_key);
+    tny_ctx_free(ctx);
+    codex_auth_write(false);
+    unsetenv("fixture_key");
+    write_settings("{}");
+    PASS();
+}
+
 TEST builtin_codex_profile(void) {
     ensure_env();
     write_settings("{}");
@@ -1566,19 +1412,16 @@ TEST builtin_codex_profile(void) {
     unsetenv("TNY_CODEX_BASE_URL");
     free(jwt);
 
-    /* API-key auth.json (`codex login --with-api-key`): the public API */
-    codex_auth_write_json("{\"auth_mode\":\"apikey\",\"OPENAI_API_KEY\":\"sk-codex-key\"}");
+    /* Persisted BYOK files require explicit migration. */
+    codex_auth_write_json("{\"OPENAI_API_KEY\":\"synthetic-key\"}");
     ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
-    ASSERT_STR_EQ("https://api.openai.com/v1", ctx->base_url);
-    ASSERT(ctx->api_key);
-    ASSERT_STR_EQ("sk-codex-key", ctx->api_key);
-    ASSERT_FALSE(has_extra_header(ctx, "chatgpt-account-id:"));
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, "codex"));
+    ASSERT_EQ(NULL, ctx->api_key);
     tny_ctx_free(ctx);
 
-    /* an empty auth.json still selects the profile; connect() reports it */
+    /* Explicit empty auth.json selects the profile; connect() reports no login. */
     unsetenv("CHATGPT_ACCESS_TOKEN");
-    codex_auth_write(true);
+    codex_auth_write_json("{}");
     ctx = tny_ctx_load(g_ws);
     ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
     ASSERT_EQ(NULL, ctx->api_key);
@@ -1760,53 +1603,6 @@ TEST codex_credential_precedence(void) {
 /* The claude builtin: Anthropic's OpenAI-compat endpoint on the chat wire.
  * OAuth-sourced tokens add the anthropic-beta oauth header; a Console API
  * key must not carry it. */
-TEST builtin_claude_profile(void) {
-    ensure_env();
-    write_settings("{}");
-    codex_auth_write(false);
-
-    /* env OAuth token */
-    setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test", 1);
-    tny_ctx *ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "claude"));
-    ASSERT_STR_EQ("claude", tny_provider_name(ctx));
-    ASSERT_STR_EQ("https://api.anthropic.com/v1", ctx->base_url);
-    ASSERT(ctx->wire_api);
-    ASSERT_STR_EQ("chat", ctx->wire_api);
-    ASSERT(ctx->api_key);
-    ASSERT_STR_EQ("sk-ant-oat01-test", ctx->api_key);
-    ASSERT(has_extra_header(ctx, "anthropic-beta: oauth-2025-04-20"));
-    ASSERT(ctx->model); /* the openai default model must not leak in */
-    ASSERT(strcmp(ctx->model, "gpt-4.1-mini") != 0);
-    tny_ctx_free(ctx);
-    unsetenv("CLAUDE_CODE_OAUTH_TOKEN");
-
-    /* credentials file from `claude /login` */
-    claude_credentials_write("sk-ant-oat01-fromfile");
-    ctx = tny_ctx_load(g_ws);
-    ASSERT(tny_claude_auth_present());
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "claude"));
-    ASSERT(ctx->api_key);
-    ASSERT_STR_EQ("sk-ant-oat01-fromfile", ctx->api_key);
-    ASSERT(has_extra_header(ctx, "anthropic-beta:"));
-    tny_ctx_free(ctx);
-    claude_credentials_write(NULL);
-
-    /* Console API key: bearer, no oauth beta header */
-    setenv("ANTHROPIC_API_KEY", "sk-ant-api03-test", 1);
-    ctx = tny_ctx_load(g_ws);
-    ASSERT_FALSE(tny_claude_auth_present()); /* a raw key never auto-detects */
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "claude"));
-    ASSERT(ctx->api_key);
-    ASSERT_STR_EQ("sk-ant-api03-test", ctx->api_key);
-    ASSERT_FALSE(has_extra_header(ctx, "anthropic-beta:"));
-    /* switching to another provider must drop the profile's headers */
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
-    ASSERT_EQ(NULL, ctx->extra_headers);
-    tny_ctx_free(ctx);
-    unsetenv("ANTHROPIC_API_KEY");
-    PASS();
-}
 
 /* The grok builtin: `grok login` session token drives the CLI chat proxy
  * (chat wire, proxy auth + model-override headers); XAI_API_KEY falls back
@@ -2115,38 +1911,7 @@ TEST builtin_profile_edge_credentials(void) {
     write_settings("{}");
     codex_auth_write(false);
 
-    /* credentials file without an accessToken: no token, and the source
-     * out-param must stay untouched */
-    char path[600];
-    snprintf(path, sizeof path, "%s/.claude", g_home);
-    mkdir_p(path);
-    snprintf(path, sizeof path, "%s/.claude/.credentials.json", g_home);
-    const char *no_tok = "{\"claudeAiOauth\":{}}";
-    file_write_atomic(path, no_tok, strlen(no_tok));
-    const char *source = NULL;
-    char *tok = tny_claude_token(&source);
-    ASSERT_EQ(NULL, tok);
-    ASSERT_EQ(NULL, source);
-
-    /* an empty accessToken string is not a credential either */
-    const char *empty_tok = "{\"claudeAiOauth\":{\"accessToken\":\"\"}}";
-    file_write_atomic(path, empty_tok, strlen(empty_tok));
-    tok = tny_claude_token(&source);
-    ASSERT_EQ(NULL, tok);
-
-    /* no resolvable credential: the claude profile must not invent a key
-     * or attach the oauth beta header */
-    tny_ctx *ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "claude"));
-    ASSERT_EQ(NULL, ctx->api_key);
-    ASSERT_FALSE(has_extra_header(ctx, "anthropic-beta:"));
-
-    /* the header plumbing ignores empty lines */
-    tny_ctx_add_extra_header(ctx, "");
-    ASSERT_FALSE(has_extra_header(ctx, ""));
-    tny_ctx_free(ctx);
-    unlink(path);
-
+    tny_ctx *ctx;
     /* grok: the accounts.x.ai sign-in entry wins over other objects that
      * also carry a "key" (OIDC issuers, unrelated caches) */
     char gpath[600];
@@ -2206,7 +1971,7 @@ TEST builtin_profile_detection_and_shadowing(void) {
     setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test", 1);
     ctx = tny_ctx_load(g_ws);
     ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
-    ASSERT_STR_EQ("claude", tny_provider_name(ctx)); /* claude beats grok */
+    ASSERT_STR_EQ("grok", tny_provider_name(ctx)); /* Claude artifacts ignored */
     tny_ctx_free(ctx);
 
     codex_auth_write(true);
@@ -2216,14 +1981,6 @@ TEST builtin_profile_detection_and_shadowing(void) {
     tny_ctx_free(ctx);
     codex_auth_write(false);
 
-    /* last_provider remembers a builtin profile by name */
-    write_settings("{\"last_provider\":\"claude\"}");
-    ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
-    ASSERT_STR_EQ("claude", tny_provider_name(ctx));
-    ASSERT_STR_EQ("https://api.anthropic.com/v1", ctx->base_url);
-    tny_ctx_free(ctx);
-
     /* the remembered builtin beats the detection order: grok last-used
      * wins even while claude credentials are also present */
     write_settings("{\"last_provider\":\"grok\"}");
@@ -2232,15 +1989,10 @@ TEST builtin_profile_detection_and_shadowing(void) {
     ASSERT_STR_EQ("grok", tny_provider_name(ctx));
     tny_ctx_free(ctx);
 
-    /* a stale last_provider naming nothing must fall through to detection,
-     * never resolve as a phantom builtin profile */
     write_settings("{\"last_provider\":\"gone\"}");
-    codex_auth_write(true);
     ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
-    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, NULL));
     tny_ctx_free(ctx);
-    codex_auth_write(false);
     write_settings("{}");
 
     /* a user settings profile named "claude" shadows the builtin */
@@ -2253,13 +2005,6 @@ TEST builtin_profile_detection_and_shadowing(void) {
     ASSERT(ctx->api_key);
     ASSERT_STR_EQ("sk-gw", ctx->api_key);
     ASSERT_FALSE(has_extra_header(ctx, "anthropic-beta:"));
-    tny_ctx_free(ctx);
-
-    /* auto-detection routes through the shadowing profile too */
-    ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
-    ASSERT_STR_EQ("claude", tny_provider_name(ctx));
-    ASSERT_STR_EQ("https://gw.test/v1", ctx->base_url);
     tny_ctx_free(ctx);
 
     unsetenv("GW_KEY");
@@ -2280,7 +2025,7 @@ TEST provider_names_joined_lists_detected(void) {
     tny_ctx *ctx = tny_ctx_load(g_ws);
     char *j = tny_provider_names_joined(ctx);
     ASSERT(j);
-    ASSERT_STR_EQ("openai|cursor|acp|codex|claude|grok|openrouter|xai|orwell", j);
+    ASSERT_STR_EQ("openai|codex|grok|openrouter|xai|orwell", j);
     free(j);
     tny_ctx_free(ctx);
     unsetenv("XAI_BASE_URL");
@@ -2297,8 +2042,6 @@ TEST provider_names_joined_lists_detected(void) {
  * bit. */
 TEST fast_capability_per_provider(void) {
     ASSERT(tny_backend_caps(TNY_BK_OPENAI) & TNY_CAP_FAST);
-    ASSERT(tny_backend_caps(TNY_BK_CURSOR) & TNY_CAP_FAST);
-    ASSERT_FALSE(tny_backend_caps(TNY_BK_ACP) & TNY_CAP_FAST);
     ASSERT_EQ(0u, tny_backend_caps((tny_backend_id)TNY_BK_COUNT));
     PASS();
 }
@@ -2349,31 +2092,6 @@ TEST fast_flag_sets_service_tier(void) {
 /* The cursor mapping is a per-model param: fast tiers pin the fast variant,
  * "default" pins the standard one, unset appends nothing (the model's own
  * default variant — which may itself be the fast one — applies). */
-TEST fast_cursor_model_param(void) {
-    buf_t b;
-
-    buf_init(&b);
-    cursor_append_model_params(&b, "fast");
-    ASSERT_STR_EQ(",\"params\":[{\"id\":\"fast\",\"value\":\"true\"}]", b.data);
-    buf_free(&b);
-
-    buf_init(&b);
-    cursor_append_model_params(&b, "priority");
-    ASSERT_STR_EQ(",\"params\":[{\"id\":\"fast\",\"value\":\"true\"}]", b.data);
-    buf_free(&b);
-
-    buf_init(&b);
-    cursor_append_model_params(&b, "default");
-    ASSERT_STR_EQ(",\"params\":[{\"id\":\"fast\",\"value\":\"false\"}]", b.data);
-    buf_free(&b);
-
-    buf_init(&b);
-    cursor_append_model_params(&b, NULL);
-    cursor_append_model_params(&b, "");
-    ASSERT_EQ(0, (int)b.len);
-    buf_free(&b);
-    PASS();
-}
 
 /* --fast on a provider without the capability is a startup error (exit 1
  * path): cli_make_ctx must refuse instead of silently dropping the flag. */
@@ -2403,7 +2121,7 @@ TEST backend_default_cursor_key_from_env(void) {
     codex_auth_write(false);
     setenv("CURSOR_API_KEY", "key_test", 1);
     tny_ctx *ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_CURSOR, tny_resolve_backend(ctx, NULL));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
     tny_ctx_free(ctx);
 
     codex_auth_write(true); /* codex login outranks a cursor env key */
@@ -3086,7 +2804,7 @@ TEST image_input_map_resolves_per_provider_and_resets(void) {
 
     /* a provider with no entry stays unknown: existing explicit image flows
      * keep working, but unknown never authorizes an automatic preview */
-    ASSERT_EQ(TNY_BK_CURSOR, tny_resolve_backend(ctx, "cursor"));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
     ASSERT_EQ(TNY_IMAGE_INPUT_UNKNOWN, tny_image_input_configured(ctx));
     ASSERT_FALSE(tny_image_input_refused(ctx));
     ASSERT_FALSE(tny_image_input_auto_preview_allowed(ctx));
@@ -3102,17 +2820,6 @@ TEST image_input_map_resolves_per_provider_and_resets(void) {
     ASSERT(tny_image_input_refused(ctx));
     ASSERT(strstr(ctx->base_url, "chatgpt.com") != NULL);
     ASSERT_FALSE(tny_custom_provider_exists(ctx, "codex"));
-    tny_ctx_free(ctx);
-
-    /* the legacy acp:NAME selector shares the canonical acp@NAME key */
-    write_settings("{\"acp\":{\"claude\":{\"command\":\"claude-agent-acp\"}},"
-                   "\"image_input\":{\"acp@claude\":false}}");
-    ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp:claude"));
-    ASSERT_STR_EQ("acp:claude", tny_provider_name(ctx));
-    ASSERT(tny_image_input_refused(ctx));
-    ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp@claude"));
-    ASSERT(tny_image_input_refused(ctx));
     tny_ctx_free(ctx);
 
     write_settings("{}");
@@ -4480,15 +4187,6 @@ TEST subagent_prepare_rejects_with_exact_codes(void) {
     free(ctx->ssh_host);
     ctx->ssh_host = NULL;
 
-    /* host providers own their loops */
-    ctx->backend = TNY_BK_CURSOR;
-    error = tools_execute(&env, "subagent", valid[0]);
-    ASSERT_STR_EQ("error: SUBAGENT_UNSUPPORTED_CONTEXT: subagent needs tny's native "
-                  "OpenAI-compatible loop; host providers run their own agents",
-                  error);
-    free(error);
-    ctx->backend = TNY_BK_OPENAI;
-
     /* prompt optimisation */
     ctx->prompt_optimisation = true;
     error = subagent_prepare(&env, valid[0]);
@@ -5129,32 +4827,6 @@ TEST version_string_is_sane(void) {
 
 /* docs/adr/0018: a key stored by `provider setup` is the fallback; any env
  * var still beats it, so shell-side rotation wins without editing files. */
-TEST provider_profile_stored_api_key(void) {
-    unsetenv("OPENAI_API_KEY");
-    unsetenv("WIZPROV_API_KEY");
-    write_settings("{\"wizprov\":{\"base_url\":\"http://127.0.0.1:1/v1\","
-                   "\"api_key\":\"sk-stored\"}}");
-    tny_ctx *ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "wizprov"));
-    ASSERT(ctx->api_key);
-    ASSERT_STR_EQ("sk-stored", ctx->api_key);
-    tny_ctx_free(ctx);
-
-    setenv("WIZPROV_API_KEY", "sk-from-env", 1);
-    ctx = tny_ctx_load(g_ws);
-    tny_resolve_backend(ctx, "wizprov");
-    ASSERT_STR_EQ("sk-from-env", ctx->api_key);
-    tny_ctx_free(ctx);
-    unsetenv("WIZPROV_API_KEY");
-
-    /* the builtin openai object takes a stored key the same way */
-    write_settings("{\"openai\":{\"api_key\":\"sk-oa-stored\"}}");
-    ctx = tny_ctx_load(g_ws);
-    tny_resolve_backend(ctx, "openai");
-    ASSERT_STR_EQ("sk-oa-stored", ctx->api_key);
-    tny_ctx_free(ctx);
-    PASS();
-}
 
 /* The native loop is unlimited by default (docs/adr/0024): max_steps 0.
  * The repo's .tny.json "steps" limit still caps it, and the shared
@@ -5236,6 +4908,17 @@ TEST extension_config_default_and_overrides(void) {
     PASS();
 }
 
+TEST provider_profile_stored_api_key(void) {
+    ensure_env();
+    write_settings("{\"openai\":{\"api_key\":\"synthetic-stored\"}}");
+    ASSERT_EQ(NULL, tny_ctx_load(g_ws));
+    setenv("OPENAI_API_KEY", "synthetic-env", 1);
+    ASSERT_EQ(NULL, tny_ctx_load(g_ws));
+    unsetenv("OPENAI_API_KEY");
+    write_settings("{}");
+    PASS();
+}
+
 TEST provider_write_profile_rules(void) {
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
@@ -5252,7 +4935,8 @@ TEST provider_write_profile_rules(void) {
     ASSERT_EQ(-1, tny_provider_write_profile(ctx, "newprov", &f1, err, sizeof err));
 
     /* create, then partial update keeps the untouched fields */
-    tny_provider_fields f2 = {"http://127.0.0.1:1/v1", "sk-1", NULL, "m1", NULL};
+    tny_provider_fields f2 = {"http://127.0.0.1:1/v1", NULL, "TEST_PROFILE_KEY", "m1", NULL};
+    setenv("TEST_PROFILE_KEY", "sk-1", 1);
     ASSERT_EQ(0, tny_provider_write_profile(ctx, "newprov", &f2, err, sizeof err));
     tny_provider_fields f3 = {NULL, NULL, NULL, "m2", NULL};
     ASSERT_EQ(0, tny_provider_write_profile(ctx, "newprov", &f3, err, sizeof err));
@@ -5269,10 +4953,11 @@ TEST provider_write_profile_rules(void) {
     ASSERT(jget_str(o, "api_key") == NULL);
     ASSERT_STR_EQ("NEWPROV_KEY_VAR", jget_str(o, "api_key_env"));
     tny_provider_fields f5 = {NULL, "sk-2", NULL, NULL, NULL};
-    ASSERT_EQ(0, tny_provider_write_profile(ctx, "newprov", &f5, err, sizeof err));
+    ASSERT_EQ(-1, tny_provider_write_profile(ctx, "newprov", &f5, err, sizeof err));
     o = jget(yyjson_doc_get_root(ctx->settings), "newprov");
-    ASSERT(jget_str(o, "api_key_env") == NULL);
-    ASSERT_STR_EQ("sk-2", jget_str(o, "api_key"));
+    ASSERT_STR_EQ("NEWPROV_KEY_VAR", jget_str(o, "api_key_env"));
+    ASSERT(jget_str(o, "api_key") == NULL);
+    unsetenv("TEST_PROFILE_KEY");
 
     tny_ctx_free(ctx);
     PASS();
@@ -5964,15 +5649,12 @@ SUITE(core_suite) {
     RUN_TEST(codex_client_version_env_override);
     RUN_TEST(backend_default_prefers_codex_login);
     RUN_TEST(builtin_codex_profile);
+    RUN_TEST(failed_provider_switch_is_atomic);
     RUN_TEST(codex_credential_precedence);
     RUN_TEST(backend_default_cursor_key_from_env);
     RUN_TEST(provider_last_used_and_scoped_models);
     RUN_TEST(custom_named_provider_profiles);
     RUN_TEST(settings_general_defaults);
-    RUN_TEST(acp_named_provider_profiles);
-    RUN_TEST(acp_profile_model_precedence);
-    RUN_TEST(acp_profiles_validate_when_selected);
-    RUN_TEST(acp_profiles_list_without_auto_select);
     RUN_TEST(provider_profile_stored_api_key);
     RUN_TEST(provider_write_profile_rules);
     RUN_TEST(embedded_public_runtime_does_not_claim_library_linkage);
@@ -5981,7 +5663,6 @@ SUITE(core_suite) {
     RUN_TEST(max_steps_default_and_overrides);
     RUN_TEST(extension_config_default_and_overrides);
     RUN_TEST(env_defined_providers);
-    RUN_TEST(builtin_claude_profile);
     RUN_TEST(builtin_grok_profile);
     RUN_TEST(grok_native_device_login);
     RUN_TEST(grok_native_login_denied);
@@ -5993,7 +5674,6 @@ SUITE(core_suite) {
     RUN_TEST(fast_capability_per_provider);
     RUN_TEST(fast_tier_spellings);
     RUN_TEST(fast_flag_sets_service_tier);
-    RUN_TEST(fast_cursor_model_param);
     RUN_TEST(fast_flag_rejected_without_capability);
     RUN_TEST(perm_defaults_to_yolo);
     RUN_TEST(perm_ask_mode_opt_in);

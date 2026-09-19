@@ -7,7 +7,7 @@ workflow (`.github/workflows/ci.yml`).
 ## Local build cleanup
 
 `make clean` removes `build/`, `dist/`, and root-level `build-*` directories
-(for example, `build-acp/` and `build-sdk-final/`). These ignored directories
+(for example, `build-provider/` and `build-sdk-final/`). These ignored directories
 hold disposable binaries, intermediate files, test snapshots, and test reports.
 Save any reports you need before cleaning, and wait for builds and tests in
 these directories to finish. Cleanup does not detect active users.
@@ -28,7 +28,7 @@ See [ADR 0135](adr/0135-clean-build-variants.md).
 | `tny-linux-x86_64-musl` | `ubuntu-24.04` + Alpine 3.21 | **static** musl; unit tests + smoke |
 | `tny-linux-aarch64-musl` | `ubuntu-24.04-arm` + Alpine 3.21 | **static** musl; unit tests + smoke |
 | `tny-darwin-arm64` | `macos-15` | Apple Silicon only; ASan unit tests, shell workflows, libtny fault/fuzz/ownership checks, ImageMagick 7 conversion tests, size and package |
-| `tny-wasm` (`tny.js`+`tny.wasm`, `tny-web.mjs`+`.wasm`) | `ubuntu-24.04` + emsdk 6.0.8 | the SAME openai/acp-ws/codex-profile mock suites with `TNY=build/wasm/tny`, measured wasm artifact size, and a headless-Chromium page smoke ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
+| `tny-wasm` (`tny.js`+`tny.wasm`, `tny-web.mjs`+`.wasm`) | `ubuntu-24.04` + emsdk 6.0.8 | the SAME openai/codex-profile mock suites with `TNY=build/wasm/tny`, measured wasm artifact size, and a headless-Chromium page smoke ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
 
 GitHub Actions builds and releases Linux and macOS native artifacts only
 ([ADR 0137](adr/0137-linux-macos-ci-and-optional-nix.md)). Windows jobs and
@@ -57,18 +57,7 @@ Runs on `main` are never cancelled by a newer push: the `ci` and `sdk`
 workflows only cancel superseded pull-request runs. Both must succeed on the
 same commit before automatic release.
 
-`make quality` and `make test` verify the vendored Cursor v1.0.30 hashes and
-contract counts before accepting the adapter. Native integration fixtures
-cover all 27 outbound routes, the custom-tool and custom-store reverse RPCs,
-local/cloud options, Create/Resume callback re-entry, Send/Observe recovery,
-all three stream types, cancellation, management aliases/raw RPC, structured
-errors, auth, secret non-leakage, and process cleanup. wasm asserts exact clean
-unsupported errors for both conversational Cursor and `tny cursor` management
-before any bridge or callback work. These are deterministic
-protocol tests; CI has no `CURSOR_API_KEY` and makes no live Cursor Cloud claim.
-The libtny/Python/TypeScript matrices also exercise Cursor provider creation,
-normalized events, cancellation, custom tools, capabilities, and validation;
-they do not expose the management RPC surface.
+`make test` covers native Responses and Chat streaming and tool calls, env-only named profiles, removed selectors and settings, no vendor executable discovery, and native Codex/Grok OAuth and compatible wires using local mocks. No paid/live inference is required. Library and SDK tests preserve lifecycle, events, cancellation, custom tools, and capability validation.
 
 Nix is an **optional developer** workflow, not a GitHub Actions job or release
 gate. `nix flake check` remains available locally for `x86_64-linux`,
@@ -164,8 +153,7 @@ that the container mounts the working copy, so the tree has to be inside your
 Docker file-sharing roots — colima and Docker Desktop share `$HOME`, not
 `/tmp`, by default.
 
-macOS runs suite by suite and skips `cursor_suite`, `cursor_sdk_suite`,
-`mcp_suite`, `session_bg_suite`, `ssh_suite` and `runner_suite` (its control-channel
+macOS runs suite by suite and skips `mcp_suite`, `session_bg_suite`, `ssh_suite` and `runner_suite` (its control-channel
 tests fork a terminal child, ADR 0058): `leaks --atExit` installs an
 exit hook that stops the process for analysis and `fork(2)` copies it into
 every child, so a suite that spawns a helper deadlocks, and
@@ -340,7 +328,7 @@ need only `cc`.
 allocator fault lane. It checks retained payloads, reserve settlement without
 allocation, transactional recovery and independent async leases.
 `make test-libtny-fault` also builds `build/lib-fault/provider-faults`, the
-real ACP/Cursor/OpenAI backends linked against the fully instrumented object
+the real native OpenAI HTTP backend linked against the fully instrumented object
 graph; `tests/integration/test_libtny_faults.py` runs its named regressions and
 the whole-turn provider allocation sweeps. `make test-runtime-mutation`
 (`tests/mutation/runtime_critical.py`) compiles private mutant copies of the

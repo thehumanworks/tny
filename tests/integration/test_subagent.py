@@ -883,75 +883,6 @@ def scenario_selectors(provider, home, workspace, wire):
             f.write(saved)
 
 
-def scenario_host_selection(provider, home, workspace):
-    """A configured ACP child selects its own model and resumes its host id."""
-    settings = os.path.join(home, ".tny", "settings.json")
-    with open(settings, encoding="utf-8") as f:
-        saved = f.read()
-    agent = os.path.join(os.path.dirname(__file__), "fake_acp_agent.py")
-    state_path = os.path.join(home, "acp-state.json")
-    with open(settings, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "acp": {
-                    "fixture": {
-                        "command": sys.executable,
-                        "args": [os.path.abspath(agent)],
-                        "model": "default-model",
-                    }
-                }
-            },
-            f,
-        )
-    try:
-        env = base_env(home, provider, FAKE_ACP_STATE=state_path)
-        s = "selected-host"
-        provider.plan(
-            s,
-            (
-                "subagent",
-                {
-                    "action": "create",
-                    "prompt": "host first",
-                    "provider": "acp@fixture",
-                    "model": "selected-model",
-                },
-            ),
-            ("subagent", lambda: {"action": "lifecycle", "id": provider.created_id(s)}),
-            (
-                "subagent",
-                lambda: {
-                    "action": "message",
-                    "id": provider.created_id(s),
-                    "prompt": "host second",
-                    "provider": "acp@fixture",
-                    "model": "ws-model",
-                },
-            ),
-        )
-        payload = run_parent(env, workspace, s)
-        check(statuses(payload) == [("subagent", "success")] * 3, payload)
-        check("resumable: true" in provider.results[s][1], provider.results[s])
-        with open(state_path, encoding="utf-8") as f:
-            state = json.load(f)
-        check(
-            state["loaded"]
-            and state["last_prompt"] == "host second"
-            and state["model_at_prompt"] == "ws-model",
-            state,
-        )
-        doc = session_doc(home, provider.created_id(s))
-        check(
-            doc["backend"] == "acp@fixture"
-            and doc["model"] == "ws-model"
-            and doc["host_pointer"] == state["load_requested"],
-            doc,
-        )
-    finally:
-        with open(settings, "w", encoding="utf-8") as f:
-            f.write(saved)
-
-
 def scenario_chatgpt_flag(provider, home, workspace):
     """codex profile with the file-less --chatgpt-token/--chatgpt-account-id
     source: the child sends the same bearer and account on the Responses wire."""
@@ -1166,7 +1097,6 @@ def run():
             scenario_profile(provider, home, workspace)
             scenario_selectors(provider, home, workspace, "chat")
             scenario_selectors(provider, home, workspace, "responses")
-            scenario_host_selection(provider, home, workspace)
             scenario_optional_arguments(provider, home, workspace, "chat")
             scenario_optional_arguments(provider, home, workspace, "responses")
             scenario_chatgpt_flag(provider, home, workspace)

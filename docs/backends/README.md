@@ -1,56 +1,22 @@
-# Backends
+# Native HTTP providers
 
-Pick a backend per process with `--backend` or `settings.json`. Switching mid-session is v2; v1 starts a new session.
+`--provider NAME` (`--backend` alias) selects a native OpenAI-compatible profile.
+Every profile uses tny's tools, MCP, permissions and session store; no vendor
+agent executable is needed. [ADR 0152](../adr/0152-native-http-only-providers.md)
+defines the current scope.
 
-## Ownership
-
-| Backend | Transport | Auth | Tools | Sessions |
-| --- | --- | --- | --- | --- |
-| `cursor` | Spawn `cursor-sdk-bridge` v1.0.30, Connect HTTP/1.1 `sdk.v1` | `CURSOR_API_KEY` on env **and** RPC options; bridge/callback bearers stay loopback-private | Cursor runtime for built-ins; tny only for registered custom callbacks | Bridge SQLite/JSONL, tny custom store, or cloud IDs/runs |
-| `acp` | Spawn agent, JSON-RPC 2.0 JSONL stdio | Agent's `auth/login` or pre-auth | Agent | `session/new` / `resume` |
-| `openai` | HTTPS `POST /v1/responses` SSE (`/v1/chat/completions` via `wire_api:"chat"`, [ADR 0016](../adr/0016-responses-api-default-wire.md)) | Bearer or custom header | **tny** | `~/.tny/sessions` |
-| `codex` (builtin openai profile) | HTTPS `POST /responses` SSE to `chatgpt.com/backend-api/codex` ([codex.md](codex.md), [ADR 0065](../adr/0065-codex-chatgpt-responses-backend.md)) | ChatGPT OAuth bearer + `chatgpt-account-id` — flag/env, tny's native login store, or `$CODEX_HOME/auth.json` ([ADR 0066](../adr/0066-native-chatgpt-login-and-credential-sources.md)) | **tny** | `~/.tny/sessions` |
-
-## Decision rule
-
-- User wants Cursor's local/cloud SDK agent → `cursor` (bridge), not `agent acp`.
-- User has a ChatGPT subscription (`codex login`) → the builtin `codex` profile on the native loop; Codex's own harness lives in the Codex CLI.
-- User wants Gemini / Claude Code / OpenCode / Copilot / … agent harnesses → `acp`.
-- User has a Claude subscription (Claude Code OAuth token) or a grok CLI
-  session → the builtin `claude` / `grok` profiles on the openai backend ([ADR 0019](../adr/0019-subscription-logins-claude-grok.md),
-  [openai-compatible.md](openai-compatible.md#builtin-subscription-profiles-claude-and-grok)).
-- User has an OpenAI-compatible base URL → `openai`.
-
-Cursor also speaks ACP (`agent acp`). Support that only as a generic ACP agent, not as the Cursor backend. The product requirement is the **SDK bridge**.
-
-Cursor's complete public bridge surface is available through conversational
-CLI/TUI/libtny runtimes and `tny cursor` management. The latter covers catalog,
-agent/run lifecycle, messages, artifacts/download, usage, and a safe raw
-27-route escape hatch. It does not expose the two reverse callback RPCs as
-outbound calls.
-
-## wasm behavior ([ADR 0017](../adr/0017-wasm-browser-parity.md))
-
-Every backend states what it does in the wasm build; a new backend must add
-its row here and its behavior is enforced by the wasm CI suites.
-
-| Backend | wasm | How |
+| Profile | Wire | Credentials |
 | --- | --- | --- |
-| `openai` | ✓ works | both wires over `fetch()` |
-| `codex` | ✓ works | plain HTTPS like `openai`; credentials by env/flag (no filesystem) or `login --device`; the browser login's listening socket is native-only; the wasm CI job runs `test_codex_chatgpt.py` against the same mocks |
-| `acp` | ✓ remote-only | `--agent ws://…` (below); no spawn |
-| `cursor` | ✗ clean error | conversations report `cursor: conversational sdk.v1 bridge is unavailable in WebAssembly`; management reports `cursor: sdk.v1 management is unavailable in WebAssembly`; callback listeners are native-only |
+| `openai` / named gateways | Responses (default) or Chat Completions | Environment key, optional custom auth header |
+| `codex` | ChatGPT Responses | Native OAuth browser/device login, token env/flags, refresh stores |
+| `grok` public | xAI Responses | `XAI_API_KEY` |
+| `grok` subscription | Compatible chat proxy | Native device login and refresh |
 
-## Shared client contract
+[HTTP configuration](openai-compatible.md) includes OpenRouter and AIProxy.
+[Codex](codex.md) documents subscription authentication. Claude models may be
+selected through a configured gateway; no built-in Claude login is supported.
 
-Every backend implements:
-
-```text
-connect() / disconnect()
-create_or_resume(session)
-send(prompt, attachments) -> stream of normalized events
-cancel()
-respond_permission(id, decision)
-```
-
-`doctor` must be able to run each `connect()` in isolation and print a one-line diagnosis (binary missing, auth missing, handshake timeout).
+Both HTTP wires work on wasm through fetch subject to endpoint CORS. Codex's
+browser callback listener is native-only; device login and explicit token
+intake support wasm. Local process tools/MCP require native builds; remote MCP
+uses HTTP on wasm. SDKs inject credentials in memory through the C ABI.

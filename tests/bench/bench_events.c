@@ -97,7 +97,7 @@ static tny_backend *new_backend(void) {
         free(b);
         return NULL;
     }
-    b->id = TNY_BK_ACP;
+    b->id = TNY_BK_COUNT;
     b->connect = connect_backend;
     b->disconnect = disconnect_backend;
     b->send = send_backend;
@@ -143,7 +143,7 @@ int main(int argc, char **argv) {
     if (errno || !end || *end || iterations < 1 || iterations > 1000000) return 2;
     tny_ctx *ctx = tny_ctx_load(argv[2]);
     if (!ctx) return 1;
-    ctx->backend = TNY_BK_ACP;
+    ctx->backend = TNY_BK_COUNT;
     ctx->no_save = true;
     ctx->extensions_enabled = false;
     ctx->max_extension_iterations = 0;

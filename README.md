@@ -19,19 +19,15 @@ tny                          # interactive shell (lazy backend, ~4 ms first pain
 tny --ephemeral              # multi-turn shell with no local conversation store
 tny ask --json "fix the failing test"
 tny ask --ephemeral "review this without saving the session"
-tny ask --backend cursor "explain this repo"
-tny --backend acp --agent gemini -- acp -- ask "hi"
 tny --task review ask "inspect the current diff"
 tny acp                      # serve tny's native loop to any ACP client
 ```
 
-`--task NAME` selects a runtime preset (`review`, `optimizer`, `document`, or
-`retro`, plus `.tny/tasks/NAME.md` custom definitions). It is distinct from
-ACP's `--agent CMD`, which selects the executable/WebSocket agent.
+Task presets (`--task NAME`) configure a native task independently of the HTTP provider.
 
 ## Ephemeral sessions
 
-Use `--ephemeral` before the command to keep a CLI, TUI, or ACP conversation
+Use `--ephemeral` before the command to keep a CLI or TUI conversation
 process-local. `tny ask` also accepts it after the subcommand, and `--no-save`
 remains an alias.
 
@@ -44,12 +40,10 @@ retention policy. See [ADR 0020](docs/adr/0020-ephemeral-sessions.md).
 
 ## Backends
 
-| Backend | Transport | Host process |
+| Profile | Transport | Provider process |
 | --- | --- | --- |
 | `openai` (default) | OpenAI-compatible `/v1/chat/completions`, SSE streaming, native tool loop | none — tny owns tools/MCP/skills/permissions |
-| `cursor` | [Cursor SDK Bridge](https://cursor.com/docs/sdk/bridge): Connect HTTP/1.1 (`sdk.v1`, JSON codec) | `cursor-sdk-bridge` (spawned, ready-line handshake) |
 | `codex` | ChatGPT Responses backend (`chatgpt.com/backend-api/codex`), native tool loop; `tny --provider codex login` (browser or `--device`), `CHATGPT_ACCESS_TOKEN`, or an existing `codex login` | none ([ADR 0065](docs/adr/0065-codex-chatgpt-responses-backend.md), [0066](docs/adr/0066-native-chatgpt-login-and-credential-sources.md)) |
-| `acp` | [ACP](https://agentclientprotocol.com/) over stdio JSONL | any ACP agent via `--agent CMD` |
 
 All four normalize onto one event set (text/thinking/tool/permission/plan/
 usage/turn-end) rendered by the same TUI and CLI. See
@@ -117,7 +111,7 @@ tny_workflow_begin
 trap 'tny_workflow_cleanup' EXIT
 
 tny_task review-api --task review --provider codex -- "Review the public API"
-tny_task review-tests --task review --provider cursor -- "Find missing tests"
+tny_task review-tests --task review --provider openai -- "Find missing tests"
 tny_task implement --after review-api --after review-tests -- \
   "Implement the change from both reports and run the tests"
 tny_task optimize --task optimizer --after implement -- "Optimize performance and complexity"
@@ -145,8 +139,8 @@ python3 tests/bench/bench_ttft.py --tny build/tny --repo . --bench tui
                 # scripted openai mock
 ```
 
-Requirements: a C11 compiler and make; python3 for the integration fixtures.
-Vendored deps (yyjson, picohttpparser, wslay, greatest) are pinned in
+Requirements: C11 and C++20 compilers and make; python3 for integration fixtures.
+Vendored deps (yyjson, picohttpparser, greatest) are pinned in
 `third_party/*/VERSION` — nothing is downloaded at build time.
 
 CI (`.github/workflows/ci.yml`) builds the stripped binary on Linux

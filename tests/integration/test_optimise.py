@@ -158,7 +158,7 @@ class OptimiseTests(unittest.TestCase):
         return path
 
     def test_explores_nested_files_and_returns_only_final_draft(self):
-        config = {"provider": "cursor", "model": "conversation-model", "fast": "fast"}
+        config = {"provider": "openai", "model": "conversation-model", "fast": "fast"}
         path = self.settings(config)
         result = self.run_cli("--json", "fix parser")
         self.assertEqual(result.returncode, 0, result.stderr)

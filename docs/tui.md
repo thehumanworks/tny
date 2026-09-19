@@ -91,7 +91,7 @@ This prevents local project instructions from crossing into the remote workspace
 | Up/Down at draft edge | prompt history |
 | Esc or Ctrl-C | interrupt current turn and drop queued messages; another Ctrl-C while cancelling forces termination (twice exits when idle) |
 | Ctrl-D | stop an active turn and exit, even with a draft; when idle, exit on an empty draft or delete the next character |
-| Enter during a turn | steer the running turn (native loop — openai, codex, claude, grok, named profiles) or queue the message for when it ends (cursor, acp) — [ADR 0011](adr/0011-mid-turn-input-steer-or-queue.md) |
+| Enter during a turn | steer the running native turn |
 | Ctrl-J / Alt-J / Shift-Enter | insert a newline in the composer |
 | Ctrl-V | paste a clipboard image path (or text) |
 | Ctrl-R | record dictation; Enter/Ctrl-R transcribes into the editable draft; Esc/Ctrl-C cancels |
@@ -157,27 +157,20 @@ and reset date/time when the active Codex profile uses a ChatGPT login.
 API-key logins are excluded. `/usage` remains local token-usage accounting.
 
 `/provider setup [NAME]` runs the guided provider wizard through the
-composer (name → base url → key or `$ENV_NAME` → model; `/cancel` aborts;
-[ADR 0018](adr/0018-provider-setup-stored-keys.md)) — in the browser wasm
+composer (name → base url → environment variable name → model; `/cancel` aborts;
+[ADR 0153](adr/0153-environment-keys-and-oauth-credentials.md)) — in the browser wasm
 terminal this is the primary way to add a provider.
 `/provider [NAME]`'s palette hint and `/help` line list the providers usable
 right now — builtins, settings.json profiles with a `base_url`, and
 `NAME_BASE_URL` env providers — so the accepted names are discoverable
 without leaving the TUI.
 
-`/effort [off|light|medium|high|xhigh|max|default]` changes the reasoning
-effort at any point in the conversation and applies from the next turn with
-no backend rebind: it rides on cursor `SendOptions.model.params` and the
-openai request body (every builtin profile included) ([ADR
-0009](adr/0009-reasoning-effort.md)). `/models` lists the levels each model
-actually advertises. `/fast [fast|priority|default]` selects the provider's
-paid fast tier (`TNY_CAP_FAST`: openai and its profiles, cursor).
+Changing effort updates the native HTTP request parameters for the next iteration.
 
 `/max-steps set N` caps the native loop at N model calls per turn;
 `/max-steps clear` removes the cap (the default is unlimited — [ADR
 0024](adr/0024-unlimited-steps-default.md)). The value is read at step
-boundaries, so it applies immediately with no backend rebind. Host providers
-run their own loops and ignore it.
+boundaries, so it applies immediately with no backend rebind.
 
 Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace` `/ssh`
 
@@ -218,15 +211,13 @@ Transcript spacing: one blank line between the echoed user prompt and the
 first agent output, and one blank line before the next model iteration
 after a tool batch.
 
-Auth: `/login` `/logout` `/setup` — dispatch to the active backend (Cursor key, Codex CLI login, provider key). No Vercel-only flow.
+Auth: `/login` and `/logout` manage native Codex/Grok subscriptions; `/setup` configures an HTTP profile with an environment-variable name for its key.
 
 ## Rendering host streams
 
 Normalize before paint:
 
-- Cursor `sdk_message` types `assistant`, `thinking`, `tool_call`, `status`
 - Codex `item/agentMessage/delta`, `item/started`, approval server-requests
-- ACP `session/update` (message chunks, tool calls, plans)
 - OpenAI SSE `choices[].delta` and `tool_calls`
 
 Ignore keepalives and unknown envelope cases. Never block the input loop on a parse error; show a one-line warning and keep the connection.
@@ -246,24 +237,11 @@ transcript per line and repaints the partial line from scratch every frame
 
 ## Browser terminal
 
-The GitHub Pages landing terminal (`site/index.html`) runs the real TUI:
-the tny binary compiled to WebAssembly inside xterm.js
-([ADR 0017](adr/0017-wasm-browser-parity.md), superseding 0005's JS
-preview). The page is mobile-first: xterm is fitted to the mount (never
-left at the 80-column default), welcome text wraps to the current column
-count, header links are 44px tap targets, and the visual viewport shrinks
-the pane when the on-screen keyboard opens. Pass `OPENAI_API_KEY` and
-optionally `OPENAI_BASE_URL` in the URL hash or paste them at the
-pre-launch prompt; both pass through `sanitizeApiKey` at intake and stay
-in the tab. The native openai loop, sessions, skills, and fs tools run on
-MEMFS (per-tab, not persisted); codex is plain HTTPS like openai, ACP is
-`--agent ws://` remote-only, cursor errors cleanly; `terminal`/`open_file`
-return the missing-host tool error. The provider must allow CORS —
-`api.openai.com` does not; use a CORS-open gateway or a loopback server.
+The browser runs the same native HTTP loop over fetch, subject to provider CORS. Its filesystem and environment intake are per-tab and ephemeral. Host OS tools fail cleanly when unavailable.
 
 ## Startup
 
-First paint never waits on a backend, but the TUI **pre-warms** the selected provider's host right after the banner ([ADR 0002](adr/0002-tui-provider-prewarm.md)): the cursor bridge or the ACP agent is spawned and initialized in the background so the first prompt adopts a live connection instead of paying seconds of startup. On native builds the pre-warm — and every turn — lives in a detached **session runner** process ([ADR 0053](adr/0053-forked-turn-isolation.md)): the shell is a renderer over the runner's socket, so a crashed or killed TUI leaves the in-flight turn finishing into the session (`tny resume` afterwards, `tny session attach` to watch). On wasm the pre-warm stays an in-process thread. Pre-warm failures stay silent and resurface on the ordinary lazy path. One-shot CLI commands do not pre-warm.
+First paint never waits on a provider. Each native turn connects lazily in a detached session runner ([ADR 0053](adr/0053-forked-turn-isolation.md)); the TUI renders its stream. A crashed TUI leaves an in-flight turn finishing into the session. MCP may warm independently. wasm and ephemeral turns run in process. Provider host prewarming is superseded by [ADR 0152](adr/0152-native-http-only-providers.md).
 
 In ephemeral mode, pre-warm may still create process-local provider state.
 Codex receives `ephemeral:true` on `thread/start`; adapters without a portable
@@ -272,4 +250,4 @@ to make no local conversation write.
 
 ## Permissions UI
 
-Three choices, same as fx: **Yes** / **Yes, and don't ask again** / **No**. Host backends may send a smaller set (`allow-once`, `allow-always`, `reject-once` on Cursor ACP). Map them onto the same keys (`y` / `a` / `n`) and document the mapping in the prompt.
+Permission prompts expose **Yes** / **Yes, and don’t ask again** / **No**, mapped to `y` / `a` / `n`. The native loop owns these gates for every provider.

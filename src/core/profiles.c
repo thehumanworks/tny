@@ -1,38 +1,14 @@
-/* profiles.c — builtin subscription provider profiles (docs/adr/0019, 0065).
- *
- * "codex": the user's ChatGPT subscription (`codex login` → auth.json,
- * codex_auth.c) against the Responses-compatible ChatGPT backend
- * `https://chatgpt.com/backend-api/codex`, which wants the OAuth access
- * token as bearer plus `chatgpt-account-id` and `OpenAI-Beta: responses=v1`.
- * tny's native loop owns tools, permissions, MCP, and sessions there — no
- * `codex app-server` process anymore. An auth.json holding OPENAI_API_KEY
- * instead (`codex login --with-api-key`) means api.openai.com.
- *
- * "claude": Anthropic's OpenAI-compatible endpoint driven by a Claude Code
- * OAuth token (`claude setup-token` / `claude /login`) or ANTHROPIC_API_KEY.
- * OAuth tokens ride `Authorization: Bearer` and need the
- * `anthropic-beta: oauth-2025-04-20` request header.
- *
- * "grok": the xAI session token from ~/.grok/auth.json — minted by
- * `tny --provider grok login` (native device flow, grok_login.c) or by the
- * grok CLI — against the CLI chat proxy, falling back to XAI_API_KEY
- * against api.x.ai. The proxy validates the session token only when
- * `X-XAI-Token-Auth: xai-grok-cli` rides along, and routes models via the
- * `x-grok-model-override` header.
- *
- * Both run on the openai backend like user-named profiles; a settings.json
- * object or NAME_BASE_URL env var with the same name shadows the builtin
- * (tny_resolve_backend checks custom providers first). Credentials are read
- * at resolve time; the only thing tny ever persists is the refreshed grok
- * token, written back into the grok store it came from. */
+/* Native Codex ChatGPT and Grok subscription profiles (ADR 0152).
+ * OAuth login and refresh use HTTP directly. Explicit settings/env profiles
+ * of the same name shadow the builtin. BYOK uses environment keys only. */
 #include "core/config.h"
 #include "util/util.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define CODEX_CHATGPT_BASE_URL "https://chatgpt.com/backend-api/codex"
-#define CODEX_API_BASE_URL     "https://api.openai.com/v1"
 #define CODEX_BETA_HEADER      "OpenAI-Beta: responses=v1"
 /* The ChatGPT backend's `/models` is gated on the caller's Codex CLI
  * version (`?client_version=`): the catalog only lists models whose
@@ -41,9 +17,6 @@
  * overrides without a rebuild. */
 #define CODEX_CLIENT_VERSION "0.154.0"
 #define CODEX_DEFAULT_MODEL  "gpt-5.6-sol"
-#define CLAUDE_BASE_URL      "https://api.anthropic.com/v1"
-#define CLAUDE_OAUTH_HEADER  "anthropic-beta: oauth-2025-04-20"
-#define CLAUDE_DEFAULT_MODEL "claude-sonnet-4-6"
 #define GROK_PROXY_BASE_URL  "https://cli-chat-proxy.grok.com/v1"
 #define GROK_PROXY_HEADER    "X-XAI-Token-Auth: xai-grok-cli"
 /* The proxy version-gates on x-grok-client-version and 426s requests that
@@ -56,15 +29,14 @@
 #define GROK_DEFAULT_MODEL "grok-4.6"
 
 bool tny_builtin_profile_exists(const char *name) {
-    return name &&
-           (strcmp(name, "codex") == 0 || strcmp(name, "claude") == 0 || strcmp(name, "grok") == 0);
+    return name && (strcmp(name, "codex") == 0 || strcmp(name, "grok") == 0);
 }
 
 /* ---------- extra request headers ---------- */
 
 void tny_ctx_clear_extra_headers(tny_ctx *ctx) {
     if (!ctx->extra_headers) return;
-    for (char **h = ctx->extra_headers; *h; h++) free(*h);
+    for (char **h = ctx->extra_headers; *h; h++) secure_free(*h);
     free(ctx->extra_headers);
     ctx->extra_headers = NULL;
 }
@@ -75,9 +47,13 @@ void tny_ctx_add_extra_header(tny_ctx *ctx, const char *line) {
     if (ctx->extra_headers)
         while (ctx->extra_headers[n]) n++;
     char **v = realloc(ctx->extra_headers, sizeof(char *) * (size_t)(n + 2));
-    if (!v) return;
+    if (!v) {
+        ctx->provider_resolution_failed = true;
+        return;
+    }
     ctx->extra_headers = v;
     v[n] = xstrdup(line);
+    if (!v[n]) ctx->provider_resolution_failed = true;
     v[n + 1] = NULL;
 }
 
@@ -89,60 +65,6 @@ static char *home_join(const char *rel) {
     char *p = path_join(home, rel);
     free(home);
     return p;
-}
-
-/* Where `claude /login` keeps its credentials on Linux/Windows (macOS uses
- * the Keychain; there the env var or `claude setup-token` is the path in). */
-static char *claude_credentials_path(void) {
-    const char *dir = getenv("CLAUDE_CONFIG_DIR");
-    if (dir && *dir) return path_join(dir, ".credentials.json");
-    return home_join(".claude/.credentials.json");
-}
-
-char *tny_claude_token(const char **source) {
-    if (source) *source = NULL;
-    const char *env = getenv("CLAUDE_CODE_OAUTH_TOKEN");
-    if (env && *env) {
-        if (source) *source = "CLAUDE_CODE_OAUTH_TOKEN";
-        return xstrdup(env);
-    }
-    env = getenv("ANTHROPIC_API_KEY");
-    if (env && *env) {
-        if (source) *source = "ANTHROPIC_API_KEY";
-        return xstrdup(env);
-    }
-    char *path = claude_credentials_path();
-    if (!path) return NULL;
-    yyjson_doc *doc = jparse_file(path);
-    free(path);
-    if (!doc) return NULL;
-    const char *tok = jget_str(jget(yyjson_doc_get_root(doc), "claudeAiOauth"), "accessToken");
-    char *out = tok && *tok ? xstrdup(tok) : NULL;
-    yyjson_doc_free(doc);
-    if (out && source) *source = "~/.claude/.credentials.json";
-    return out;
-}
-
-/* Auto-detection keys off subscription-login artifacts only: the OAuth env
- * var or the credentials file. A bare ANTHROPIC_API_KEY belongs to whatever
- * tool set it and must never hijack the default provider. */
-bool tny_claude_auth_present(void) {
-    const char *env = getenv("CLAUDE_CODE_OAUTH_TOKEN");
-    if (env && *env) return true;
-    char *path = claude_credentials_path();
-    if (!path) return false;
-    bool ok = file_exists(path);
-    free(path);
-    return ok;
-}
-
-/* A Claude Code OAuth token needs the oauth beta header; a Console API key
- * must not carry it. Tokens from the OAuth sources are OAuth by origin;
- * ANTHROPIC_API_KEY is trusted to hold whatever its prefix says. */
-static bool claude_token_is_oauth(const char *tok, const char *source) {
-    if (!tok) return false;
-    if (str_starts(tok, "sk-ant-oat")) return true;
-    return source && strcmp(source, "ANTHROPIC_API_KEY") != 0;
 }
 
 static char *grok_auth_path(void) { return home_join(".grok/auth.json"); }
@@ -184,16 +106,17 @@ bool tny_grok_auth_present(void) {
 
 /* ---------- profile application ---------- */
 
-static void set_str(char **slot, const char *v) {
-    free(*slot);
+static void set_str(tny_ctx *ctx, char **slot, const char *v) {
+    secure_free(*slot);
     *slot = v ? xstrdup(v) : NULL;
+    if (v && !*slot) ctx->provider_resolution_failed = true;
 }
 
 static void profile_reset(tny_ctx *ctx, const char *name) {
-    set_str(&ctx->provider_name, name);
-    set_str(&ctx->auth_header_name, "Authorization");
-    set_str(&ctx->auth_header_prefix, "Bearer ");
-    set_str(&ctx->max_tokens_field, NULL);
+    set_str(ctx, &ctx->provider_name, name);
+    set_str(ctx, &ctx->auth_header_name, "Authorization");
+    set_str(ctx, &ctx->auth_header_prefix, "Bearer ");
+    set_str(ctx, &ctx->max_tokens_field, NULL);
     tny_ctx_clear_extra_headers(ctx);
 }
 
@@ -202,58 +125,80 @@ static void profile_reset(tny_ctx *ctx, const char *name) {
  * gpt-4.1-mini fallback never leaks onto a foreign provider. */
 static void profile_default_model(tny_ctx *ctx, const char *model) {
     if (ctx->model_from_flag) return;
-    set_str(&ctx->model, model);
+    set_str(ctx, &ctx->model, model);
 }
 
-static void apply_codex(tny_ctx *ctx) {
+static int apply_codex(tny_ctx *ctx) {
     profile_reset(ctx, "codex");
-    set_str(&ctx->wire_api, NULL); /* the ChatGPT backend is Responses-only */
+    set_str(ctx, &ctx->wire_api, NULL); /* the ChatGPT backend is Responses-only */
     /* Without the Codex CLI's background refresher, tny runs the
      * refresh-token grant itself before reading (codex_auth.c); the file
      * that wins the precedence order is the one refreshed. */
     tny_codex_refresh_if_stale();
     tny_codex_creds c;
-    tny_codex_credentials(ctx, &c);
+    int credential_rc = tny_codex_credentials(ctx, &c);
+    if (credential_rc == -3) return -1;
+    if (credential_rc == -2) {
+        fputs("tny: stored OPENAI_API_KEY was removed; export OPENAI_API_KEY and select "
+              "--provider openai, or use tny --provider codex login\n",
+              stderr);
+        return -1;
+    }
     if (c.access_token) {
         /* TNY_CODEX_BASE_URL: test mocks / gateways; a plain CODEX_BASE_URL
          * would instead shadow the whole builtin as a user profile */
         const char *bu = getenv("TNY_CODEX_BASE_URL");
-        set_str(&ctx->base_url, bu && *bu ? bu : CODEX_CHATGPT_BASE_URL);
-        set_str(&ctx->api_key, c.access_token);
+        set_str(ctx, &ctx->base_url, bu && *bu ? bu : CODEX_CHATGPT_BASE_URL);
+        set_str(ctx, &ctx->api_key, c.access_token);
         if (c.account_id) {
             buf_t h;
             buf_init(&h);
             buf_appendf(&h, "chatgpt-account-id: %s", c.account_id);
             tny_ctx_add_extra_header(ctx, h.data);
+            if (buf_oom(&h)) ctx->provider_resolution_failed = true;
             buf_free(&h);
         }
         tny_ctx_add_extra_header(ctx, CODEX_BETA_HEADER);
     } else {
-        /* API-key mode, or no login at all: connect() explains the fix */
-        set_str(&ctx->base_url, c.api_key ? CODEX_API_BASE_URL : CODEX_CHATGPT_BASE_URL);
-        set_str(&ctx->api_key, c.api_key);
+        /* No login: connect() explains the fix. */
+        set_str(ctx, &ctx->base_url, CODEX_CHATGPT_BASE_URL);
+        set_str(ctx, &ctx->api_key, NULL);
     }
     tny_codex_creds_free(&c);
     profile_default_model(ctx, CODEX_DEFAULT_MODEL);
+    return 0;
 }
 
-static void apply_claude(tny_ctx *ctx) {
-    profile_reset(ctx, "claude");
-    set_str(&ctx->base_url, CLAUDE_BASE_URL);
-    /* Anthropic's OpenAI-compat surface is /v1/chat/completions only */
-    set_str(&ctx->wire_api, "chat");
-    const char *source = NULL;
-    char *tok = tny_claude_token(&source);
-    set_str(&ctx->api_key, tok);
-    if (claude_token_is_oauth(tok, source)) tny_ctx_add_extra_header(ctx, CLAUDE_OAUTH_HEADER);
-    if (tok) {
-        memset(tok, 0, strlen(tok));
-        free(tok);
+/* Fixture redirect: a numeric loopback authority only, with a strict port.
+ * Never allow userinfo, DNS aliases, URL controls or arbitrary bearer hosts. */
+static bool grok_override_valid(const char *url) {
+    if (!url || !*url) return true;
+    const char *p;
+    if (strncmp(url, "http://127.0.0.1", 16) == 0) p = url + 16;
+    else if (strncmp(url, "https://127.0.0.1", 17) == 0) p = url + 17;
+    else return false;
+    if (*p == ':') {
+        p++;
+        unsigned port = 0;
+        if (*p < '0' || *p > '9') return false;
+        while (*p >= '0' && *p <= '9') {
+            port = port * 10 + (unsigned)(*p++ - '0');
+            if (port > 65535) return false;
+        }
+        if (!port) return false;
     }
-    profile_default_model(ctx, CLAUDE_DEFAULT_MODEL);
+    if (*p && *p != '/') return false;
+    for (; *p; p++)
+        if ((unsigned char)*p <= 32 || *p == 127 || *p == '\\' || *p == '#') return false;
+    return true;
 }
 
-static void apply_grok(tny_ctx *ctx) {
+static int apply_grok(tny_ctx *ctx) {
+    if (!grok_override_valid(getenv("TNY_GROK_BASE_URL"))) {
+        fputs("tny: TNY_GROK_BASE_URL must be an HTTP(S) numeric loopback URL (127.0.0.1)\n",
+              stderr);
+        return -1;
+    }
     profile_reset(ctx, "grok");
     /* The grok CLI refreshes its OIDC tokens in the background; without it
      * tny must run the refresh grant itself before reading (grok_login.c).
@@ -262,27 +207,31 @@ static void apply_grok(tny_ctx *ctx) {
     char *session = tny_grok_session_token();
     if (session) {
         /* subscription path: the CLI chat proxy, session token as bearer */
-        set_str(&ctx->base_url, GROK_PROXY_BASE_URL);
-        set_str(&ctx->wire_api, "chat"); /* proxy models are streaming chat */
-        set_str(&ctx->api_key, session);
+        const char *override = getenv("TNY_GROK_BASE_URL");
+        set_str(ctx, &ctx->base_url, override && *override ? override : GROK_PROXY_BASE_URL);
+        set_str(ctx, &ctx->wire_api, "chat"); /* proxy models are streaming chat */
+        set_str(ctx, &ctx->api_key, session);
         tny_ctx_add_extra_header(ctx, GROK_PROXY_HEADER);
         const char *ver = getenv("TNY_GROK_CLIENT_VERSION");
         buf_t vh;
         buf_init(&vh);
         buf_appendf(&vh, "x-grok-client-version: %s", ver && *ver ? ver : GROK_PROXY_VERSION);
         tny_ctx_add_extra_header(ctx, vh.data);
+        if (buf_oom(&vh)) ctx->provider_resolution_failed = true;
         buf_free(&vh);
         memset(session, 0, strlen(session));
         free(session);
         profile_default_model(ctx, GROK_DEFAULT_MODEL);
-        return;
+        return 0;
     }
     /* API-key fallback: the public xAI API (Responses wire, tny default) */
-    set_str(&ctx->base_url, GROK_API_BASE_URL);
-    set_str(&ctx->wire_api, NULL);
+    const char *override = getenv("TNY_GROK_BASE_URL");
+    set_str(ctx, &ctx->base_url, override && *override ? override : GROK_API_BASE_URL);
+    set_str(ctx, &ctx->wire_api, NULL);
     const char *key = getenv("XAI_API_KEY");
-    set_str(&ctx->api_key, key && *key ? key : NULL);
+    set_str(ctx, &ctx->api_key, key && *key ? key : NULL);
     profile_default_model(ctx, GROK_DEFAULT_MODEL);
+    return 0;
 }
 
 /* ---------- ChatGPT-mode model catalog (docs/backends/codex.md) ---------- */
@@ -291,7 +240,7 @@ bool tny_codex_chatgpt_mode(const tny_ctx *ctx) {
     if (!ctx || !ctx->provider_name || strcmp(ctx->provider_name, "codex") != 0) return false;
     for (char **h = ctx->extra_headers; h && *h; h++)
         if (strcmp(*h, CODEX_BETA_HEADER) == 0) return true;
-    return false; /* API-key mode or no login: plain api.openai.com rules */
+    return false; /* A custom profile named codex has ordinary HTTP catalog rules. */
 }
 
 const char *tny_codex_client_version(void) {
@@ -359,10 +308,10 @@ char *tny_codex_models_normalize(const char *body, size_t len) {
     return out.data;
 }
 
-void tny_apply_builtin_profile(tny_ctx *ctx, const char *name) {
-    if (strcmp(name, "codex") == 0) apply_codex(ctx);
-    else if (strcmp(name, "claude") == 0) apply_claude(ctx);
-    else if (strcmp(name, "grok") == 0) apply_grok(ctx);
+int tny_apply_builtin_profile(tny_ctx *ctx, const char *name) {
+    if (strcmp(name, "codex") == 0) return apply_codex(ctx);
+    else if (strcmp(name, "grok") == 0) return apply_grok(ctx);
+    return 0;
 }
 
 /* Runs after the model resolved: the grok proxy routes on the
@@ -370,10 +319,14 @@ void tny_apply_builtin_profile(tny_ctx *ctx, const char *name) {
 void tny_finish_builtin_profile(tny_ctx *ctx) {
     if (!ctx->provider_name || strcmp(ctx->provider_name, "grok") != 0) return;
     if (!ctx->model || !*ctx->model) return;
-    if (!strstr(ctx->base_url ? ctx->base_url : "", "cli-chat-proxy")) return;
+    bool proxy = false;
+    for (char **p = ctx->extra_headers; p && *p; p++)
+        if (strcmp(*p, GROK_PROXY_HEADER) == 0) proxy = true;
+    if (!proxy) return;
     buf_t h;
     buf_init(&h);
     buf_appendf(&h, "x-grok-model-override: %s", ctx->model);
     tny_ctx_add_extra_header(ctx, h.data);
+    if (buf_oom(&h)) ctx->provider_resolution_failed = true;
     buf_free(&h);
 }

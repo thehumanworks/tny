@@ -37,7 +37,6 @@ release claims.
 - https://fx.sh/docs/using-fx/slash-commands.md
 - https://fx.sh/docs/using-fx/fx-ask.md
 - https://fx.sh/docs/using-fx/sessions.md
-- https://fx.sh/docs/using-fx/acp.md
 - https://fx.sh/docs/configure-fx/permissions.md
 - https://fx.sh/docs/configure-fx/configuration.md
 - https://fx.sh/docs/configure-fx/models.md
@@ -62,24 +61,6 @@ release claims.
 - https://fx.sh/docs/capabilities/subagents.md
 - https://fx.sh/docs/getting-started/authentication.md
 
-## Cursor SDK Bridge
-
-- https://cursor.com/docs/sdk/bridge
-- https://github.com/cursor/sdk-bridge
-- https://github.com/cursor/sdk-bridge/releases/tag/v1.0.30
-- Pin: tag object `026d21b23641ee488a6650ba850327b8a66ab1cd`, commit `8157597c625b5f642d3c4a1472d20c9c330a9d18`
-- Manifest SDK source commit: `a401fe7f346d4d3ba66fd596cc842b0ad5e5259c`
-- https://github.com/cursor/sdk-bridge/blob/v1.0.30/docs/protocol.md
-- https://github.com/cursor/sdk-bridge/blob/v1.0.30/docs/services.md
-- https://github.com/cursor/sdk-bridge/blob/v1.0.30/docs/streaming.md
-- https://github.com/cursor/sdk-bridge/blob/v1.0.30/docs/errors.md
-- https://github.com/cursor/sdk-bridge/blob/v1.0.30/docs/smoke-test.md
-- https://github.com/cursor/sdk-bridge/tree/v1.0.30/proto/sdk/v1
-- Vendored integrity/count manifest: `third_party/cursor-sdk-bridge/v1.0.30/contract.json` (5 services, 29 RPCs, 114 messages, 285 fields)
-- https://cursor.com/docs/sdk/typescript
-- https://cursor.com/docs/sdk/python
-- https://connectrpc.com/docs/protocol
-- https://cursor.com/docs/cli/acp (ACP path; not the required Cursor backend)
 
 ## Codex (ChatGPT Responses backend, docs/adr/0065)
 
@@ -110,21 +91,6 @@ release claims.
 - https://openai.com/index/unlocking-the-codex-harness/
 - `codex app-server generate-json-schema` (version-accurate methods)
 
-## ACP
-
-- https://agentclientprotocol.com/get-started/introduction
-- https://agentclientprotocol.com/llms.txt
-- https://agentclientprotocol.com/protocol/v1/overview
-- https://agentclientprotocol.com/protocol/v1/transports
-- https://agentclientprotocol.com/protocol/v2/overview
-- https://github.com/agentclientprotocol/agent-client-protocol/releases/tag/schema-v1.20.0
-- Pin: tag object `4908af80fe0285fc765cddec8aeb54627a81e9ec`, commit `5e89c71497fe07dd4ae633c181a17224f4a8956d`
-- https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/schema-v1.20.0/schema/v1/schema.json
-- https://agentclientprotocol.com/protocol/v1/prompt-turn
-- https://agentclientprotocol.com/protocol/v1/tool-calls
-- https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json
-- https://agentclientprotocol.com/get-started/agents
-- https://github.com/agentclientprotocol/agent-client-protocol
 
 ## OpenAI-compatible
 
@@ -140,7 +106,6 @@ release claims.
 
 - https://github.com/ibireme/yyjson
 - https://github.com/h2o/picohttpparser
-- https://github.com/tatsuhiro-t/wslay
 - https://github.com/nanopb/nanopb
 - https://github.com/silentbicycle/greatest
 
@@ -175,3 +140,8 @@ release claims.
   API endpoint. The STT docs do not guarantee Grok subscription entitlement.
 - Local fixture builds replace only the xAI adapter URL; installed/release
   binaries contain no STT endpoint override. No live credentials enter tests.
+
+## Native Grok HTTP
+
+- Public Responses/OpenAI compatibility: https://docs.x.ai/developers/rest-api-reference/inference/responses
+- Runtime scope: [ADR 0151](adr/0152-native-http-only-providers.md). Historical protocol sources remain in their original ADRs and verification evidence.

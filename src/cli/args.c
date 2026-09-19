@@ -93,12 +93,6 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
             return NULL;
         }
     }
-    if (g->bridge_bin) {
-        free(ctx->bridge_bin);
-        ctx->bridge_bin = xstrdup(g->bridge_bin);
-    }
-    /* file-less ChatGPT credential (docs/adr/0066): must land before the
-     * provider resolves, since the codex profile reads it there */
     if (g->xai_api_key) ctx->xai_api_key = xstrdup(g->xai_api_key);
     if (g->chatgpt_token) {
         if (!*g->chatgpt_token) {
@@ -117,17 +111,6 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     /* Mark an explicit speed choice before provider resolution so a settings
      * default cannot run first. Capability validation stays after resolve. */
     if (g->fast) ctx->service_tier_explicit = true;
-    if (g->agent_argv) {
-        int n = 0;
-        while (g->agent_argv[n]) n++;
-        ctx->agent_argv = malloc(sizeof(char *) * (size_t)(n + 1));
-        if (!ctx->agent_argv) {
-            tny_ctx_free(ctx);
-            return NULL;
-        }
-        for (int k = 0; k < n; k++) ctx->agent_argv[k] = xstrdup(g->agent_argv[k]);
-        ctx->agent_argv[n] = NULL;
-    }
     /* process-only extra dirs */
     for (int k = 0; k < g->n_add_dirs; k++) {
         char *abs = path_abs(g->add_dirs[k]);
@@ -250,7 +233,7 @@ int cli_ssh_attach(tny_ctx *ctx, const char *target, const char *remote_cwd) {
         fprintf(stderr,
                 "tny: --ssh runs tools through tny's native loop; provider '%s' "
                 "executes its own tools on this machine.\n"
-                "Use an openai-compatible provider: tny --ssh %s --provider claude\n",
+                "Use an openai-compatible provider: tny --ssh %s --provider openai\n",
                 tny_backend_name((tny_backend_id)ctx->backend), target);
         return -1;
     }

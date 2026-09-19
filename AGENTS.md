@@ -18,12 +18,9 @@ their own Makefile, sources, tests, and docs contract:
   pinned once) and the quality gates below — `make quality` format-checks
   sibling `*.c`/`*.h` too, and `make tnytty` / `make tnytty-test` delegate.
 
-tny is a **C11 + private C++20 ownership** TUI + CLI coding-agent harness (ADR 0114): **a harness for agents, built by agents, focused on the agent**. User constraints and tasks are the goal. Keep it fast, portable and small without a fixed binary-size ceiling or competitor target. It drives:
-
-1. Cursor via the **SDK Bridge** (`sdk.v1` Connect HTTP/1.1)
-2. Codex via the native **ChatGPT Responses subscription profile** (ADR0065)
-3. Other agents via **ACP**
-4. **OpenAI-compatible** HTTP (native tool loop)
+tny is a **C11 + private C++20 ownership** TUI + CLI coding-agent harness (ADR 0114): **a harness for agents, built by agents, focused on the agent**. User constraints and tasks are the goal. Keep it fast, portable and small without a fixed binary-size ceiling or competitor target. It uses one native OpenAI-compatible HTTP backend with Responses and Chat
+Completions, named environment-key profiles, Codex ChatGPT OAuth and Grok
+public/subscription HTTP. No vendor agent executable is required (ADR 0152).
 
 The product source is live under `src/` with unit, integration, mutation, and latency-benchmark suites under `tests/`. [docs/](docs/README.md) is the contract; read it before writing C, and update it when behavior changes.
 
@@ -31,20 +28,19 @@ The product source is live under `src/` with unit, integration, mutation, and la
 
 1. Read `docs/product.md`, `docs/architecture.md`, `docs/implementation-plan.md`.
 2. Follow the phase order. Do not start a TUI framework. C++20 is limited to the ownership/decoding areas authorized by ADR 0114, the checkpoint extension in ADR 0126, and sub-agent launch snapshots in ADR 0133.
-3. Re-check primary URLs in `docs/sources.md` if a protocol field is unclear. Pin the bridge `sdk.v1` schema and Codex JSON Schema to a **release**, not `main`.
+3. Re-check primary URLs in `docs/sources.md` if a protocol field is unclear.
 4. Do not commit secrets, ready-line tokens, or live API keys.
 
 ## Invariants
 
 - Language: C11 for existing application, OS seams, transports and vendored code; private C++20 ownership modules only as scoped by ADR 0114, ADR 0126 and ADR 0133. Retain the public C ABI.
-- Footprint (ADR 0150): keep shipped artifacts small and measure their size and runtime dependencies. There is no fixed binary-size ceiling. Favor maintainability, reliability, portability and measured speed over byte minimization; optional agent binaries remain external.
-- Startup: the CLI spawns no backend before a turn; `--help` / `--version` stay microseconds-to-milliseconds. The interactive TUI **pre-warms** the selected provider's host after first paint (`docs/adr/0002`); one-shot `tny ask` may overlap its `connect()` with reading the prompt from stdin and may attach to a registered live codex host (`docs/adr/0004`).
+- Footprint (ADR 0150): keep shipped artifacts small and measure their size and runtime dependencies. There is no fixed binary-size ceiling. Favor maintainability, reliability, portability and measured speed over byte minimization; no vendor agent binary is required.
+- Startup: no provider I/O before a turn; help/version stay fast. Native session runners start lazily.
 - Isolation: on native builds every turn — interactive and one-shot — executes in a detached, forked **session runner** that survives caller crashes and finalizes into the session; the caller renders its NDJSON stream from `<session>/sock` (`docs/adr/0053`). No tmux. wasm, `--ephemeral`, and `TNY_ISOLATE=0` are the only in-process turns.
-- One event loop. Normalize every backend to the shared event set in `docs/architecture.md`. (The pre-warm thread runs only `connect()` + `create_or_resume()` and hands the backend back before any events flow; ctx mutations must `tui_prewarm_drop` first.)
-- Native loop owns tools/MCP/skills/permissions. Host backends own their own loops.
+- One event loop; normalize HTTP streams to the shared event schema.
+- Native loop owns tools/MCP/skills/permissions for every provider.
 - Permission mode defaults to **yolo** for every provider (`docs/adr/0001`); `ask`/`auto` are explicit opt-ins.
 - Decisions are recorded in `docs/adr/`; add a new ADR when you change one.
-- `tny acp` serves the native loop only. `--provider acp` (alias `--backend`) is a client. `--provider cursor` is the bridge, not `agent acp`.
 - CLI is noninteractive-first: flags, stdin, `--json`, layered `--help` with examples (`docs/cli.md`).
 - TUI is a shell, not an IDE (`docs/tui.md`). No ncurses.
 
@@ -53,9 +49,9 @@ The product source is live under `src/` with unit, integration, mutation, and la
 ```text
 src/main.c
 src/cli/ src/tui/ src/core/ src/util/ src/json/
-src/backends/{cursor,codex,acp,openai}/
+src/backends/openai/
 src/net/ src/mcp/
-third_party/   # yyjson, picohttpparser, wslay, greatest — pinned VERSION files
+third_party/   # yyjson, picohttpparser, greatest — pinned VERSION files
 tests/         # unit (test_*.c), integration/ fixtures+mocks, mutation/, bench/
 nix/           # flake packaging; calls the Makefile, never forks it
 docs/          # this contract; update when behavior changes
@@ -69,7 +65,7 @@ docs/          # this contract; update when behavior changes
 - Measure size with `wc -c` on a stripped Release binary.
 - Performance claims need before/after numbers: build the baseline from a pre-change commit (git worktree) and compare with `tests/bench/bench_ttft.py`; record results in the relevant ADR.
 - Mutation-test changes the unit suite might cover only nominally: `tests/mutation/mutate.py`.
-- Live Cursor/Codex calls need user-provided keys; default CI uses fixtures and the bridge curl smoke test.
+- Provider tests use local mocks and synthetic credentials; live inference requires explicit authorization.
 - Protocol mocks send whole frames per read — real transports split anywhere. Streaming parsers need split-boundary tests (see `chunked_survives_every_split_boundary` in `tests/test_net.c`).
 - `nix flake check` runs the same suite hermetically (`docs/nix.md`, ADR 0035). If you add a make target, a test fixture directory, or a tool the suite shells out to, update `nix/source.nix` and `nix/tests.nix` in the same change — the sandbox has only what those files name.
 
@@ -95,7 +91,7 @@ docs/          # this contract; update when behavior changes
 
 - `make wasm` / `make wasm-web` build the same `SRC_SHARED` sources as the native release plus `src/net/net_wasm.c`. Platform code lives only at the three seams (net.h transport, `tny_poll`, host OS); never `#ifdef` a fourth place without an ADR.
 - Blocking waits go through `tny_poll` (`src/util/tny_poll.h`), never raw `poll(2)`: raw poll returns instantly for wasm pseudo-fds and spins the event loop into a livelock.
-- **Every new backend or tool states its wasm behavior** — works / remote-only / clean error — in its docs page, and the wasm CI job (`test_openai.py`, `test_acp_ws.sh`, `test_codex_attach.sh` with `TNY=build/wasm/tny`, plus the browser smoke `test_site_wasm.py`) enforces it. Parity is a red X, not a review comment.
+- **Every new backend or tool states its wasm behavior** — works / remote-only / clean error — in its docs page, and the wasm CI job (`test_openai.py`, `test_codex_chatgpt.py` with `TNY=build/wasm/tny`, plus the browser smoke `test_site_wasm.py`) enforces it. Parity is a red X, not a review comment.
 - In `net_wasm.c`, JS never calls into C: handlers queue bytes and wake `tny_poll`; C pulls when awake (the Asyncify re-entry contract). Ready flags must clear when consumed.
 
 ## Landing site (GitHub Pages)

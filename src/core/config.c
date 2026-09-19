@@ -1,5 +1,4 @@
 #include "core/config.h"
-#include "core/cursor_config.h"
 #include "core/tasks.h"
 #include "core/backend.h"
 #include "core/extensions.h"
@@ -84,7 +83,7 @@ bool tny_tier_is_fast(const char *tier) {
 
 bool tny_wire_is_chat(const char *wire_api) { return wire_api && strcmp(wire_api, "chat") == 0; }
 
-static const char *bk_names[TNY_BK_COUNT] = {"openai", "cursor", "acp"};
+static const char *bk_names[TNY_BK_COUNT] = {"openai"};
 
 const char *tny_tool_profile_name(tny_tool_profile profile) {
     if (profile == TNY_TOOLS_TERMINAL_EDIT) return "terminal+edit";
@@ -118,11 +117,10 @@ static bool tool_profile_parse(const char *value, tny_tool_profile *profile) {
 static const struct {
     const char *level;
     const char *openai; /* reasoning_effort / reasoning.effort (codex too) */
-    const char *cursor; /* ModelSelection params candidate value */
 } EFFORTS[] = {
     /* "max" is not an OpenAI chat-completions value: clamp it to xhigh. */
-    {"off", "none", "none"},  {"light", "low", "low"},     {"medium", "medium", "medium"},
-    {"high", "high", "high"}, {"xhigh", "xhigh", "xhigh"}, {"max", "xhigh", "max"},
+    {"off", "none"},  {"light", "low"},   {"medium", "medium"},
+    {"high", "high"}, {"xhigh", "xhigh"}, {"max", "xhigh"},
 };
 #define N_EFFORTS ((int)(sizeof EFFORTS / sizeof *EFFORTS))
 
@@ -139,7 +137,6 @@ const char *tny_effort_wire(int backend, const char *v) {
         if (strcmp(EFFORTS[i].level, v) != 0) continue;
         switch (backend) {
         case TNY_BK_OPENAI: return EFFORTS[i].openai;
-        case TNY_BK_CURSOR: return EFFORTS[i].cursor;
         default: return EFFORTS[i].level;
         }
     }
@@ -156,11 +153,6 @@ int tny_backend_from_name(const char *name) {
     return -1;
 }
 
-static char *dup_or(const char *env, const char *dflt) {
-    const char *v = getenv(env);
-    return xstrdup(v && *v ? v : dflt);
-}
-
 /* settings.json object for this workspace: settings.workspaces[cwd] */
 static yyjson_val *ws_obj(tny_ctx *ctx) {
     if (!ctx->settings) return NULL;
@@ -171,6 +163,35 @@ static yyjson_val *ws_obj(tny_ctx *ctx) {
 
 const char *tny_provider_name(const tny_ctx *ctx) {
     return ctx->provider_name ? ctx->provider_name : tny_backend_name((tny_backend_id)ctx->backend);
+}
+
+static bool removed_provider(const char *name) {
+    return name && (strcmp(name, "cursor") == 0 || strcmp(name, "acp") == 0 ||
+                    str_starts(name, "acp@") || str_starts(name, "acp:"));
+}
+
+static int validate_provider_settings(tny_ctx *ctx) {
+    yyjson_val *root = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
+    yyjson_val *repo = ctx->repo_cfg ? yyjson_doc_get_root(ctx->repo_cfg) : NULL;
+    if (jget(root, "acp") || jget(root, "cursor") || jget(repo, "acp") || jget(repo, "cursor") ||
+        jget(root, "agent") || jget(root, "bridge_bin")) {
+        fputs("tny: ACP/Cursor settings were removed; remove them and configure an "
+              "OpenAI-compatible HTTP profile\n",
+              stderr);
+        return -1;
+    }
+    size_t i, n;
+    yyjson_val *k, *v;
+    if (yyjson_is_obj(root)) yyjson_obj_foreach(root, i, n, k, v) {
+            (void)k;
+            if (jget(v, "api_key")) {
+                fputs("tny: stored api_key settings were removed; export the key, set api_key_env, "
+                      "and delete api_key from settings.json\n",
+                      stderr);
+                return -1;
+            }
+        }
+    return 0;
 }
 
 /* Any top-level settings object with a base_url is a user-named
@@ -184,179 +205,6 @@ static yyjson_val *custom_provider_obj(tny_ctx *ctx, const char *name) {
     if (!yyjson_is_obj(o)) return NULL;
     const char *bu = jget_str(o, "base_url");
     return bu && *bu ? o : NULL;
-}
-
-/* Named ACP agents live in a namespace separate from OpenAI-compatible
- * profiles. The canonical settings shape is `acp.NAME`; the earlier
- * `acp.agents.NAME` nesting remains readable for compatibility. Selectors use
- * `acp@NAME` (preferred) or the legacy `acp:NAME` spelling. */
-static const char *acp_provider_name(const char *provider) {
-    if (!provider) return NULL;
-    if (str_starts(provider, "acp@") || str_starts(provider, "acp:"))
-        return provider[4] ? provider + 4 : NULL;
-    return NULL;
-}
-
-static yyjson_val *acp_profiles_obj(tny_ctx *ctx) {
-    if (!ctx || !ctx->settings) return NULL;
-    yyjson_val *acp = jget(yyjson_doc_get_root(ctx->settings), "acp");
-    if (!yyjson_is_obj(acp)) return NULL;
-    yyjson_val *legacy = jget(acp, "agents");
-    return yyjson_is_obj(legacy) ? legacy : acp;
-}
-
-static yyjson_val *acp_profile_obj(tny_ctx *ctx, const char *provider) {
-    const char *name = acp_provider_name(provider);
-    if (!name) return NULL;
-    yyjson_val *profile = jget(acp_profiles_obj(ctx), name);
-    return yyjson_is_obj(profile) ? profile : NULL;
-}
-
-bool tny_acp_profile_exists(tny_ctx *ctx, const char *provider) {
-    return acp_profile_obj(ctx, provider) != NULL;
-}
-
-static bool acp_profile_name_valid(const char *name) {
-    if (!name || !*name) return false;
-    for (const char *p = name; *p; p++) {
-        char c = *p;
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-              c == '-' || c == '_'))
-            return false;
-    }
-    return true;
-}
-
-static void clear_profile_agent(tny_ctx *ctx) {
-    if (!ctx->agent_from_profile) return;
-    for (char **p = ctx->agent_argv; p && *p; p++) free(*p);
-    free(ctx->agent_argv);
-    ctx->agent_argv = NULL;
-    ctx->agent_from_profile = false;
-}
-
-/* Validate only when selected, then copy every argv string out of yyjson's
- * document storage. Returns -1 with a user-facing diagnostic on bad config. */
-static int apply_acp_profile(tny_ctx *ctx, const char *provider) {
-    const char *name = acp_provider_name(provider);
-    if (!acp_profile_name_valid(name)) {
-        fprintf(stderr,
-                "tny: invalid ACP provider '%s': names use letters, "
-                "digits, - and _\n",
-                provider);
-        return -1;
-    }
-    yyjson_val *profile = acp_profile_obj(ctx, provider);
-    if (!profile) {
-        fprintf(stderr,
-                "tny: ACP provider '%s' is not defined under "
-                "settings.json acp.%s\n",
-                provider, name);
-        return -1;
-    }
-    yyjson_val *command_val = jget(profile, "command");
-    yyjson_val *args = jget(profile, "args");
-    bool legacy_command = yyjson_is_arr(command_val);
-    const char *command = yyjson_is_str(command_val) ? yyjson_get_str(command_val) : NULL;
-    if ((!command || !*command) && !legacy_command) {
-        fprintf(stderr,
-                "tny: settings.json acp.%s.command must be a "
-                "nonempty string\n",
-                name);
-        return -1;
-    }
-    if (legacy_command && args) {
-        fprintf(stderr,
-                "tny: settings.json acp.%s cannot combine legacy "
-                "command array with args\n",
-                name);
-        return -1;
-    }
-    if (args && !yyjson_is_arr(args)) {
-        fprintf(stderr,
-                "tny: settings.json acp.%s.args must be a string "
-                "array when present\n",
-                name);
-        return -1;
-    }
-    yyjson_val *parts = legacy_command ? command_val : args;
-    size_t nparts = yyjson_is_arr(parts) ? yyjson_arr_size(parts) : 0;
-    size_t argc = legacy_command ? nparts : nparts + 1;
-    if (argc == 0) {
-        fprintf(stderr, "tny: settings.json acp.%s.command must not be empty\n", name);
-        return -1;
-    }
-    char **argv = calloc(argc + 1, sizeof *argv);
-    if (!argv) return -1; /* OOM: no observable profile state changed */
-    size_t out = 0, idx, max;
-    yyjson_val *v;
-    if (!legacy_command) argv[out++] = xstrdup(command);
-    if ((!legacy_command && !argv[0])) {
-        free(argv);
-        return -1;
-    }
-    if (yyjson_is_arr(parts)) yyjson_arr_foreach(parts, idx, max, v) {
-            const char *arg = yyjson_is_str(v) ? yyjson_get_str(v) : NULL;
-            if (!arg || !*arg) {
-                fprintf(stderr,
-                        "tny: settings.json acp.%s.%s[%zu] must be a "
-                        "nonempty string\n",
-                        name, legacy_command ? "command" : "args", idx);
-                for (size_t i = 0; i < out; i++) free(argv[i]);
-                free(argv);
-                return -1;
-            }
-            argv[out] = xstrdup(arg);
-            if (!argv[out]) {
-                for (size_t i = 0; i < out; i++) free(argv[i]);
-                free(argv);
-                return -1; /* OOM: allocator fault injection is out of scope */
-            }
-            out++;
-        }
-    if ((str_starts(argv[0], "ws://") || str_starts(argv[0], "wss://")) && argc != 1) {
-        fprintf(stderr,
-                "tny: settings.json acp.%s.args must be empty for a "
-                "remote WebSocket agent\n",
-                name);
-        for (size_t i = 0; i < argc; i++) free(argv[i]);
-        free(argv);
-        return -1;
-    }
-    yyjson_val *model_val = jget(profile, "model");
-    const char *model = NULL;
-    if (model_val) {
-        model = yyjson_is_str(model_val) ? yyjson_get_str(model_val) : NULL;
-        if (!model || !*model) {
-            fprintf(stderr,
-                    "tny: settings.json acp.%s.model must be a "
-                    "nonempty string when present\n",
-                    name);
-            for (size_t i = 0; i < argc; i++) free(argv[i]);
-            free(argv);
-            return -1;
-        }
-    }
-    if (ctx->agent_argv && !ctx->agent_from_profile) {
-        fprintf(stderr,
-                "tny: --agent cannot be combined with named ACP "
-                "provider '%s'; use --provider acp for an ad-hoc "
-                "command\n",
-                provider);
-        for (size_t i = 0; i < argc; i++) free(argv[i]);
-        free(argv);
-        return -1;
-    }
-    clear_profile_agent(ctx);
-    ctx->agent_argv = argv;
-    ctx->agent_from_profile = true;
-    free(ctx->provider_name);
-    ctx->provider_name = xstrdup(provider);
-    if (!ctx->model_from_flag) {
-        free(ctx->model);
-        ctx->model = model ? xstrdup(model) : NULL;
-    }
-    return 0;
 }
 
 /* NAME + suffix as an env-var name: "openrouter" + "_API_KEY" ->
@@ -387,7 +235,7 @@ static const char *derived_env_value(const char *name, const char *suffix) {
  * NAME_BASE_URL is set in the environment. Env lookups here are lazy
  * in-memory reads at resolve time — startup paths never run them. */
 bool tny_custom_provider_exists(tny_ctx *ctx, const char *name) {
-    if (!name || !*name || tny_backend_from_name(name) >= 0) return false;
+    if (!name || !*name || tny_backend_from_name(name) >= 0 || removed_provider(name)) return false;
     if (custom_provider_obj(ctx, name)) return true;
     return derived_env_value(name, "_BASE_URL") != NULL;
 }
@@ -429,7 +277,7 @@ char **tny_env_provider_names(int *count) {
             }
         }
         name[plen] = 0;
-        if (!ok || tny_backend_from_name(name) >= 0) {
+        if (!ok || tny_backend_from_name(name) >= 0 || removed_provider(name)) {
             free(name);
             continue;
         }
@@ -480,33 +328,38 @@ static char *env_sole_detected_provider(void) {
 
 /* Load the builtin openai profile (settings "openai" object + OPENAI_* env)
  * into ctx. Also used to restore the defaults after a named profile. */
+static char *provider_strdup(tny_ctx *ctx, const char *value) {
+    char *copy = xstrdup(value);
+    if (value && !copy) ctx->provider_resolution_failed = true;
+    return copy;
+}
+
 static void load_openai_profile(tny_ctx *ctx) {
     yyjson_val *sroot = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
     yyjson_val *oa = jget(sroot, "openai");
     const char *bu = getenv("OPENAI_BASE_URL");
     if (!bu || !*bu) bu = jget_str(oa, "base_url");
     free(ctx->base_url);
-    ctx->base_url = xstrdup(bu && *bu ? bu : "https://api.openai.com/v1");
+    ctx->base_url = provider_strdup(ctx, bu && *bu ? bu : "https://api.openai.com/v1");
     const char *key_env = jget_str(oa, "api_key_env");
     const char *key = key_env ? getenv(key_env) : NULL;
-    if (!key || !*key) key = getenv("OPENAI_API_KEY");
-    if (!key || !*key) key = jget_str(oa, "api_key"); /* docs/adr/0018 */
+    if (!key_env) key = getenv("OPENAI_API_KEY");
     secure_free(ctx->api_key);
-    ctx->api_key = key && *key ? xstrdup(key) : NULL;
+    ctx->api_key = key && *key ? provider_strdup(ctx, key) : NULL;
     const char *ahn = jget_str(oa, "auth_header_name");
     const char *ahp = jget_str(oa, "auth_header_prefix");
     free(ctx->auth_header_name);
     free(ctx->auth_header_prefix);
-    ctx->auth_header_name = xstrdup(ahn ? ahn : "Authorization");
-    ctx->auth_header_prefix = xstrdup(ahp ? ahp : "Bearer ");
+    ctx->auth_header_name = provider_strdup(ctx, ahn ? ahn : "Authorization");
+    ctx->auth_header_prefix = provider_strdup(ctx, ahp ? ahp : "Bearer ");
     const char *mtf = jget_str(oa, "max_tokens_field");
     free(ctx->max_tokens_field);
-    ctx->max_tokens_field = mtf ? xstrdup(mtf) : NULL;
+    ctx->max_tokens_field = mtf ? provider_strdup(ctx, mtf) : NULL;
     const char *wa = getenv("OPENAI_WIRE_API");
     if (!wa || !*wa) wa = jget_str(oa, "wire_api");
     free(ctx->wire_api);
-    ctx->wire_api = wa && *wa ? xstrdup(wa) : NULL; /* NULL = responses */
-    tny_ctx_clear_extra_headers(ctx);               /* builtin-profile headers must not leak */
+    ctx->wire_api = wa && *wa ? provider_strdup(ctx, wa) : NULL; /* NULL = responses */
+    tny_ctx_clear_extra_headers(ctx); /* builtin-profile headers must not leak */
 }
 
 /* Point ctx at a named provider: settings profile, env vars, or both
@@ -517,32 +370,31 @@ static void load_openai_profile(tny_ctx *ctx) {
 static void apply_custom_provider(tny_ctx *ctx, const char *name) {
     yyjson_val *o = custom_provider_obj(ctx, name); /* NULL when env-only */
     free(ctx->provider_name);
-    ctx->provider_name = xstrdup(name);
+    ctx->provider_name = provider_strdup(ctx, name);
     const char *bu = derived_env_value(name, "_BASE_URL");
     if (!bu) bu = jget_str(o, "base_url");
     free(ctx->base_url);
-    ctx->base_url = xstrdup(bu ? bu : "");
+    ctx->base_url = provider_strdup(ctx, bu ? bu : "");
     char *key_env = tny_custom_provider_key_env(ctx, name);
+    if (!key_env) ctx->provider_resolution_failed = true;
     const char *key = key_env ? getenv(key_env) : NULL;
     free(key_env);
-    /* a key stored by `tny provider setup --api-key` (docs/adr/0018) is the
-     * fallback: an env var always beats it, so rotation via the shell works */
-    if (!key || !*key) key = jget_str(o, "api_key");
+    /* Only this profile's environment key may authorize its requests. */
     secure_free(ctx->api_key);
-    ctx->api_key = key && *key ? xstrdup(key) : NULL;
+    ctx->api_key = key && *key ? provider_strdup(ctx, key) : NULL;
     const char *ahn = jget_str(o, "auth_header_name");
     const char *ahp = jget_str(o, "auth_header_prefix");
     free(ctx->auth_header_name);
     free(ctx->auth_header_prefix);
-    ctx->auth_header_name = xstrdup(ahn ? ahn : "Authorization");
-    ctx->auth_header_prefix = xstrdup(ahp ? ahp : "Bearer ");
+    ctx->auth_header_name = provider_strdup(ctx, ahn ? ahn : "Authorization");
+    ctx->auth_header_prefix = provider_strdup(ctx, ahp ? ahp : "Bearer ");
     const char *mtf = jget_str(o, "max_tokens_field");
     free(ctx->max_tokens_field);
-    ctx->max_tokens_field = mtf ? xstrdup(mtf) : NULL;
+    ctx->max_tokens_field = mtf ? provider_strdup(ctx, mtf) : NULL;
     const char *wa = derived_env_value(name, "_WIRE_API");
     if (!wa) wa = jget_str(o, "wire_api");
     free(ctx->wire_api);
-    ctx->wire_api = wa && *wa ? xstrdup(wa) : NULL; /* NULL = responses */
+    ctx->wire_api = wa && *wa ? provider_strdup(ctx, wa) : NULL; /* NULL = responses */
     tny_ctx_clear_extra_headers(ctx);
 }
 
@@ -581,18 +433,12 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     yyjson_val *wso = ws_obj(ctx);
     yyjson_val *rroot = ctx->repo_cfg ? yyjson_doc_get_root(ctx->repo_cfg) : NULL;
 
-    char cursor_err[256] = {0};
-    ctx->cursor_config = tny_cursor_config_load(jget(sroot, "cursor"), jget(rroot, "cursor"),
-                                                cursor_err, sizeof cursor_err);
-    if (!ctx->cursor_config) {
-        if (*cursor_err) fprintf(stderr, "tny: %s\n", cursor_err);
+    if (validate_provider_settings(ctx) != 0) {
         tny_ctx_free(ctx);
         return NULL;
     }
 
-    /* defaults. yolo is deliberate: host providers run their own loops and
-     * never hand tny a real approval gate, so tny runs every agent in yolo
-     * unless the user explicitly opts into ask/auto (docs/adr/0001). */
+    /* Yolo is deliberate; ask/auto are explicit opt-ins (ADR 0001). */
     ctx->backend = -1;
     ctx->perm_mode = TNY_MODE_YOLO;
     ctx->tool_profile = TNY_TOOLS_ALL;
@@ -703,7 +549,6 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     load_openai_profile(ctx);
 
     /* host backend knobs */
-    ctx->bridge_bin = dup_or("CURSOR_SDK_BRIDGE_BIN", "cursor-sdk-bridge");
 
     /* repo limits — never authority */
     if (rroot) {
@@ -774,12 +619,6 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     ctx->base_url = xstrdup("https://api.openai.com/v1");
     ctx->auth_header_name = xstrdup("Authorization");
     ctx->auth_header_prefix = xstrdup("Bearer ");
-    ctx->bridge_bin = xstrdup("cursor-sdk-bridge");
-    ctx->cursor_config = tny_cursor_config_load(NULL, NULL, NULL, 0);
-    if (!ctx->cursor_config) {
-        tny_ctx_free(ctx);
-        return NULL;
-    }
     (void)instructions_refresh(ctx);
     return ctx;
 }
@@ -809,13 +648,11 @@ static void apply_provider_model(tny_ctx *ctx, int id) {
     if (!m) m = tny_settings_provider_model(ctx, name);
     if (!m && id == TNY_BK_OPENAI && ctx->settings)
         m = jget_str(jget(yyjson_doc_get_root(ctx->settings), name), "model");
-    if (!m && id == TNY_BK_ACP && ctx->provider_name)
-        m = jget_str(acp_profile_obj(ctx, ctx->provider_name), "model");
     if ((!m || !*m || strcmp(m, "default") == 0) && !ctx->model)
         m = derived_env_value(name, "_DEFAULT_MODEL");
     if (m && *m && strcmp(m, "default") != 0) {
         free(ctx->model);
-        ctx->model = xstrdup(m);
+        ctx->model = provider_strdup(ctx, m);
     } else if (m && strcmp(m, "default") == 0) {
         free(ctx->model);
         ctx->model = NULL;
@@ -845,12 +682,11 @@ const char *tny_image_input_label(const tny_ctx *ctx) {
 }
 
 /* Map keys are canonical provider selectors: 1..256 ASCII bytes of the
- * existing provider-name grammar, optionally behind the canonical `acp@`
- * prefix. `len` is yyjson's byte length, so an embedded NUL is rejected
+ * existing provider-name grammar. `len` is yyjson's byte length, so an embedded NUL is rejected
  * instead of silently truncating the key. */
 static bool image_input_key_valid(const char *key, size_t len) {
     if (!key || len == 0 || len > TNY_IMAGE_INPUT_KEY_MAX || strlen(key) != len) return false;
-    const char *name = str_starts(key, "acp@") ? key + 4 : key;
+    const char *name = key;
     if (!*name) return false;
     for (const char *p = name; *p; p++) {
         char c = *p;
@@ -861,15 +697,7 @@ static bool image_input_key_valid(const char *key, size_t len) {
     return true;
 }
 
-/* The effective provider's map key. Both ACP selector spellings share the
- * canonical `acp@NAME` key, so the legacy alias cannot bypass a false. */
-static const char *image_input_key(const tny_ctx *ctx, char *out, size_t outlen) {
-    const char *provider = tny_provider_name(ctx);
-    const char *agent = acp_provider_name(provider);
-    if (!agent) return provider;
-    snprintf(out, outlen, "acp@%s", agent);
-    return out;
-}
+/* The effective provider's map key. */
 
 static bool image_input_same_key(yyjson_val *a, yyjson_val *b) {
     size_t la = yyjson_get_len(a), lb = yyjson_get_len(b);
@@ -899,8 +727,7 @@ static int apply_provider_image_input(tny_ctx *ctx) {
                 (unsigned)TNY_IMAGE_INPUT_MAX_ENTRIES);
         return -1;
     }
-    char keybuf[TNY_IMAGE_INPUT_KEY_MAX + 8];
-    const char *wanted = image_input_key(ctx, keybuf, sizeof keybuf);
+    const char *wanted = tny_provider_name(ctx);
     bool found = false, allowed = false;
     yyjson_obj_iter it;
     yyjson_obj_iter_init(map, &it);
@@ -909,7 +736,7 @@ static int apply_provider_image_input(tny_ctx *ctx) {
         if (!image_input_key_valid(name, yyjson_get_len(key))) {
             fprintf(stderr,
                     "tny: settings.json image_input keys must be provider names (letters, "
-                    "digits, - and _, or acp@NAME) of at most %u bytes\n",
+                    "digits, - and _) of at most %u bytes\n",
                     (unsigned)TNY_IMAGE_INPUT_KEY_MAX);
             return -1;
         }
@@ -969,7 +796,7 @@ static int apply_provider_fast(tny_ctx *ctx) {
         return -1;
     }
     free(ctx->service_tier);
-    ctx->service_tier = xstrdup(tny_tier_is_fast(tier) ? "fast" : "default");
+    ctx->service_tier = provider_strdup(ctx, tny_tier_is_fast(tier) ? "fast" : "default");
     ctx->service_tier_from_settings = true;
     return 0;
 }
@@ -990,125 +817,67 @@ static void apply_provider_effort(tny_ctx *ctx) {
     if (!ctx->settings) return;
     const char *v = provider_setting(ctx, "effort");
     if (v && *v && strcmp(v, "default") != 0) {
-        ctx->reasoning_effort = xstrdup(v);
+        ctx->reasoning_effort = provider_strdup(ctx, v);
         ctx->effort_from_settings = true;
     }
 }
 
-int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
-    int id = -1;
+static int resolve_provider(tny_ctx *ctx, const char *flag_value) {
+    if (validate_provider_settings(ctx) != 0) return -1;
     if (!flag_value) flag_value = tny_settings_get_str(ctx, "provider");
-    const char *custom_name = NULL;
-    const char *builtin_profile = NULL; /* codex|claude|grok (profiles.c) */
-    const char *acp_profile = NULL;     /* full selector: acp@NAME */
+    if (!flag_value) flag_value = tny_settings_get_str(ctx, "last_provider");
+    if (!flag_value) flag_value = tny_settings_get_str(ctx, "last_backend");
     char *env_pick = NULL;
-    if (flag_value) {
-        if (str_starts(flag_value, "acp@") || str_starts(flag_value, "acp:")) {
-            id = TNY_BK_ACP; /* apply_acp_profile gives the precise error */
-            acp_profile = flag_value;
-        } else {
-            id = tny_backend_from_name(flag_value);
-        }
-        /* a user settings profile / env pair shadows a builtin of the
-         * same name — explicit config wins over what tny ships */
-        if (id == -1 && tny_custom_provider_exists(ctx, flag_value)) {
-            id = TNY_BK_OPENAI;
-            custom_name = flag_value;
-        }
-        if (id == -1 && tny_builtin_profile_exists(flag_value)) {
-            id = TNY_BK_OPENAI;
-            builtin_profile = flag_value;
-        }
-        if (id == -1) {
-            fprintf(stderr,
-                    "tny: unknown provider '%s' (cursor|acp|openai|codex|"
-                    "claude|grok|acp@NAME, a settings.json object with a "
-                    "base_url, or NAME_BASE_URL in the environment)\n",
-                    flag_value);
-            return -1;
-        }
+    if (!flag_value) {
+        const char *url = getenv("OPENAI_BASE_URL"), *key = getenv("OPENAI_API_KEY");
+        if ((url && *url) || (key && *key)) flag_value = "openai";
+        else if ((env_pick = env_sole_detected_provider()) != NULL) flag_value = env_pick;
+        else if (ctx->chatgpt_token || tny_codex_auth_present()) flag_value = "codex";
+        else if (tny_grok_auth_present()) flag_value = "grok";
+        else flag_value = "openai";
     }
-    if (id < 0) { /* the provider (and model) last used wins over detection */
-        const char *last = tny_settings_get_str(ctx, "last_provider");
-        if (!last) last = tny_settings_get_str(ctx, "last_backend");
-        if (last) {
-            id = tny_backend_from_name(last);
-            if (id == -1 && tny_acp_profile_exists(ctx, last)) {
-                id = TNY_BK_ACP;
-                acp_profile = last;
-            }
-            if (id == -1 && tny_custom_provider_exists(ctx, last)) {
-                id = TNY_BK_OPENAI;
-                custom_name = last;
-            }
-            if (id == -1 && tny_builtin_profile_exists(last)) {
-                id = TNY_BK_OPENAI;
-                builtin_profile = last;
-            }
-        }
+    if (removed_provider(flag_value)) {
+        fputs("tny: ACP and Cursor providers were removed; configure an OpenAI-compatible HTTP "
+              "profile\n",
+              stderr);
+        free(env_pick);
+        return -1;
     }
-    if (id == -1) {
-        const char *e1 = getenv("OPENAI_BASE_URL"), *e2 = getenv("OPENAI_API_KEY");
-        if ((e1 && *e1) || (e2 && *e2)) id = TNY_BK_OPENAI;
+    bool custom = tny_custom_provider_exists(ctx, flag_value);
+    bool builtin = tny_builtin_profile_exists(flag_value);
+    if (!custom && !builtin && strcmp(flag_value, "openai") != 0) {
+        fprintf(stderr,
+                "tny: unknown or removed provider '%s'; configure base_url and api_key_env for an "
+                "OpenAI-compatible gateway\n",
+                flag_value);
+        free(env_pick);
+        return -1;
     }
-    if (id == -1 && (env_pick = env_sole_detected_provider()) != NULL) {
-        id = TNY_BK_OPENAI; /* exactly one NAME_BASE_URL + NAME_API_KEY pair */
-        custom_name = env_pick;
+    /* Selection may borrow the current profile; own it across replacement. */
+    char *selected = xstrdup(flag_value);
+    if (!selected) {
+        free(env_pick);
+        return -1;
     }
-    /* No explicit choice anywhere: prefer subscription logins over raw keys
-     * (docs/cli.md "Provider selection"). Codex login first, then a Claude
-     * Code OAuth login, then a grok session, then a Cursor key from the
-     * environment, then the openai backend's own error path. */
-    if (id == -1 && (ctx->chatgpt_token || tny_codex_auth_present())) {
-        id = TNY_BK_OPENAI;
-        builtin_profile = "codex";
+    int id = TNY_BK_OPENAI;
+    ctx->backend = id;
+    if (!ctx->model_from_flag) {
+        free(ctx->model);
+        ctx->model = NULL;
     }
-    if (id == -1 && tny_claude_auth_present()) {
-        id = TNY_BK_OPENAI;
-        builtin_profile = "claude";
-    }
-    if (id == -1 && tny_grok_auth_present()) {
-        id = TNY_BK_OPENAI;
-        builtin_profile = "grok";
-    }
-    if (id == -1) {
-        const char *ck = getenv("CURSOR_API_KEY");
-        if (ck && *ck) id = TNY_BK_CURSOR;
-    }
-    if (id == -1) id = TNY_BK_OPENAI;
-    if (acp_profile) {
-        if (apply_acp_profile(ctx, acp_profile) != 0) {
+    if (custom) apply_custom_provider(ctx, selected);
+    else if (builtin) {
+        if (tny_apply_builtin_profile(ctx, selected) != 0) {
+            free(selected);
             free(env_pick);
             return -1;
         }
-    } else {
-        /* Profile-owned argv is meaningful only for its namespaced ACP
-         * provider. Ad-hoc --provider acp --agent argv is not profile-owned
-         * and remains untouched. */
-        clear_profile_agent(ctx);
-        if (!ctx->model_from_flag) {
-            free(ctx->model);
-            ctx->model = NULL;
-        }
-    }
-    ctx->backend = id;
-    if (builtin_profile && tny_custom_provider_exists(ctx, builtin_profile)) {
-        custom_name = builtin_profile; /* user config shadows the builtin */
-        builtin_profile = NULL;
-    }
-    if (acp_profile) {
-        /* apply_acp_profile already installed provider_name + argv/model. */
-    } else if (custom_name) {
-        apply_custom_provider(ctx, custom_name);
-    } else if (builtin_profile) {
-        tny_apply_builtin_profile(ctx, builtin_profile);
     } else if (ctx->provider_name) {
-        /* switching away from a named profile (TUI /provider): restore the
-         * builtin openai config the profile replaced */
         free(ctx->provider_name);
         ctx->provider_name = NULL;
         load_openai_profile(ctx);
     }
+    free(selected);
     apply_provider_model(ctx, id);
     apply_provider_effort(ctx);
     if (apply_provider_fast(ctx) != 0) {
@@ -1122,9 +891,87 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
         return -1;
     }
     tny_finish_builtin_profile(ctx);
-    tny_extensions_set_provider(ctx->extensions, (tny_backend_id)ctx->backend);
     free(env_pick);
     return ctx->backend;
+}
+
+/* The stage borrows non-provider state. Never pass it to tny_ctx_free:
+ * settings, extension manager and workspace ownership stay with the live ctx. */
+static void provider_fields_free(tny_ctx *ctx) {
+    secure_free(ctx->provider_name);
+    secure_free(ctx->model);
+    secure_free(ctx->base_url);
+    secure_free(ctx->api_key);
+    secure_free(ctx->auth_header_name);
+    secure_free(ctx->auth_header_prefix);
+    secure_free(ctx->max_tokens_field);
+    secure_free(ctx->wire_api);
+    secure_free(ctx->reasoning_effort);
+    secure_free(ctx->service_tier);
+    tny_ctx_clear_extra_headers(ctx);
+}
+
+int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
+    tny_ctx stage = *ctx;
+    stage.provider_resolution_failed = false;
+    stage.provider_name = NULL;
+    stage.model = NULL;
+    stage.base_url = NULL;
+    stage.api_key = NULL;
+    stage.auth_header_name = NULL;
+    stage.auth_header_prefix = NULL;
+    stage.max_tokens_field = NULL;
+    stage.wire_api = NULL;
+    stage.reasoning_effort = NULL;
+    stage.service_tier = NULL;
+    stage.extra_headers = NULL;
+    if (ctx->provider_name && !(stage.provider_name = xstrdup(ctx->provider_name))) goto fail;
+    if (ctx->model && !(stage.model = xstrdup(ctx->model))) goto fail;
+    if (ctx->base_url && !(stage.base_url = xstrdup(ctx->base_url))) goto fail;
+    if (ctx->api_key && !(stage.api_key = xstrdup(ctx->api_key))) goto fail;
+    if (ctx->auth_header_name && !(stage.auth_header_name = xstrdup(ctx->auth_header_name)))
+        goto fail;
+    if (ctx->auth_header_prefix && !(stage.auth_header_prefix = xstrdup(ctx->auth_header_prefix)))
+        goto fail;
+    if (ctx->max_tokens_field && !(stage.max_tokens_field = xstrdup(ctx->max_tokens_field)))
+        goto fail;
+    if (ctx->wire_api && !(stage.wire_api = xstrdup(ctx->wire_api))) goto fail;
+    if (ctx->reasoning_effort && !(stage.reasoning_effort = xstrdup(ctx->reasoning_effort)))
+        goto fail;
+    if (ctx->service_tier && !(stage.service_tier = xstrdup(ctx->service_tier))) goto fail;
+    if (ctx->extra_headers) {
+        size_t n = 0;
+        while (ctx->extra_headers[n]) n++;
+        stage.extra_headers = calloc(n + 1, sizeof(char *));
+        if (!stage.extra_headers) goto fail;
+        for (size_t i = 0; i < n; i++) {
+            stage.extra_headers[i] = xstrdup(ctx->extra_headers[i]);
+            if (!stage.extra_headers[i]) goto fail;
+        }
+    }
+    int rc = resolve_provider(&stage, flag_value);
+    if (rc < 0 || stage.provider_resolution_failed) goto fail;
+    provider_fields_free(ctx);
+    ctx->provider_name = stage.provider_name;
+    ctx->model = stage.model;
+    ctx->base_url = stage.base_url;
+    ctx->api_key = stage.api_key;
+    ctx->auth_header_name = stage.auth_header_name;
+    ctx->auth_header_prefix = stage.auth_header_prefix;
+    ctx->max_tokens_field = stage.max_tokens_field;
+    ctx->wire_api = stage.wire_api;
+    ctx->reasoning_effort = stage.reasoning_effort;
+    ctx->service_tier = stage.service_tier;
+    ctx->extra_headers = stage.extra_headers;
+    ctx->backend = stage.backend;
+    ctx->effort_from_settings = stage.effort_from_settings;
+    ctx->service_tier_from_settings = stage.service_tier_from_settings;
+    ctx->image_input = stage.image_input;
+    tny_extensions_set_provider(ctx->extensions, (tny_backend_id)ctx->backend);
+    return rc;
+fail:
+    provider_fields_free(&stage);
+    return -1;
 }
 
 const char *tny_settings_get_str(tny_ctx *ctx, const char *key) {
@@ -1190,35 +1037,46 @@ static void edit_provider_profile(yyjson_mut_doc *doc, yyjson_mut_val *root, voi
     const struct {
         const char *k, *v;
     } kv[] = {
-        {"base_url", pe->f->base_url},       {"api_key", pe->f->api_key},
-        {"api_key_env", pe->f->api_key_env}, {"model", pe->f->model},
+        {"base_url", pe->f->base_url},
+        {"api_key_env", pe->f->api_key_env},
+        {"model", pe->f->model},
         {"wire_api", pe->f->wire_api},
     };
     for (size_t i = 0; i < sizeof kv / sizeof *kv; i++)
         if (kv[i].v)
             yyjson_mut_obj_put(o, yyjson_mut_strcpy(doc, kv[i].k), yyjson_mut_strcpy(doc, kv[i].v));
-    /* a stored key and a key env var are alternatives: setting one clears
-     * the other so the effective source is what the user just chose */
-    if (pe->f->api_key) yyjson_mut_obj_remove_key(o, "api_key_env");
+    /* Remove a legacy stored key when saving its environment reference. */
     if (pe->f->api_key_env) yyjson_mut_obj_remove_key(o, "api_key");
 }
 
-/* Merge fields into the profile `name` ("openai" or a custom name; other
- * builtins are rejected). NULL fields keep their current values. When a
- * raw api_key is stored, settings.json drops to 0600. 0 ok, -1 error
- * (reason in errbuf). */
+/* Merge fields into a native HTTP profile. NULL fields preserve values.
+ * Raw keys are rejected; 0 ok, -1 error (reason in errbuf). */
 int tny_provider_write_profile(tny_ctx *ctx, const char *name, const tny_provider_fields *f,
                                char *errbuf, size_t errlen) {
+    if (f->api_key_env && *f->api_key_env) {
+        const char *p = f->api_key_env;
+        bool valid = (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') || *p == '_';
+        for (; *p; p++)
+            if (!((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
+                  (*p >= '0' && *p <= '9') || *p == '_'))
+                valid = false;
+        if (!valid) {
+            snprintf(errbuf, errlen, "api_key_env must be an environment variable name, not a key");
+            return -1;
+        }
+    }
+    if (f->api_key) {
+        snprintf(errbuf, errlen, "stored api_key was removed; export the key and use api_key_env");
+        return -1;
+    }
     if (!name || !*name) {
         snprintf(errbuf, errlen, "provider setup needs a name");
         return -1;
     }
     int builtin = tny_backend_from_name(name);
-    if (builtin >= 0 && builtin != TNY_BK_OPENAI) {
+    if (removed_provider(name)) {
         snprintf(errbuf, errlen,
-                 "'%s' is a host provider; only openai-compatible profiles "
-                 "take base_url/api_key",
-                 name);
+                 "'%s' was removed; configure an HTTP profile with base_url/api_key_env", name);
         return -1;
     }
     for (const char *p = name; *p; p++) {
@@ -1267,7 +1125,6 @@ int tny_provider_write_profile(tny_ctx *ctx, const char *name, const tny_provide
         snprintf(errbuf, errlen, "could not write %s", ctx->settings_path);
         return -1;
     }
-    if (f->api_key && *f->api_key) chmod(ctx->settings_path, 0600); /* it now holds a secret */
     return 0;
 }
 
@@ -1415,8 +1272,6 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->wire_api);
     free(ctx->output_schema);
     tny_ctx_clear_extra_headers(ctx);
-    free(ctx->bridge_bin);
-    tny_cursor_config_free(ctx->cursor_config);
     secure_free(ctx->xai_api_key);
     if (ctx->chatgpt_token) secure_free(ctx->chatgpt_token);
     free(ctx->chatgpt_account_id);
@@ -1433,10 +1288,6 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->instructions_snapshot);
     for (int i = 0; i < ctx->n_instruction_paths; i++) free(ctx->instruction_paths[i]);
     free(ctx->instruction_paths);
-    if (ctx->agent_argv) {
-        for (char **p = ctx->agent_argv; *p; p++) free(*p);
-        free(ctx->agent_argv);
-    }
     free(ctx->sandbox_mode);
     free(ctx->tny_dir);
     free(ctx->settings_path);
@@ -1451,7 +1302,7 @@ char *tny_provider_names_joined(tny_ctx *ctx) {
     buf_init(&b);
     for (int i = 0; i < TNY_BK_COUNT; i++)
         buf_appendf(&b, "%s%s", i ? "|" : "", tny_backend_name((tny_backend_id)i));
-    buf_appends(&b, "|codex|claude|grok"); /* builtin profiles (docs/adr/0019) */
+    buf_appends(&b, "|codex|grok"); /* builtin profiles (docs/adr/0019) */
     yyjson_val *root = ctx && ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
     size_t idx, max;
     yyjson_val *k, *v;
@@ -1462,16 +1313,6 @@ char *tny_provider_names_joined(tny_ctx *ctx) {
             const char *bu = jget_str(v, "base_url");
             if (!bu || !*bu || !tny_custom_provider_exists(ctx, name)) continue;
             buf_appendf(&b, "|%s", name);
-        }
-    yyjson_val *agents = acp_profiles_obj(ctx);
-    if (yyjson_is_obj(agents)) yyjson_obj_foreach(agents, idx, max, k, v) {
-            const char *name = yyjson_get_str(k);
-            /* Invalid commands are still listed: selection validates them and
-             * reports the exact field. Invalid names cannot form a provider ID. */
-            if (!name || strcmp(name, "agents") == 0 || !acp_profile_name_valid(name) ||
-                !yyjson_is_obj(v))
-                continue;
-            buf_appendf(&b, "|acp@%s", name);
         }
     int n_env = 0;
     char **env = tny_env_provider_names(&n_env);

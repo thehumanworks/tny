@@ -52,7 +52,6 @@ struct tny_engine {
     tny_stop_reason stop;
     char *prompt_text;
     char *prepared_requeue_text;
-    bool system_prompt_delivered;
     char *native_observed_permission_id;
 
     tny_extensions *extensions;
@@ -784,24 +783,6 @@ static extension_fold prepare_user_prompt(tny_engine *e, const char *prompt, con
         buf_free(&status);
     }
     return fold;
-}
-
-/* --system-prompt fallback (docs/adr/0045): the openai backend carries the
- * user system prompt on its native system/instructions field, but the host
- * protocols (cursor sdk.v1 CreateAgent, ACP session/new)
- * expose no such schema field — there it is prepended to the session's first
- * user message instead. Anything that already has conversation history — a
- * later turn in this engine, a resumed or adopted host thread (host pointer
- * present), or a transcript with recorded turns — must not get it again. */
-static bool wants_system_prompt_prefix(tny_engine *e) {
-    if ((!e->ctx->system_prompt || !*e->ctx->system_prompt) &&
-        (!e->ctx->task_instructions || !*e->ctx->task_instructions))
-        return false;
-    if (e->bk->id == TNY_BK_OPENAI) return false;
-    if (e->system_prompt_delivered) return false;
-    if (session_turns(e->session) > 0) return false;
-    if (session_host_pointer(e->session)) return false;
-    return true;
 }
 
 static int start_backend_iteration(tny_engine *e, const char *prompt, const char **images,
@@ -1633,31 +1614,7 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
             }
         }
     }
-    bool prefixed_system_prompt = wants_system_prompt_prefix(e);
-    if (prefixed_system_prompt) {
-        buf_t with_sys;
-        buf_init(&with_sys);
-        tny_task_collect(e->ctx, &with_sys);
-        if (e->ctx->system_prompt && *e->ctx->system_prompt) {
-            buf_appends(&with_sys, e->ctx->system_prompt);
-            buf_appends(&with_sys, "\n\n");
-        }
-        buf_append(&with_sys, effective.data, effective.len);
-        if (buf_oom(&with_sys)) {
-            if (err && errlen) snprintf(err, errlen, "out of memory");
-            buf_free(&with_sys);
-            buf_free(&effective);
-            skills_names_free(skill_names, n_skill_names);
-            return -1;
-        }
-        buf_free(&effective);
-        effective = with_sys;
-    }
     int rc = start_backend_iteration(e, effective.data, images, "user", err, errlen);
-    /* Commit the once-only marker only after the host send path was actually
-     * entered. Allocation failure or a before_agent_start stop leaves the
-     * task/system sections pending for the next real first turn. */
-    if (rc == 0 && prefixed_system_prompt && e->turn_started) e->system_prompt_delivered = true;
     if (rc == 0 && n_skill_names && e->turn_started)
         session_record_skill_injection(e->session, skill_message_index, skill_names, n_skill_names,
                                        prompt);
@@ -2023,7 +1980,6 @@ yyjson_mut_val *tny_engine_checkpoint(tny_engine *e, yyjson_mut_doc *d) {
                               e->message_text.data ? e->message_text.data : "");
     yyjson_mut_obj_add_strcpy(d, r, "extension_followup",
                               e->extension_followup.data ? e->extension_followup.data : "");
-    yyjson_mut_obj_add_bool(d, r, "system_prompt_delivered", e->system_prompt_delivered);
     yyjson_mut_obj_add_bool(d, r, "extensions_started", e->extensions_started);
     yyjson_mut_obj_add_bool(d, r, "message_started", e->message_started);
     yyjson_mut_obj_add_bool(d, r, "turn_started", e->turn_started);
@@ -2052,7 +2008,6 @@ int tny_engine_restore(tny_engine *e, yyjson_val *r) {
     buf_clear(&e->extension_followup);
     buf_appends(&e->extension_followup,
                 jget_str(r, "extension_followup") ? jget_str(r, "extension_followup") : "");
-    e->system_prompt_delivered = jget_bool(r, "system_prompt_delivered", false);
     e->extensions_started = jget_bool(r, "extensions_started", false);
     e->message_started = jget_bool(r, "message_started", false);
     e->turn_started = jget_bool(r, "turn_started", false);
