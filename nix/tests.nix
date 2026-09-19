@@ -89,6 +89,8 @@ stdenv.mkDerivation {
     # only macOS leaks excludes that fork-based suite. Nonfork workspace tests
     # and team_runtime_suite remain in the leak gate. Swarm provider fixtures
     # need only the declared Git, Python, compiler and existing PTY/process tools.
+    # test_swarm_startup.py uses stdenv's C/C++ drivers, dl on Linux, and existing
+    # local HTTP fixtures for before-POST failures; no additional package is used.
     # test_admission.py and test_team_mailbox.py compile their real C helpers
     # with stdenv's compiler and existing fixtures. Pause/crash/fault tests use
     # stdlib fcntl, signals and subprocesses; no provider or new program is needed.

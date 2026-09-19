@@ -533,6 +533,8 @@ class JobsFixture(unittest.TestCase):
         """Bounded local engine diagnostics, not provider bodies or credentials."""
         found = []
         for item in record.get("items", []):
+            if item.get("startup_error_code"):
+                found.append((item["index"], "startup", item["startup_error_code"]))
             path = Path(item["log_path"])
             if not path.exists() or not path.resolve().is_relative_to(
                 self.home.resolve()

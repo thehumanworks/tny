@@ -16,6 +16,7 @@ extern "C" {
 #include "core/jobs.h"
 #include "core/admission.h"
 #include "core/backend.h"
+#include "core/team_runtime.h"
 #include "util/task_workspace.h"
 #include "core/image_manifest.h"
 #include "core/image_preview.h"
@@ -1858,10 +1859,10 @@ static void job_items_json(yyjson_mut_doc *doc, buf_t *out) {
         if (exit_code && yyjson_mut_is_int(exit_code))
             buf_appendf(out, ",\"exit_code\":%lld", (long long)yyjson_mut_get_sint(exit_code));
         else buf_appends(out, ",\"exit_code\":null");
-        static const char *const strings[] = {"error_code",    "error",       "started",
-                                              "finished",      "session_id",  "result_sha256",
-                                              "log_sha256",    "output_path", "output_sha256",
-                                              "manifest_path", "operation_id"};
+        static const char *const strings[] = {
+            "error_code",    "error",         "started",      "finished",
+            "session_id",    "result_sha256", "log_sha256",   "output_path",
+            "output_sha256", "manifest_path", "operation_id", "startup_error_code"};
         for (size_t s = 0; s < sizeof strings / sizeof strings[0]; s++) {
             const char *value = jm_str(item, strings[s]);
             buf_appendf(out, ",\"%s\":", strings[s]);
@@ -2560,6 +2561,7 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
         jm_set_null(doc, item, "exit_code");
         jm_set_null(doc, item, "error_code");
         jm_set_null(doc, item, "error");
+        jm_set_null(doc, item, "startup_error_code");
         jm_set_null(doc, item, "session_id");
         jm_set_null(doc, item, "result_sha256");
         jm_set_null(doc, item, "log_sha256");
@@ -3769,6 +3771,7 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
             jm_set_null(t.doc.get(), item, "exit_code");
             jm_set_null(t.doc.get(), item, "error_code");
             jm_set_null(t.doc.get(), item, "error");
+            jm_set_null(t.doc.get(), item, "startup_error_code");
         }
         rc = jobs_txn_commit(&t);
         free(owner_path);
@@ -4839,6 +4842,12 @@ static void worker_record_result(tny_ctx *ctx, yyjson_mut_doc *doc, job_slot *sl
     }
     jm_set_str(doc, item, "state", "failed");
     jm_set_str(doc, item, "error_code", TNY_JOBS_CODE_IO);
+    if (!slot->image && exit_code != 0) {
+        const char *diagnostic =
+            tny_team_startup_diagnostic_read(ctx, jm_str(yyjson_mut_doc_get_root(doc), "id"),
+                                             slot->index, (int)jm_int(item, "attempt", 0));
+        if (diagnostic) jm_set_str(doc, item, "startup_error_code", diagnostic);
+    }
     /* Only safe local categories: the child's stderr was discarded, and no
      * provider body or configuration ever enters this record. */
     if (WIFSIGNALED(slot->status))

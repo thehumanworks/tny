@@ -43,7 +43,7 @@ static int fault_flock(int fd, int op) {
     (void)readlink(proc, path, sizeof path - 1);
 #endif
     const char *mode = getenv("STARTUP_FAULT");
-    if (mode && strstr(path, "/state.lock") && (op & LOCK_EX)) {
+    if (mode && getenv("TNY_TEAM_RUN") && strstr(path, "/state.lock") && (op & LOCK_EX)) {
         seen++;
         if (!strcmp(mode, "busy") || (!strcmp(mode, "release") && seen <= 3)) {
             errno = EWOULDBLOCK;
@@ -190,6 +190,7 @@ int main(int argc, char **argv) {
             "version": 1,
             "kind": "job",
             "id": RUN,
+            "run_id": RUN,
             "dag": True,
             "state": "failed",
             "attempt": 1,
@@ -243,6 +244,29 @@ int main(int argc, char **argv) {
             timeout=5,
         )
         return result.returncode, result.stdout.decode().strip()
+
+    def test_real_supervisor_projects_only_the_safe_startup_category(self):
+        self.env = {k: v for k, v in self.env.items() if not k.startswith("TNY_TEAM_")}
+        loader = "DYLD_INSERT_LIBRARIES" if sys.platform == "darwin" else "LD_PRELOAD"
+        settings = self.home / ".tny" / "settings.json"
+        settings.write_text(
+            json.dumps({"jobs": {"ask_env": [loader, "STARTUP_FAULT"]}})
+        )
+        self.env[loader] = str(self.library)
+        self.env["STARTUP_FAULT"] = "busy"
+        request = {"kind": "ask", "dag": True, "items": [{"prompt": "never POST"}]}
+        run, launched = self.submit(
+            "ask", "--request", "-", stdin=json.dumps(request).encode()
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        result = self.await_terminal(launched["id"])
+        self.assertEqual(result["state"], "failed", result)
+        self.assertEqual(result["items"][0]["startup_error_code"], "MAILBOX_BUSY")
+        self.assertEqual(self.ask_requests(), [])
+        record = Path(result["metadata_path"]).read_text()
+        self.assertNotIn("Bearer", record)
+        self.assertNotIn(str(self.library), record)
+        self.assertNotIn(TOKEN, record)
 
     def test_reader_rejects_stale_malformed_and_symlink(self):
         self.assertEqual(self.ask("busy").returncode, 2)

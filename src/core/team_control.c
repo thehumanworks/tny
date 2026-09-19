@@ -62,8 +62,9 @@ static bool unique_keys(yyjson_val *value, unsigned depth) {
     yyjson_val *key, *child;
     if (yyjson_is_obj(value)) {
         yyjson_obj_foreach(value, i, max, key, child) {
-            if (strlen(yyjson_get_str(key)) != yyjson_get_len(key)) return false;
-            if (yyjson_obj_getn(value, yyjson_get_str(key), yyjson_get_len(key)) != child ||
+            const char *name = yyjson_get_str(key);
+            if (!name || strlen(name) != yyjson_get_len(key)) return false;
+            if (yyjson_obj_getn(value, name, yyjson_get_len(key)) != child ||
                 !unique_keys(child, depth + 1))
                 return false;
         }

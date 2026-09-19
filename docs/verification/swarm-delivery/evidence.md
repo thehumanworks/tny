@@ -310,3 +310,28 @@ Source hashes and exact command/exit files remain in the private QA evidence
 bundle. No native-only assertions are counted as wasm passes.
 
 PR #165 now has all hosted checks green. No merge, release or deployment was made.
+
+## External merges and startup diagnosis
+
+GitHub reports that another actor merged #165 into main and #166 into the SDK
+feature branch while verification continued. The agent did not perform those
+hosted merges. Their history is preserved; follow-up #167 targets main so native
+changes and later fixes have a current review surface. Newer upstream synchronous
+subagent selectors remain intact; combined ownership/mutation and chat/Responses
+subagent integration passed after reconciliation.
+
+Startup worker f87c470 is integrated as c6f25f7. Its deterministic real CLI tests
+force BUSY/release (one POST), BUSY exhaustion and persistence failures (no POST),
+authentication/refused writes, safe-category reads, and failed-run notification
+once across resume. Valid exit-2 DAG status is readable, not treated as missing.
+The supervisor now projects only the validated safe category after failed-child
+cleanup. Twelve focused startup tests, including an actual supervisor case, pass.
+This closes the diagnostic blind spot; it does not establish the cause of the
+prior intermittent Linux failures. No wait bound or assertion was weakened.
+
+The follow-up Linux quality lane passed all C++ analysis, then identified a
+nullable accessor result in team-control key validation. The validator now binds
+and checks the key string before length comparison. Scoped GCC14 C analysis for
+all new native swarm modules, GCC14 jobs/runner analysis and analyzer defect
+controls pass locally. `make quality` and twelve startup tests pass after the
+supervisor category projection. No analyzer warning was disabled.

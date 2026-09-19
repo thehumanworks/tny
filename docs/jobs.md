@@ -752,3 +752,14 @@ and supervisor loss, and a compiled root-wait fault. The Windows x64 CI job
 runs it against the release executable. `test_jobs_cleanup_hold.py` exercises
 post-owner-exit reservation, retry and removal refusal, malformed records and
 the allowed abandoned-owner reclaim paths.
+
+### Bounded startup diagnostics
+
+A native DAG child can record a private, write-once category for failure during
+initial engine startup. The supervisor reads it only after failed-child
+cleanup and exposes `items[].startup_error_code`. Categories are limited to
+`MAILBOX_BUSY`, `MAILBOX_IO`, `CONTEXT_PERSISTENCE`, and `PROVIDER_START`; no raw
+child stderr, provider body or credential is published. The run/task/attempt and
+private capability are validated. Absence or an unreadable sidecar is **unknown**,
+not proof of success or permission to replay external effects. Retry clears the
+current projection while retaining earlier attempt evidence.
