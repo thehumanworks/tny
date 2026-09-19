@@ -148,6 +148,8 @@ files in this directory are the complete record.
 - [0150 — Agent-first harness and measured footprint](0150-agent-first-harness-and-measured-footprint.md)
 - [0151 — Actionable exact-edit failures](0151-actionable-exact-edit-failures.md)
 
+- [0155 — Optional local branch cleanup after worktree removal](0155-optional-worktree-branch-cleanup.md)
+
 ## Current provider scope
 
 [ADR 0152](0152-native-http-only-providers.md) supersedes external ACP/Cursor

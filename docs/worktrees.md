@@ -67,7 +67,7 @@ and `resume last` remain checkout-local. No GitHub remote or network is required
 After stopping the session, tny asks:
 
 ```text
-On exit: [m]erge, [r]emove directory (keep branch), [K]eep (default):
+On exit: [m]erge, [r]emove directory, [K]eep (default):
 ```
 
 - **Keep:** Enter, `k`, `n`, Esc, Ctrl-C/D, EOF, or any other answer keeps
@@ -81,10 +81,19 @@ On exit: [m]erge, [r]emove directory (keep branch), [K]eep (default):
   conflict for manual resolution or `git merge --abort`; the worktree remains.
   A moved, detached or switched original checkout is never guessed or reset.
   Ignored files in the original checkout are not overwritten by a merge.
-- **Remove:** run non-force `git worktree remove`, preserving the branch
-  and its commits. Tracked changes, untracked or ignored files, Git locks,
-  unfinished operations, or a changed worktree branch prevent removal.
-  A failed requested action keeps the worktree and exits nonzero.
+- **Remove:** run non-force `git worktree remove`. Tracked changes, untracked
+  or ignored files, Git locks, unfinished operations, or a changed worktree
+  branch prevent removal. A failed removal keeps the worktree and exits nonzero.
+  After successful removal, ask `Also delete the local branch? [y/N]`.
+  Only `y` or `Y` requests deletion; all other answers keep the branch.
+  Deletion first uses Git's safe `branch -d` check against its upstream or HEAD.
+  If Git refuses, show its error and offer a separate force-delete confirmation,
+  defaulting to no. Force deletion can discard unmerged commits. A PR is not
+  proof of a merge; squash merges may require this override even after merging.
+  Git still refuses a branch checked out elsewhere. If requested force deletion
+  fails, exit nonzero and report that the directory is removed but the branch
+  remains. Remote branches are never deleted. To return to a retained branch,
+  run `tny --worktree NAME` from the repository; its commits are not reset.
 
 `--ephemeral` still creates a persistent Git worktree when explicitly
 combined with `--worktree`; it only disables conversation artifacts.

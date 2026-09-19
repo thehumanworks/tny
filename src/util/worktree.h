@@ -15,5 +15,7 @@ bool worktree_name_valid(const char *name);
 tny_worktree *worktree_enter(const char *cwd, const char *name, char *err, size_t errlen);
 int worktree_merge(tny_worktree *w, char *err, size_t errlen);
 int worktree_remove(tny_worktree *w, char *err, size_t errlen);
+/* Call only after removal. Never deletes a remote branch. */
+int worktree_delete_branch(tny_worktree *w, bool force, char *err, size_t errlen);
 void worktree_close(tny_worktree *w);
 #endif

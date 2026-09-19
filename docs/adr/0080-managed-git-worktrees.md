@@ -1,5 +1,8 @@
 # ADR 0080 — Managed Git worktrees
 
+Branch retention on removal is extended by [ADR 0155](0155-optional-worktree-branch-cleanup.md):
+keep remains the default, with explicit optional local branch deletion.
+
 Status: accepted, 2026-09-08.
 
 ## Context
