@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
 import stat
 import subprocess
 import sys
@@ -475,6 +476,76 @@ class ImprovementTests(unittest.TestCase):
         started = time.monotonic()
         self.failed()
         self.assertLess(time.monotonic() - started, 3)
+
+    def cleanup_program(self):
+        path = self.root / "cleanup.py"
+        path.write_text(
+            "import signal,time,sys\nfrom pathlib import Path\n"
+            "def stop(*args):\n"
+            " Path('cleanup-started').touch()\n time.sleep(0.4)\n"
+            " Path('cleanup-done').touch()\n sys.exit(0)\n"
+            "signal.signal(signal.SIGTERM,stop)\nprint('ready',flush=True)\ntime.sleep(10)\n"
+        )
+        return path
+
+    def test_wrapper_exit_does_not_skip_descendant_cleanup_grace(self):
+        helper = self.cleanup_program()
+        self.spec["timeout_s"] = 0.2
+        self.spec["evaluator"] = [
+            sys.executable,
+            "-c",
+            "import subprocess,sys,time;subprocess.Popen([sys.executable,sys.argv[1]]);time.sleep(10)",
+            str(helper),
+        ]
+        self.failed()
+        self.assertTrue((self.root / "cleanup-done").exists())
+        self.assertTrue((self.out / "baseline.train.0000.command.json").is_file())
+
+    def test_first_interrupt_during_timeout_cleanup_preserves_evidence(self):
+        for requested_signal in (signal.SIGINT, signal.SIGTERM):
+            with self.subTest(signal=requested_signal):
+                self.out = self.root / f"run-signal-{requested_signal}"
+                for name in ("cleanup-started", "cleanup-done"):
+                    (self.root / name).unlink(missing_ok=True)
+                helper = self.cleanup_program()
+                self.spec["timeout_s"] = 0.2
+                self.spec["evaluator"] = [sys.executable, str(helper)]
+                self.save()
+                child = subprocess.Popen(
+                    [
+                        sys.executable,
+                        str(ROOT / "python/tny_improve.py"),
+                        "run",
+                        "--spec",
+                        str(self.spec_path),
+                        "--out",
+                        str(self.out),
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=True,
+                )
+                try:
+                    deadline = time.monotonic() + 5
+                    while (
+                        not (self.root / "cleanup-started").exists()
+                        and time.monotonic() < deadline
+                    ):
+                        time.sleep(0.01)
+                    self.assertTrue((self.root / "cleanup-started").exists())
+                    child.send_signal(requested_signal)
+                    output, errors = child.communicate(timeout=5)
+                    self.assertNotEqual(child.returncode, 0, (output, errors))
+                    self.assertTrue((self.root / "cleanup-done").exists())
+                    self.assertTrue(
+                        (self.out / "baseline.train.0000.command.json").is_file()
+                    )
+                finally:
+                    if child.returncode is None:
+                        child.send_signal(signal.SIGINT)
+                        child.communicate(timeout=25)
+                    child.stdout.close()
+                    child.stderr.close()
 
     def test_atomic_replace_failure_preserves_target_and_cleans_temporary(self):
         self.run_search()

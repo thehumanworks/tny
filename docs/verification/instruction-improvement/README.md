@@ -93,7 +93,7 @@ The benchmark checks that its source and controller do not change during a run.
 
 | Check | Result |
 | --- | --- |
-| Controller integration | 23 tests passed |
+| Controller integration | 25 tests passed, including first-interrupt-during-cleanup and wrapper-descendant grace checks |
 | Native proposal adapter | 9 tests passed, including real runner cancellation for SIGINT and SIGTERM |
 | Benchmark integration | 12 tests passed, including fresh-run reproducibility and archive hashes |
 | Targeted mutation campaign | Pristine control passed; 6/6 mutations killed |
@@ -101,7 +101,7 @@ The benchmark checks that its source and controller do not change during a run.
 | Python compatibility | Both shipped modules pass Python 3.9 syntax parsing |
 | `make quality` | Passed with pinned mise tools; GCC analyzer explicitly skipped on Darwin |
 | `make leaks` | Passed: native macOS leak gate reports zero leaks |
-| `make test` | Initial aggregate still in progress at this checkpoint. Three new-test failures were fixed and rerun successfully; this row is not a full-suite pass. |
+| `make test` | Initial aggregate completed with three new-test failures. All were fixed and rerun successfully; a fresh final aggregate is in progress. This row is not a full-suite pass. |
 
 The first quality attempt found a pre-existing formatting error in
 `tests/fixtures/checkpoint_ownership.c`; the change includes that formatting-only
@@ -114,6 +114,11 @@ The stripped macOS arm64 Release binary measures **1,087,584 bytes**. Its linked
 runtime dependencies are `/usr/lib/libc++.1.dylib` and
 `/usr/lib/libSystem.B.dylib`. This is an artifact measurement, not a size or
 latency improvement claim. Python is an external, optional workflow dependency.
+
+CI also found an existing wasm compile failure: the native `on_path` helper in
+`cmd_doctor.c` became unused after provider removal. It now shares its caller's
+wasm exclusion. A host compiler regression check exercises that branch with
+`-Werror`; the actual wasm CI rerun remains the end-to-end check.
 
 Nix and wasm execution were not run on this host. The workflow is native-local;
 its source/packaging filters use existing dependencies. Python runs only when

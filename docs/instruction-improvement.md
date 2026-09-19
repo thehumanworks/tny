@@ -94,7 +94,11 @@ stdout and stderr are each bounded to 1 MiB. Task bodies are nonempty UTF-8,
 NUL-free, at most 64 KiB, without frontmatter. The round limit is 1–20; each
 command's timeout must be positive and at most 3600 seconds. Failure or interrupt
 allows up to 20 seconds for graceful cancellation before a forced process-group
-stop. Commands receive `TNY_IMPROVE_TIMEOUT_S` with their configured deadline.
+stop, then up to 5 seconds to collect terminal output. Cleanup observes inherited
+pipe closure, not just the wrapper's exit, and defers interrupts until command
+evidence is written. Commands receive `TNY_IMPROVE_TIMEOUT_S` with their configured
+deadline. Trusted wrappers must retain inherited output pipes during cleanup;
+independently detached/redirected descendants need their own cancellation logic.
 
 The proposer receives only:
 

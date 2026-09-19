@@ -236,25 +236,48 @@ def gate(parent: dict, candidate: dict) -> tuple:
     return False, "no strict train improvement"
 
 
-def _stop(process: subprocess.Popen) -> str:
-    # Give trusted adapters time to cancel their detached native sessions.
-    # Then kill remaining group members, including pipe-holding descendants.
-    errors = []
+def _drain(
+    process: subprocess.Popen, output: bytearray, errors: bytearray, seconds: float
+) -> None:
+    """Observe pipe EOF, not just leader exit, while descendants clean up."""
+    deadline = time.monotonic() + seconds
+    with selectors.DefaultSelector() as selector:
+        for stream, buffer in ((process.stdout, output), (process.stderr, errors)):
+            if not stream.closed:
+                selector.register(stream, selectors.EVENT_READ, buffer)
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            for key, _ in selector.select(remaining):
+                chunk = os.read(key.fileobj.fileno(), 65536)
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                else:
+                    key.data.extend(chunk[: MAX_JSON - len(key.data)])
+
+
+def _stop(process: subprocess.Popen, output: bytearray, errors: bytearray) -> str:
+    # Descendants of a wrapper retain these pipes to publish cancellation
+    # receipts. A reaped leader alone does not end their TERM grace period.
+    warnings = []
     for sig, grace in ((signal.SIGTERM, 20), (signal.SIGKILL, 5)):
+        started = time.monotonic()
         try:
             os.killpg(process.pid, sig)
         except ProcessLookupError:
             pass
         except OSError as exc:
-            # Some kernels reject signals to an orphaned/zombie-only group.
-            # Preserve that uncertainty without skipping pipe/evidence cleanup.
-            errors.append(str(exc))
+            warnings.append(str(exc))
         try:
-            process.wait(timeout=grace)
+            _drain(process, output, errors, grace)
+            process.wait(timeout=max(0, grace - (time.monotonic() - started)))
         except subprocess.TimeoutExpired:
             if sig == signal.SIGKILL:
-                errors.append("child exit unverified after cancellation")
-    return "; ".join(errors)
+                warnings.append("child exit unverified after cancellation")
+        except OSError as exc:
+            warnings.append(str(exc))
+    return "; ".join(warnings)
 
 
 class _Evidence:
@@ -328,25 +351,27 @@ class _Evidence:
             error = str(exc) or type(exc).__name__
             raise
         finally:
-            if process is not None:
-                if error is not None:
-                    cleanup_error = _stop(process)
-                    if cleanup_error:
-                        error += "; cleanup: " + cleanup_error
-                    # Graceful adapter cleanup can publish cancellation receipts
-                    # after the original observation stopped. Keep those too.
+            # A FIRST interrupt can arrive after a timeout already entered
+            # cleanup. Block it until child cleanup AND evidence writes finish.
+            previous_mask = signal.pthread_sigmask(
+                signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM}
+            )
+            try:
+                if process is not None:
                     try:
-                        tail_out, tail_err = process.communicate(timeout=2)
-                        output.extend(tail_out[: MAX_JSON - len(output)])
-                        errors.extend(tail_err[: MAX_JSON - len(errors)])
-                    except subprocess.TimeoutExpired:
-                        pass
-                code = process.returncode
-                process.stdout.close()
-                process.stderr.close()
-            self.put(names[0], bytes(output))
-            self.put(names[1], bytes(errors))
-            self.put(names[2], _dump(dict(command, returncode=code, error=error)))
+                        if error is not None:
+                            cleanup_error = _stop(process, output, errors)
+                            if cleanup_error:
+                                error += "; cleanup: " + cleanup_error
+                        code = process.returncode
+                    finally:
+                        process.stdout.close()
+                        process.stderr.close()
+                self.put(names[0], bytes(output))
+                self.put(names[1], bytes(errors))
+                self.put(names[2], _dump(dict(command, returncode=code, error=error)))
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
         return _load(bytes(output))
 
 
