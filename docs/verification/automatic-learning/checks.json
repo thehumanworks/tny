@@ -1,0 +1,68 @@
+{
+  "code_revision": "2d917ea12994a9a4d9b594e8ac1708e2d05d1204",
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "source_sha256": {
+    "src/core/learning.c": "f18fb0af3bc6631dcf268ea3b4c2fcb767541b6bc7ce1aa451e218b8de450122",
+    "src/core/learning.h": "05d7c0d081419072ad30dc2a1d1413c6fa6aa4add334f9b7368b64d69a08845c",
+    "src/util/learning_store.c": "f3401b84c2d9b91f8b7f9fe34a622416e495f97aa873252e00e218b0bb6f34eb",
+    "src/util/learning_store.h": "fc00cd6e25728a7f5e4c70a1ffa107667a01a7a35675972f43488cc2dc28c669",
+    "src/backends/openai/openai.c": "05886db53a9c2278414e87e13e4b4007c879cbc58cc1cf6866e4855ec8aa80f1",
+    "src/core/tools.c": "0094834a9d21e2c9fa425c54dce6cc2da2ffea7ab0389b815d2110842fde96ee",
+    "src/core/tools_fs.c": "2c8e6d27ba16518c0f5d0cac2ecfa0133d3c5754bbf5f50cfdea67954fc98fed",
+    "src/core/tools_shell.c": "47a0d52d7e8ff80c90d455cf5443984e25c9937d25666e352ec96f52dd026175",
+    "src/core/intercept.c": "34d625b9e67529d3ef19cc9330bd25761169c4ed1793599f67074cd5c8ee0a1b",
+    "src/core/config.c": "395f1353def9a42a0c2f4999c68dbdd048694e43d1db5933cdcf1bc9bdce8b1e",
+    "src/core/config.h": "ee8aee1d1a67ba7faffb6a4114d61bb4a38dd5e535ff9629bccd6cc2c2cffaa3",
+    "src/core/checkpoint.cpp": "e5be1d76f2ee59ceced3abe74bae7bd695ca10b00d79bb245f763a04f35d76ec",
+    "src/core/subagent_plan.cpp": "04626130197aeeea3f3aaa489978694b1402b1108c0472122a60783f4a4f86ca",
+    "src/core/jobs.cpp": "907f24d645c986f0a688005718ab3a97e4346bbec8f47a1eed6d55d85a72fba6",
+    "tests/test_learning.c": "64035c73f19aa1b224c963de0100b0e11996535c1735865da7f0f6e678e06ddb",
+    "tests/integration/test_default_learning.py": "9182cd78566d80023131cff192d628e251b8463812d7538dec5e1c3f411f4cdb",
+    "tests/bench/bench_default_learning.py": "9a9638ce98fa0e7b93c5b1b0df7915805ae48dadecb02315cebb1d8f63e75051",
+    "tests/mutation/default_learning.py": "a9205e145bc90f3085a34177cbb49064f7baac5964c4cdb2b9acd37cc93d1d2e",
+    "Makefile": "509200e5bd3cba54c8592d8b88f6cd885d30de24b433a893e1fa53b61fb523b8"
+  },
+  "checks": [
+    {
+      "command": "mise exec -- make -j8 test",
+      "exit_code": 0,
+      "log_sha256": "d0b234ba49008b400c9402f025f8da9c12521080ef3e5167b2411f986fc62ae2"
+    },
+    {
+      "command": "mise exec -- make -j8 quality",
+      "exit_code": 0,
+      "log_sha256": "815c564160b587db71e0a512b26a095f38ee2e69532e7ab8f7c7b035290586fd"
+    },
+    {
+      "command": "mise exec -- make -j8 leaks",
+      "exit_code": 0,
+      "log_sha256": "1a4596e3ddf4642acc2ea9104709a6d8e100d869ae75b9c65d2a3327b204a275"
+    },
+    {
+      "command": "mise exec -- make -j8 test-checkpoint-ownership test-subagent-ownership",
+      "exit_code": 0,
+      "log_sha256": "053b9dfbaaeb0896d7d534b4c230a4cb8316d4cd09fc174e630df76d5e842512"
+    }
+  ],
+  "native_learning_tests": {
+    "tests": 12,
+    "assertions": 157
+  },
+  "integration_tests": 7,
+  "mutants_killed": 10,
+  "binary": {
+    "bytes": 1104176,
+    "sha256": "62c1940e8c4028d1ca155a8c9c5baff9050d71435add81560e5cb0ffdf8f0880",
+    "dependencies": [
+      "/usr/lib/libc++.1.dylib",
+      "/usr/lib/libSystem.B.dylib"
+    ]
+  },
+  "ci_code_run": "https://github.com/thehumanworks/tny/actions/runs/35463358984",
+  "limits": [
+    "Local deterministic mock-model replay; no live-model/general coding gain claim",
+    "GCC analyzer skipped locally on Darwin; Linux CI quality passed",
+    "Nix not available locally",
+    "SSH operations not classified; ephemeral/lib/wasm current-turn memory only"
+  ]
+}

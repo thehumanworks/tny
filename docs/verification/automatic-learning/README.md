@@ -89,15 +89,20 @@ isolated source copies and never alter the working tree.
 | Check | Result |
 | --- | --- |
 | Default CLI/TUI integration | 7 tests passed, with both wires and all three tool profiles |
-| Native learner unit/process tests | Passed, including deferred flush and provenance checks |
+| Native learner unit/process tests | 12 tests and 157 assertions passed, including deferred flush and provenance checks |
 | Targeted mutations | Pristine passed; 10/10 killed |
 | Checkpoint and subagent ownership/fault gates | Passed; opt-out is retained |
 | `make quality` | Passed; GCC analyzer explicitly skipped on Darwin |
-| Final `make test` / `make leaks` | Running at this checkpoint; not claimed complete |
+| Final `make test` | Passed, exit 0, including all 81 integration entries |
+| `make leaks` | Passed, exit 0; zero leaks in the native macOS gate |
+| CI on code revision `2d917ea` | Quality, Valgrind, wasm, Darwin/ARM unit/ownership and most SDK lanes passed; full Linux and remaining SDK jobs were still running when recorded |
 
 The first aggregate observed a transient const-qualification compile error while
 the rejection wrapper was being added. The signature is corrected, focused
-checks pass, and the final aggregate runs against the corrected sources.
+checks pass, and the final aggregate passed against the corrected sources.
+[`checks.json`](checks.json) records the code revision, input hashes, exit codes,
+full-log hashes and measured binary. CI links identify the tested code revision;
+later documentation-only commits do not change those inputs.
 
 The stripped macOS arm64 binary measures **1,104,176 bytes**, up 16,592 bytes from
 the pre-change 1,087,584-byte binary. Dependencies remain `libc++.1.dylib` and
