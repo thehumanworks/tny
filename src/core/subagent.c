@@ -360,6 +360,8 @@ static char *sa_outcome(tools_env *env, sa_action action, const char *resume_id,
 
 char *tny_subagent_run(tools_env *env, const char *action, const char *resume_id,
                        char *const argv[], char *const envp[], const char *prompt) {
+    if (env && env->ctx && env->ctx->swarm_cap)
+        return tool_err("SWARM_ADMISSION: use parent-owned team tasks, not isolated subagents");
     const char *enrolled = getenv("TNY_ADMISSION_ENROLLED");
     if (enrolled && strcmp(enrolled, "1") == 0)
         return tool_err("SUBAGENT_ADMISSION_NESTED: nested subagent execution from an enrolled "

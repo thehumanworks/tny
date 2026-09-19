@@ -14,6 +14,7 @@
 #include "core/intercept.h"
 #include "core/learning.h"
 #include "core/tasks.h"
+#include "core/swarm.h"
 #include "core/skills.h"
 #include "mcp/mcp.h"
 #include "lib/custom_tools.h"
@@ -680,6 +681,7 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
     if (provider_oom()) return;
     tny_learning_collect(&o->learning, sys);
     if (provider_oom()) return;
+    tny_swarm_policy(o->ctx, sys);
     if (o->ctx->task_instructions && *o->ctx->task_instructions) {
         buf_appends(sys, "\n");
         if (!provider_oom()) tny_task_collect(o->ctx, sys);

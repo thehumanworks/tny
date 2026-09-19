@@ -4,6 +4,7 @@
 #include "core/extensions.h"
 #include "core/ssh.h"
 #include "core/tasks.h"
+#include "core/swarm.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -14,6 +15,13 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     tny_ctx *ctx = tny_ctx_load(g->cwd);
     if (!ctx) return NULL;
 
+    ctx->swarm_cap = g->swarm_cap;
+    ctx->swarm_explicit = g->swarm_cap != 0;
+    if (g->swarm_cap && (g->ephemeral || g->ssh || !tny_swarm_supported(ctx))) {
+        fputs("tny: swarm requires a saved native local lead session\n", stderr);
+        tny_ctx_free(ctx);
+        return NULL;
+    }
     if (g->model) {
         free(ctx->model);
         ctx->model = xstrdup(g->model);

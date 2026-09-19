@@ -3952,8 +3952,50 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
         return 2;
     }
     switch (op) {
-    case TNY_JOBS_OP_SUBMIT:
-        return jobs_submit(ctx, args, out, err, errlen, cancelled, cancel_ud, parent_session);
+    case TNY_JOBS_OP_SUBMIT: {
+        if (!ctx->swarm_cap)
+            return jobs_submit(ctx, args, out, err, errlen, cancelled, cancel_ud, parent_session);
+        int cap = ctx->swarm_cap < 0 ? 16 : ctx->swarm_cap;
+        yyjson_val *items = jget(args, "items");
+        if (!parent_session || strlen(parent_session) != 16 || ctx->no_save ||
+            !jget_bool(args, "dag", false) || (!jget_str(args, "kind") || strcmp(jget_str(args, "kind"), "ask") != 0) ||
+            !yyjson_is_arr(items) || yyjson_arr_size(items) < 1 ||
+            yyjson_arr_size(items) > (size_t)cap || jget(args, "admission")) {
+            safe_err(err, errlen, "swarm requires parent-owned worker DAG tasks within the collaborator cap; admission is runtime-owned");
+            return 1;
+        }
+        size_t i, n;
+        yyjson_val *item;
+        yyjson_arr_foreach(items, i, n, item) {
+            if ((!jget_str(item, "role") || strcmp(jget_str(item, "role"), "worker") != 0)) {
+                safe_err(err, errlen, "swarm collaborators must be workers; the current session is the lead");
+                return 1;
+            }
+        }
+        yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+        yyjson_mut_val *r = d ? yyjson_val_mut_copy(d, args) : nullptr;
+        yyjson_mut_val *admission = d ? yyjson_mut_obj(d) : nullptr;
+        char label[64];
+        snprintf(label, sizeof label, "swarm_%s", parent_session);
+        bool ok = r && admission &&
+            yyjson_mut_obj_add_strcpy(d, admission, "label", label) &&
+            yyjson_mut_obj_add_strcpy(d, admission, "provider_scope", "swarm") &&
+            yyjson_mut_obj_add_int(d, admission, "cap", cap) &&
+            yyjson_mut_obj_add_int(d, admission, "queue_cap", 128) &&
+            yyjson_mut_obj_add_int(d, admission, "claim_limit", 1024) &&
+            yyjson_mut_obj_add_val(d, r, "admission", admission) &&
+            yyjson_mut_obj_put(r, yyjson_mut_str(d, "peer_messages"), yyjson_mut_bool(d, true));
+        if (r) yyjson_mut_doc_set_root(d, r);
+        char *json = ok ? jwrite(d) : nullptr;
+        yyjson_doc *request = json ? jparse(json, strlen(json)) : nullptr;
+        int result = request ? jobs_submit(ctx, yyjson_doc_get_root(request), out, err, errlen,
+                                          cancelled, cancel_ud, parent_session) : 1;
+        if (!request) safe_err(err, errlen, "swarm request allocation failed");
+        yyjson_doc_free(request);
+        free(json);
+        yyjson_mut_doc_free(d);
+        return result;
+    }
     case TNY_JOBS_OP_STATUS: return jobs_status(ctx, args, out, err, errlen);
     case TNY_JOBS_OP_WAIT: return jobs_wait(ctx, args, out, err, errlen, cancelled, cancel_ud);
     case TNY_JOBS_OP_CANCEL: return jobs_cancel(ctx, args, out, err, errlen);

@@ -85,6 +85,7 @@ constexpr bool_field bools[] = {
     {"service_tier_explicit", &tny_ctx::service_tier_explicit},
     {"service_tier_from_settings", &tny_ctx::service_tier_from_settings},
     {"task_explicit", &tny_ctx::task_explicit},
+    {"swarm_explicit", &tny_ctx::swarm_explicit},
     {"effort_explicit", &tny_ctx::effort_explicit},
     {"effort_from_settings", &tny_ctx::effort_from_settings},
     {"context_enabled", &tny_ctx::context_enabled},
@@ -201,6 +202,7 @@ yyjson_mut_val *encode(yyjson_mut_doc *d, const tny_ctx *c, bool public_only) {
     check(yyjson_mut_obj_add_int(d, r, "backend", c->backend));
     check(yyjson_mut_obj_add_int(d, r, "max_extension_iterations", c->max_extension_iterations));
     check(yyjson_mut_obj_add_int(d, r, "extension_timeout_ms", c->extension_timeout_ms));
+    check(yyjson_mut_obj_add_int(d, r, "swarm_cap", c->swarm_cap));
     check(yyjson_mut_obj_add_int(d, r, "max_steps", c->max_steps));
     check(yyjson_mut_obj_add_int(d, r, "perm_mode", c->perm_mode));
     check(yyjson_mut_obj_add_int(d, r, "tool_profile", c->tool_profile));
@@ -271,6 +273,8 @@ context restore(yyjson_val *r) {
     check(c->backend >= unresolved_backend && c->backend < TNY_BK_COUNT);
     restore_number(c->max_extension_iterations, jget(r, "max_extension_iterations"));
     restore_number(c->extension_timeout_ms, jget(r, "extension_timeout_ms"));
+    restore_number(c->swarm_cap, jget(r, "swarm_cap"));
+    check(c->swarm_cap >= -1 && c->swarm_cap <= 16);
     restore_number(c->max_steps, jget(r, "max_steps"));
     restore_enum(c->perm_mode, jget(r, "perm_mode"), TNY_MODE_ASK, TNY_MODE_YOLO);
     restore_enum(c->tool_profile, jget(r, "tool_profile"), TNY_TOOLS_ALL, TNY_TOOLS_TERMINAL);
@@ -337,6 +341,7 @@ bool public_key(const char *name) {
         "max_extension_iterations",
         "extension_timeout_ms",
         "max_steps",
+        "swarm_cap",
         "perm_mode",
         "tool_profile",
         "image_input",

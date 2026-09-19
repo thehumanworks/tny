@@ -80,7 +80,7 @@ static bool team_shape(yyjson_val *root, bool request) {
     yyjson_val *items = jget(root, "items");
     if (!jget_bool(root, "dag", false) ||
         !same(jget_str(root, request ? "kind" : "job_kind"), "ask") || !yyjson_is_arr(items) ||
-        yyjson_arr_size(items) < 2 || yyjson_arr_size(items) > TNY_JOBS_MAX_ITEMS)
+        yyjson_arr_size(items) < 1 || yyjson_arr_size(items) > TNY_JOBS_MAX_ITEMS)
         return false;
     int leads = 0, workers = 0;
     size_t i, max;
@@ -90,7 +90,7 @@ static bool team_shape(yyjson_val *root, bool request) {
         else if (same(jget_str(item, "role"), "worker")) ++workers;
         else return false;
     }
-    return workers >= 2 &&
+    return workers >= 1 &&
            (leads == 1 ||
             (leads == 0 && (request || session_id_valid(jget_str(root, "parent_session_id")))));
 }

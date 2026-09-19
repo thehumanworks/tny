@@ -9,6 +9,7 @@
 #include "cli/cli.h"
 #include "core/ssh.h"
 #include "core/tasks.h"
+#include "core/swarm.h"
 #include "mcp/mcp.h"
 
 #include <ctype.h>
@@ -38,6 +39,7 @@ static const struct {
     {"provider", "/provider [NAME]"}, /* hint built from cmd_hint() */
     {"fast", "/fast [fast|priority|default] — provider speed tier"},
     {"effort", "/effort [" TNY_EFFORT_LEVELS "|default]"},
+    {"swarm", "/swarm [N] — collective mode; optional collaborator cap 1..16"},
     {"task", "/task [NAME|clear] — select a session task preset"},
     {"max-steps", "/max-steps [set N|clear] — cap the agent loop per turn"},
     {"status", "provider, auth, workspace, subscription usage"},
@@ -782,6 +784,30 @@ void tui_command(tui *t, const char *line) {
                 tui_linef(t, "  reasoning effort: %s%s (next turn on)", arg,
                           tny_effort_canonical(arg) ? ""
                                                     : " (provider-advertised value, unverified)");
+        }
+        t->dirty = true;
+    } else if (strcmp(c, "swarm") == 0) {
+        int cap = arg && *arg ? tny_swarm_count(arg) : -1;
+        if (!cap) tui_err(t, "swarm count must be a positive integer 1..16");
+        else if (t->turn_active || !tny_swarm_supported(t->ctx))
+            tui_err(t, "swarm requires an idle saved native local lead session");
+        else if (t->ctx->swarm_cap && t->ctx->swarm_cap != cap)
+            tui_err(t, "swarm cap is fixed once enabled; start /new for a different cap");
+        else {
+            int old = t->ctx->swarm_cap;
+            bool explicit_old = t->ctx->swarm_explicit;
+            tui_prewarm_drop(t);
+            t->ctx->swarm_cap = cap;
+            t->ctx->swarm_explicit = true;
+            if (t->session && (tny_swarm_bind(t->session) || session_save(t->session))) {
+                t->ctx->swarm_cap = old;
+                t->ctx->swarm_explicit = explicit_old;
+                (void)tny_swarm_bind(t->session);
+                tui_err(t, "could not persist swarm selection");
+            } else {
+                drop_backend(t);
+                tui_sys(t, cap < 0 ? "collective swarm selected; lead chooses count" : "collective swarm selected with collaborator cap");
+            }
         }
         t->dirty = true;
     } else if (strcmp(c, "task") == 0) {

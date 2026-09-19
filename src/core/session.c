@@ -1,4 +1,5 @@
 #include "core/session.h"
+#include "core/swarm.h"
 #include "core/tasks.h"
 #include "util/util.h"
 #include "util/process.h"
@@ -172,6 +173,7 @@ void session_task_clear(tny_session_state *s) {
 
 int session_task_reconcile(tny_session_state *s, char *err, size_t errsz) {
     if (!s || !s->ctx) return -1;
+    if (tny_swarm_restore(s, err, errsz) != 0) return -1;
     yyjson_mut_val *task = yyjson_mut_obj_get(root_of(s), "task");
     if (!task) {
         if (s->ctx->task_explicit && session_turns(s) > 0) {
@@ -286,6 +288,7 @@ tny_session_state *session_new(tny_ctx *ctx) {
         session_close(s);
         return NULL;
     }
+    if (tny_swarm_bind(s) != 0) { session_close(s); return NULL; }
     bool has_task_state = ctx->task_name || ctx->task_source || ctx->task_instructions ||
                           ctx->task_digest[0] || ctx->task_explicit;
     if (has_task_state && session_task_bind_current(s) != 0) {

@@ -1,6 +1,7 @@
 /* Pure leading-argument grammar shared by the CLI and tool interception.
  * No settings, provider resolution, workspace creation or execution here. */
 #include "cli/cli.h"
+#include "core/swarm.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -69,6 +70,12 @@ static int parse_globals(int argc, char **argv, cli_globals *g, bool diagnostics
         } else if (strcmp(a, "--system-prompt") == 0) {
             if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
             g->system_prompt = v;
+        } else if (strcmp(a, "--swarm") == 0 || str_starts(a, "--swarm=")) {
+            g->swarm_cap = tny_swarm_option(argc, argv, &i);
+            if (!g->swarm_cap) {
+                if (diagnostics) fputs("tny: --swarm count must be 1..16\n", stderr);
+                return -1;
+            }
         } else if (strcmp(a, "--task") == 0) {
             if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
             g->task = v;
