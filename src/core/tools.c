@@ -6,6 +6,9 @@
 #include "core/image_service.h"
 #include "core/tools_image.h"
 #include "core/tools_jobs.h"
+#include "core/tools_workspace.h"
+#include "core/tools_team.h"
+#include "core/team_runtime.h"
 #include "core/intercept.h"
 #include "core/subagent.h"
 #include "lib/custom_tools.h"
@@ -194,15 +197,78 @@ static const char *SCHEMA_JSON =
     "inherit parent effort for the same provider, or use the selected provider's default for "
     "a different provider. Selectors must be nonempty UTF-8 without embedded NUL bytes; "
     "inspect/lifecycle accept none.\"}},\"required\":[\"action\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"job_workspace_inspect\",\"description\":"
+    "\"Inspect "
+    "a finished isolated task's owned workspace and bounded patch provenance; not acceptance.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{\"run\":{\"type\":\"string\"},"
+    "\"task\":{\"type\":\"integer\"},\"attempt\":{\"type\":\"integer\"}},\"required\":[\"run\","
+    "\"task\",\"attempt\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"job_workspace_integrate\",\"description\":"
+    "\"Explicitly "
+    "integrate a finished isolated task's committed result into its launch branch. Preserve "
+    "conflicts and require separate verification. Never call based only on worker prose.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{\"run\":{\"type\":\"string\"},"
+    "\"task\":{\"type\":\"integer\"},\"attempt\":{\"type\":\"integer\"}},\"required\":[\"run\","
+    "\"task\",\"attempt\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"job_workspace_cleanup\",\"description\":"
+    "\"Explicitly "
+    "remove only a clean proven-owned finished task workspace. Dirty/foreign trees survive.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{\"run\":{\"type\":\"string\"},"
+    "\"task\":{\"type\":\"integer\"},\"attempt\":{\"type\":\"integer\"}},\"required\":[\"run\","
+    "\"task\",\"attempt\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"team_control\",\"description\":\"Explicit "
+    "async "
+    "team controls over jobs. request is the same JSON as tny team --request: start needs "
+    "kind:ask, dag:true and at least two worker items (this captured parent is the lead); "
+    "an optional lead item is descriptive. status needs id; "
+    "collect needs id/item and optional max_bytes; wait-any accepts seen item/attempt pairs "
+    "and timeout_ms (max 30000); cancel requires expected_attempt. verify currently refuses "
+    "execution and reports unverified, never accepted work. No request-supplied caller identity.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\","
+    "\"enum\":[\"start\",\"status\",\"collect\",\"wait-any\",\"cancel\",\"verify\"]},"
+    "\"request\":{\"type\":\"object\"}},\"required\":[\"action\",\"request\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"team_mailbox\",\"description\":\"Send durable "
+    "untrusted collaboration context without interrupting a task; inbox/read/ack address only "
+    "your own membership. Messages replay until explicit acknowledgment. No sender override.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\","
+    "\"enum\":[\"send\",\"inbox\",\"read\",\"ack\",\"retire\"]},\"before_attempt\":{\"type\":"
+    "\"integer\","
+    "\"minimum\":1},\"run\":{\"type\":\"string\","
+    "\"pattern\":\"^[0-9a-f]{32}$\"},\"to\":{\"type\":\"integer\",\"minimum\":-1,\"maximum\":63,"
+    "\"description\":\"Recipient task index, or -1 for the submitting parent lead.\"},"
+    "\"id\":{\"type\":\"string\",\"maxLength\":64},\"text\":{\"type\":\"string\",\"maxLength\":"
+    "16384}},"
+    "\"required\":[\"action\",\"run\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"job_submit\",\"description\":\"Submit durable "
     "ask or image work that keeps running after this turn. One item, or a bounded batch of 1-64 "
     "items of the same kind with concurrency 1-16. Returns the job id, its metadata path and the "
     "per-item log paths immediately; read it back with "
     "job_status.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":"
-    "\"string\",\"enum\":[\"ask\",\"image\"]},\"concurrency\":{\"type\":\"integer\",\"description\""
+    "\"string\",\"enum\":[\"ask\",\"image\"]},\"dag\":{\"type\":\"boolean\"},"
+    "\"peer_messages\":{\"type\":\"boolean\"},\"budget\":{\"type\":\"object\",\"properties\":{"
+    "\"soft_tokens\":{\"type\":\"integer\",\"minimum\":1},\"unknown_usage\":{\"type\":\"string\","
+    "\"enum\":[\"stop\",\"continue\"]}},\"required\":[\"soft_tokens\"]},"
+    "\"admission\":{\"type\":\"object\",\"properties\":{"
+    "\"label\":{\"type\":\"string\"},\"provider_scope\":{\"type\":\"string\"},"
+    "\"cap\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":16},"
+    "\"queue_cap\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":128},"
+    "\"claim_limit\":{\"type\":\"integer\",\"minimum\":1}},"
+    "\"required\":[\"label\",\"provider_scope\",\"cap\",\"queue_cap\",\"claim_limit\"]},"
+    "\"concurrency\":{\"type\":\"integer\",\"description\""
     ":\"Items running at once (1-16, default 2).\"},\"items\":{\"type\":\"array\",\"minItems\":1,"
     "\"maxItems\":64,\"items\":{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":"
-    "\"string\"},\"model\":{\"type\":\"string\"},\"effort\":{\"type\":\"string\"},\"task\":{"
+    "\"string\"},\"provider\":{\"type\":\"string\",\"description\":\"DAG-only explicit native "
+    "profile; "
+    "standard Bearer routing, shared workspace and supported snapshot configuration required.\"},"
+    "\"label\":{\"type\":\"string\"},\"role\":{\"type\":\"string\",\"enum\":[\"lead\","
+    "\"worker\"]},"
+    "\"depends_on\":{\"type\":\"array\",\"items\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":"
+    "63}},"
+    "\"workspace\":{\"type\":\"object\",\"properties\":{\"policy\":{\"type\":\"string\","
+    "\"enum\":[\"isolated\",\"shared_read_only\",\"shared_writable\"]},\"base\":{\"type\":"
+    "\"string\"}},"
+    "\"required\":[\"policy\"]},\"model\":{\"type\":\"string\"},\"effort\":{\"type\":\"string\"},"
+    "\"task\":{"
     "\"type\":\"string\"},\"operation\":{\"type\":\"string\",\"enum\":[\"generate\",\"edit\"]},"
     "\"output_file\":{\"type\":\"string\",\"description\":\"Image destination; must not exist "
     "unless overwrite is true.\"},\"quality\":{\"type\":\"string\"},\"size\":{\"type\":\"string\"},"
@@ -218,7 +284,8 @@ static const char *SCHEMA_JSON =
     "re-executed), or remove a finished job's "
     "record.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\","
     "\"enum\":[\"cancel\",\"retry\",\"rm\"]},\"id\":{\"type\":\"string\",\"description\":\"The "
-    "32-character job id.\"},\"items\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"},"
+    "32-character job id.\"},\"expected_attempt\":{\"type\":\"integer\",\"minimum\":1},"
+    "\"items\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"},"
     "\"description\":\"Item indexes; omit for every applicable item.\"},\"failed\":{\"type\":"
     "\"boolean\",\"description\":\"retry: select every failed, cancelled or interrupted "
     "item.\"}},\"required\":[\"action\",\"id\"]}}},"
@@ -424,6 +491,11 @@ static bool schema_tool_disabled(const tools_env *env, const char *name) {
     /* Jobs own real child processes: the execution tools disappear where none
      * can exist, while bounded record reads remain (docs/adr/0093). */
     if (tool_jobs_is_tool(name)) return !tool_jobs_available(env->ctx, name);
+    if (tool_workspace_op(name) != TNY_WORKSPACE_NONE)
+        return !tool_workspace_available(env->ctx, name);
+    if (strcmp(name, "team_control") == 0) return !tool_team_available(env->ctx);
+    if (strcmp(name, "team_mailbox") == 0)
+        return env->ctx->library_mode || env->ctx->ssh_host || !tny_jobs_execution_supported();
     if (!env->ctx->library_mode) return false;
     return strcmp(name, "terminal") == 0 || strcmp(name, "open_file") == 0 ||
            strcmp(name, "skill") == 0 || strcmp(name, "install_skill") == 0 ||
@@ -704,6 +776,36 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         call->detail = tool_image_export_detail(
             env, call->args, strcmp(call->name, "image_contact_sheet") == 0, &call->error);
         if (call->error || !call->detail) return -1;
+    } else if (strcmp(call->name, "team_control") == 0) {
+        tny_team_op op = tny_team_op_parse(jget_str(call->args, "action"));
+        const char *permission = tny_team_permission_tool(op);
+        free(call->permission_tool);
+        call->permission_tool = permission ? xstrdup(permission) : NULL;
+        char *why = NULL;
+        call->detail = tool_team_detail(env, op, jget(call->args, "request"), &why);
+        if (!call->permission_tool || !call->detail) {
+            call->error = tool_err("%s", why ? why : "invalid team operation");
+            free(why);
+            return -1;
+        }
+        free(why);
+    } else if (tool_workspace_op(call->name) != TNY_WORKSPACE_NONE) {
+        const char *why = NULL;
+        call->detail =
+            tny_workspace_detail(env->ctx, tool_workspace_op(call->name), call->args, &why);
+        if (!call->detail) {
+            call->error = tool_err("%s", why ? why : "invalid workspace request");
+            return -1;
+        }
+    } else if (strcmp(call->name, "team_mailbox") == 0) {
+        const char *permission = tny_team_mailbox_permission(call->args);
+        free(call->permission_tool);
+        call->permission_tool = permission ? xstrdup(permission) : NULL;
+        call->detail = tny_team_mailbox_detail(call->args);
+        if (!call->permission_tool || !call->detail) {
+            call->error = tool_err("invalid team mailbox request");
+            return -1;
+        }
     } else if (tool_jobs_is_tool(call->name)) {
         /* Every job operation carries its own exact permission identity, and
          * the detail names the job, items, outputs and request digest. */

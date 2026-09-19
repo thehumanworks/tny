@@ -4,6 +4,7 @@
 #include "backends/openai/openai.h"
 #include "backends/openai/stream_decode.h"
 #include "core/tools.h"
+#include "core/team_runtime.h"
 #include "core/speech.h"
 #include "core/image_service.h"
 #include "backends/openai/request_owner.h"
@@ -1149,6 +1150,7 @@ request_oom:
 }
 
 static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
+    if (tny_team_deliver(&o->env, errbuf, errlen) != 0) return -1;
     return start_post_mode(o, errbuf, errlen, false);
 }
 

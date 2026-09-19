@@ -1,0 +1,25 @@
+{
+  "kind": "ask",
+  "dag": true,
+  "concurrency": 3,
+  "items": [
+    {
+      "role": "lead",
+      "label": "scope",
+      "prompt": "Read only: identify the main execution path and review scope. Return paths and uncertainty. Do not edit, launch nested agents, wait for this whole job, or integrate anything.",
+      "workspace": {"policy": "shared_read_only"}
+    },
+    {
+      "role": "worker",
+      "label": "reliability",
+      "prompt": "Read only: review the main execution path for reliability risks. Return up to three findings with paths and evidence. Do not edit or launch nested agents.",
+      "workspace": {"policy": "shared_read_only"}
+    },
+    {
+      "role": "worker",
+      "label": "coverage",
+      "prompt": "Read only: review tests of the main execution path. Return up to three coverage gaps with paths and evidence. Do not edit or launch nested agents.",
+      "workspace": {"policy": "shared_read_only"}
+    }
+  ]
+}

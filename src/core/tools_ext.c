@@ -4,6 +4,9 @@
 #include "core/speech.h"
 #include "core/tools_image.h"
 #include "core/tools_jobs.h"
+#include "core/tools_workspace.h"
+#include "core/tools_team.h"
+#include "core/team_runtime.h"
 #include "core/image.h"
 #include "core/skills.h"
 #include "core/subagent.h"
@@ -162,6 +165,42 @@ char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool 
     *handled = true;
     /* subagent answers every unsupported runtime itself (stable codes) */
     if (strcmp(name, "subagent") == 0) return tny_subagent_execute(env, args);
+    if (strcmp(name, "team_control") == 0) {
+        buf_t out;
+        buf_init(&out);
+        char err[320] = "";
+        int rc = tool_team_run(env, tny_team_op_parse(jget_str(args, "action")),
+                               jget(args, "request"), &out, err, sizeof err);
+        if (rc) {
+            char *result = tool_err("%s\n%s", err, out.data ? out.data : "");
+            buf_free(&out);
+            return result;
+        }
+        return buf_detach(&out);
+    }
+    if (tool_workspace_op(name) != TNY_WORKSPACE_NONE) {
+        buf_t out;
+        buf_init(&out);
+        char err[320] = "";
+        int rc = tool_workspace_run(env, tool_workspace_op(name), args, &out, err, sizeof err);
+        if (rc) {
+            char *result = tool_err("%s\n%s", err, out.data ? out.data : "");
+            buf_free(&out);
+            return result;
+        }
+        return buf_detach(&out);
+    }
+    if (strcmp(name, "team_mailbox") == 0) {
+        buf_t out;
+        buf_init(&out);
+        char err[320] = "";
+        int rc = tny_team_mailbox_run(env, args, false, &out, err, sizeof err);
+        if (rc) {
+            buf_free(&out);
+            return tool_err("%s", err[0] ? err : "mailbox operation failed");
+        }
+        return buf_detach(&out);
+    }
     if (env->ctx->library_mode &&
         (strcmp(name, "skill") == 0 || strcmp(name, "install_skill") == 0 ||
          strcmp(name, "memory") == 0 || strcmp(name, "ask_user_question") == 0))

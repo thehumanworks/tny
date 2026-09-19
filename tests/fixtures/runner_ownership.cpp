@@ -167,7 +167,33 @@ static int descriptor_count() {
 }
 
 static void descriptor_transfers() {
+    static_assert(!std::is_copy_constructible_v<tny::pipe_pair>);
+    static_assert(std::is_nothrow_move_constructible_v<tny::pipe_pair>);
+    static_assert(std::is_nothrow_move_assignable_v<tny::pipe_pair>);
     int before = descriptor_count();
+    for (int i = 0; i < 32; ++i) {
+        int read_fd = -1, write_fd = -1;
+        try {
+            tny::pipe_pair first;
+            assert(first.open() == 0);
+            read_fd = first.ends[0].borrow();
+            write_fd = first.ends[1].borrow();
+            tny::pipe_pair second(std::move(first));
+            assert(first.ends[0].borrow() == -1 && first.ends[1].borrow() == -1);
+            tny::pipe_pair third;
+            third = std::move(second);
+            assert(second.ends[0].borrow() == -1 && second.ends[1].borrow() == -1);
+            assert(write(third.ends[1].borrow(), "x", 1) == 1);
+            char byte = 0;
+            assert(read(third.ends[0].borrow(), &byte, 1) == 1 && byte == 'x');
+            throw std::bad_alloc();
+        } catch (const std::bad_alloc &) {
+            assert(read_fd >= 0 && write_fd >= 0);
+            assert(fcntl(read_fd, F_GETFD) == -1 && errno == EBADF);
+            assert(fcntl(write_fd, F_GETFD) == -1 && errno == EBADF);
+        }
+    }
+    assert(descriptor_count() == before);
     for (int i = 0; i < 200; ++i) {
         tny::pipe_pair pipe;
         assert(pipe.open() == 0);
@@ -529,6 +555,7 @@ static void durable_cleanup_faults(const char *directory) {
     if (tny_process_scope_native_jobs()) return;
     auto *ctx = tny_ctx_new_explicit(directory, directory);
     assert(ctx);
+    ctx->library_mode = false; /* this fixture owns real native children, not embedded jobs */
     std::snprintf(job_release_path, sizeof job_release_path, "%s/release-item", directory);
     for (int mode = 0; mode <= 3; ++mode) {
         char id[33], output_path[1024], error[256];
@@ -552,7 +579,7 @@ static void durable_cleanup_faults(const char *directory) {
         /* A real claim exercises the same shared reservation policy as image
          * jobs; these local ask children never contact a provider. */
         request.outputs[0] = xstrdup(output_path);
-        auto *record = record_new(ctx, &request, id, dir);
+        auto *record = record_new(ctx, &request, id, dir, nullptr);
         assert(record && jobs_record_store(dir, record) == 0);
         yyjson_mut_doc_free(record);
         assert(reservation_claim_one(ctx, output_path, id, 0, 1, error, sizeof error) == 0);
@@ -643,7 +670,7 @@ static void durable_cleanup_faults(const char *directory) {
             }
             assert(reservation_claim_one(ctx, output_path, "abcdef0123456789abcdef0123456789", 0, 1,
                                          error, sizeof error) != 0);
-            assert(jobs_project(dir, id) == 0); /* loss projection preserves the latch */
+            assert(jobs_project(ctx, dir, id) == 0); /* loss projection preserves the latch */
             char *record_path = jobs_file(dir, "job.json");
             char *claim_path = reservation_path(ctx, output_path);
             size_t size;

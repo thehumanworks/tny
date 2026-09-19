@@ -6,6 +6,12 @@ from parser_ownership import main
 SOURCE = "src/core/subagent_plan.cpp"
 MUTANTS = (
     (
+        "read-only-child-ceiling-dropped",
+        SOURCE,
+        '{"TNY_TEAM_READ_ONLY", ctx.workspace_read_only ? "1" : nullptr}',
+        '{"TNY_TEAM_READ_ONLY", nullptr}',
+    ),
+    (
         "borrowed-selector",
         SOURCE,
         "argv[i] = copy(args[i]);",
@@ -47,6 +53,12 @@ MUTANTS = (
         SOURCE,
         '{"TNY_NESTED_MODE", tny_perm_mode_name(ctx.perm_mode)}',
         '{"TNY_NESTED_MODE", "yolo"}',
+    ),
+    (
+        "missing-step-ceiling",
+        SOURCE,
+        "if (ctx.max_steps > 0) {",
+        "if (false) {",
     ),
     (
         "wrong-provider",

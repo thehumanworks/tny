@@ -51,6 +51,21 @@ int tny_jobs_host_mkdir_private(const char *path) {
     return rc;
 }
 
+int tny_jobs_host_sync_parent(const char *path) {
+    if (!path || !*path || path[strlen(path) - 1] == '/') return EINVAL;
+    const char *slash = strrchr(path, '/');
+    char *parent =
+        slash ? xstrndup(path, slash == path ? 1 : (size_t)(slash - path)) : xstrdup(".");
+    if (!parent) return ENOMEM;
+    int fd = open(parent, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    int rc = fd < 0 ? errno : 0;
+    free(parent);
+    if (fd < 0) return rc;
+    if (fsync(fd) != 0) rc = errno;
+    if (close(fd) != 0 && !rc) rc = errno;
+    return rc;
+}
+
 static int write_private(const char *path, const void *data, size_t len, bool once) {
     if (!path || !*path || (!data && len)) return EINVAL;
     buf_t tmp;
@@ -88,7 +103,10 @@ static int write_private(const char *path, const void *data, size_t len, bool on
     if (!rc && fsync(fd) != 0) rc = errno;
     if (close(fd) != 0 && !rc) rc = errno;
     if (!rc && (once ? link(tmp.data, path) : rename(tmp.data, path)) != 0) rc = errno;
-    if (rc || once) unlink(tmp.data);
+    if ((rc || once) && unlink(tmp.data) != 0 && !rc) rc = errno;
+    /* A post-publication failure is uncertain, never success. The destination
+     * may already contain the new bytes: do not roll back or replay effects. */
+    if (!rc) rc = tny_jobs_host_sync_parent(path);
     buf_free(&tmp);
     return rc;
 }
@@ -120,7 +138,10 @@ int tny_jobs_host_snapshot(const char *path, const void *data, size_t len) {
         if (n <= 0 || memcmp(chunk, (const char *)data + offset, (size_t)n) != 0) rc = EINVAL;
         else offset += (size_t)n;
     }
-    close(fd);
+    if (close(fd) != 0 && !rc) rc = errno;
+    /* An earlier write-once call may have published then failed parent sync.
+     * Matching bytes alone cannot turn that uncertainty into durable success. */
+    if (!rc) rc = tny_jobs_host_sync_parent(path);
     return rc;
 }
 

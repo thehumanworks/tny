@@ -360,6 +360,10 @@ static char *sa_outcome(tools_env *env, sa_action action, const char *resume_id,
 
 char *tny_subagent_run(tools_env *env, const char *action, const char *resume_id,
                        char *const argv[], char *const envp[], const char *prompt) {
+    const char *enrolled = getenv("TNY_ADMISSION_ENROLLED");
+    if (enrolled && strcmp(enrolled, "1") == 0)
+        return tool_err("SUBAGENT_ADMISSION_NESTED: nested subagent execution from an enrolled "
+                        "job is unsupported; submit the dependency in the parent DAG instead");
     sa_proc p;
     sa_proc_run(env, argv, envp, prompt, &p);
     char *result = sa_outcome(

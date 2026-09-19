@@ -107,6 +107,7 @@ static tny_ctx *fixture(bool full) {
     c->effort_explicit = true;
     c->effort_from_settings = true;
     c->context_enabled = true;
+    c->workspace_read_only = true;
     c->instructions_snapshot_ready = true;
     c->mcp_disabled = true;
     c->mcp_import_warned = true;
@@ -155,7 +156,7 @@ static void same(const tny_ctx *c, yyjson_doc *expected) {
 static void complete_schema(tny_ctx *c) {
     yyjson_doc *d = snapshot(c, false);
     yyjson_val *r = yyjson_doc_get_root(d);
-    REQUIRE(yyjson_obj_size(r) == 65);
+    REQUIRE(yyjson_obj_size(r) == 66);
     REQUIRE(jget_str(r, "cwd") && !strcmp(jget_str(r, "cwd"), c->cwd));
     REQUIRE(jget_str(r, "provider_name") &&
             !strcmp(jget_str(r, "provider_name"), c->provider_name));
@@ -233,6 +234,8 @@ static void complete_schema(tny_ctx *c) {
             yyjson_get_bool(jget(r, "effort_from_settings")) == c->effort_from_settings);
     REQUIRE(yyjson_is_bool(jget(r, "context_enabled")) &&
             yyjson_get_bool(jget(r, "context_enabled")) == c->context_enabled);
+    REQUIRE(yyjson_is_bool(jget(r, "workspace_read_only")) &&
+            yyjson_get_bool(jget(r, "workspace_read_only")) == c->workspace_read_only);
     REQUIRE(yyjson_is_bool(jget(r, "instructions_snapshot_ready")) &&
             yyjson_get_bool(jget(r, "instructions_snapshot_ready")) ==
                 c->instructions_snapshot_ready);
@@ -280,7 +283,7 @@ static void complete_schema(tny_ctx *c) {
                 c->mcp_import_order[i]);
     yyjson_doc_free(d);
     d = snapshot(c, true);
-    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 55);
+    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 56);
     yyjson_doc_free(d);
 }
 static void encoder_lifetime(void) {
@@ -443,6 +446,8 @@ static void edge_cases(tny_ctx *full) {
     reject(full, d, "library_mode", "true");
     reject(full, d, "perm_mode", "null");
     reject(full, d, "tool_profile", "1.5");
+    reject(full, d, "workspace_read_only", "false");
+    reject(full, d, "workspace_read_only", "null");
     full->perm_mode = TNY_MODE_ASK;
     reject(full, d, "perm_mode", "2");
     full->perm_mode = TNY_MODE_YOLO;

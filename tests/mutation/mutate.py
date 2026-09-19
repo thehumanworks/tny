@@ -50,6 +50,20 @@ TARGETS = [
         "terminal-completion",
     ),
     (
+        "src/core/team_runtime.c",
+        ["tny_team_capability_matches"],
+        r"return difference == 0",
+        "tests/integration/test_swarm_delivery.py",
+        "swarm-auth",
+    ),
+    (
+        "src/core/perm.c",
+        ["perm_check"],
+        r"ctx->workspace_read_only &&",
+        "tests/integration/test_swarm_delivery.py",
+        "swarm-auth",
+    ),
+    (
         "src/cli/cmd_misc.c",
         ["status_codex_usage"],
         r"yyjson_get_sint\(duration\) != 604800|usage.available = true",

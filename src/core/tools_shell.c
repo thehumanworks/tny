@@ -121,6 +121,13 @@ char *tool_terminal_task_result(const tny_terminal_task *task, const char *obser
 }
 
 static char *background_call(tools_env *env, const char *cmd, const char *id, yyjson_val *args) {
+    /* Owned task completion must not leave a first-party detached writer using
+     * its workspace or permit. The ownership restriction survives synchronous
+     * descendants even though their member capability is deliberately stripped.
+     * This is not containment of arbitrary same-user shell daemonization. */
+    if (!id && getenv(TNY_JOB_PARENT_ENV))
+        return tool_err("background terminals are unavailable inside an owned job; "
+                        "run the command in the foreground or ask the parent for a DAG task");
     if (!tny_terminal_supported())
         return tool_err("background terminal tasks are unsupported on this platform");
     int64_t wait_s = jget_int(args, "wait_s", 0);

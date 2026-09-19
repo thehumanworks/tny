@@ -2,6 +2,7 @@
  * operations; each operation keeps its own exact permission identity, so a
  * grant to read status can never start, stop or delete work. */
 #include "core/tools_jobs.h"
+#include "core/team_runtime.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -39,6 +40,20 @@ int tool_jobs_run(tools_env *env, tny_jobs_op op, yyjson_val *args, buf_t *out, 
         snprintf(err, errlen, "unsupported jobs action");
         return 1;
     }
-    return tny_jobs_run_cancel(env->ctx, op, args, out, err, errlen, env->cancelled,
-                               env->cancelled_ud);
+    const char *parent = env->session ? env->session->id : env->session_id;
+    int rc = tny_jobs_run_context(env->ctx, op, args, out, err, errlen, env->cancelled,
+                                  env->cancelled_ud, parent);
+    if (op == TNY_JOBS_OP_SUBMIT && jget_bool(args, "dag", false) && env->session && out->data) {
+        yyjson_doc *doc = jparse(out->data, out->len);
+        const char *id = doc ? jget_str(yyjson_doc_get_root(doc), "id") : NULL;
+        if (id && tny_team_register_run(env, id) != 0) {
+            snprintf(err, errlen,
+                     "run %s was submitted, but notifications could not be saved; "
+                     "use jobs status/wait, do not resubmit",
+                     id);
+            rc = 2;
+        }
+        yyjson_doc_free(doc);
+    }
+    return rc;
 }

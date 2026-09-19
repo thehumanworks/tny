@@ -27,16 +27,17 @@ typedef struct {
     bool fast;                            /* --fast (providers with TNY_CAP_FAST) */
     const char **add_dirs;                /* --add-dir, repeatable */
     int n_add_dirs;
-    bool json;             /* --json */
-    const char *color;     /* --color auto|always|never (--no-color = never) */
-    const char *ssh;       /* --ssh user@host[:port] */
-    const char *ssh_cwd;   /* --ssh-cwd DIR (remote) */
-    bool ephemeral;        /* --ephemeral | --no-save */
-    bool agents_dashboard; /* tny agents entry; no prewarm */
-    bool standalone_web;   /* web service entry; no conversation-provider resolution */
-    bool resume_picker;    /* -r */
-    bool resume_last;      /* -c / --continue */
-    const char *resume;    /* --resume value */
+    bool json;              /* --json */
+    const char *color;      /* --color auto|always|never (--no-color = never) */
+    const char *ssh;        /* --ssh user@host[:port] */
+    const char *ssh_cwd;    /* --ssh-cwd DIR (remote) */
+    bool ephemeral;         /* --ephemeral | --no-save */
+    bool agents_dashboard;  /* tny agents entry; no prewarm */
+    const char *agents_run; /* --run ID: job-backed DAG task tree, status only */
+    bool standalone_web;    /* web service entry; no conversation-provider resolution */
+    bool resume_picker;     /* -r */
+    bool resume_last;       /* -c / --continue */
+    const char *resume;     /* --resume value */
     /* backend-specific */
     const char *bridge_bin;
     const char *xai_api_key;        /* --xai-api-key: dictation only */
@@ -95,6 +96,9 @@ int cmd_edit(const cli_globals *g, int argc, char **argv);
 /* Durable ask/image jobs (docs/jobs.md, docs/adr/0093). `jobs _worker ID` is
  * the hidden supervisor entry point, never a documented verb. */
 int cmd_jobs(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+int cmd_mailbox(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+int cmd_task_workspace(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+int cmd_team(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

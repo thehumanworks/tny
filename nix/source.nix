@@ -131,6 +131,21 @@ let
     # fcntl locks. Native Windows-only test_jobs_msys.py and its two C fixtures
     # (jobs_msys_scope.c/jobs_msys_tree.c) are included by ../tests and skip
     # outside MSYS2; no guest image or generated executable is an input.
+    # examples/swarm supplies checked team request/parent-launch templates.
+    # test_swarm_parent.py uses the same stdlib provider and real CLI under
+    # a fresh HOME/Git checkout; no helper driver or live account is required.
+    # test_swarm_startup.py compiles a private syscall fault/reader fixture with
+    # the existing compiler and release objects, then uses actual CLI/provider
+    # boundaries. All source is under ../tests and ../src; no live account input.
+    # test_swarm_delivery.py adds stdlib provider/barrier and wasm-refusal checks;
+    # test_team_runtime.c covers captured identity/ambiguity in the unit runner.
+    # The swarm-auth mutation focus uses existing compiler/test machinery.
+    # Admission/mailbox compile fixtures under tests/fixtures and their C
+    # service/host sources under ../src. The managed-workspace unit fixture
+    # uses real Git under a private HOME. All inputs are included above.
+    # test_swarm_agents.py reuses test_jobs.py and test_tui.py for real DAG
+    # status projection and the run-filtered PTY tree; ../tests includes all
+    # three, and no generated artifact or additional source directory is needed.
     # The durable-jobs suite (test_jobs.py, ADR 0093) adds no media asset: it
     # runs the built tny against a stdlib loopback provider under a throwaway
     # HOME, generates its own PNG bytes with zlib, and observes real detached

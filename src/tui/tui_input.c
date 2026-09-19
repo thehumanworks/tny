@@ -421,7 +421,9 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
 
     if (t->agents_dashboard) {
         if (k == TUI_K_UP && t->agent_selected > 0) t->agent_selected--;
-        else if (k == TUI_K_DOWN && t->agent_selected + 1 < t->n_agents) t->agent_selected++;
+        else if (k == TUI_K_DOWN &&
+                 t->agent_selected + 1 < (t->g->agents_run ? t->agent_run_count : t->n_agents))
+            t->agent_selected++;
         else if (k == TUI_K_ENTER) {
             tui_agents_select(t);
             return;
