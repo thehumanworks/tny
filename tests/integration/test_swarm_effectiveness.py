@@ -17,6 +17,72 @@ import bench_swarm_effectiveness as experiment  # noqa: E402
 
 
 class EffectivenessTests(unittest.TestCase):
+    def test_frozen_oracle_survives_original_source_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, frozen = Path(tmp) / "source.py", Path(tmp) / "frozen.py"
+            source.write_text("CASES = ['original']\n")
+            cases, digest = experiment.freeze_oracle(source, frozen)
+            source.write_text("CASES = ['changed']\n")
+            self.assertEqual(cases, ["original"])
+            self.assertIn("original", frozen.read_text())
+            self.assertEqual(experiment.bench.digest(frozen), digest)
+
+    def test_exact_roster_rejects_missing_peer_and_unrelated_job_substitution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            session = home / ".tny/sessions/root/session.json"
+            session.parent.mkdir(parents=True)
+            session.write_text(
+                json.dumps(
+                    {
+                        "id": "root",
+                        "swarm_definition": {
+                            "sha256": "canonical",
+                            "activation": "active",
+                            "run_id": "declared",
+                        },
+                    }
+                )
+            )
+            job = home / ".tny/jobs/declared/job.json"
+            job.parent.mkdir(parents=True)
+            record = {
+                "id": "declared",
+                "parent_session_id": "root",
+                "swarm_definition_sha256": "canonical",
+                "items": [
+                    {
+                        "swarm_name": "a",
+                        "session_id": "a-session",
+                        "state": "succeeded",
+                    },
+                    {"swarm_name": "b", "session_id": None, "state": "failed"},
+                ],
+            }
+            job.write_text(json.dumps(record))
+            extra = home / ".tny/jobs/adhoc/job.json"
+            extra.parent.mkdir(parents=True)
+            extra.write_text(json.dumps({"items": [{"session_id": "unrelated"}]}))
+            result = experiment.exact_participation(home, "canonical", ["a", "b"])
+            self.assertFalse(result["verified"])
+            self.assertEqual(result["unrelated_jobs"], 1)
+            extra.unlink()
+            (job.parent / "attempt-1-item-1.log").write_text(
+                json.dumps({"session_id": "b-session", "type": "tool_start"})
+            )
+            self.assertTrue(
+                experiment.exact_participation(home, "canonical", ["a", "b"])[
+                    "verified"
+                ]
+            )
+            record["items"].reverse()
+            job.write_text(json.dumps(record))
+            self.assertFalse(
+                experiment.exact_participation(home, "canonical", ["a", "b"])[
+                    "verified"
+                ]
+            )
+
     def test_order_is_counterbalanced_without_dropping_conditions(self):
         self.assertEqual(experiment.trial_order(0, 1), ("baseline", "candidate"))
         self.assertEqual(experiment.trial_order(1, 1), ("candidate", "baseline"))
@@ -146,7 +212,14 @@ class EffectivenessTests(unittest.TestCase):
                 root / "auth.json",
             )
             binary.write_bytes(b"synthetic binary; never executed")
-            definition.write_text("synthetic definition; validator mocked")
+            definition.write_text(
+                json.dumps(
+                    {
+                        "agents": [{"name": "a"}, {"name": "b"}, {"name": "c"}],
+                        "swarms": [],
+                    }
+                )
+            )
             auth.write_text("{}")
             output = root / "result"
             argv = [
@@ -170,7 +243,9 @@ class EffectivenessTests(unittest.TestCase):
                 "--output",
                 str(output),
             ]
-            checked = subprocess.CompletedProcess([], 0, stdout='{"participants":3}')
+            checked = subprocess.CompletedProcess(
+                [], 0, stdout='{"participants":3,"sha256":"fixture"}'
+            )
             with (
                 mock.patch.object(sys, "argv", argv),
                 mock.patch.object(
