@@ -355,6 +355,31 @@ static bool already_seen(yyjson_val *args, int index, int64_t attempt) {
     return false;
 }
 
+/* A status read can create a missing owner/state lock or project an abandoned
+ * owner, both of which notify a directory watch. Drain those self-generated
+ * hints, then confirm that the private record still describes the public
+ * snapshot. A real update racing the drain is either visible here or remains
+ * queued for watch_next(), so it cannot be lost. */
+static bool same_observation(yyjson_val *public_root, yyjson_val *private_root) {
+    if (jget_int(public_root, "attempt", -1) != jget_int(private_root, "attempt", -2) ||
+        !same(jget_str(public_root, "state"), jget_str(private_root, "state")))
+        return false;
+    yyjson_val *public_items = jget(public_root, "items");
+    yyjson_val *private_items = jget(private_root, "items");
+    if (!yyjson_is_arr(public_items) || !yyjson_is_arr(private_items) ||
+        yyjson_arr_size(public_items) != yyjson_arr_size(private_items))
+        return false;
+    size_t count = yyjson_arr_size(public_items);
+    for (size_t i = 0; i < count; ++i) {
+        yyjson_val *public_item = yyjson_arr_get(public_items, i);
+        yyjson_val *private_item = yyjson_arr_get(private_items, i);
+        if (jget_int(public_item, "attempt", -1) != jget_int(private_item, "attempt", -2) ||
+            !same(jget_str(public_item, "state"), jget_str(private_item, "state")))
+            return false;
+    }
+    return true;
+}
+
 /* Only bounded, confined session JSON is read. The stored answer hash, not
  * model prose or the log's apparent ending, determines result integrity. */
 static int collect(tny_ctx *ctx, yyjson_val *args, yyjson_val *root, buf_t *out, char *err,
@@ -547,26 +572,69 @@ int tny_team_run(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op, yy
         yyjson_mut_doc_free(d);
         return finish(out, err, n, rc);
     }
-    int64_t deadline = monotonic_ms() + jget_int(args, "timeout_ms", 0);
+    int timeout_ms = (int)jget_int(args, "timeout_ms", 0);
+    int64_t deadline = monotonic_ms() + timeout_ms;
+    tny_jobs_watch watch = {.fd = -1, .directory_fd = -1};
+    bool watching = op == TNY_TEAM_WAIT_ANY && timeout_ms > 0;
+    if (watching) {
+        if (!tny_jobs_host_watch_supported())
+            return fail(err, n, "positive team waits require native directory notifications");
+        char *dir = run_dir(ctx, jget_str(args, "id"));
+        int watch_rc = dir ? tny_jobs_host_watch_open(dir, &watch) : -1;
+        free(dir);
+        if (watch_rc) return fail(err, n, "team completion notification watch could not be opened");
+    }
+    bool final_snapshot = false;
     for (;;) {
-        if (cancelled && cancelled(cancel_ud)) return 130;
+        if (cancelled && cancelled(cancel_ud)) {
+            tny_jobs_host_watch_close(&watch);
+            return 130;
+        }
+        /* Subscribe precedes the first snapshot. Drain before every public
+         * snapshot so a change after this point remains queued until next(). */
+        if (watching && tny_jobs_host_watch_drain(&watch)) {
+            tny_jobs_host_watch_close(&watch);
+            return fail(err, n, "team completion notification watch was lost");
+        }
         /* jobs_status remains the sole abandoned-owner projection authority. */
         buf_t job = {0};
         rc = tny_jobs_run_cancel(ctx, TNY_JOBS_OP_STATUS, args, &job, err, n, cancelled, cancel_ud);
         yyjson_doc *status = job.len ? jparse(job.data, job.len) : NULL;
         yyjson_val *root = status ? yyjson_doc_get_root(status) : NULL;
+        if (cancelled && cancelled(cancel_ud)) {
+            yyjson_doc_free(status);
+            buf_free(&job);
+            tny_jobs_host_watch_close(&watch);
+            return 130;
+        }
+        /* Clear notifications caused by the status read itself. The following
+         * private snapshot closes the race created by that drain. */
+        if (watching && tny_jobs_host_watch_drain(&watch)) {
+            yyjson_doc_free(status);
+            buf_free(&job);
+            tny_jobs_host_watch_close(&watch);
+            return fail(err, n, "team completion notification watch was lost");
+        }
         /* The public projection intentionally omits private capability
          * verifiers. Revalidate against the confined current record, not a
          * projection that cannot authenticate a still-running member. */
         yyjson_doc *current = root ? read_record(ctx, jget_str(args, "id"), err, n) : NULL;
         yyjson_val *private_root = current ? yyjson_doc_get_root(current) : NULL;
+        if (cancelled && cancelled(cancel_ud)) {
+            yyjson_doc_free(current);
+            yyjson_doc_free(status);
+            buf_free(&job);
+            tny_jobs_host_watch_close(&watch);
+            return 130;
+        }
         bool authorized = root && private_root && authority(caller, private_root, err, n) != -2 &&
                           jget_int(root, "attempt", 0) == fence &&
                           jget_int(private_root, "attempt", 0) == fence;
-        yyjson_doc_free(current);
         if (!authorized) {
+            yyjson_doc_free(current);
             yyjson_doc_free(status);
             buf_free(&job);
+            tny_jobs_host_watch_close(&watch);
             return fail(err, n, "team attempt or membership changed while observing");
         }
         if (op == TNY_TEAM_STATUS) {
@@ -574,10 +642,19 @@ int tny_team_run(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op, yy
             buf_appends(out, ",\"job\":");
             buf_append(out, job.data, job.len);
             buf_appends(out, "}\n");
+            yyjson_doc_free(current);
             yyjson_doc_free(status);
             buf_free(&job);
+            tny_jobs_host_watch_close(&watch);
             return finish(out, err, n, rc);
         }
+        if (watching && !same_observation(root, private_root)) {
+            yyjson_doc_free(current);
+            yyjson_doc_free(status);
+            buf_free(&job);
+            continue;
+        }
+        yyjson_doc_free(current);
         size_t i, max;
         yyjson_val *item;
         yyjson_arr_foreach(jget(root, "items"), i, max, item) {
@@ -585,6 +662,12 @@ int tny_team_run(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op, yy
                 !terminal(jget_str(item, "state")) ||
                 already_seen(args, (int)i, jget_int(item, "attempt", 0)))
                 continue;
+            if (cancelled && cancelled(cancel_ud)) {
+                yyjson_doc_free(status);
+                buf_free(&job);
+                tny_jobs_host_watch_close(&watch);
+                return 130;
+            }
             envelope(out, "team_completion", jget_str(root, "id"));
             buf_appendf(out,
                         ",\"attempt\":%lld,\"cursor\":{\"item\":%zu,\"attempt\":%lld},\"item\":",
@@ -596,16 +679,39 @@ int tny_team_run(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op, yy
             buf_appends(out, "}\n");
             yyjson_doc_free(status);
             buf_free(&job);
+            tny_jobs_host_watch_close(&watch);
             return finish(out, err, n, 0);
         }
         yyjson_doc_free(status);
         buf_free(&job);
-        if (monotonic_ms() >= deadline) {
+        if (cancelled && cancelled(cancel_ud)) {
+            tny_jobs_host_watch_close(&watch);
+            return 130;
+        }
+        if (!watching || final_snapshot) {
             envelope(out, "team_wait_timeout", jget_str(args, "id"));
             buf_appendf(out, ",\"attempt\":%lld,\"cancelled\":false}\n", (long long)fence);
+            tny_jobs_host_watch_close(&watch);
             return finish(out, err, n, 124);
         }
         int64_t remaining = deadline - monotonic_ms();
-        if (remaining > 0) tny_jobs_host_sleep_ms((int)(remaining < 50 ? remaining : 50));
+        if (remaining <= 0) {
+            /* A hint can wake on creation of an atomic-write temporary before
+             * the final rename. Take one last drain/snapshot at every observed
+             * deadline, not only when watch_next() itself reports timeout. */
+            final_snapshot = true;
+            continue;
+        }
+        int event = tny_jobs_host_watch_next(&watch, (int)remaining, cancelled, cancel_ud);
+        if (event == 1) continue;
+        if (event == 0) {
+            /* Owner-lock release has no portable directory notification. The
+             * final snapshot also closes an event arriving at the deadline. */
+            final_snapshot = true;
+            continue;
+        }
+        tny_jobs_host_watch_close(&watch);
+        if (event == -2) return 130;
+        return fail(err, n, "team completion notification watch was lost");
     }
 }
