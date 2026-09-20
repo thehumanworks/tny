@@ -229,8 +229,10 @@ static const char *SCHEMA_JSON =
     "\"request\":{\"type\":\"object\"}},\"required\":[\"action\",\"request\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"team_mailbox\",\"description\":\"Send durable "
     "untrusted collaboration context without interrupting a task; inbox/read/ack address only "
-    "your own membership. publish atomically snapshots active peers (id max 48); wait requires "
-    "timeout_ms 0..30000. Messages replay until explicit acknowledgment. No sender override.\","
+    "your own membership. send requires id,to,text; publish requires id,text (id max 48). "
+    "wait requires timeout_ms 0..30000; inbox does not accept timeout_ms. read/ack require the "
+    "exact received id. retire requires before_attempt and only cleans old attempts; it does "
+    "not leave a team. No extra action fields. Messages replay until acknowledgment.\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\","
     "\"enum\":[\"send\",\"publish\",\"wait\",\"inbox\",\"read\",\"ack\",\"retire\"]},\"before_"
     "attempt\":{\"type\":"
@@ -806,7 +808,10 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         call->permission_tool = permission ? xstrdup(permission) : NULL;
         call->detail = tny_team_mailbox_detail(call->args);
         if (!call->permission_tool || !call->detail) {
-            call->error = tool_err("invalid team mailbox request");
+            call->error = tool_err(
+                "invalid team mailbox request: send needs id,to,text; publish needs id,text; "
+                "wait needs timeout_ms; read/ack need id; retire needs before_attempt "
+                "(old-attempt cleanup, not team departure). inbox accepts only action,run.");
             return -1;
         }
     } else if (tool_jobs_is_tool(call->name)) {

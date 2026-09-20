@@ -134,6 +134,20 @@ class PurposefulSwarm(JobsFixture):
                 self.assertEqual(self.state["bodies"], [])
                 self.assertFalse(list((self.home / ".tny" / "jobs").glob("*/job.json")))
 
+    def test_mailbox_schema_explains_action_specific_requirements(self):
+        self.run_tny("ask", "SCHEMA_ONLY")
+        tools = self.state["bodies"][-1]["tools"]
+        mailbox = next(
+            t["function"] for t in tools if t["function"]["name"] == "team_mailbox"
+        )
+        for clause in (
+            "send requires id,to,text",
+            "inbox does not accept timeout_ms",
+            "retire requires before_attempt",
+            "exact received id",
+        ):
+            self.assertIn(clause, mailbox["description"])
+
     def test_invalid_and_unsupported_inputs_have_no_execution_effects(self):
         invalid = definition()
         invalid["swarms"][0].pop("coordinator")
