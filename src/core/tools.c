@@ -229,8 +229,10 @@ static const char *SCHEMA_JSON =
     "\"request\":{\"type\":\"object\"}},\"required\":[\"action\",\"request\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"team_mailbox\",\"description\":\"Send durable "
     "untrusted collaboration context without interrupting a task; inbox/read/ack address only "
-    "your own membership. publish atomically snapshots active peers (id max 48); wait requires "
-    "timeout_ms 0..30000. Messages replay until explicit acknowledgment. No sender override.\","
+    "your own membership. send requires id,to,text; publish requires id,text (id max 48). "
+    "wait requires timeout_ms 0..30000; inbox does not accept timeout_ms. read/ack require the "
+    "exact received id. retire requires before_attempt and only cleans old attempts; it does "
+    "not leave a team. No extra action fields. Messages replay until acknowledgment.\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\","
     "\"enum\":[\"send\",\"publish\",\"wait\",\"inbox\",\"read\",\"ack\",\"retire\"]},\"before_"
     "attempt\":{\"type\":"
@@ -521,6 +523,14 @@ static bool schema_tool_hidden(const tools_env *env, const char *name) {
     if (schema_tool_disabled(env, name)) return true;
     if (!env || !env->ctx || !name) return false;
     if (!profile_allows_builtin(env, name)) return true;
+    /* Purposeful reviewers inherit read-only authority. Keep the full-profile
+     * advertised surface aligned with it; direct calls still use the existing
+     * permission engine. Shell-only profiles retain their explicit interface. */
+    if (env->ctx->workspace_read_only && getenv("TNY_SWARM_NAME") &&
+        env->ctx->tool_profile == TNY_TOOLS_ALL && !perm_tool_is_safe(name) &&
+        strcmp(name, "team_control") != 0 && strcmp(name, "team_mailbox") != 0 &&
+        strcmp(name, "job_status") != 0 && strcmp(name, "job_workspace_inspect") != 0)
+        return true;
     return strcmp(name, "web_search") == 0 &&
            (!tool_web_search_configured(env->ctx) || tool_web_search_native(env->ctx));
 }
@@ -550,6 +560,7 @@ static char *append_custom_schema(char *base, custom_tool_registry *registry) {
 char *tools_schema_json(tools_env *env) {
     if (env && env->ctx &&
         (env->ctx->prompt_optimisation || env->ctx->mcp_disabled || env->ctx->library_mode ||
+         (env->ctx->workspace_read_only && getenv("TNY_SWARM_NAME")) ||
          env->ctx->tool_profile != TNY_TOOLS_ALL ||
          (!tool_web_search_configured(env->ctx) || tool_web_search_native(env->ctx)) ||
          !tny_speech_available(env->ctx, NULL, true, NULL, 0) || env->ctx->ssh_host ||
@@ -806,7 +817,10 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         call->permission_tool = permission ? xstrdup(permission) : NULL;
         call->detail = tny_team_mailbox_detail(call->args);
         if (!call->permission_tool || !call->detail) {
-            call->error = tool_err("invalid team mailbox request");
+            call->error = tool_err(
+                "invalid team mailbox request: send needs id,to,text; publish needs id,text; "
+                "wait needs timeout_ms; read/ack need id; retire needs before_attempt "
+                "(old-attempt cleanup, not team departure). inbox accepts only action,run.");
             return -1;
         }
     } else if (tool_jobs_is_tool(call->name)) {

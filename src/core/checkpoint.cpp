@@ -62,6 +62,8 @@ constexpr string_field strings[] = {
     {"task_name", &tny_ctx::task_name, false},
     {"task_source", &tny_ctx::task_source, false},
     {"task_instructions", &tny_ctx::task_instructions, false},
+    {"swarm_definition", &tny_ctx::swarm_definition, false},
+    {"swarm_source", &tny_ctx::swarm_source, false},
     {"reasoning_effort", &tny_ctx::reasoning_effort, false},
     {"instructions_snapshot", &tny_ctx::instructions_snapshot, false},
     {"sandbox_mode", &tny_ctx::sandbox_mode, false},
@@ -198,11 +200,14 @@ yyjson_mut_val *encode(yyjson_mut_doc *d, const tny_ctx *c, bool public_only) {
     check(yyjson_mut_obj_add_strcpy(d, r, "task_digest", c->task_digest));
     check(memchr(c->instructions_digest, 0, sizeof c->instructions_digest) != nullptr);
     check(yyjson_mut_obj_add_strcpy(d, r, "instructions_digest", c->instructions_digest));
+    check(memchr(c->swarm_definition_digest, 0, sizeof c->swarm_definition_digest) != nullptr);
+    check(yyjson_mut_obj_add_strcpy(d, r, "swarm_definition_digest", c->swarm_definition_digest));
     for (const auto &f : bools) check(yyjson_mut_obj_add_bool(d, r, f.name, c->*(f.member)));
     check(yyjson_mut_obj_add_int(d, r, "backend", c->backend));
     check(yyjson_mut_obj_add_int(d, r, "max_extension_iterations", c->max_extension_iterations));
     check(yyjson_mut_obj_add_int(d, r, "extension_timeout_ms", c->extension_timeout_ms));
     check(yyjson_mut_obj_add_int(d, r, "swarm_cap", c->swarm_cap));
+    check(yyjson_mut_obj_add_int(d, r, "swarm_participants", c->swarm_participants));
     check(yyjson_mut_obj_add_int(d, r, "max_steps", c->max_steps));
     check(yyjson_mut_obj_add_int(d, r, "perm_mode", c->perm_mode));
     check(yyjson_mut_obj_add_int(d, r, "tool_profile", c->tool_profile));
@@ -261,6 +266,7 @@ context restore(yyjson_val *r) {
     restore_fixed(c->ssh_port, jget(r, "ssh_port"));
     restore_fixed(c->task_digest, jget(r, "task_digest"));
     restore_fixed(c->instructions_digest, jget(r, "instructions_digest"));
+    restore_fixed(c->swarm_definition_digest, jget(r, "swarm_definition_digest"));
     for (const auto &f : bools) {
         auto *v = jget(r, f.name);
         check(absent(v) || yyjson_is_bool(v));
@@ -275,6 +281,13 @@ context restore(yyjson_val *r) {
     restore_number(c->extension_timeout_ms, jget(r, "extension_timeout_ms"));
     restore_number(c->swarm_cap, jget(r, "swarm_cap"));
     check(c->swarm_cap >= -1 && c->swarm_cap <= 16);
+    restore_number(c->swarm_participants, jget(r, "swarm_participants"));
+    check(c->swarm_participants >= 0 && c->swarm_participants <= 16);
+    check((!c->swarm_definition && !c->swarm_source && !c->swarm_definition_digest[0] &&
+           c->swarm_participants == 0) ||
+          (c->swarm_definition && c->swarm_source && *c->swarm_source &&
+           strlen(c->swarm_definition_digest) == 64 && c->swarm_participants >= 1 &&
+           c->swarm_cap == c->swarm_participants));
     restore_number(c->max_steps, jget(r, "max_steps"));
     restore_enum(c->perm_mode, jget(r, "perm_mode"), TNY_MODE_ASK, TNY_MODE_YOLO);
     restore_enum(c->tool_profile, jget(r, "tool_profile"), TNY_TOOLS_ALL, TNY_TOOLS_TERMINAL);
@@ -307,6 +320,7 @@ void identity(const tny_ctx *ctx, char hex[65]) {
     jescape(b, ctx->base_url ? ctx->base_url : "");
     jescape(b, ctx->auth_header_name ? ctx->auth_header_name : "");
     jescape(b, ctx->auth_header_prefix ? ctx->auth_header_prefix : "");
+    jescape(b, ctx->swarm_definition_digest);
     for (char **h = ctx->extra_headers; h && *h; ++h) jescape(b, *h);
     yyjson_doc *configs[] = {ctx->settings, ctx->repo_cfg};
     for (size_t i = 0; i < 2; ++i) {
@@ -342,6 +356,7 @@ bool public_key(const char *name) {
         "extension_timeout_ms",
         "max_steps",
         "swarm_cap",
+        "swarm_participants",
         "perm_mode",
         "tool_profile",
         "image_input",
@@ -349,6 +364,7 @@ bool public_key(const char *name) {
         "ssh_port",
         "task_digest",
         "instructions_digest",
+        "swarm_definition_digest",
         "max_tool_result_bytes",
         "mcp_import_mask",
         "extra_dirs",

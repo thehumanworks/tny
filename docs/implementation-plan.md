@@ -30,3 +30,10 @@ live inference without authorization. Nix invokes the same Makefile.
 Mode, shared admission, atomic run publications and native mailbox waits extend the
 existing team infrastructure. Acceptance status and remaining platform/gate evidence
 are tracked in [collective-swarm evidence](verification/collective-swarm/evidence.md).
+
+## Purposeful swarm definitions (ADR 0157)
+
+Strict versioned JSON definitions add named purposes and bounded nested groups. The
+validated tree compiles to one existing durable team, with a single admission scope
+and persisted canonical provenance. Implementation evidence and remaining platform
+gates are tracked in [purposeful-swarms evidence](verification/purposeful-swarms/implementation.md).

@@ -398,7 +398,7 @@ static void apply_custom_provider(tny_ctx *ctx, const char *name) {
     tny_ctx_clear_extra_headers(ctx);
 }
 
-tny_ctx *tny_ctx_load(const char *cwd_flag) {
+static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
     tny_ctx *ctx = calloc(1, sizeof *ctx);
     if (!ctx) return NULL;
 
@@ -587,7 +587,7 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
             ctx->extra_dirs[ctx->n_extra_dirs++] = xstrdup(yyjson_get_str(v));
         }
     }
-    (void)instructions_refresh(ctx);
+    if (collect_instructions) (void)instructions_refresh(ctx);
     if (ctx->extensions_enabled) {
         tny_extensions *extensions =
             tny_extensions_new(ctx->tny_dir, ctx->cwd, ctx->extension_timeout_ms);
@@ -597,6 +597,10 @@ tny_ctx *tny_ctx_load(const char *cwd_flag) {
     }
     return ctx;
 }
+
+tny_ctx *tny_ctx_load(const char *cwd_flag) { return ctx_load(cwd_flag, true); }
+
+tny_ctx *tny_ctx_load_child(const char *cwd_flag) { return ctx_load(cwd_flag, false); }
 
 tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     if (!cwd || !state_dir || !dir_exists(cwd)) return NULL;
@@ -1294,6 +1298,8 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->task_name);
     free(ctx->task_source);
     free(ctx->task_instructions);
+    free(ctx->swarm_definition);
+    free(ctx->swarm_source);
     free(ctx->reasoning_effort);
     free(ctx->instructions_snapshot);
     for (int i = 0; i < ctx->n_instruction_paths; i++) free(ctx->instruction_paths[i]);

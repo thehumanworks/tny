@@ -36,6 +36,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/core/swarm_manifest.c",
+        ["parse_group", "tny_swarm_manifest_parse"],
+        r"depth > TNY_SWARM_MANIFEST_MAX_DEPTH|participant_count >= parser->capacity|len > TNY_SWARM_MANIFEST_MAX_BYTES",
+        "tests/integration/test_purposeful_swarm.py",
+        "purposeful-swarm",
+    ),
+    (
         "src/core/tools_fs.c",
         ["t_edit_file"],
         r"while \(cut &&|if \(cut &&|if \(cut < len\)",

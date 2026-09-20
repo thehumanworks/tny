@@ -14,6 +14,8 @@
  * tny CLI as owned children. */
 extern "C" {
 #include "core/jobs.h"
+#include "core/instructions.h"
+#include "core/tasks.h"
 #include "core/admission.h"
 #include "core/backend.h"
 #include "core/team_runtime.h"
@@ -235,6 +237,227 @@ static int jm_item_count(yyjson_mut_doc *doc) {
     return items ? (int)yyjson_mut_arr_size(items) : 0;
 }
 
+/* A DAG child inherits only instruction context. Provider/chat and image
+ * allowances remain in the separate anonymous supervisor payload and can
+ * never be recovered through this file. */
+static constexpr size_t JOBS_CONTEXT_TEXT_MAX = 2u * 1024u * 1024u;
+static constexpr size_t JOBS_CONTEXT_SYSTEM_MAX = 256u * 1024u;
+static constexpr size_t JOBS_CONTEXT_PATH_MAX = 4096u;
+static constexpr size_t JOBS_CONTEXT_PATHS_MAX = 64u;
+
+static bool lower_hex(const char *text, size_t length) {
+    if (!text || strlen(text) != length) return false;
+    for (size_t i = 0; i < length; ++i)
+        if (!((text[i] >= '0' && text[i] <= '9') || (text[i] >= 'a' && text[i] <= 'f')))
+            return false;
+    return true;
+}
+
+static bool context_text(yyjson_val *value, size_t max, bool nullable) {
+    if (nullable && yyjson_is_null(value)) return true;
+    const char *text = yyjson_get_str(value);
+    size_t length = yyjson_get_len(value);
+    return text && length <= max && strlen(text) == length && utf8_valid_bytes(text, length);
+}
+
+static bool task_digest_matches(const char *body, const char *expected) {
+    uint8_t bytes[20];
+    char actual[TNY_TASK_DIGEST_HEX_LEN + 1];
+    return body && lower_hex(expected, TNY_TASK_DIGEST_HEX_LEN) &&
+           sha1((const uint8_t *)body, strlen(body), bytes) &&
+           (hex_of(bytes, sizeof bytes, actual), strcmp(actual, expected) == 0);
+}
+
+static bool jobs_child_context_valid(yyjson_val *root, yyjson_val **payload_out);
+
+static char *jobs_child_context_build(tny_ctx *ctx) {
+    if (!ctx || (!ctx->instructions_snapshot_ready && instructions_refresh(ctx) != 0) ||
+        !ctx->instructions_snapshot || strlen(ctx->instructions_snapshot) > JOBS_CONTEXT_TEXT_MAX ||
+        (ctx->system_prompt && strlen(ctx->system_prompt) > JOBS_CONTEXT_SYSTEM_MAX) ||
+        ctx->n_instruction_paths < 0 || (size_t)ctx->n_instruction_paths > JOBS_CONTEXT_PATHS_MAX)
+        return NULL;
+    tny::mutable_document doc(yyjson_mut_doc_new(jallocator()));
+    yyjson_mut_val *root = doc ? yyjson_mut_obj(doc.get()) : NULL;
+    yyjson_mut_val *payload = doc ? yyjson_mut_obj(doc.get()) : NULL;
+    yyjson_mut_val *paths = doc ? yyjson_mut_arr(doc.get()) : NULL;
+    if (!root || !payload || !paths) return NULL;
+    yyjson_mut_doc_set_root(doc.get(), root);
+    jm_set_str(doc.get(), payload, "system_prompt", ctx->system_prompt);
+    jm_set_str(doc.get(), payload, "task_name", ctx->task_name);
+    jm_set_str(doc.get(), payload, "task_source", ctx->task_source);
+    jm_set_str(doc.get(), payload, "task_instructions", ctx->task_instructions);
+    jm_set_str(doc.get(), payload, "task_digest", ctx->task_digest);
+    jm_set_bool(doc.get(), payload, "task_explicit", ctx->task_explicit);
+    jm_set_bool(doc.get(), payload, "context_enabled", ctx->context_enabled);
+    jm_set_str(doc.get(), payload, "instructions_snapshot", ctx->instructions_snapshot);
+    for (int i = 0; i < ctx->n_instruction_paths; ++i) {
+        const char *path = ctx->instruction_paths[i];
+        if (!path || !*path || strlen(path) > JOBS_CONTEXT_PATH_MAX ||
+            !yyjson_mut_arr_append(paths, yyjson_mut_strcpy(doc.get(), path)))
+            return NULL;
+    }
+    if (!yyjson_mut_obj_put(payload, yyjson_mut_strcpy(doc.get(), "instruction_paths"), paths))
+        return NULL;
+    jm_set_str(doc.get(), payload, "instructions_digest", ctx->instructions_digest);
+    jm_set_bool(doc.get(), payload, "instructions_snapshot_ready",
+                ctx->instructions_snapshot_ready);
+    tny::c_string payload_json(jwrite_mut_val(payload));
+    tny::c_string digest(
+        payload_json ? sha256_hex_of(payload_json.get(), strlen(payload_json.get())) : NULL);
+    if (!digest) return NULL;
+    jm_set_int(doc.get(), root, "version", 1);
+    if (!yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc.get(), "payload"), payload)) return NULL;
+    jm_set_str(doc.get(), root, "sha256", digest.get());
+    char *json = jwrite(doc.get());
+    tny::document check(json ? jparse(json, strlen(json)) : NULL);
+    yyjson_val *checked_payload = NULL;
+    if (json && (strlen(json) > TNY_JOBS_PAYLOAD_MAX || !check ||
+                 !jobs_child_context_valid(yyjson_doc_get_root(check.get()), &checked_payload))) {
+        secure_free(json);
+        json = NULL;
+    }
+    return json;
+}
+
+static bool jobs_child_context_valid(yyjson_val *root, yyjson_val **payload_out) {
+    yyjson_val *payload = jget(root, "payload");
+    const char *expected = jget_str(root, "sha256");
+    if (!yyjson_is_obj(root) || yyjson_obj_size(root) != 3 || jget_int(root, "version", 0) != 1 ||
+        !yyjson_is_obj(payload) || yyjson_obj_size(payload) != 11 || !lower_hex(expected, 64))
+        return false;
+    tny::c_string payload_json(jwrite_val(payload));
+    tny::c_string actual(
+        payload_json ? sha256_hex_of(payload_json.get(), strlen(payload_json.get())) : NULL);
+    if (!actual || strcmp(actual.get(), expected) != 0 ||
+        !context_text(jget(payload, "system_prompt"), JOBS_CONTEXT_SYSTEM_MAX, true) ||
+        !yyjson_is_bool(jget(payload, "task_explicit")) ||
+        !yyjson_is_bool(jget(payload, "context_enabled")) ||
+        !context_text(jget(payload, "instructions_snapshot"), JOBS_CONTEXT_TEXT_MAX, false) ||
+        !yyjson_is_bool(jget(payload, "instructions_snapshot_ready")) ||
+        !jget_bool(payload, "instructions_snapshot_ready", false) ||
+        !lower_hex(jget_str(payload, "instructions_digest"), 16))
+        return false;
+    const char *snapshot = jget_str(payload, "instructions_snapshot");
+    char instructions_digest[17];
+    snprintf(instructions_digest, sizeof instructions_digest, "%016llx",
+             (unsigned long long)fnv1a(snapshot, strlen(snapshot)));
+    if (strcmp(instructions_digest, jget_str(payload, "instructions_digest")) != 0) return false;
+    yyjson_val *paths = jget(payload, "instruction_paths");
+    if (!yyjson_is_arr(paths) || yyjson_arr_size(paths) > JOBS_CONTEXT_PATHS_MAX) return false;
+    size_t i, max;
+    yyjson_val *path;
+    yyjson_arr_foreach(paths, i, max, path) {
+        if (!context_text(path, JOBS_CONTEXT_PATH_MAX, false) || yyjson_get_len(path) == 0)
+            return false;
+    }
+    yyjson_val *task_name = jget(payload, "task_name");
+    yyjson_val *task_source = jget(payload, "task_source");
+    yyjson_val *task_body = jget(payload, "task_instructions");
+    const char *digest = jget_str(payload, "task_digest");
+    bool no_task = yyjson_is_null(task_name) && yyjson_is_null(task_source) &&
+                   yyjson_is_null(task_body) && digest && !*digest;
+    bool task = context_text(task_name, TNY_TASK_NAME_MAX - 1, false) &&
+                context_text(task_source, 32, false) &&
+                context_text(task_body, TNY_TASK_BODY_MAX, false) &&
+                tny_task_name_valid(jget_str(payload, "task_name")) &&
+                tny_task_source_valid(jget_str(payload, "task_source")) &&
+                task_digest_matches(jget_str(payload, "task_instructions"), digest);
+    if (!no_task && !task) return false;
+    *payload_out = payload;
+    return true;
+}
+
+static int jobs_child_context_read(const tny_ctx *ctx, const char *path, yyjson_doc **doc_out,
+                                   yyjson_val **payload_out, char *err, size_t errlen) {
+    *doc_out = NULL;
+    *payload_out = NULL;
+    char *root = path_join(ctx->tny_dir, "jobs");
+    char *absolute = path_abs(path);
+    const char *leaf = absolute ? strrchr(absolute, '/') : NULL;
+    char *parent = leaf && leaf != absolute ? xstrndup(absolute, (size_t)(leaf - absolute)) : NULL;
+    const char *job = parent ? strrchr(parent, '/') : NULL;
+    bool confined = root && absolute && parent && job && strcmp(leaf + 1, "context.json") == 0 &&
+                    tny_jobs_valid_id(job + 1) && path_is_within(root, absolute);
+    buf_t raw;
+    buf_init(&raw);
+    int rc = confined ? tny_image_io_read_confined(root, absolute, TNY_JOBS_PAYLOAD_MAX, &raw) : -1;
+    free(root);
+    free(absolute);
+    free(parent);
+    yyjson_doc *doc = rc == 0 && raw.len ? jparse(raw.data, raw.len) : NULL;
+    yyjson_val *payload = NULL;
+    bool valid = doc && jobs_child_context_valid(yyjson_doc_get_root(doc), &payload);
+    buf_free(&raw);
+    if (!valid) {
+        yyjson_doc_free(doc);
+        safe_err(err, errlen, "the private snapshot is missing, corrupt or outside its job");
+        return -1;
+    }
+    *doc_out = doc;
+    *payload_out = payload;
+    return 0;
+}
+
+int tny_jobs_child_context_apply(tny_ctx *ctx, const char *path, char *err, size_t errlen) {
+    yyjson_doc *doc = NULL;
+    yyjson_val *payload = NULL;
+    if (!ctx || !path || jobs_child_context_read(ctx, path, &doc, &payload, err, errlen) != 0)
+        return -1;
+    const char *system = jget_str(payload, "system_prompt");
+    const char *task_name = jget_str(payload, "task_name");
+    const char *task_source = jget_str(payload, "task_source");
+    const char *task_body = jget_str(payload, "task_instructions");
+    const char *instructions = jget_str(payload, "instructions_snapshot");
+    yyjson_val *paths = jget(payload, "instruction_paths");
+    char *new_system = system ? xstrdup(system) : NULL;
+    char *new_name = task_name ? xstrdup(task_name) : NULL;
+    char *new_source = task_source ? xstrdup(task_source) : NULL;
+    char *new_body = task_body ? xstrdup(task_body) : NULL;
+    char *new_instructions = xstrdup(instructions);
+    size_t count = yyjson_arr_size(paths);
+    char **new_paths = count ? static_cast<char **>(calloc(count, sizeof *new_paths)) : NULL;
+    bool ok = (!system || new_system) && (!task_name || new_name) && (!task_source || new_source) &&
+              (!task_body || new_body) && new_instructions && (!count || new_paths);
+    for (size_t i = 0; ok && i < count; ++i) {
+        new_paths[i] = xstrdup(yyjson_get_str(yyjson_arr_get(paths, i)));
+        ok = new_paths[i] != NULL;
+    }
+    if (!ok) {
+        free(new_system);
+        free(new_name);
+        free(new_source);
+        free(new_body);
+        free(new_instructions);
+        for (size_t i = 0; i < count; ++i) free(new_paths ? new_paths[i] : NULL);
+        free(new_paths);
+        yyjson_doc_free(doc);
+        safe_err(err, errlen, "out of memory while restoring the private snapshot");
+        return -1;
+    }
+    free(ctx->system_prompt);
+    free(ctx->task_name);
+    free(ctx->task_source);
+    free(ctx->task_instructions);
+    free(ctx->instructions_snapshot);
+    for (int i = 0; i < ctx->n_instruction_paths; ++i) free(ctx->instruction_paths[i]);
+    free(ctx->instruction_paths);
+    ctx->system_prompt = new_system;
+    ctx->task_name = new_name;
+    ctx->task_source = new_source;
+    ctx->task_instructions = new_body;
+    ctx->task_explicit = jget_bool(payload, "task_explicit", false);
+    snprintf(ctx->task_digest, sizeof ctx->task_digest, "%s", jget_str(payload, "task_digest"));
+    ctx->context_enabled = jget_bool(payload, "context_enabled", false);
+    ctx->instructions_snapshot = new_instructions;
+    ctx->instruction_paths = new_paths;
+    ctx->n_instruction_paths = (int)count;
+    snprintf(ctx->instructions_digest, sizeof ctx->instructions_digest, "%s",
+             jget_str(payload, "instructions_digest"));
+    ctx->instructions_snapshot_ready = true;
+    yyjson_doc_free(doc);
+    return 0;
+}
+
 static bool state_is_terminal(const char *state) {
     return state && (strcmp(state, "succeeded") == 0 || strcmp(state, "failed") == 0 ||
                      strcmp(state, "cancelled") == 0 || strcmp(state, "interrupted") == 0);
@@ -254,6 +477,27 @@ static bool record_state_is_known(yyjson_val *state) {
     return text && strlen(text) == yyjson_get_len(state) && state_is_known(text);
 }
 
+static bool json_unique_keys(yyjson_val *value, unsigned depth) {
+    if (!value || depth > 64) return false;
+    size_t i, max;
+    yyjson_val *key, *child;
+    if (yyjson_is_obj(value)) {
+        yyjson_obj_foreach(value, i, max, key, child) {
+            const char *name = yyjson_get_str(key);
+            size_t len = yyjson_get_len(key);
+            if (!name || strlen(name) != len || yyjson_obj_getn(value, name, len) != child ||
+                !json_unique_keys(child, depth + 1))
+                return false;
+        }
+    } else if (yyjson_is_arr(value)) {
+        yyjson_arr_foreach(value, i, max,
+                           child) if (!json_unique_keys(child, depth + 1)) return false;
+    } else if (yyjson_is_str(value) && strlen(yyjson_get_str(value)) != yyjson_get_len(value)) {
+        return false;
+    }
+    return true;
+}
+
 static yyjson_mut_doc *jobs_record_load(const char *dir, const char *id, char *err, size_t errlen) {
     tny::c_string path(jobs_file(dir, "job.json"));
     if (!path) return NULL;
@@ -270,7 +514,7 @@ static yyjson_mut_doc *jobs_record_load(const char *dir, const char *id, char *e
     tny::document doc(jparse(data.get(), len));
     data.reset(); /* The parsed document owns its bytes from this point. */
     yyjson_val *root = doc ? yyjson_doc_get_root(doc.get()) : NULL;
-    if (!root || !yyjson_is_obj(root)) {
+    if (!root || !yyjson_is_obj(root) || !json_unique_keys(root, 0)) {
         safe_err(err, errlen, "the job record is not a JSON object");
         return NULL;
     }
@@ -673,6 +917,9 @@ typedef struct {
     bool peer_messages;
     yyjson_val *admission;
     yyjson_val *budget;
+    const char *swarm_definition_sha256;
+    const char *swarm_root_coordinator;
+    const char *swarm_purpose;
     int max_steps;
     int concurrency;
     int n_items;
@@ -681,6 +928,8 @@ typedef struct {
     char *outputs[TNY_JOBS_MAX_ITEMS]; /* canonical image outputs, else NULL */
     char
         *launch[TNY_JOBS_MAX_ITEMS]; /* owned private per-item provider snapshot; never persisted */
+    char *child_context;             /* owned private context-only snapshot */
+    char *child_context_path;        /* confined sidecar path, never public metadata */
 } jobs_request;
 
 static void jobs_request_free(jobs_request *r) {
@@ -688,6 +937,8 @@ static void jobs_request_free(jobs_request *r) {
         free(r->outputs[i]);
         secure_free(r->launch[i]);
     }
+    secure_free(r->child_context);
+    free(r->child_context_path);
     memset(r, 0, sizeof *r);
 }
 
@@ -713,6 +964,107 @@ static int validate_ask_item(yyjson_val *item, char *err, size_t errlen) {
         }
     }
     return 0;
+}
+
+static bool sha256_field(yyjson_val *value) {
+    const char *text = yyjson_get_str(value);
+    if (!text || yyjson_get_len(value) != 64 || strlen(text) != 64) return false;
+    for (size_t i = 0; i < 64; ++i)
+        if (!((text[i] >= '0' && text[i] <= '9') || (text[i] >= 'a' && text[i] <= 'f')))
+            return false;
+    return true;
+}
+
+static bool object_has_swarm_field(yyjson_val *obj) {
+    size_t i, max;
+    yyjson_val *key, *value;
+    yyjson_obj_foreach(obj, i, max, key, value) {
+        (void)value;
+        const char *name = yyjson_get_str(key);
+        if (name && str_starts(name, "swarm_")) return true;
+    }
+    return false;
+}
+
+static int manifest_coordinator_task(const tny_swarm_manifest *manifest, size_t group) {
+    size_t participant = manifest->groups[group].coordinator_participant;
+    return participant == SIZE_MAX ? -1 : (int)participant;
+}
+
+/* A public request may not assert durable swarm provenance. The trusted
+ * compiler supplies the canonical manifest out of band, and every ordered
+ * member and edge must be its exact projection. */
+static bool swarm_metadata_valid(yyjson_val *args, const tny_swarm_manifest *manifest,
+                                 const char *definition_sha256) {
+    yyjson_val *items = jget(args, "items");
+    if (!manifest) {
+        if (object_has_swarm_field(args)) return false;
+        size_t i, count;
+        yyjson_val *item;
+        yyjson_arr_foreach(items, i, count, item) if (object_has_swarm_field(item)) return false;
+        return true;
+    }
+    if (!definition_sha256 || !sha256_field(jget(args, "swarm_definition_sha256")) ||
+        strcmp(jget_str(args, "swarm_definition_sha256"), definition_sha256) != 0 ||
+        !jget_str(args, "swarm_root_coordinator") ||
+        strcmp(jget_str(args, "swarm_root_coordinator"), manifest->groups[0].coordinator_name) !=
+            0 ||
+        !jget_str(args, "swarm_purpose") ||
+        strcmp(jget_str(args, "swarm_purpose"), manifest->groups[0].purpose) != 0 ||
+        !yyjson_is_arr(items) || yyjson_arr_size(items) != manifest->participant_count)
+        return false;
+    size_t ri, rm;
+    yyjson_val *root_key, *root_value;
+    yyjson_obj_foreach(args, ri, rm, root_key, root_value) {
+        (void)root_value;
+        const char *name = yyjson_get_str(root_key);
+        if (name && str_starts(name, "swarm_") && strcmp(name, "swarm_definition_sha256") != 0 &&
+            strcmp(name, "swarm_root_coordinator") != 0 && strcmp(name, "swarm_purpose") != 0)
+            return false;
+    }
+    size_t i, count;
+    yyjson_val *item;
+    yyjson_arr_foreach(items, i, count, item) {
+        const tny_swarm_manifest_participant *participant = &manifest->participants[i];
+        const tny_swarm_manifest_group *group = &manifest->groups[participant->group];
+        int coordinator = manifest_coordinator_task(manifest, participant->group);
+        int parent =
+            group->parent == SIZE_MAX ? -1 : manifest_coordinator_task(manifest, group->parent);
+        if (object_has_swarm_field(item) &&
+            (!jget_str(item, "label") || strcmp(jget_str(item, "label"), participant->name) != 0 ||
+             !jget_str(item, "swarm_name") ||
+             strcmp(jget_str(item, "swarm_name"), participant->name) != 0 ||
+             !jget_str(item, "swarm_role") ||
+             strcmp(jget_str(item, "swarm_role"),
+                    participant->coordinator ? "coordinator" : "agent") != 0 ||
+             !yyjson_is_uint(jget(item, "swarm_group")) ||
+             jget_int(item, "swarm_group", -1) != (int64_t)participant->group ||
+             !jget_str(item, "swarm_purpose") ||
+             strcmp(jget_str(item, "swarm_purpose"), participant->purpose) != 0 ||
+             !jget_str(item, "swarm_group_purpose") ||
+             strcmp(jget_str(item, "swarm_group_purpose"), group->purpose) != 0 ||
+             !yyjson_is_int(jget(item, "swarm_coordinator_task")) ||
+             jget_int(item, "swarm_coordinator_task", -2) != coordinator ||
+             !yyjson_is_int(jget(item, "swarm_parent_coordinator_task")) ||
+             jget_int(item, "swarm_parent_coordinator_task", -2) != parent))
+            return false;
+        /* Exact known fields are required; object_has_swarm_field also makes
+         * an unknown/partial swarm_* spelling fail the comparisons above. */
+        if (!object_has_swarm_field(item)) return false;
+        size_t ki, km;
+        yyjson_val *key, *value;
+        yyjson_obj_foreach(item, ki, km, key, value) {
+            (void)value;
+            const char *name = yyjson_get_str(key);
+            if (name && str_starts(name, "swarm_") && strcmp(name, "swarm_name") != 0 &&
+                strcmp(name, "swarm_role") != 0 && strcmp(name, "swarm_group") != 0 &&
+                strcmp(name, "swarm_purpose") != 0 && strcmp(name, "swarm_group_purpose") != 0 &&
+                strcmp(name, "swarm_coordinator_task") != 0 &&
+                strcmp(name, "swarm_parent_coordinator_task") != 0)
+                return false;
+        }
+    }
+    return true;
 }
 
 static int validate_image_item(tny_ctx *ctx, yyjson_val *item, char **canonical_out, char *err,
@@ -995,6 +1347,12 @@ static bool jobs_item_provider_supported(tny_ctx *ctx, yyjson_val *item, bool ad
 
 static int jobs_prepare_launches(tny_ctx *ctx, jobs_request *r, char *err, size_t errlen) {
     if (!r->dag) return 0;
+    r->child_context = jobs_child_context_build(ctx);
+    if (!r->child_context) {
+        safe_err(err, errlen, "cannot capture the bounded child instruction context");
+        jobs_request_free(r);
+        return -1;
+    }
     for (int i = 0; i < r->n_items; i++)
         if (!jobs_item_provider_supported(ctx, r->items[i], r->admission != NULL, err, errlen)) {
             jobs_request_free(r);
@@ -1024,8 +1382,45 @@ static int jobs_prepare_launches(tny_ctx *ctx, jobs_request *r, char *err, size_
     return 0;
 }
 
-static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, char *err,
-                              size_t errlen) {
+static int jobs_child_context_publish(const char *dir, jobs_request *request, char *err,
+                                      size_t errlen) {
+    if (!request->dag || request->image || !request->child_context) return 0;
+    char *path = jobs_file(dir, "context.json");
+    int rc =
+        path ? tny_jobs_host_snapshot(path, request->child_context, strlen(request->child_context))
+             : ENOMEM;
+    if (rc) {
+        free(path);
+        safe_err(err, errlen, "cannot publish the immutable child context snapshot");
+        return rc;
+    }
+    free(request->child_context_path);
+    request->child_context_path = path;
+    return 0;
+}
+
+static int jobs_child_context_reuse(const tny_ctx *ctx, const char *dir, jobs_request *request,
+                                    char *err, size_t errlen) {
+    if (!request->dag || request->image) return 0;
+    char *path = jobs_file(dir, "context.json");
+    yyjson_doc *doc = NULL;
+    yyjson_val *payload = NULL;
+    if (!path || jobs_child_context_read(ctx, path, &doc, &payload, err, errlen) != 0) {
+        free(path);
+        return EINVAL;
+    }
+    (void)payload;
+    yyjson_doc_free(doc);
+    secure_free(request->child_context);
+    request->child_context = NULL;
+    free(request->child_context_path);
+    request->child_context_path = path;
+    return 0;
+}
+
+static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r,
+                              const tny_swarm_manifest *manifest, const char *definition_sha256,
+                              char *err, size_t errlen) {
     memset(r, 0, sizeof *r);
     const char *kind = jget_str(args, "kind");
     if (!kind || (strcmp(kind, "ask") != 0 && strcmp(kind, "image") != 0)) {
@@ -1046,6 +1441,15 @@ static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, c
         return -1;
     }
     if (!dag_validate(args, err, errlen)) return -1;
+    if (!swarm_metadata_valid(args, manifest, definition_sha256)) {
+        safe_err(err, errlen,
+                 manifest ? "purposeful topology differs from its canonical manifest"
+                          : "purposeful swarm metadata is compiler-owned");
+        return -1;
+    }
+    r->swarm_definition_sha256 = jget_str(args, "swarm_definition_sha256");
+    r->swarm_root_coordinator = jget_str(args, "swarm_root_coordinator");
+    r->swarm_purpose = jget_str(args, "swarm_purpose");
     r->dag = jget_bool(args, "dag", false);
     r->admission = jget(args, "admission");
     r->budget = jget(args, "budget");
@@ -1205,7 +1609,9 @@ static int jobs_request_parse_retry(tny_ctx *ctx, yyjson_val *args, jobs_request
 
 /* ------------------------------------------------- permission detail string */
 
-char *tny_jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, char **error) {
+static char *jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args,
+                         const tny_swarm_manifest *manifest, const char *definition_sha256,
+                         char **error) {
     if (error) *error = NULL;
     buf_t d;
     buf_init(&d);
@@ -1213,7 +1619,8 @@ char *tny_jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, char **err
     if (op == TNY_JOBS_OP_SUBMIT) {
         jobs_request request;
         char err[256] = "";
-        if (jobs_request_parse(ctx, args, &request, err, sizeof err) != 0) {
+        if (jobs_request_parse(ctx, args, &request, manifest, definition_sha256, err, sizeof err) !=
+            0) {
             buf_free(&d);
             if (error) {
                 buf_t e;
@@ -1287,6 +1694,15 @@ char *tny_jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, char **err
                         (long long)jget_int(args, "expected_attempt", 0));
     }
     return buf_detach(&d);
+}
+
+char *tny_jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, char **error) {
+    return jobs_detail(ctx, op, args, NULL, NULL, error);
+}
+
+char *tny_jobs_swarm_detail(tny_ctx *ctx, yyjson_val *args, const tny_swarm_manifest *manifest,
+                            const char *definition_sha256, char **error) {
+    return jobs_detail(ctx, TNY_JOBS_OP_SUBMIT, args, manifest, definition_sha256, error);
 }
 
 /* ------------------------------------------------------------ argv grammar */
@@ -1825,6 +2241,13 @@ static void job_items_json(yyjson_mut_doc *doc, buf_t *out) {
                         (long long)jm_int(item, "attempt", 1));
             static const char *const keys[] = {"label",
                                                "role",
+                                               "swarm_name",
+                                               "swarm_role",
+                                               "swarm_group",
+                                               "swarm_purpose",
+                                               "swarm_group_purpose",
+                                               "swarm_coordinator_task",
+                                               "swarm_parent_coordinator_task",
                                                "verification",
                                                "definition_sha256",
                                                "dependency_sha256",
@@ -1887,11 +2310,18 @@ static void job_json(yyjson_mut_doc *doc, const char *dir, buf_t *out) {
     jescape(out, jm_str(root, "id"));
     if (jm_bool(root, "dag", false)) {
         buf_appends(out, ",\"dag\":true");
-        static const char *const keys[] = {"run_id",       "parent_session_id",
-                                           "verification", "workspace_revision",
-                                           "provider",     "model",
-                                           "effort",       "permission_ceiling",
-                                           "tool_ceiling"};
+        static const char *const keys[] = {"run_id",
+                                           "parent_session_id",
+                                           "verification",
+                                           "workspace_revision",
+                                           "provider",
+                                           "model",
+                                           "effort",
+                                           "permission_ceiling",
+                                           "tool_ceiling",
+                                           "swarm_definition_sha256",
+                                           "swarm_root_coordinator",
+                                           "swarm_purpose"};
         for (size_t k = 0; k < sizeof keys / sizeof keys[0]; k++) {
             char *json = jwrite_mut_val(yyjson_mut_obj_get(root, keys[k]));
             buf_appendf(out, ",\"%s\":%s", keys[k], json ? json : "null");
@@ -2065,6 +2495,7 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
     jm_set_str(doc, root, "perm_mode", tny_perm_mode_name(ctx->perm_mode));
     jm_set_bool(doc, root, "no_self_improve", ctx->no_self_improve);
     jm_set_str(doc, root, "tools", tny_tool_profile_name(ctx->tool_profile));
+    jm_set_str(doc, root, "child_context", request->child_context_path);
     /* Chat and image credentials are two separate allowances (A14): an ask
      * item never receives the image allowance and an image item never
      * receives the chat key. They are distinct mappings even when one account
@@ -2156,6 +2587,19 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
             jm_set_str(doc, item, "workspace_policy", workspace_policy(request->items[i]));
             jm_set_str(doc, item, "workspace_base",
                        jget_str(jget(request->items[i], "workspace"), "base"));
+            static const char *const swarm_strings[] = {"swarm_name", "swarm_role", "swarm_purpose",
+                                                        "swarm_group_purpose"};
+            for (size_t k = 0; k < sizeof swarm_strings / sizeof swarm_strings[0]; ++k)
+                jm_set_str(doc, item, swarm_strings[k],
+                           jget_str(request->items[i], swarm_strings[k]));
+            if (jget(request->items[i], "swarm_group")) {
+                jm_set_int(doc, item, "swarm_group",
+                           jget_int(request->items[i], "swarm_group", -1));
+                jm_set_int(doc, item, "swarm_coordinator_task",
+                           jget_int(request->items[i], "swarm_coordinator_task", -1));
+                jm_set_int(doc, item, "swarm_parent_coordinator_task",
+                           jget_int(request->items[i], "swarm_parent_coordinator_task", -1));
+            }
         }
         static const char *const passthrough[] = {"model",   "effort", "task",
                                                   "quality", "size",   "operation"};
@@ -2408,8 +2852,22 @@ static char *dag_workspace_revision(const char *cwd) {
 static char *dag_definition_hash(yyjson_mut_val *item) {
     buf_t b;
     buf_init(&b);
-    static const char *const keys[] = {"request", "depends_on", "label", "role"};
-    for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) {
+    static const char *const keys[] = {"request",
+                                       "depends_on",
+                                       "label",
+                                       "role",
+                                       "swarm_name",
+                                       "swarm_role",
+                                       "swarm_group",
+                                       "swarm_purpose",
+                                       "swarm_group_purpose",
+                                       "swarm_coordinator_task",
+                                       "swarm_parent_coordinator_task"};
+    /* Existing non-purposeful jobs retain their four-field digest. Missing
+     * optional swarm metadata is not a corrupt definition and must not make
+     * an ordinary team fail before its first worker starts. */
+    const size_t key_count = jm_str(item, "swarm_name") ? sizeof keys / sizeof keys[0] : 4;
+    for (size_t i = 0; i < key_count; i++) {
         char *json = jwrite_mut_val(yyjson_mut_obj_get(item, keys[i]));
         if (!json) {
             buf_free(&b);
@@ -2446,7 +2904,8 @@ static char *dag_dependency_hash(yyjson_mut_doc *doc, yyjson_mut_val *item) {
 }
 
 static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, const char *job_id,
-                                  const char *dir, const char *parent_session) {
+                                  const char *dir, const char *parent_session,
+                                  const char *swarm_activation_id) {
     yyjson_mut_doc *doc = yyjson_mut_doc_new(jallocator());
     yyjson_mut_val *root = doc ? yyjson_mut_obj(doc) : NULL;
     if (!root) {
@@ -2499,6 +2958,10 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
         jm_set_str(doc, root, "effort", ctx->reasoning_effort);
         jm_set_str(doc, root, "permission_ceiling", tny_perm_mode_name(ctx->perm_mode));
         jm_set_str(doc, root, "tool_ceiling", tny_tool_profile_name(ctx->tool_profile));
+        jm_set_str(doc, root, "swarm_definition_sha256", request->swarm_definition_sha256);
+        jm_set_str(doc, root, "swarm_root_coordinator", request->swarm_root_coordinator);
+        jm_set_str(doc, root, "swarm_purpose", request->swarm_purpose);
+        jm_set_str(doc, root, "swarm_activation_id", swarm_activation_id);
     }
     jm_set_str(doc, root, "created", now ? now : "");
     jm_set_str(doc, root, "updated", now ? now : "");
@@ -2539,6 +3002,19 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
             jm_set_str(doc, item, "label", jget_str(request->items[i], "label"));
             const char *role = jget_str(request->items[i], "role");
             jm_set_str(doc, item, "role", role ? role : "worker");
+            static const char *const swarm_strings[] = {"swarm_name", "swarm_role", "swarm_purpose",
+                                                        "swarm_group_purpose"};
+            for (size_t k = 0; k < sizeof swarm_strings / sizeof swarm_strings[0]; ++k)
+                jm_set_str(doc, item, swarm_strings[k],
+                           jget_str(request->items[i], swarm_strings[k]));
+            if (jget(request->items[i], "swarm_group")) {
+                jm_set_int(doc, item, "swarm_group",
+                           jget_int(request->items[i], "swarm_group", -1));
+                jm_set_int(doc, item, "swarm_coordinator_task",
+                           jget_int(request->items[i], "swarm_coordinator_task", -1));
+                jm_set_int(doc, item, "swarm_parent_coordinator_task",
+                           jget_int(request->items[i], "swarm_parent_coordinator_task", -1));
+            }
             yyjson_val *deps = jget(request->items[i], "depends_on");
             yyjson_mut_obj_put(item, yyjson_mut_strcpy(doc, "depends_on"),
                                deps ? yyjson_val_mut_copy(doc, deps) : yyjson_mut_arr(doc));
@@ -2732,14 +3208,17 @@ static int jobs_admission(tny_ctx *ctx, yyjson_val *config, const char *id, int 
 }
 
 static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen,
-                       bool (*cancelled)(void *), void *cancel_ud, const char *parent_session) {
+                       bool (*cancelled)(void *), void *cancel_ud, const char *parent_session,
+                       const char *swarm_activation_id, const tny_swarm_manifest *manifest,
+                       const char *definition_sha256) {
     if (!tny_jobs_execution_supported()) {
         safe_err(err, errlen,
                  "durable jobs need a native tny build; this runtime cannot own a child process");
         return 1;
     }
     jobs_request request;
-    if (jobs_request_parse(ctx, args, &request, err, errlen) != 0) return 1;
+    if (jobs_request_parse(ctx, args, &request, manifest, definition_sha256, err, errlen) != 0)
+        return 1;
 
     char *self = tny_process_self_path();
     uint8_t raw[16];
@@ -2780,7 +3259,8 @@ static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
         return 2;
     }
 
-    yyjson_mut_doc *record = record_new(ctx, &request, job_id, dir, parent_session);
+    yyjson_mut_doc *record =
+        record_new(ctx, &request, job_id, dir, parent_session, swarm_activation_id);
     rc = record ? jobs_record_store(dir, record) : ENOMEM;
     if (rc) {
         yyjson_mut_doc_free(record);
@@ -2790,6 +3270,18 @@ static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
         free(self);
         jobs_request_free(&request);
         safe_err(err, errlen, "cannot write the job record");
+        return 2;
+    }
+
+    rc = jobs_child_context_publish(dir, &request, err, errlen);
+    if (rc) {
+        submit_finish_failed(dir, 1, TNY_JOBS_CODE_IO, err);
+        yyjson_mut_doc_free(record);
+        owner_fd.reset();
+        free(owner_path);
+        free(dir);
+        free(self);
+        jobs_request_free(&request);
         return 2;
     }
 
@@ -3274,6 +3766,218 @@ static int jobs_list(tny_ctx *ctx, buf_t *out, char *err, size_t errlen) {
 #endif
 }
 
+static yyjson_doc *swarm_record_read(tny_ctx *ctx, const char *id, char *err, size_t errlen) {
+#ifdef __EMSCRIPTEN__
+    (void)ctx;
+    (void)id;
+    safe_err(err, errlen, "purposeful swarm recovery is unavailable");
+    return NULL;
+#else
+    tny::c_string root(jobs_root(ctx));
+    tny::c_string authority(root ? path_abs(root.get()) : NULL);
+    tny::c_string dir(authority && tny_jobs_valid_id(id) ? path_join(authority.get(), id) : NULL);
+    tny::c_string path(dir ? path_join(dir.get(), "job.json") : NULL);
+    buf_t raw = {};
+    int rc =
+        path ? tny_image_io_read_confined(authority.get(), path.get(), TNY_JOBS_PAYLOAD_MAX, &raw)
+             : -1;
+    yyjson_doc *doc = rc == 0 ? jparse(raw.data, raw.len) : NULL;
+    buf_free(&raw);
+    if (!doc || !yyjson_is_obj(yyjson_doc_get_root(doc))) {
+        yyjson_doc_free(doc);
+        safe_err(err, errlen, "purposeful swarm job record is unreadable");
+        return NULL;
+    }
+    return doc;
+#endif
+}
+
+#ifndef __EMSCRIPTEN__
+/* Submission cannot launch before job.json is stored. A record-less directory
+ * is therefore a safe zero-match only when no submitter owns its lock (or the
+ * crash preceded creation of that lock). Existing malformed/link records stay
+ * ambiguous and block retry. */
+static bool swarm_incomplete_record_safe(tny_ctx *ctx, const char *id) {
+    tny::c_string dir(jobs_dir(ctx, id));
+    tny::c_string record(dir ? path_join(dir.get(), "job.json") : NULL);
+    struct stat st;
+    if (!record || lstat(record.get(), &st) == 0 || errno != ENOENT) return false;
+    tny::c_string owner(dir ? path_join(dir.get(), "owner.lock") : NULL);
+    if (!owner) return false;
+    if (lstat(owner.get(), &st) != 0) return errno == ENOENT;
+    return tny_jobs_host_owner_state(owner.get()) == TNY_JOBS_OWNER_FREE;
+}
+#endif
+
+static bool swarm_record_matches(yyjson_val *root, const char *id, const char *parent_session,
+                                 const char *activation_id, const tny_swarm_manifest *manifest,
+                                 const char *definition_sha256, int admission_cap, char *err,
+                                 size_t errlen) {
+    char label[64];
+    snprintf(label, sizeof label, "swarm_%s", parent_session);
+    yyjson_val *admission = jget(root, "admission");
+    yyjson_val *items = jget(root, "items");
+    bool root_ok =
+        json_unique_keys(root, 0) && jget_str(root, "id") &&
+        strcmp(jget_str(root, "id"), id) == 0 && jget_str(root, "run_id") &&
+        strcmp(jget_str(root, "run_id"), id) == 0 && jget_str(root, "parent_session_id") &&
+        strcmp(jget_str(root, "parent_session_id"), parent_session) == 0 &&
+        jget_str(root, "swarm_activation_id") &&
+        strcmp(jget_str(root, "swarm_activation_id"), activation_id) == 0 &&
+        jget_str(root, "swarm_definition_sha256") &&
+        strcmp(jget_str(root, "swarm_definition_sha256"), definition_sha256) == 0 &&
+        jget_str(root, "swarm_root_coordinator") &&
+        strcmp(jget_str(root, "swarm_root_coordinator"), manifest->groups[0].coordinator_name) ==
+            0 &&
+        jget_str(root, "swarm_purpose") &&
+        strcmp(jget_str(root, "swarm_purpose"), manifest->groups[0].purpose) == 0 &&
+        yyjson_is_bool(jget(root, "dag")) && jget_bool(root, "dag", false) &&
+        jget_str(root, "job_kind") && strcmp(jget_str(root, "job_kind"), "ask") == 0 &&
+        yyjson_is_int(jget(root, "concurrency")) &&
+        jget_int(root, "concurrency", -1) == (int64_t)manifest->participant_count &&
+        admission_cap == (int)manifest->participant_count && yyjson_is_obj(admission) &&
+        yyjson_obj_size(admission) == 5 && jget_str(admission, "label") &&
+        strcmp(jget_str(admission, "label"), label) == 0 && jget_str(admission, "provider_scope") &&
+        strcmp(jget_str(admission, "provider_scope"), "swarm") == 0 &&
+        yyjson_is_int(jget(admission, "cap")) && jget_int(admission, "cap", -1) == admission_cap &&
+        yyjson_is_int(jget(admission, "queue_cap")) &&
+        jget_int(admission, "queue_cap", -1) == 128 &&
+        yyjson_is_int(jget(admission, "claim_limit")) &&
+        jget_int(admission, "claim_limit", -1) == 1024 &&
+        yyjson_is_bool(jget(root, "peer_messages")) && jget_bool(root, "peer_messages", false) &&
+        yyjson_is_arr(items) && yyjson_arr_size(items) == manifest->participant_count;
+    if (!root_ok) {
+        safe_err(err, errlen, "purposeful swarm run provenance or capacity is invalid");
+        return false;
+    }
+    size_t i, count;
+    yyjson_val *item;
+    yyjson_arr_foreach(items, i, count, item) {
+        const tny_swarm_manifest_participant *participant = &manifest->participants[i];
+        const tny_swarm_manifest_group *group = &manifest->groups[participant->group];
+        int coordinator = manifest_coordinator_task(manifest, participant->group);
+        int parent =
+            group->parent == SIZE_MAX ? -1 : manifest_coordinator_task(manifest, group->parent);
+        if (!yyjson_is_obj(item) || !yyjson_is_int(jget(item, "index")) ||
+            jget_int(item, "index", -1) != (int64_t)i || !jget_str(item, "role") ||
+            strcmp(jget_str(item, "role"), "worker") != 0 || !jget_str(item, "label") ||
+            strcmp(jget_str(item, "label"), participant->name) != 0 ||
+            !jget_str(item, "swarm_name") ||
+            strcmp(jget_str(item, "swarm_name"), participant->name) != 0 ||
+            !jget_str(item, "swarm_role") ||
+            strcmp(jget_str(item, "swarm_role"),
+                   participant->coordinator ? "coordinator" : "agent") != 0 ||
+            !yyjson_is_int(jget(item, "swarm_group")) ||
+            jget_int(item, "swarm_group", -1) != (int64_t)participant->group ||
+            !jget_str(item, "swarm_purpose") ||
+            strcmp(jget_str(item, "swarm_purpose"), participant->purpose) != 0 ||
+            !jget_str(item, "swarm_group_purpose") ||
+            strcmp(jget_str(item, "swarm_group_purpose"), group->purpose) != 0 ||
+            !yyjson_is_int(jget(item, "swarm_coordinator_task")) ||
+            jget_int(item, "swarm_coordinator_task", -2) != coordinator ||
+            !yyjson_is_int(jget(item, "swarm_parent_coordinator_task")) ||
+            jget_int(item, "swarm_parent_coordinator_task", -2) != parent) {
+            safe_err(err, errlen,
+                     "purposeful swarm ordered membership or coordinator links are invalid");
+            return false;
+        }
+    }
+    return true;
+}
+
+bool tny_jobs_swarm_validate_run(tny_ctx *ctx, const char *run_id, const char *parent_session,
+                                 const char *activation_id, const tny_swarm_manifest *manifest,
+                                 const char *definition_sha256, int admission_cap, char *err,
+                                 size_t errlen) {
+    if (!ctx || !tny_jobs_valid_id(run_id) || !parent_session || strlen(parent_session) != 16 ||
+        !tny_jobs_valid_id(activation_id) || !manifest || !definition_sha256) {
+        safe_err(err, errlen, "purposeful swarm activation identity is invalid");
+        return false;
+    }
+    yyjson_doc *doc = swarm_record_read(ctx, run_id, err, errlen);
+    bool ok =
+        doc && swarm_record_matches(yyjson_doc_get_root(doc), run_id, parent_session, activation_id,
+                                    manifest, definition_sha256, admission_cap, err, errlen);
+    yyjson_doc_free(doc);
+    return ok;
+}
+
+int tny_jobs_swarm_recover(tny_ctx *ctx, const char *parent_session, const char *activation_id,
+                           const tny_swarm_manifest *manifest, const char *definition_sha256,
+                           int admission_cap, char run_id[TNY_JOBS_ID_LEN + 1], char *err,
+                           size_t errlen) {
+#ifdef __EMSCRIPTEN__
+    (void)ctx;
+    (void)parent_session;
+    (void)activation_id;
+    (void)manifest;
+    (void)definition_sha256;
+    (void)admission_cap;
+    (void)run_id;
+    safe_err(err, errlen, "purposeful swarm recovery is unavailable");
+    return -1;
+#else
+    if (!ctx || !parent_session || strlen(parent_session) != 16 ||
+        !tny_jobs_valid_id(activation_id) || !manifest || !definition_sha256 || !run_id) {
+        safe_err(err, errlen, "purposeful swarm activation identity is invalid");
+        return -1;
+    }
+    run_id[0] = 0;
+    tny::c_string root(jobs_root(ctx));
+    DIR *directory = root ? opendir(root.get()) : NULL;
+    if (!directory) {
+        if (errno == ENOENT) return 0;
+        safe_err(err, errlen, "purposeful swarm job store is unreadable");
+        return -1;
+    }
+    int matches = 0;
+    size_t scanned = 0;
+    struct dirent *entry;
+    while ((entry = readdir(directory))) {
+        if (!tny_jobs_valid_id(entry->d_name)) continue;
+        if (++scanned > JOBS_LIST_MAX) {
+            safe_err(err, errlen, "too many jobs to recover purposeful activation safely");
+            matches = -1;
+            break;
+        }
+        yyjson_doc *doc = swarm_record_read(ctx, entry->d_name, NULL, 0);
+        if (!doc) {
+            if (swarm_incomplete_record_safe(ctx, entry->d_name)) continue;
+            safe_err(err, errlen,
+                     "a job record is unreadable; purposeful activation recovery is ambiguous");
+            matches = -1;
+            break;
+        }
+        yyjson_val *record = doc ? yyjson_doc_get_root(doc) : NULL;
+        const char *stored = jget_str(record, "swarm_activation_id");
+        if (stored && strcmp(stored, activation_id) == 0) {
+            if (++matches > 1) {
+                safe_err(err, errlen, "multiple jobs claim the same purposeful activation");
+                yyjson_doc_free(doc);
+                matches = -1;
+                break;
+            }
+            if (!swarm_record_matches(record, entry->d_name, parent_session, activation_id,
+                                      manifest, definition_sha256, admission_cap, err, errlen)) {
+                yyjson_doc_free(doc);
+                matches = -1;
+                break;
+            }
+            /* The directory name passed exact-length/hex validation above. */
+            memcpy(run_id, entry->d_name, TNY_JOBS_ID_LEN + 1);
+        }
+        yyjson_doc_free(doc);
+    }
+    closedir(directory);
+    if (matches < 0) return -1;
+    if (matches > 1) {
+        safe_err(err, errlen, "multiple jobs claim the same purposeful activation");
+        return -1;
+    }
+    return matches;
+#endif
+}
+
 bool tny_jobs_swarm_transition_safe(tny_ctx *ctx, const char *session) {
 #ifdef __EMSCRIPTEN__
     (void)ctx;
@@ -3501,6 +4205,11 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
     bool image;
     char *job_id = xstrdup(jm_str(root, "id"));
     {
+        if (jm_str(root, "swarm_definition_sha256")) {
+            safe_err(err, errlen,
+                     "purposeful swarm retries require the owning parent session and compiler");
+            goto invalid;
+        }
         if (!state_is_terminal(jm_str(root, "state"))) {
             safe_err(err, errlen, "this job has not finished yet");
             goto invalid;
@@ -3679,6 +4388,12 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
         jobs_request request;
         if (!parsed || jobs_request_parse_retry(ctx, yyjson_doc_get_root(parsed), &request,
                                                 selected, n_selected, err, errlen) != 0) {
+            yyjson_doc_free(parsed);
+            free(owner_path);
+            goto invalid;
+        }
+        if (jobs_child_context_reuse(ctx, dir, &request, err, errlen) != 0) {
+            jobs_request_free(&request);
             yyjson_doc_free(parsed);
             free(owner_path);
             goto invalid;
@@ -4000,7 +4715,8 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
     switch (op) {
     case TNY_JOBS_OP_SUBMIT: {
         if (!ctx->swarm_cap)
-            return jobs_submit(ctx, args, out, err, errlen, cancelled, cancel_ud, parent_session);
+            return jobs_submit(ctx, args, out, err, errlen, cancelled, cancel_ud, parent_session,
+                               NULL, NULL, NULL);
         int cap = ctx->swarm_cap < 0 ? 16 : ctx->swarm_cap;
         yyjson_val *items = jget(args, "items");
         if (!parent_session || strlen(parent_session) != 16 || ctx->no_save ||
@@ -4039,7 +4755,7 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
         char *json = ok ? jwrite(d) : nullptr;
         yyjson_doc *request = json ? jparse(json, strlen(json)) : nullptr;
         int result = request ? jobs_submit(ctx, yyjson_doc_get_root(request), out, err, errlen,
-                                           cancelled, cancel_ud, parent_session)
+                                           cancelled, cancel_ud, parent_session, NULL, NULL, NULL)
                              : 1;
         if (!request) safe_err(err, errlen, "swarm request allocation failed");
         yyjson_doc_free(request);
@@ -4058,6 +4774,61 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
     }
     safe_err(err, errlen, "unknown jobs operation");
     return 1;
+}
+
+int tny_jobs_swarm_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen,
+                          bool (*cancelled)(void *), void *cancel_ud, const char *parent_session,
+                          const char *activation_id, const tny_swarm_manifest *manifest,
+                          const char *definition_sha256) {
+    if (err && errlen) err[0] = 0;
+    yyjson_val *items = jget(args, "items");
+    int cap = ctx && ctx->swarm_cap > 0 ? ctx->swarm_cap : 0;
+    if (!ctx || !out || !manifest || !definition_sha256 ||
+        !sha256_field(jget(args, "swarm_definition_sha256")) || !parent_session ||
+        strlen(parent_session) != 16 || !tny_jobs_valid_id(activation_id) || ctx->no_save ||
+        ctx->ssh_host || ctx->library_mode || !tny_jobs_execution_supported() ||
+        getenv("TNY_ADMISSION_ENROLLED") || getenv("TNY_TEAM_RUN") ||
+        cap != (int)manifest->participant_count || !jget_bool(args, "dag", false) ||
+        !jget_str(args, "kind") || strcmp(jget_str(args, "kind"), "ask") != 0 ||
+        !yyjson_is_arr(items) || yyjson_arr_size(items) != manifest->participant_count ||
+        jget_int(args, "concurrency", -1) != (int64_t)manifest->participant_count ||
+        jget(args, "admission")) {
+        safe_err(err, errlen, "invalid compiler-owned purposeful swarm submission");
+        return 1;
+    }
+    size_t i, count;
+    yyjson_val *item;
+    yyjson_arr_foreach(items, i, count, item) {
+        if (!jget_str(item, "role") || strcmp(jget_str(item, "role"), "worker") != 0) {
+            safe_err(err, errlen, "purposeful swarm participants must be ordered workers");
+            return 1;
+        }
+    }
+    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+    yyjson_mut_val *root = d ? yyjson_val_mut_copy(d, args) : NULL;
+    yyjson_mut_val *admission = d ? yyjson_mut_obj(d) : NULL;
+    char label[64];
+    snprintf(label, sizeof label, "swarm_%s", parent_session);
+    bool ok =
+        root && admission && yyjson_mut_obj_add_strcpy(d, admission, "label", label) &&
+        yyjson_mut_obj_add_strcpy(d, admission, "provider_scope", "swarm") &&
+        yyjson_mut_obj_add_int(d, admission, "cap", cap) &&
+        yyjson_mut_obj_add_int(d, admission, "queue_cap", 128) &&
+        yyjson_mut_obj_add_int(d, admission, "claim_limit", 1024) &&
+        yyjson_mut_obj_add_val(d, root, "admission", admission) &&
+        yyjson_mut_obj_put(root, yyjson_mut_str(d, "peer_messages"), yyjson_mut_bool(d, true));
+    if (root) yyjson_mut_doc_set_root(d, root);
+    char *json = ok ? jwrite(d) : NULL;
+    yyjson_doc *request = json ? jparse(json, strlen(json)) : NULL;
+    int result =
+        request ? jobs_submit(ctx, yyjson_doc_get_root(request), out, err, errlen, cancelled,
+                              cancel_ud, parent_session, activation_id, manifest, definition_sha256)
+                : 1;
+    if (!request) safe_err(err, errlen, "purposeful swarm request allocation failed");
+    yyjson_doc_free(request);
+    free(json);
+    yyjson_mut_doc_free(d);
+    return result;
 }
 
 /* ============================ the detached supervisor ==================== */
@@ -4310,6 +5081,14 @@ static bool jobs_private_payload_value(yyjson_val *payload, const char *value) {
     return false;
 }
 
+static char *worker_env_pair(const char *name, const char *value) {
+    if (!name || !value) return NULL;
+    buf_t entry;
+    buf_init(&entry);
+    buf_appendf(&entry, "%s=%s", name, value);
+    return buf_oom(&entry) ? (buf_free(&entry), nullptr) : buf_detach(&entry);
+}
+
 static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *slot, bool image,
                                char ***owned_out, int *n_owned) {
     yyjson_val *chat = jget(item, "chat") ? jget(item, "chat") : jget(payload, "chat");
@@ -4320,7 +5099,7 @@ static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *
     /* Exactly one side of the split supplies these, never both. */
     const char *token = image ? jget_str(image_creds, "token") : jget_str(chat, "token");
     const char *account = image ? jget_str(image_creds, "account") : jget_str(chat, "account");
-    char **owned = static_cast<char **>(tny_alloc_calloc(54, sizeof *owned));
+    char **owned = static_cast<char **>(tny_alloc_calloc(64, sizeof *owned));
     if (!owned) return NULL;
     int n = 0;
     buf_t entry;
@@ -4372,6 +5151,15 @@ static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *
     const char *scope_label = jget_str(jget(payload, "admission"), "label");
     if (scope_label && str_starts(scope_label, "swarm_"))
         owned[n++] = xstrdup("TNY_TEAM_COLLECTIVE=1");
+    const char *swarm_name = jget_str(item, "swarm_name");
+    if (swarm_name) {
+        owned[n++] = worker_env_pair("TNY_SWARM_NAME", swarm_name);
+        owned[n++] = worker_env_pair("TNY_SWARM_ROLE", jget_str(item, "swarm_role"));
+        owned[n++] = worker_env_pair("TNY_SWARM_PURPOSE", jget_str(item, "swarm_purpose"));
+        char group[24];
+        snprintf(group, sizeof group, "%lld", (long long)jget_int(item, "swarm_group", -1));
+        owned[n++] = worker_env_pair("TNY_SWARM_GROUP", group);
+    }
     const char *policy = jget_str(item, "workspace_policy");
     if (jget_bool(payload, "read_only", false) ||
         (policy && strcmp(policy, "shared_read_only") == 0))
@@ -4460,8 +5248,9 @@ static void worker_env_free(char **envp, char **owned, int n_owned) {
     free(envp);
 }
 
-/* argv carries selectors only: the canonical ask/image CLI this build already
- * ships, never a credential and never the prompt. */
+/* argv carries selectors and one confined private sidecar path: the canonical
+ * ask/image CLI this build already ships, never a credential, instruction body
+ * or prompt. */
 static int worker_build_argv(yyjson_val *payload, yyjson_val *item, const char *prepared_cwd,
                              bool image, char **argv, int cap) {
     int n = 0;
@@ -4502,6 +5291,12 @@ static int worker_build_argv(yyjson_val *payload, yyjson_val *item, const char *
         }
         argv[n] = NULL;
         return jget_str(item, "output_file") ? 0 : -1;
+    }
+    const char *child_context = jget_str(payload, "child_context");
+    if (jget_bool(payload, "dag", false)) {
+        if (!child_context || n + 2 >= cap) return -1;
+        argv[n++] = (char *)"--child-context";
+        argv[n++] = (char *)child_context;
     }
     const char *provider =
         jget_str(chat, "provider") ? jget_str(chat, "provider") : jget_str(payload, "provider");
@@ -4589,12 +5384,12 @@ static int worker_spawn_item(yyjson_val *payload, yyjson_val *item, bool image, 
     }
     slot->log_fd.adopt(
         open(slot->log_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600));
-    char *argv[32];
+    char *argv[40];
     char **owned = NULL;
     int n_owned = 0;
     char **envp = worker_child_env(payload, item, slot, image, &owned, &n_owned);
     int rc = slot->log_fd.borrow() < 0 || !envp ||
-                     worker_build_argv(payload, item, slot->cwd, image, argv, 32) != 0
+                     worker_build_argv(payload, item, slot->cwd, image, argv, 40) != 0
                  ? EINVAL
                  : 0;
     pid_t pid = -1;

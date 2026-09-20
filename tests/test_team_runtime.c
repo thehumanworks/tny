@@ -3,6 +3,12 @@
 #include "core/team_runtime.h"
 #include "core/swarm.h"
 #include "util/util.h"
+#include "util/jobs_host.h"
+#include <errno.h>
+#include <fcntl.h>
+#if defined(__linux__)
+#include <sys/inotify.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -189,7 +195,46 @@ TEST collective_mailbox_schema_and_permission_identity(void) {
     PASS();
 }
 
+TEST linux_team_watch_rejects_lost_or_malformed_events(void) {
+#if defined(__linux__)
+    /* Inject kernel-shaped records through a nonblocking pipe, including lost
+     * notifications and truncation; no live inotify limit needs changing. */
+    for (int mode = 0; mode < 8; mode++) {
+        int descriptors[2];
+        ASSERT_EQ(0, pipe(descriptors));
+        ASSERT_EQ(0, fcntl(descriptors[0], F_SETFL, O_NONBLOCK));
+        struct inotify_event event = {.wd = 1, .mask = IN_CREATE};
+        char bytes[2 * sizeof event + 4] = {0};
+        size_t count = sizeof event;
+        if (mode == 1) {
+            event.len = 4;
+            struct inotify_event second = {.wd = 1, .mask = IN_MOVED_TO};
+            memcpy(bytes + sizeof event + 4, &second, sizeof second);
+            count = sizeof bytes;
+        } else if (mode == 2) count = sizeof event - 1;
+        else if (mode == 3) event.len = 100;
+        else if (mode == 4) event.mask = IN_Q_OVERFLOW;
+        else if (mode == 5) event.mask = IN_IGNORED;
+        else if (mode == 6) event.mask = IN_DELETE_SELF;
+        else if (mode == 7) event.mask = IN_MOVE_SELF;
+        memcpy(bytes, &event, sizeof event);
+        ASSERT_EQ((ssize_t)count, write(descriptors[1], bytes, count));
+        tny_jobs_watch watch = {.fd = descriptors[0], .directory_fd = -1};
+        int rc = tny_jobs_host_watch_drain(&watch);
+        int saved_errno = errno;
+        tny_jobs_host_watch_close(&watch);
+        close(descriptors[1]);
+        ASSERT_EQ(mode < 2 ? 0 : -1, rc);
+        if (mode >= 2) ASSERT_EQ(EIO, saved_errno);
+    }
+    PASS();
+#else
+    SKIP(); /* The Linux event decoder is exercised in native Linux CI. */
+#endif
+}
+
 SUITE(team_runtime_suite) {
+    RUN_TEST(linux_team_watch_rejects_lost_or_malformed_events);
     RUN_TEST(collective_mailbox_schema_and_permission_identity);
     RUN_TEST(swarm_count_and_failed_resume_are_bounded);
     RUN_TEST(team_owned_background_is_refused_without_a_task_record);

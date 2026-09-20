@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/thehumanworks/tny/main/schemas/swarm.schema.json",
+  "title": "tny purposeful swarm definition",
+  "description": "Version 1 purposeful swarm. Runtime validation additionally enforces UTF-8 byte limits, globally unique names, at least one launched participant, and a shared total capacity of at most 16 participants. The root coordinator is the current lead; every nested coordinator is launched.",
+  "type": "object",
+  "required": ["version", "purpose", "coordinator", "agents", "swarms"],
+  "properties": {
+    "version": { "const": 1 },
+    "purpose": { "$ref": "#/$defs/purpose" },
+    "coordinator": { "$ref": "#/$defs/member" },
+    "agents": { "$ref": "#/$defs/agents" },
+    "swarms": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/group2" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\x00-\\x20\\x7F](?:[^\\x00-\\x1F\\x7F]*[^\\x00-\\x20\\x7F])?$",
+      "description": "Globally unique UTF-8 name; the runtime limit is 64 encoded bytes."
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "\\S",
+      "description": "Non-blank purpose; the runtime limit is 4096 encoded bytes."
+    },
+    "member": {
+      "type": "object",
+      "required": ["name", "purpose"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "purpose": { "$ref": "#/$defs/purpose" }
+      },
+      "additionalProperties": false
+    },
+    "agents": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/member" }
+    },
+    "group2": {
+      "$ref": "#/$defs/groupBase2"
+    },
+    "group3": {
+      "$ref": "#/$defs/groupBase3"
+    },
+    "group4": {
+      "$ref": "#/$defs/groupBase4"
+    },
+    "groupBase2": {
+      "type": "object",
+      "required": ["purpose", "coordinator", "agents", "swarms"],
+      "properties": {
+        "purpose": { "$ref": "#/$defs/purpose" },
+        "coordinator": { "$ref": "#/$defs/member" },
+        "agents": { "$ref": "#/$defs/agents" },
+        "swarms": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/group3" } }
+      },
+      "additionalProperties": false
+    },
+    "groupBase3": {
+      "type": "object",
+      "required": ["purpose", "coordinator", "agents", "swarms"],
+      "properties": {
+        "purpose": { "$ref": "#/$defs/purpose" },
+        "coordinator": { "$ref": "#/$defs/member" },
+        "agents": { "$ref": "#/$defs/agents" },
+        "swarms": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/group4" } }
+      },
+      "additionalProperties": false
+    },
+    "groupBase4": {
+      "type": "object",
+      "required": ["purpose", "coordinator", "agents", "swarms"],
+      "properties": {
+        "purpose": { "$ref": "#/$defs/purpose" },
+        "coordinator": { "$ref": "#/$defs/member" },
+        "agents": { "$ref": "#/$defs/agents" },
+        "swarms": { "type": "array", "maxItems": 0 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

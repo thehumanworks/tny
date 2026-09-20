@@ -25,6 +25,7 @@ void help_root(void) {
           "  mailbox COMMAND        Durable team messages; send/inbox/read/ack/retire\n"
           "  task-workspace COMMAND Inspect, integrate or clean an owned task worktree\n"
           "  team COMMAND           Start, inspect, collect or cancel a job-backed team\n"
+          "  swarm validate FILE    Validate a purposeful nested-swarm definition\n"
           "  resume [last|<id>]     Resume a session interactively\n"
           "  agents                 Background agents dashboard; --json lists state\n"
           "  web search|fetch TEXT  Search the web or fetch a URL\n"
@@ -64,6 +65,7 @@ void help_root(void) {
           "  --system-prompt TEXT   Custom system prompt. openai-compatible providers\n"
           "                         carry it on the system/instructions field.\n"
           "  --swarm[=N]           Collective mode; optional cap 1..16 (lead excluded)\n"
+          "  --swarm-file PATH      Validate, snapshot and launch a purposeful nested swarm\n"
           "  --task NAME            Apply a named task preset (review, optimizer,\n"
           "                         document, retro, task-creation, self-improve, or\n"
           "                         a discovered .tny/tasks NAME.md)\n"
@@ -156,6 +158,7 @@ static const char *ask_help =
     "  --yolo               Disable permission checks and sandbox (the default)\n"
     "  --resume-id ID       Compatibility alias for --resume ID\n"
     "  --swarm[=N]         Collective mode; optional cap 1..16, lead excluded\n"
+    "  --swarm-file PATH    Validate, snapshot and launch named purposeful agents\n"
     "  --task NAME          Apply a runtime task preset (global or ask-local)\n"
     "  --                   Treat every following argument as prompt text\n"
     "\n"
@@ -527,6 +530,12 @@ bool help_for(const char *command) {
                "Native local saved runs only. Agents use the shared typed/terminal adapters.\n"
                "-h, --help shows this help.\n"
                "Example: tny team start --request team.json --json\n";
+    else if (strcmp(command, "swarm") == 0)
+        text = "Usage: tny swarm validate FILE [--json]\n\n"
+               "Strictly validate and canonicalize a version-1 purposeful swarm definition.\n"
+               "Validation is local and context-free: it creates no session, job, workspace or\n"
+               "provider connection. Relative FILE paths resolve from the launch directory.\n"
+               "Activate with: tny --swarm-file FILE ask \"task\"\n";
     else if (strcmp(command, "task-workspace") == 0)
         text = "Usage: tny task-workspace inspect|integrate|cleanup --run ID --task N --attempt N "
                "[--json]\n\n"

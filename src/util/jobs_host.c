@@ -487,17 +487,25 @@ int tny_jobs_host_watch_drain(tny_jobs_watch *watch) {
     }
     return rc < 0 ? -1 : 0;
 #elif defined(__linux__)
-    char bytes[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+    char bytes[4096];
     ssize_t n = 0;
     unsigned batches = 0;
     while (batches++ < 16 && (n = read(watch->fd, bytes, sizeof bytes)) > 0) {
         for (size_t i = 0; i < (size_t)n;) {
-            struct inotify_event *event = (struct inotify_event *)(void *)(bytes + i);
-            if (event->mask & (IN_IGNORED | IN_DELETE_SELF | IN_MOVE_SELF)) {
+            struct inotify_event event;
+            size_t remaining = (size_t)n - i;
+            if (remaining < sizeof event) {
                 errno = EIO;
                 return -1;
             }
-            i += sizeof *event + event->len;
+            /* Copy the fixed header rather than type-punning a byte buffer. */
+            memcpy(&event, bytes + i, sizeof event);
+            if (event.len > remaining - sizeof event ||
+                (event.mask & (IN_IGNORED | IN_DELETE_SELF | IN_MOVE_SELF | IN_Q_OVERFLOW))) {
+                errno = EIO;
+                return -1;
+            }
+            i += sizeof event + event.len;
         }
     }
     return n > 0 || (n < 0 && errno == EAGAIN) ? 0 : -1;

@@ -203,3 +203,10 @@ and the [ownership inventory](verification/issue-144/ownership.md).
 with existing session checkpoints, shared launch admission and durable run mailboxes.
 Directory notifications in `util/jobs_host` drive bounded native mailbox waits
 (ADR 0156); no second agent loop, scheduler or broker owns task state.
+[Purposeful definitions](purposeful-swarms.md) are strictly validated and flattened
+into one team DAG. Nested coordinators are ordinary durable participants with group
+and upward-synthesis metadata; the canonical definition and provenance remain part
+of the session/checkpoint identity. A persisted activation nonce joins an interrupted
+session to exactly one parent-owned job, while the jobs boundary accepts topology only
+through a transient compiler-owned manifest and validates the ordered durable
+projection before adoption (ADR 0157).

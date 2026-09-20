@@ -103,3 +103,5 @@ Dated bake-off numbers versus fx v0.0.3 live in
 
 Opt-in [collective swarm mode](collective-swarm.md) adds peer proposals, challenges,
 shared-channel publication and bounded event-driven mailbox waits over durable teams.
+[Purposeful swarm files](purposeful-swarms.md) add strictly validated names, purposes
+and bounded nested coordination, compiled into that same durable runtime.

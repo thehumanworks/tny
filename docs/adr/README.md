@@ -7,6 +7,7 @@ files in this directory are the complete record.
 
 | ADR | Decision |
 | --- | --- |
+| [0157](0157-purposeful-file-defined-swarms.md) | Strict versioned swarm files compile bounded nesting into one durable team with persisted provenance |
 | [0150](0150-agent-first-harness-and-measured-footprint.md) | Agent-first harness: effective context, no binary-size ceiling, no competitor-size target |
 | [0136](0136-terminal-background-completion.md) | Owned background terminal completion, bounded observation and no PID polling |
 | [0001](0001-run-all-agents-in-yolo-mode.md) | All agents run in yolo mode by default |
@@ -158,3 +159,6 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 
 - [0153: Environment keys, OAuth stores and atomic provider selection](0153-environment-keys-and-oauth-credentials.md)
 - [0154 — Agents session inspection and continuation](0154-agents-session-inspection-and-continuation.md) — proposed: attach when available, otherwise inspect read-only; explicit ownership and `/continue` for saved-checkpoint recovery; preserves ADR 0104.
+
+- [0157: Purposeful file-defined swarms](0157-purposeful-file-defined-swarms.md) — required coordinators, bounded nested definitions and one durable runtime.
+- [0158: Capability-aligned purposeful participant context](0158-purposeful-capability-surface.md) — readonly reviewer tool surface and evidence-based evaluation.

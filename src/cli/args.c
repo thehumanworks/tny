@@ -2,6 +2,7 @@
 #include "cli/cli.h"
 #include "core/backend.h"
 #include "core/extensions.h"
+#include "core/jobs.h"
 #include "core/ssh.h"
 #include "core/tasks.h"
 #include "core/swarm.h"
@@ -12,12 +13,36 @@
 #include <string.h>
 
 tny_ctx *cli_make_ctx(const cli_globals *g) {
-    tny_ctx *ctx = tny_ctx_load(g->cwd);
+    tny_ctx *ctx = g->child_context ? tny_ctx_load_child(g->cwd) : tny_ctx_load(g->cwd);
     if (!ctx) return NULL;
+
+    if (g->child_context) {
+        char error[192] = "";
+        if (tny_jobs_child_context_apply(ctx, g->child_context, error, sizeof error) != 0) {
+            fprintf(stderr, "tny: child context: %s\n",
+                    error[0] ? error : "the private snapshot is unavailable or invalid");
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+    }
 
     ctx->swarm_cap = g->swarm_cap;
     ctx->swarm_explicit = g->swarm_cap != 0;
-    if (g->swarm_cap && (g->ephemeral || g->ssh || !tny_swarm_supported(ctx))) {
+    if (g->swarm_definition) {
+        ctx->swarm_definition = xstrdup(g->swarm_definition);
+        ctx->swarm_source = xstrdup(g->swarm_source);
+        if (!ctx->swarm_definition || !ctx->swarm_source) {
+            fputs("tny: could not retain the validated swarm definition\n", stderr);
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        snprintf(ctx->swarm_definition_digest, sizeof ctx->swarm_definition_digest, "%s",
+                 g->swarm_definition_digest);
+        ctx->swarm_participants = g->swarm_participants;
+        ctx->swarm_cap = g->swarm_participants;
+        ctx->swarm_explicit = true;
+    }
+    if (ctx->swarm_cap && (g->ephemeral || g->ssh || !tny_swarm_supported(ctx))) {
         fputs("tny: swarm requires a saved native local lead session\n", stderr);
         tny_ctx_free(ctx);
         return NULL;

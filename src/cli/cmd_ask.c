@@ -572,6 +572,13 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                     buf_free(&prompt);
                     return 1;
                 }
+            } else if (strcmp(a, "--swarm-file") == 0) {
+                if (++i >= argc || !ctx->swarm_definition) {
+                    ask_diag(events, "invalid_option", "--swarm-file requires a validated PATH",
+                             "tny ask --swarm-file swarm.json \"task\"");
+                    buf_free(&prompt);
+                    return 1;
+                }
             } else if (strcmp(a, "--task") == 0) {
                 if (i + 1 >= argc) {
                     ask_diag(events, "invalid_option", "ask: --task requires a value",

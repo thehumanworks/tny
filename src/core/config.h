@@ -135,6 +135,13 @@ typedef struct tny_ctx {
     bool task_explicit;
     int swarm_cap; /* 0 off, -1 lead decides, positive collaborator ceiling */
     bool swarm_explicit;
+    /* A file-selected swarm is held as validated canonical JSON. The source
+     * path is provenance only: resume/rebind use this snapshot and never
+     * silently reread the path. */
+    char *swarm_definition;
+    char *swarm_source;
+    char swarm_definition_digest[65];
+    int swarm_participants;
 
     /* reasoning effort (all providers). Canonical levels are
      * TNY_EFFORT_LEVELS; other tokens are provider-advertised values passed
@@ -177,6 +184,10 @@ typedef struct tny_ctx {
 /* Load settings + env + repo config for the given --cwd (NULL = getcwd).
  * Cheap: two small file reads, no network, no backend spawn. */
 tny_ctx *tny_ctx_load(const char *cwd_flag);
+/* Internal durable-child load: settings and authority resolve normally, but
+ * ambient project instructions are not read before a private snapshot is
+ * restored by the CLI child-init seam. */
+tny_ctx *tny_ctx_load_child(const char *cwd_flag);
 /* Deterministic embedding context: no settings, repo config, or environment
  * provider/authority loading. Caller supplies an existing workspace and an
  * explicit state directory. Defaults to ask mode and the OpenAI backend. */

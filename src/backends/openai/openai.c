@@ -1160,6 +1160,7 @@ request_oom:
 }
 
 static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
+    if (tny_swarm_activate(&o->env, errbuf, errlen) != 0) return -1;
     if (tny_team_deliver(&o->env, errbuf, errlen) != 0) return -1;
     return start_post_mode(o, errbuf, errlen, false);
 }
