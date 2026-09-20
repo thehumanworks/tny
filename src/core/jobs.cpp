@@ -5296,8 +5296,12 @@ static bool worker_dependency_evidence(tny_ctx *ctx, yyjson_val *payload, job_sl
     char *summaries[TNY_JOBS_MAX_ITEMS] = {};
     size_t result_bytes[TNY_JOBS_MAX_ITEMS] = {};
     bool result_truncated[TNY_JOBS_MAX_ITEMS] = {};
+    bool summary_omitted[TNY_JOBS_MAX_ITEMS] = {};
+    /* Even maximum fan-in must retain explicit omission markers. Task indices
+     * refer back to the complete named durable-reference list above. */
+    constexpr size_t omission_reserve = TNY_JOBS_MAX_ITEMS * 12u + 160u;
     int dep_indices[TNY_JOBS_MAX_ITEMS] = {};
-    bool summary_written = false;
+    bool summary_written = false, comma = false;
     buf_t evidence;
     buf_init(&evidence);
     buf_appends(&evidence,
@@ -5363,7 +5367,7 @@ static bool worker_dependency_evidence(tny_ctx *ctx, yyjson_val *payload, job_sl
                     isolated ? "true" : "false");
     }
     buf_appends(&evidence, "]\nBounded final-answer summaries:\n[");
-    if (buf_oom(&evidence) || evidence.len >= SWARM_DEPENDENCY_EVIDENCE_MAX) {
+    if (buf_oom(&evidence) || evidence.len + omission_reserve >= SWARM_DEPENDENCY_EVIDENCE_MAX) {
         safe_err(slot->plan_error, sizeof slot->plan_error,
                  "dependency evidence references exceed the %u-byte bound",
                  SWARM_DEPENDENCY_EVIDENCE_MAX);
@@ -5381,14 +5385,19 @@ static bool worker_dependency_evidence(tny_ctx *ctx, yyjson_val *payload, job_sl
         jescape(&summary, summaries[i]);
         buf_appends(&summary, "}");
         if (!buf_oom(&summary) &&
-            evidence.len + summary.len + strlen("]\nEND UNTRUSTED DIRECT-DEPENDENCY EVIDENCE\n") <=
-                SWARM_DEPENDENCY_EVIDENCE_MAX) {
+            evidence.len + summary.len + omission_reserve <= SWARM_DEPENDENCY_EVIDENCE_MAX) {
             buf_append(&evidence, summary.data, summary.len);
             summary_written = true;
         } else {
-            result_truncated[i] = true; /* durable reference above remains available */
+            summary_omitted[i] = true; /* durable reference above remains available */
         }
         buf_free(&summary);
+    }
+    buf_appends(&evidence, "]\nOmitted summaries (task indices; use durable references): [");
+    for (size_t i = 0; i < count; i++) {
+        if (!summary_omitted[i]) continue;
+        buf_appendf(&evidence, "%s%d", comma ? "," : "", dep_indices[i]);
+        comma = true;
     }
     buf_appends(&evidence, "]\nEND UNTRUSTED DIRECT-DEPENDENCY EVIDENCE\n");
     if (buf_oom(&evidence) || evidence.len > SWARM_DEPENDENCY_EVIDENCE_MAX || !slot->prompt ||

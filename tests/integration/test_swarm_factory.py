@@ -483,6 +483,55 @@ class SwarmFactory(JobsFixture):
         refused_resume()
         job_path.write_bytes(job_bytes)
 
+    def test_maximum_fan_in_retains_references_and_explicit_omissions(self):
+        names = [f"source-{i}" for i in range(15)]
+        answers = {name: f"EVIDENCE-{name}:" + "x" * 2600 for name in names}
+        answers["review-coordinator"] = "SYNTHESIS"
+        self.server.RequestHandlerClass = type(
+            "FanInHandler", (FactoryHandler,), {"answers": answers}
+        )
+        value = {
+            "version": 2,
+            "purpose": "Bounded fan-in",
+            "coordinator": {"name": "root", "purpose": "Accept only checked work"},
+            "agents": [
+                {"name": name, "purpose": "Provide independent evidence"}
+                for name in names
+            ]
+            + [
+                {
+                    "name": "review-coordinator",
+                    "purpose": "Synthesize direct evidence",
+                    "depends_on": names,
+                }
+            ],
+            "swarms": [],
+        }
+        _, _, run_id = self.launch(value, "FANIN_ROOT")
+        run = self.await_terminal(run_id, timeout=30)
+        self.assertEqual(run["state"], "succeeded", run)
+        prompt = message_text(self.participant_bodies("review-coordinator")[0])
+        evidence = prompt.split("BEGIN UNTRUSTED DIRECT-DEPENDENCY EVIDENCE", 1)[
+            1
+        ].split("END UNTRUSTED DIRECT-DEPENDENCY EVIDENCE", 1)[0]
+        self.assertLessEqual(len(evidence.encode()), 16384)
+        references = json.JSONDecoder().raw_decode(
+            evidence.split("Durable references:\n", 1)[1]
+        )[0]
+        self.assertEqual([r["name"] for r in references], names)
+        omitted = json.loads(
+            evidence.split(
+                "Omitted summaries (task indices; use durable references): ", 1
+            )[1].strip()
+        )
+        self.assertTrue(omitted)
+        self.assertTrue(all(index in range(15) for index in omitted))
+        summaries = json.JSONDecoder().raw_decode(
+            evidence.split("Bounded final-answer summaries:\n", 1)[1]
+        )[0]
+        self.assertEqual(len(summaries) + len(omitted), 15)
+        self.assertTrue(all(s["truncated"] for s in summaries))
+
     def test_completed_run_dynamic_corruption_is_refused_before_provider(self):
         self.state["design_release"].set()
         session_path, _, run_id = self.launch(factory_definition())
