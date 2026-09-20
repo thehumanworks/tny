@@ -727,32 +727,85 @@ static bool sha256_field(yyjson_val *value) {
     return true;
 }
 
-static bool swarm_item_metadata_valid(yyjson_val *item) {
-    const char *role = jget_str(item, "swarm_role");
-    return bounded_string(jget(item, "swarm_name"), 64) && role &&
-           (strcmp(role, "agent") == 0 || strcmp(role, "coordinator") == 0) &&
-           yyjson_is_uint(jget(item, "swarm_group")) && jget_int(item, "swarm_group", -1) >= 0 &&
-           jget_int(item, "swarm_group", 99) <= 16 &&
-           bounded_string(jget(item, "swarm_purpose"), 4096) &&
-           bounded_string(jget(item, "swarm_group_purpose"), 4096) &&
-           yyjson_is_int(jget(item, "swarm_coordinator_task")) &&
-           jget_int(item, "swarm_coordinator_task", -2) >= -1 &&
-           jget_int(item, "swarm_coordinator_task", 99) < TNY_JOBS_MAX_ITEMS &&
-           yyjson_is_int(jget(item, "swarm_parent_coordinator_task")) &&
-           jget_int(item, "swarm_parent_coordinator_task", -2) >= -1 &&
-           jget_int(item, "swarm_parent_coordinator_task", 99) < TNY_JOBS_MAX_ITEMS;
+static bool object_has_swarm_field(yyjson_val *obj) {
+    size_t i, max;
+    yyjson_val *key, *value;
+    yyjson_obj_foreach(obj, i, max, key, value) {
+        (void)value;
+        const char *name = yyjson_get_str(key);
+        if (name && str_starts(name, "swarm_")) return true;
+    }
+    return false;
 }
 
-static bool swarm_metadata_valid(yyjson_val *args) {
-    yyjson_val *digest = jget(args, "swarm_definition_sha256");
-    if (!digest) return !jget(args, "swarm_root_coordinator") && !jget(args, "swarm_purpose");
-    if (!sha256_field(digest) || !bounded_string(jget(args, "swarm_root_coordinator"), 64) ||
-        !bounded_string(jget(args, "swarm_purpose"), 4096))
+static int manifest_coordinator_task(const tny_swarm_manifest *manifest, size_t group) {
+    size_t participant = manifest->groups[group].coordinator_participant;
+    return participant == SIZE_MAX ? -1 : (int)participant;
+}
+
+/* A public request may not assert durable swarm provenance. The trusted
+ * compiler supplies the canonical manifest out of band, and every ordered
+ * member and edge must be its exact projection. */
+static bool swarm_metadata_valid(yyjson_val *args, const tny_swarm_manifest *manifest,
+                                 const char *definition_sha256) {
+    yyjson_val *items = jget(args, "items");
+    if (!manifest) {
+        if (object_has_swarm_field(args)) return false;
+        size_t i, count;
+        yyjson_val *item;
+        yyjson_arr_foreach(items, i, count, item) if (object_has_swarm_field(item)) return false;
+        return true;
+    }
+    if (!definition_sha256 || !sha256_field(jget(args, "swarm_definition_sha256")) ||
+        strcmp(jget_str(args, "swarm_definition_sha256"), definition_sha256) != 0 ||
+        !jget_str(args, "swarm_root_coordinator") ||
+        strcmp(jget_str(args, "swarm_root_coordinator"),
+               manifest->groups[0].coordinator_name) != 0 ||
+        !jget_str(args, "swarm_purpose") ||
+        strcmp(jget_str(args, "swarm_purpose"), manifest->groups[0].purpose) != 0 ||
+        !yyjson_is_arr(items) || yyjson_arr_size(items) != manifest->participant_count)
         return false;
     size_t i, count;
     yyjson_val *item;
-    yyjson_arr_foreach(jget(args, "items"), i, count, item) {
-        if (!swarm_item_metadata_valid(item)) return false;
+    yyjson_arr_foreach(items, i, count, item) {
+        const tny_swarm_manifest_participant *participant = &manifest->participants[i];
+        const tny_swarm_manifest_group *group = &manifest->groups[participant->group];
+        int coordinator = manifest_coordinator_task(manifest, participant->group);
+        int parent = group->parent == SIZE_MAX ? -1
+                                               : manifest_coordinator_task(manifest, group->parent);
+        if (object_has_swarm_field(item) &&
+            (!jget_str(item, "swarm_name") ||
+             strcmp(jget_str(item, "swarm_name"), participant->name) != 0 ||
+             !jget_str(item, "swarm_role") ||
+             strcmp(jget_str(item, "swarm_role"),
+                    participant->coordinator ? "coordinator" : "agent") != 0 ||
+             !yyjson_is_uint(jget(item, "swarm_group")) ||
+             jget_int(item, "swarm_group", -1) != (int64_t)participant->group ||
+             !jget_str(item, "swarm_purpose") ||
+             strcmp(jget_str(item, "swarm_purpose"), participant->purpose) != 0 ||
+             !jget_str(item, "swarm_group_purpose") ||
+             strcmp(jget_str(item, "swarm_group_purpose"), group->purpose) != 0 ||
+             !yyjson_is_int(jget(item, "swarm_coordinator_task")) ||
+             jget_int(item, "swarm_coordinator_task", -2) != coordinator ||
+             !yyjson_is_int(jget(item, "swarm_parent_coordinator_task")) ||
+             jget_int(item, "swarm_parent_coordinator_task", -2) != parent))
+            return false;
+        /* Exact known fields are required; object_has_swarm_field also makes
+         * an unknown/partial swarm_* spelling fail the comparisons above. */
+        if (!object_has_swarm_field(item)) return false;
+        size_t ki, km;
+        yyjson_val *key, *value;
+        yyjson_obj_foreach(item, ki, km, key, value) {
+            (void)value;
+            const char *name = yyjson_get_str(key);
+            if (name && str_starts(name, "swarm_") && strcmp(name, "swarm_name") != 0 &&
+                strcmp(name, "swarm_role") != 0 && strcmp(name, "swarm_group") != 0 &&
+                strcmp(name, "swarm_purpose") != 0 &&
+                strcmp(name, "swarm_group_purpose") != 0 &&
+                strcmp(name, "swarm_coordinator_task") != 0 &&
+                strcmp(name, "swarm_parent_coordinator_task") != 0)
+                return false;
+        }
     }
     return true;
 }
@@ -2495,7 +2548,11 @@ static char *dag_definition_hash(yyjson_mut_val *item) {
                                        "swarm_group_purpose",
                                        "swarm_coordinator_task",
                                        "swarm_parent_coordinator_task"};
-    for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) {
+    /* Existing non-purposeful jobs retain their four-field digest. Missing
+     * optional swarm metadata is not a corrupt definition and must not make
+     * an ordinary team fail before its first worker starts. */
+    const size_t key_count = jm_str(item, "swarm_name") ? sizeof keys / sizeof keys[0] : 4;
+    for (size_t i = 0; i < key_count; i++) {
         char *json = jwrite_mut_val(yyjson_mut_obj_get(item, keys[i]));
         if (!json) {
             buf_free(&b);
