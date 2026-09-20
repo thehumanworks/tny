@@ -109,6 +109,20 @@ class SwarmLifecycle(JobsFixture):
         )
         self.assertEqual(len(self.state["bodies"]), before_requests + 1)
 
+    def test_recovery_ignores_noncanonical_directory_names(self):
+        session_path, session, run_id = self.launch()
+        jobs = self.home / ".tny/jobs"
+        for name in ("a" * 31, "b" * 33, "c" * 255, "G" * 32):
+            directory = jobs / name
+            directory.mkdir()
+            (directory / "job.json").write_text("not a canonical job")
+        self.make_launching(session)
+        session_path.write_text(json.dumps(session))
+        self.resume(session_path, check=True)
+        restored = json.loads(session_path.read_text())["swarm_definition"]
+        self.assertEqual(restored["run_id"], run_id)
+        self.assertEqual(restored["activation"], "active")
+
     def test_interrupted_activation_zero_match_retries_same_identity(self):
         session_path, session, old_run = self.launch()
         activation_id = session["swarm_definition"]["activation_id"]

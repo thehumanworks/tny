@@ -3963,7 +3963,8 @@ int tny_jobs_swarm_recover(tny_ctx *ctx, const char *parent_session, const char 
                 matches = -1;
                 break;
             }
-            snprintf(run_id, TNY_JOBS_ID_LEN + 1, "%s", entry->d_name);
+            /* The directory name passed exact-length/hex validation above. */
+            memcpy(run_id, entry->d_name, TNY_JOBS_ID_LEN + 1);
         }
         yyjson_doc_free(doc);
     }

@@ -20,7 +20,7 @@ and [the user guide](../../purposeful-swarms.md) for v1 boundaries.
 | Release + purposeful/lifecycle/context/collective/wait/benchmark integration pack + unit suite | `84a0d12` | Exit 0, 106.6 s; 520 main unit tests, 29,392 assertions; two additional ownership test executables pass. |
 | `make quality` | `84a0d12` | Exit 0, 212.3 s: formatting, C/C++ Clang analysis, strict warnings and language/workflow linters. GCC analyzer explicitly skipped on Darwin. |
 | `make -j4 leaks` | `84a0d12` | Exit 0, 65.8 s; all checked suites report zero leaked bytes. |
-| Focused manifest mutation experiment | Parser/test inputs unchanged from the retained `0694449` mutation worktree | Five valid mutants killed; zero survived; four uncompilable mutants excluded. |
+| Focused manifest mutation experiment | Historical `0694449` parser checkpoint; predates the FIFO-read hardening | Five valid mutants killed; zero survived; four uncompilable mutants excluded. |
 | Full `make -j4 test` | Earlier `00e717f` runtime | Exit 2. Only `test_background_agents` and `test_tui` failed. All other reported suites passed. |
 | Baseline/candidate reproduction of both full-suite failures | Baseline `28011be` and candidate `00e717f` executables, identical unchanged PTY tests | Both reproduce on both executables: synthetic held-session dashboard discovery; banner scrolled out by the help overlay. Not attributed to this PR. |
 
@@ -80,3 +80,15 @@ A separate one-pair-per-task ladder is being measured against frozen `84a0d12`:
 SHA-256 `af3f1c3110aacbd692925cebce9e6d9225ac8d45da41356ee3501c1459b8d5f4`.
 No development inference or local quality gate overlaps its timed trials.
 Its results are pending; the pre-fix timings must not be reused as post-fix proof.
+
+## CI portability finding
+
+The initial PR Linux lanes rejected the recovery path's `snprintf` under GCC's
+`-Werror=format-truncation`: GCC did not propagate the preceding exact 32-character
+hex validation through that call. The patch copies the already-validated ID plus
+its terminator directly, without suppressing diagnostics or weakening validation.
+A regression also feeds 31-, 33-, 255-character and non-hex directory names.
+This changes neither valid IDs nor swarm semantics; the live binary remains frozen.
+Final local gates and a current-input mutation run are scheduled after the live
+ladder, then the corrected branch will be pushed for another CI run.
+
