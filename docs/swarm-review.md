@@ -54,7 +54,9 @@ never opens caller-supplied artifact paths or executes a claimed command.
 be a JSON object with unique keys, no embedded NULs and at most 8192 serialized
 bytes. The complete packet is bounded to 16384 bytes. Unknown request fields are
 rejected. Use the same ID and content on uncertain completion; changed content
-conflicts. There is no overwrite, eviction or automatic rollover.
+conflicts. Claims retain JSON object-key order; reordering claims can conflict even
+when the key/value set is equivalent. There is no overwrite, eviction or automatic
+rollover.
 
 The packet retains the recorded contribution/workspace provenance and collected
 result/log integrity, separately from `reviewer_claims`. It remains

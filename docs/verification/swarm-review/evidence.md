@@ -63,15 +63,57 @@ The debate changed the scope:
 
 ## Verification status
 
-Final gates are in progress. No complete quality/test/leak result is claimed yet.
-Commands and per-check exit records are retained outside the repository under
-`/tmp/tny-swarm-review-continuity/checks`. Preliminary worker checks are not used as
-final integrated-source evidence. Provider fixtures use localhost and synthetic
-credentials; only the user-requested collaborating agents used the configured
-provider. No live comparative effectiveness experiment was run.
+Final product/test input: `7f7531c8eaaf3caf1f5d3e0d64e8a48756b861ca`. The final
+serial script completed with exit **0** in 650 seconds. Preliminary worker checks
+are not substituted for these integrated-source checks. The subsequent evidence
+commit changes documentation only.
 
-The final record will distinguish all passing checks, reproduced failures,
-platform skips, source revision and stripped release size/runtime dependencies.
+| Check on final input | Observed result |
+| --- | --- |
+| `make test-unit` (includes release build) | 530 tests: 529 passed, no failures, one Linux-only skip on Darwin; both explicit tool-profile probes passed. |
+| Team-control integration | 12 passed, including future-attempt refusal for new and historical packets, retained older attempts, bounded claims, no execution, authority, integrity and immutable history. |
+| Mailbox service integration | 38 passed, including exact 64/256 saturation, over-quota corruption, old-attempt accounting, acknowledgment and publication receipt counts. |
+| Typed-message integration | 16 passed with synthetic inherited-agent poison; CLI status projection, no-delivery/byte-identical storage and post-ack capacity checked. |
+| Purposeful / factory / collective integration | 14 / 11 / 13 passed, including profile-specific recipes and existing dependency/resume behavior. |
+| Effectiveness self-tests / environment helper | 7 / 3 passed. These are deterministic tests, not live effectiveness measurements. |
+| Mixed C/C++ build checks | 17 tests: 16 passed, one Emscripten CI-only skip; new header-dependency regression passes in both instrumented lanes. |
+| `make test-runtime-ownership test-libtny-fault` | Passed after the dependency fix; runtime lane 49 passed/one platform skip, plus exhaustive allocation/fault sweeps. |
+| `make quality` | Passed. GCC analyzer explicitly skipped on Darwin; Linux/GCC execution is not claimed locally. |
+| `make leaks` | Passed; checked suites and CLI probes reported zero leaked bytes. |
+| Mailbox mutation harness | Baseline/restored suites passed and all six behavioral mutants were killed, including retained-history omission, older-attempt omission and remaining-capacity underflow. |
+| `make size-check` | Stripped Darwin arm64 binary: 1,203,504 bytes; runtime libraries are `libc++.1.dylib` and `libSystem.B.dylib`. No speed claim. |
+
+Binary SHA-256:
+`9cd92d2c02e5c759b17f3347761e2e6d86b5737da36b5519b51cba1fc52273b9`.
+Sanitized machine-readable results are in [checks.json](checks.json). Raw commands,
+exit files and logs are retained in the private
+`~/.cache/tny-swarm-review-continuity-20260920-7f7531c/` directory. Provider fixtures
+use localhost and synthetic credentials; only the user-requested collaborating
+agents used the configured provider. No live comparative experiment was run.
+
+### Full-suite failures and rerun boundary
+
+The initial **repository-wide `make test` failed (exit 2)** before the final
+future-attempt and incremental-build fixes. It completed all integration entries
+and reported three failures:
+
+- `test_background_agents`: `locked_saved_inspection_retry` timed out waiting for
+  `Saved read-only`.
+- `test_tui`: `test_menu_overlay_transient` reported `transcript was wiped`.
+- `test_libtny_mutation_fault`: the stale instrumented ownership object described
+  above caused an ASan invalid free. The final ownership/fault gate now passes.
+
+Both PTY failures were independently reproduced using a fresh baseline worktree at
+`4c81d60`, built from that commit, with the same fixture commands/environment. They
+are not silently waived or reported green. The baseline's clean ownership/fault
+build passed, helping isolate the third failure to incremental dependencies.
+
+The full repository suite was **not rerun wholesale** after the final fixes; all
+affected suites, the main unit suite, quality and leak gates were rerun as listed
+above. The first check driver also mistyped `FixtureEnvironmentTests`; its selection
+error is retained, and the correct three-case `FixtureEnvironment` run passed in
+the final script. These observations do not establish Linux, wasm, live-provider
+performance or a completely green repository-wide suite. PR CI remains separate.
 
 ## Deferred work
 
