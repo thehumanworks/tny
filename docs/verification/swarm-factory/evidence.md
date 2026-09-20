@@ -101,7 +101,14 @@ integration; completed participants are not silently relaunched.
 ## Review submission and portability follow-up
 
 PR #174 was submitted as an **open non-draft PR** at **2026-09-20 16:02:14 UTC**
-(**17:02:14 Europe/London / BST**). The primary checkout is unchanged.
+(**17:02:14 Europe/London / BST**). Repository state later confirmed it was merged
+at **16:05:19 UTC / 17:05:19 BST**, while the live experiment was still running.
+The final measured results and verified post-evaluation corrections are therefore
+submitted separately on `fix/swarm-factory-delivery`, not silently attributed to
+the merged PR head. No assistant action merged PR #174.
+
+The primary checkout was not modified by this work. Subsequent independent
+`feat/swarm-review-continuity` changes observed there are left untouched.
 
 Linux CI identified a Clang diagnostic for copying the four-character message-ID
 prefix without its intermediate terminator. The fix explicitly copies the null
@@ -119,5 +126,6 @@ The verified `src/` Git tree is `42141f31fba077312fe4c5dba6a89a38ca24b53f`.
 Superseded checks are retained with their nonzero exits; they are not passes.
 The original PR CI had 18 successful checks, one quality diagnostic and two
 checks still in progress before these final corrections were pushed. Updated CI
-must run on the new head; a fully green final CI run is **not** claimed. This PR
-is submitted for review, not merged.
+must run on the follow-up head; a fully green final CI run is **not** claimed.
+The follow-up is submitted for review without merging it. Its product-source
+tree is identical to the final locally verified tree above.
