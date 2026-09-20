@@ -65,7 +65,8 @@ static int validate_ctx_definition(const tny_ctx *ctx, tny_swarm_manifest **out,
     *out = NULL;
     if (!ctx->swarm_definition) return 0;
     if (tny_swarm_manifest_parse(ctx->swarm_definition, strlen(ctx->swarm_definition),
-                                 TNY_SWARM_MANIFEST_MAX_PARTICIPANTS, out, err, cap) != 0)
+                                 TNY_SWARM_MANIFEST_MAX_PARTICIPANTS, out, err, cap) != 0 ||
+        !*out)
         return -1;
     char digest[65];
     if (!tny_image_io_sha256_hex((*out)->canonical_json, (*out)->canonical_len, digest) ||
@@ -88,7 +89,7 @@ int tny_swarm_bind(tny_session_state *s) {
     if (!s->ctx->swarm_definition) return 0;
     char err[128];
     tny_swarm_manifest *manifest = NULL;
-    if (validate_ctx_definition(s->ctx, &manifest, err, sizeof err) != 0) return -1;
+    if (validate_ctx_definition(s->ctx, &manifest, err, sizeof err) != 0 || !manifest) return -1;
     yyjson_doc *snapshot = jparse(manifest->canonical_json, manifest->canonical_len);
     yyjson_mut_val *old = definition_meta(s);
     const char *old_digest = yyjson_mut_get_str(yyjson_mut_obj_get(old, "sha256"));

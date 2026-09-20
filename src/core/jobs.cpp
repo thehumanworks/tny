@@ -6515,14 +6515,24 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
                         ready = false;
                         continue;
                     }
+                    /* A failed preparation may never have acquired a worktree,
+                     * so no final inspection can exist. Terminal failure blocks
+                     * dependents immediately instead of waiting forever for it. */
+                    if (strcmp(dep_state, "succeeded") != 0) {
+                        blocked = true;
+                        continue;
+                    }
                     if (v2_dependencies && jm_str(dep, "workspace_policy") &&
                         strcmp(jm_str(dep, "workspace_policy"), "isolated") == 0) {
-                        const char *inspection = jm_str(dep, "workspace_inspection");
-                        if (!inspection) {
-                            ready = false; /* final inspection is still pending */
+                        /* Preparation records an unverified workspace before the
+                         * child runs. Wait for this owner's queued final inspection,
+                         * not for the mere presence of that earlier status string. */
+                        if (slots[index].workspace_inspect_pending) {
+                            ready = false;
                             continue;
                         }
-                        if (strcmp(inspection, "recorded") != 0) blocked = true;
+                        const char *inspection = jm_str(dep, "workspace_inspection");
+                        if (!inspection || strcmp(inspection, "recorded") != 0) blocked = true;
                     }
                     if (strcmp(dep_state, "succeeded") != 0 ||
                         verify_carried_success(ctx, dep, false, err, sizeof err) != 0)

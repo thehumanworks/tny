@@ -8,8 +8,8 @@ provider, fabricated job record, or second scheduler is involved.
 
 from __future__ import annotations
 
+import copy
 import json
-import os
 import subprocess
 import threading
 import unittest
@@ -162,9 +162,7 @@ class FactoryHandler(Handler):
         frames = [
             {"choices": [{"index": 0, "delta": {"content": value}}]},
             {
-                "choices": [
-                    {"index": 0, "delta": {}, "finish_reason": "stop"}
-                ],
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                 "usage": {"prompt_tokens": 3, "completion_tokens": 1},
             },
         ]
@@ -234,7 +232,20 @@ class SwarmFactory(JobsFixture):
             timeout=15,
         ).stdout.strip()
 
-    def write_definition(self, value, name="factory.json"):
+    def write_definition(self, value, name="factory.json", explicit_base=True):
+        value = copy.deepcopy(value)
+
+        # The definition itself is an untracked fixture file. Pin the clean
+        # baseline explicitly; never silently copy uncommitted root files.
+        def pin(group):
+            for actor_value in [group["coordinator"], *group["agents"]]:
+                workspace = actor_value.get("workspace", {})
+                if explicit_base and workspace.get("policy") == "isolated":
+                    workspace.setdefault("base", self.git("rev-parse", "HEAD"))
+            for child in group["swarms"]:
+                pin(child)
+
+        pin(value)
         path = self.workspace / name
         path.write_text(json.dumps(value))
         return path
@@ -253,9 +264,7 @@ class SwarmFactory(JobsFixture):
 
     def wait_for_participant(self, name, timeout=20):
         with self.server.lock:
-            event = self.state["participant_events"].setdefault(
-                name, threading.Event()
-            )
+            event = self.state["participant_events"].setdefault(name, threading.Event())
         self.assertTrue(event.wait(timeout), f"{name} did not reach the provider")
 
     def launch(self, value, task="FACTORY_ROOT_TASK"):
@@ -357,16 +366,31 @@ class SwarmFactory(JobsFixture):
         )
 
     def test_failed_predecessor_blocks_consumer_before_provider(self):
-        _, _, run_id = self.launch(failure_definition(), "FAILURE_ROOT_TASK")
+        _, _, run_id = self.launch(failure_definition(), "PREREQUISITE_ROOT_TASK")
         record = self.await_terminal(run_id)
         items = {item["swarm_name"]: item for item in record["items"]}
         self.assertEqual(items["broken-source"]["state"], "failed", record)
         self.assertEqual(items["blocked-consumer"]["state"], "failed", record)
-        self.assertEqual(
-            items["blocked-consumer"]["error_code"], "dependency_blocked"
-        )
+        self.assertEqual(items["blocked-consumer"]["error_code"], "dependency_blocked")
         self.assertTrue(self.participant_bodies("broken-source"))
         self.assertFalse(self.participant_bodies("blocked-consumer"))
+
+    def test_failed_isolated_preparation_blocks_downstream_without_inspection(self):
+        path = self.write_definition(factory_definition(), explicit_base=False)
+        self.state["design_release"].set()
+        result = self.run_tny(
+            "--swarm-file", str(path), "ask", "PREPARATION_ROOT", timeout=30
+        )
+        self.assertEqual(result.returncode, 0)
+        _, session = self.saved_session()
+        record = self.await_terminal(session["swarm_definition"]["run_id"], timeout=15)
+        items = {item["swarm_name"]: item for item in record["items"]}
+        self.assertEqual(items["implementer"]["error_code"], "preparation_failed")
+        self.assertEqual(
+            items["review-coordinator"]["error_code"], "dependency_blocked"
+        )
+        self.assertFalse(self.participant_bodies("implementer"))
+        self.assertFalse(self.participant_bodies("review-coordinator"))
 
     def test_inherited_read_only_cannot_request_isolated(self):
         path = self.write_definition(factory_definition())
@@ -381,7 +405,7 @@ class SwarmFactory(JobsFixture):
             timeout=20,
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b"read-only", result.stderr)
+        self.assertIn(b"permission denied for team_start", result.stderr)
         self.assertEqual(self.state["bodies"], [])
         self.assertEqual(self.job_dirs(), [])
 
@@ -401,7 +425,7 @@ class SwarmFactory(JobsFixture):
                 ],
             }
         )
-        run, _ = self.submit("batch", "--request", request, check=False)
+        run, _ = self.submit("batch", stdin=request.encode(), check=False)
         self.assertNotEqual(run.returncode, 0)
         self.assertIn(b"compiler-owned", run.stderr)
         self.assertEqual(self.state["bodies"], [])
@@ -432,9 +456,9 @@ class SwarmFactory(JobsFixture):
             self.assertEqual(len(self.job_dirs()), before_jobs)
 
         changed = json.loads(session_bytes)
-        changed["swarm_definition"]["snapshot"]["agents"][0][
-            "deliverable"
-        ] = "tampered snapshot"
+        changed["swarm_definition"]["snapshot"]["agents"][0]["deliverable"] = (
+            "tampered snapshot"
+        )
         session_path.write_text(json.dumps(changed))
         refused_resume()
         session_path.write_bytes(session_bytes)
