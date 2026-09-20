@@ -2,37 +2,79 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/thehumanworks/tny/main/schemas/swarm.schema.json",
   "title": "tny purposeful swarm definition",
-  "description": "Version 1 purposeful swarm. Runtime validation additionally enforces UTF-8 byte limits, globally unique names, at least one launched participant, and a shared total capacity of at most 16 participants. The root coordinator is the current lead; every nested coordinator is launched.",
-  "type": "object",
-  "required": ["version", "purpose", "coordinator", "agents", "swarms"],
-  "properties": {
-    "version": { "const": 1 },
-    "purpose": { "$ref": "#/$defs/purpose" },
-    "coordinator": { "$ref": "#/$defs/member" },
-    "agents": { "$ref": "#/$defs/agents" },
-    "swarms": {
-      "type": "array",
-      "maxItems": 16,
-      "items": { "$ref": "#/$defs/group2" }
-    }
-  },
-  "additionalProperties": false,
+  "description": "Version 1 membership and version 2 contribution contracts. Runtime validation additionally enforces UTF-8 byte limits, globally unique names, named dependency resolution and acyclicity, at least one launched participant, and a shared total capacity of at most 16 participants. The root coordinator is the current lead; every nested coordinator is launched.",
+  "oneOf": [
+    { "$ref": "#/$defs/rootV1" },
+    { "$ref": "#/$defs/rootV2" }
+  ],
   "$defs": {
     "name": {
       "type": "string",
       "minLength": 1,
       "maxLength": 64,
       "pattern": "^[^\\x00-\\x20\\x7F](?:[^\\x00-\\x1F\\x7F]*[^\\x00-\\x20\\x7F])?$",
-      "description": "Globally unique UTF-8 name; the runtime limit is 64 encoded bytes."
+      "description": "Globally unique UTF-8 participant name; the runtime limit is 64 encoded bytes. Dependency names use the same grammar."
     },
     "purpose": {
       "type": "string",
       "minLength": 1,
       "maxLength": 4096,
       "pattern": "\\S",
-      "description": "Non-blank purpose; the runtime limit is 4096 encoded bytes."
+      "description": "Non-blank text; the runtime limit is 4096 encoded bytes."
     },
-    "member": {
+    "deliverable": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "\\S",
+      "description": "Declarative expected output, not proof of acceptance; runtime limit 4096 encoded bytes."
+    },
+    "criterion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "\\S",
+      "description": "Declarative acceptance criterion, not an automatically executed check; runtime limit 1024 encoded bytes."
+    },
+    "acceptance": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/criterion" }
+    },
+    "dependsOn": {
+      "type": "array",
+      "maxItems": 15,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/name" },
+      "description": "Direct launched-participant dependencies. Runtime rejects the root, self, unknown names and cycles."
+    },
+    "workspace": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["policy"],
+          "properties": { "policy": { "const": "shared_read_only" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["policy"],
+          "properties": {
+            "policy": { "const": "isolated" },
+            "base": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "\\S",
+              "description": "Optional isolated Git base; runtime limit 256 encoded bytes."
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "memberV1": {
       "type": "object",
       "required": ["name", "purpose"],
       "properties": {
@@ -41,49 +83,132 @@
       },
       "additionalProperties": false
     },
-    "agents": {
+    "rootMemberV2": {
+      "type": "object",
+      "required": ["name", "purpose"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "purpose": { "$ref": "#/$defs/purpose" },
+        "deliverable": { "$ref": "#/$defs/deliverable" },
+        "acceptance": { "$ref": "#/$defs/acceptance" }
+      },
+      "additionalProperties": false
+    },
+    "memberV2": {
+      "type": "object",
+      "required": ["name", "purpose"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "purpose": { "$ref": "#/$defs/purpose" },
+        "deliverable": { "$ref": "#/$defs/deliverable" },
+        "acceptance": { "$ref": "#/$defs/acceptance" },
+        "depends_on": { "$ref": "#/$defs/dependsOn" },
+        "workspace": { "$ref": "#/$defs/workspace" }
+      },
+      "additionalProperties": false
+    },
+    "agentsV1": {
       "type": "array",
       "maxItems": 16,
-      "items": { "$ref": "#/$defs/member" }
+      "items": { "$ref": "#/$defs/memberV1" }
     },
-    "group2": {
-      "$ref": "#/$defs/groupBase2"
+    "agentsV2": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/memberV2" }
     },
-    "group3": {
-      "$ref": "#/$defs/groupBase3"
-    },
-    "group4": {
-      "$ref": "#/$defs/groupBase4"
-    },
-    "groupBase2": {
+    "rootV1": {
       "type": "object",
-      "required": ["purpose", "coordinator", "agents", "swarms"],
+      "required": ["version", "purpose", "coordinator", "agents", "swarms"],
       "properties": {
+        "version": { "const": 1 },
         "purpose": { "$ref": "#/$defs/purpose" },
-        "coordinator": { "$ref": "#/$defs/member" },
-        "agents": { "$ref": "#/$defs/agents" },
-        "swarms": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/group3" } }
+        "coordinator": { "$ref": "#/$defs/memberV1" },
+        "agents": { "$ref": "#/$defs/agentsV1" },
+        "swarms": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/groupV1_2" } }
       },
       "additionalProperties": false
     },
-    "groupBase3": {
+    "rootV2": {
       "type": "object",
-      "required": ["purpose", "coordinator", "agents", "swarms"],
+      "required": ["version", "purpose", "coordinator", "agents", "swarms"],
       "properties": {
+        "version": { "const": 2 },
         "purpose": { "$ref": "#/$defs/purpose" },
-        "coordinator": { "$ref": "#/$defs/member" },
-        "agents": { "$ref": "#/$defs/agents" },
-        "swarms": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/group4" } }
+        "coordinator": { "$ref": "#/$defs/rootMemberV2" },
+        "agents": { "$ref": "#/$defs/agentsV2" },
+        "swarms": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/groupV2_2" } }
       },
       "additionalProperties": false
     },
-    "groupBase4": {
+    "groupV1_2": { "$ref": "#/$defs/groupBaseV1_2" },
+    "groupV1_3": { "$ref": "#/$defs/groupBaseV1_3" },
+    "groupV1_4": { "$ref": "#/$defs/groupBaseV1_4" },
+    "groupBaseV1_2": {
       "type": "object",
       "required": ["purpose", "coordinator", "agents", "swarms"],
       "properties": {
         "purpose": { "$ref": "#/$defs/purpose" },
-        "coordinator": { "$ref": "#/$defs/member" },
-        "agents": { "$ref": "#/$defs/agents" },
+        "coordinator": { "$ref": "#/$defs/memberV1" },
+        "agents": { "$ref": "#/$defs/agentsV1" },
+        "swarms": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/groupV1_3" } }
+      },
+      "additionalProperties": false
+    },
+    "groupBaseV1_3": {
+      "type": "object",
+      "required": ["purpose", "coordinator", "agents", "swarms"],
+      "properties": {
+        "purpose": { "$ref": "#/$defs/purpose" },
+        "coordinator": { "$ref": "#/$defs/memberV1" },
+        "agents": { "$ref": "#/$defs/agentsV1" },
+        "swarms": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/groupV1_4" } }
+      },
+      "additionalProperties": false
+    },
+    "groupBaseV1_4": {
+      "type": "object",
+      "required": ["purpose", "coordinator", "agents", "swarms"],
+      "properties": {
+        "purpose": { "$ref": "#/$defs/purpose" },
+        "coordinator": { "$ref": "#/$defs/memberV1" },
+        "agents": { "$ref": "#/$defs/agentsV1" },
+        "swarms": { "type": "array", "maxItems": 0 }
+      },
+      "additionalProperties": false
+    },
+    "groupV2_2": { "$ref": "#/$defs/groupBaseV2_2" },
+    "groupV2_3": { "$ref": "#/$defs/groupBaseV2_3" },
+    "groupV2_4": { "$ref": "#/$defs/groupBaseV2_4" },
+    "groupBaseV2_2": {
+      "type": "object",
+      "required": ["purpose", "coordinator", "agents", "swarms"],
+      "properties": {
+        "purpose": { "$ref": "#/$defs/purpose" },
+        "coordinator": { "$ref": "#/$defs/memberV2" },
+        "agents": { "$ref": "#/$defs/agentsV2" },
+        "swarms": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/groupV2_3" } }
+      },
+      "additionalProperties": false
+    },
+    "groupBaseV2_3": {
+      "type": "object",
+      "required": ["purpose", "coordinator", "agents", "swarms"],
+      "properties": {
+        "purpose": { "$ref": "#/$defs/purpose" },
+        "coordinator": { "$ref": "#/$defs/memberV2" },
+        "agents": { "$ref": "#/$defs/agentsV2" },
+        "swarms": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/groupV2_4" } }
+      },
+      "additionalProperties": false
+    },
+    "groupBaseV2_4": {
+      "type": "object",
+      "required": ["purpose", "coordinator", "agents", "swarms"],
+      "properties": {
+        "purpose": { "$ref": "#/$defs/purpose" },
+        "coordinator": { "$ref": "#/$defs/memberV2" },
+        "agents": { "$ref": "#/$defs/agentsV2" },
         "swarms": { "type": "array", "maxItems": 0 }
       },
       "additionalProperties": false

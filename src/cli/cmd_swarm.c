@@ -42,8 +42,10 @@ int cmd_swarm(const cli_globals *g, int argc, char **argv) {
         for (size_t i = 0; i < manifest->group_count; ++i)
             if (manifest->groups[i].depth > max_depth) max_depth = manifest->groups[i].depth;
         buf_t out = {0};
-        buf_appends(&out, "{\"kind\":\"swarm_definition\",\"valid\":true,\"version\":1,"
-                          "\"source\":");
+        buf_appendf(&out,
+                    "{\"kind\":\"swarm_definition\",\"valid\":true,\"version\":%u,"
+                    "\"source\":",
+                    manifest->version);
         jescape(&out, source);
         buf_appends(&out, ",\"sha256\":");
         jescape(&out, digest);
