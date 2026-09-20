@@ -187,10 +187,59 @@ TEST swarm_manifest_file_load_is_bounded_and_owned(void) {
     PASS();
 }
 
+TEST swarm_manifest_accepts_exact_depth_text_and_file_boundaries(void) {
+    buf_t json;
+    buf_init(&json);
+    for (unsigned depth = 0; depth < TNY_SWARM_MANIFEST_MAX_DEPTH; ++depth) {
+        buf_appends(&json, depth ? "{" : "{\"version\":1,");
+        buf_appendf(&json,
+                    "\"purpose\":\"p\",\"coordinator\":{\"name\":\"c%u\","
+                    "\"purpose\":\"p\"},\"agents\":[],\"swarms\":[",
+                    depth);
+    }
+    for (unsigned depth = 0; depth < TNY_SWARM_MANIFEST_MAX_DEPTH; ++depth)
+        buf_appends(&json, "]}");
+    char err[256];
+    tny_swarm_manifest *manifest = NULL;
+    ASSERT_EQ(0, tny_swarm_manifest_parse(json.data, json.len, 16, &manifest, err, sizeof err));
+    ASSERT_EQ(TNY_SWARM_MANIFEST_MAX_DEPTH, manifest->group_count);
+    tny_swarm_manifest_free(manifest);
+    buf_free(&json);
+
+    char name[TNY_SWARM_MANIFEST_MAX_NAME_BYTES + 1u];
+    char purpose[TNY_SWARM_MANIFEST_MAX_PURPOSE_BYTES + 1u];
+    memset(name, 'n', sizeof name - 1u);
+    name[sizeof name - 1u] = 0;
+    memset(purpose, 'p', sizeof purpose - 1u);
+    purpose[sizeof purpose - 1u] = 0;
+    buf_init(&json);
+    buf_appendf(&json,
+                "{\"version\":1,\"purpose\":\"p\",\"coordinator\":{\"name\":\"root\","
+                "\"purpose\":\"p\"},\"agents\":[{\"name\":\"%s\",\"purpose\":\"%s\"}],"
+                "\"swarms\":[]}",
+                name, purpose);
+    ASSERT_EQ(0, tny_swarm_manifest_parse(json.data, json.len, 1, &manifest, err, sizeof err));
+    ASSERT_EQ(TNY_SWARM_MANIFEST_MAX_NAME_BYTES, strlen(manifest->participants[0].name));
+    ASSERT_EQ(TNY_SWARM_MANIFEST_MAX_PURPOSE_BYTES, strlen(manifest->participants[0].purpose));
+    tny_swarm_manifest_free(manifest);
+    char *padded = malloc(TNY_SWARM_MANIFEST_MAX_BYTES);
+    ASSERT(padded);
+    ASSERT(json.len < TNY_SWARM_MANIFEST_MAX_BYTES);
+    memcpy(padded, json.data, json.len);
+    memset(padded + json.len, ' ', TNY_SWARM_MANIFEST_MAX_BYTES - json.len);
+    ASSERT_EQ(0, tny_swarm_manifest_parse(padded, TNY_SWARM_MANIFEST_MAX_BYTES, 1, &manifest, err,
+                                          sizeof err));
+    tny_swarm_manifest_free(manifest);
+    free(padded);
+    buf_free(&json);
+    PASS();
+}
+
 SUITE(swarm_manifest_suite) {
     RUN_TEST(swarm_manifest_flattens_nested_groups_and_canonicalizes);
     RUN_TEST(swarm_manifest_rejects_ambiguous_or_incomplete_shapes);
     RUN_TEST(swarm_manifest_rejects_blank_purposes_and_global_duplicate_names);
     RUN_TEST(swarm_manifest_enforces_depth_size_and_shared_capacity);
     RUN_TEST(swarm_manifest_file_load_is_bounded_and_owned);
+    RUN_TEST(swarm_manifest_accepts_exact_depth_text_and_file_boundaries);
 }
