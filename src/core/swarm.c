@@ -101,6 +101,9 @@ int tny_swarm_bind(tny_session_state *s) {
     const char *activation_id = same(old_digest, s->ctx->swarm_definition_digest)
                                     ? yyjson_mut_get_str(yyjson_mut_obj_get(old, "activation_id"))
                                     : NULL;
+    const char *goal = same(old_digest, s->ctx->swarm_definition_digest)
+                           ? yyjson_mut_get_str(yyjson_mut_obj_get(old, "activation_goal"))
+                           : NULL;
     yyjson_mut_val *meta = yyjson_mut_obj(s->doc);
     yyjson_mut_val *copy =
         snapshot ? yyjson_val_mut_copy(s->doc, yyjson_doc_get_root(snapshot)) : NULL;
@@ -115,6 +118,7 @@ int tny_swarm_bind(tny_session_state *s) {
                                        activation ? activation : "not_started");
     if (ok && activation_id)
         ok = yyjson_mut_obj_add_strcpy(s->doc, meta, "activation_id", activation_id);
+    if (ok && goal) ok = yyjson_mut_obj_add_strcpy(s->doc, meta, "activation_goal", goal);
     if (ok) ok = yyjson_mut_obj_put(root, yyjson_mut_str(s->doc, "swarm_definition"), meta);
     yyjson_doc_free(snapshot);
     tny_swarm_manifest_free(manifest);
@@ -127,12 +131,13 @@ static int restore_definition(tny_session_state *s, yyjson_mut_val *meta, char *
         return -1;
     }
     size_t count = yyjson_mut_obj_size(meta);
-    if (count < 6 || count > 8) {
+    if (count < 6 || count > 9) {
         snprintf(err, cap, "saved swarm definition metadata is invalid");
         return -1;
     }
-    static const char *const allowed[] = {"version",  "source", "sha256",     "participants",
-                                          "snapshot", "run_id", "activation", "activation_id"};
+    static const char *const allowed[] = {"version",      "source",        "sha256",
+                                          "participants", "snapshot",      "run_id",
+                                          "activation",   "activation_id", "activation_goal"};
     size_t i, max;
     yyjson_mut_val *key, *value;
     yyjson_mut_obj_foreach(meta, i, max, key, value) {
@@ -151,6 +156,10 @@ static int restore_definition(tny_session_state *s, yyjson_mut_val *meta, char *
     const char *run = yyjson_mut_get_str(run_value);
     const char *activation = yyjson_mut_get_str(activation_value);
     const char *activation_id = yyjson_mut_get_str(activation_id_value);
+    yyjson_mut_val *goal_value = yyjson_mut_obj_get(meta, "activation_goal");
+    const char *goal = yyjson_mut_get_str(goal_value);
+    bool valid_goal = goal && *goal && strlen(goal) == yyjson_mut_get_len(goal_value) &&
+                      strlen(goal) <= TNY_JOBS_PROMPT_MAX && utf8_valid_bytes(goal, strlen(goal));
     bool not_started = same(activation, "not_started");
     bool active = same(activation, "active");
     bool launching = same(activation, "launching");
@@ -158,8 +167,9 @@ static int restore_definition(tny_session_state *s, yyjson_mut_val *meta, char *
         (activation_id_value && !yyjson_mut_is_str(activation_id_value)) ||
         (!not_started && !active && !launching) || (run && !tny_jobs_valid_id(run)) ||
         (activation_id && !tny_jobs_valid_id(activation_id)) ||
-        (not_started && (run || activation_id)) || (launching && (run || !activation_id)) ||
-        (active && (!run || !activation_id))) {
+        (not_started && (run || activation_id || goal_value)) ||
+        (launching && (run || !activation_id || !valid_goal)) ||
+        (active && (!run || !activation_id || !valid_goal))) {
         snprintf(err, cap, "saved swarm activation state is invalid");
         return -1;
     }
@@ -437,6 +447,13 @@ static int set_activation(tny_session_state *session, const char *state, const c
                                              yyjson_mut_strcpy(session->doc, activation_id)))
         return -1;
     if (!activation_id) yyjson_mut_obj_remove_key(meta, "activation_id");
+    if (same(state, "launching") && !yyjson_mut_obj_get(meta, "activation_goal")) {
+        const char *goal = last_user_prompt(session);
+        if (!goal || !*goal || strlen(goal) > TNY_JOBS_PROMPT_MAX ||
+            !yyjson_mut_obj_put(meta, yyjson_mut_strcpy(session->doc, "activation_goal"),
+                                yyjson_mut_strcpy(session->doc, goal)))
+            return -1;
+    }
     return session_save(session);
 }
 
@@ -549,7 +566,12 @@ int tny_swarm_activate(tools_env *env, char *err, size_t cap) {
         }
         activation_hex(raw, activation_id);
     }
-    yyjson_doc *request = compile_request(env->ctx, manifest, last_user_prompt(env->session));
+    /* Retrying an interrupted first submission keeps the original objective;
+     * the new resume message is not a replacement task for newly launched peers. */
+    const char *goal = same(activation, "launching")
+                           ? yyjson_mut_get_str(yyjson_mut_obj_get(meta, "activation_goal"))
+                           : last_user_prompt(env->session);
+    yyjson_doc *request = compile_request(env->ctx, manifest, goal);
     if (request &&
         authorize_activation(env, yyjson_doc_get_root(request), manifest, err, cap) != 0) {
         yyjson_doc_free(request);

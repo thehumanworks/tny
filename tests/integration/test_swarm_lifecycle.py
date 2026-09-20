@@ -84,7 +84,21 @@ class SwarmLifecycle(JobsFixture):
         before_requests = len(self.state["bodies"])
 
         recovered = self.resume(session_path, check=True)
-        self.assertIn(b"answer:RESUMED_ROOT", recovered.stdout)
+        self.assertEqual(recovered.returncode, 0)
+        resumed_messages = self.state["bodies"][-1]["messages"]
+        self.assertTrue(
+            any(
+                message.get("role") == "user"
+                and message.get("content") == "RESUMED_ROOT"
+                for message in resumed_messages
+            )
+        )
+        self.assertTrue(
+            any(
+                run_id in str(message.get("content", ""))
+                for message in resumed_messages
+            )
+        )
         restored = json.loads(session_path.read_text())["swarm_definition"]
         self.assertEqual(restored["activation"], "active")
         self.assertEqual(restored["activation_id"], activation_id)
@@ -103,8 +117,25 @@ class SwarmLifecycle(JobsFixture):
         self.make_launching(session)
         session_path.write_text(json.dumps(session))
 
+        before_requests = len(self.state["bodies"])
         self.resume(session_path, check=True)
         restored = json.loads(session_path.read_text())["swarm_definition"]
+        self.assertEqual(restored["activation_goal"], "ROOT_TASK")
+        self.await_terminal(restored["run_id"])
+        for body in self.state["bodies"][before_requests:]:
+            system = "\n".join(
+                str(message.get("content", ""))
+                for message in body["messages"]
+                if message.get("role") == "system"
+            )
+            if "Participant:" in system:
+                user = "\n".join(
+                    str(message.get("content", ""))
+                    for message in body["messages"]
+                    if message.get("role") == "user"
+                )
+                self.assertIn("ROOT_TASK", user)
+                self.assertNotIn("RESUMED_ROOT", user)
         self.assertEqual(restored["activation"], "active")
         self.assertEqual(restored["activation_id"], activation_id)
         self.assertNotEqual(restored["run_id"], old_run)
@@ -148,6 +179,12 @@ class SwarmLifecycle(JobsFixture):
         session_mutations = {
             "cap_type": lambda value: value.__setitem__("swarm_cap", "3"),
             "cap_count": lambda value: value.__setitem__("swarm_cap", 2),
+            "goal_type": lambda value: value["swarm_definition"].__setitem__(
+                "activation_goal", 7
+            ),
+            "goal_missing": lambda value: value["swarm_definition"].pop(
+                "activation_goal"
+            ),
             "activation_type": lambda value: value["swarm_definition"].__setitem__(
                 "activation", 7
             ),
