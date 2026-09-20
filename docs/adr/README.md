@@ -159,3 +159,6 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 
 - [0153: Environment keys, OAuth stores and atomic provider selection](0153-environment-keys-and-oauth-credentials.md)
 - [0154 — Agents session inspection and continuation](0154-agents-session-inspection-and-continuation.md) — proposed: attach when available, otherwise inspect read-only; explicit ownership and `/continue` for saved-checkpoint recovery; preserves ADR 0104.
+
+- [0157: Purposeful file-defined swarms](0157-purposeful-file-defined-swarms.md) — required coordinators, bounded nested definitions and one durable runtime.
+- [0158: Capability-aligned purposeful participant context](0158-purposeful-capability-surface.md) — readonly reviewer tool surface and evidence-based evaluation.

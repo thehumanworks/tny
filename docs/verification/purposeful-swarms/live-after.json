@@ -1,0 +1,681 @@
+{
+  "activation": null,
+  "cases_sha256": "2062d2880ae02e2c1391faad147acefc568b1f8bc7d0e3d9ee71eea7f1d444b1",
+  "common_prompt": "Implement the task described in README.md in this workspace. Read the\nspecification, modify the implementation files, and run relevant tests. Do not\nchange test_public.py. Use only the Python standard library and local tools; no\nnetwork or package installation is needed. Finish with working files, not just a\nplan or code in a message. Collaboration is available when it adds value; reconcile\npeer evidence and do not leave collaborators running after your final response.\n",
+  "completed_utc": "2026-09-20T12:26:24.018532+00:00",
+  "definition_sha256": "c5157268886b04f479e5b91af160d15bb531b801dc7b71cc287348d717024396",
+  "effort": "medium",
+  "environment": {
+    "codex_version": "codex-cli 0.156.0-alpha.8",
+    "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "python": "3.14.7 (main, Aug  7 2026, 02:15:30) [Clang 22.1.3 ]",
+    "tny_sha256": "af3f1c3110aacbd692925cebce9e6d9225ac8d45da41356ee3501c1459b8d5f4",
+    "tny_version": "0.18.0-37-g84a0d12"
+  },
+  "implementation_revision": "84a0d12a700694eff81a06ec8f953f2162b174c1",
+  "limitations": [
+    "Small synthetic coding sample, not a general coding benchmark or statistical superiority claim.",
+    "Identical external task specifications and model/effort; harness system prompts and tools differ.",
+    "tny uses default native permission policy; Codex uses workspace-write sandbox. Tasks need no network.",
+    "Trials alternate harness order, have fresh workspaces/state, and do not deliberately warm provider caches.",
+    "Provider-side cache reuse is uncontrolled and reported only where usage telemetry exists.",
+    "Live failures/timeouts are retained. Incomplete usage must not be treated as zero cost.",
+    "Only sanitized result records are publishable; auth references and raw sessions remain private."
+  ],
+  "model": "gpt-5.6-sol",
+  "publication": {
+    "note": "All six post-fix trials retained, including usage, coordination errors and terminal outcomes. Only absolute execution command paths removed. Credentials and raw sessions remain private.",
+    "original_result_sha256": "22b41b8d3098b0e0136c98e09b22a5581c1fa7af6fc96bff0e6923bb3bd1acd7"
+  },
+  "runs": [
+    {
+      "arm": "tny_swarm",
+      "artifacts": "slug-r1-tny_swarm",
+      "case": "slug",
+      "cleanup": [],
+      "complexity": "small: one pure function",
+      "correctness": {
+        "checks": 37,
+        "failed_checks": 0,
+        "failures": [],
+        "passed": true
+      },
+      "effort": "medium",
+      "end_to_end_seconds": 128.154,
+      "exit_code": 0,
+      "implementation_sha256": {
+        "normalise.py": "444878a2ae68ebe56a672ca74cb9791c74825d239dd7813688374578c0774147",
+        "test_public.py": "f87a3f1c1f8d5b37868199cb98dbf15f1c76ca3bd956c1b8ccf588fe5447c213"
+      },
+      "lead_wall_seconds": 128.152,
+      "metrics": {
+        "cache_coverage_complete": true,
+        "cached_input_tokens": 366848,
+        "coordination": {
+          "coordinator_upward_messages": 1,
+          "delivery_states": {
+            "0": 1,
+            "1": 1,
+            "2": 9
+          },
+          "durable_messages": 11,
+          "mailbox_tool_errors": 1,
+          "peer_direct_messages": 10
+        },
+        "executed_tool_calls": 62,
+        "input_tokens": 476849,
+        "jobs": [
+          {
+            "items": [
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "verification-coordinator",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "specification-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "testing-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              }
+            ],
+            "state": "succeeded"
+          }
+        ],
+        "launched_collaborators": 3,
+        "output_tokens": 8214,
+        "provider_requests": 33,
+        "session_count": 4,
+        "sessions": [
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 33152,
+            "input_tokens": 47394,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1332,
+            "provider_requests": 6
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 171648,
+            "input_tokens": 225631,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 2762,
+            "provider_requests": 9
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 33536,
+            "input_tokens": 48735,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1927,
+            "provider_requests": 6
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 128512,
+            "input_tokens": 155089,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 2193,
+            "provider_requests": 12
+          }
+        ],
+        "tool_calls": 62,
+        "usage_complete": true
+      },
+      "model": "gpt-5.6-sol",
+      "orchestration_completed": true,
+      "passed": true,
+      "protected_files_unchanged": true,
+      "repetition": 1,
+      "same_model_verified": true,
+      "timed_out": false
+    },
+    {
+      "arm": "codex",
+      "artifacts": "slug-r1-codex",
+      "case": "slug",
+      "cleanup": [],
+      "complexity": "small: one pure function",
+      "correctness": {
+        "checks": 37,
+        "failed_checks": 0,
+        "failures": [],
+        "passed": true
+      },
+      "effort": "medium",
+      "end_to_end_seconds": 47.206,
+      "exit_code": 0,
+      "implementation_sha256": {
+        "normalise.py": "6abab24a8312443d493e5a777cf094cb814eb3f3daf6a8796ed5a09495f893b8",
+        "test_public.py": "f87a3f1c1f8d5b37868199cb98dbf15f1c76ca3bd956c1b8ccf588fe5447c213"
+      },
+      "lead_wall_seconds": 47.206,
+      "metrics": {
+        "cache_coverage_complete": true,
+        "cached_input_tokens": 63360,
+        "input_tokens": 73451,
+        "launched_collaborators": 0,
+        "output_tokens": 1808,
+        "provider_requests": null,
+        "rollout_usage_fallback": false,
+        "root_stream_turn_completed": true,
+        "session_count": 1,
+        "sessions": [
+          {
+            "cache_write_input_tokens": 0,
+            "cached_input_tokens": 63360,
+            "completed": true,
+            "input_tokens": 73451,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1808,
+            "reasoning_output_tokens": 410,
+            "total_tokens": 75259
+          }
+        ],
+        "tool_calls": 4,
+        "usage_complete": true
+      },
+      "model": "gpt-5.6-sol",
+      "orchestration_completed": true,
+      "passed": true,
+      "protected_files_unchanged": true,
+      "repetition": 1,
+      "same_model_verified": true,
+      "timed_out": false
+    },
+    {
+      "arm": "tny_swarm",
+      "artifacts": "ledger-r1-tny_swarm",
+      "case": "ledger",
+      "cleanup": [],
+      "complexity": "medium: durable state, idempotency, concurrent clients and CLI",
+      "correctness": {
+        "checks": 21,
+        "failed_checks": 0,
+        "failures": [],
+        "passed": true
+      },
+      "effort": "medium",
+      "end_to_end_seconds": 137.616,
+      "exit_code": 0,
+      "implementation_sha256": {
+        "ledger.py": "07f97a905b6aa75668c7dcaad9b415c6de52c3699ab4d66bb512e666b1ba69bd",
+        "ledger_cli.py": "5bc78ae83823d193e7ab42a5b419d33b550f278359bc31f9ec0dff687041f635",
+        "test_public.py": "a28319c92fe453f9cf9865399ae31cf4eb07e64fb5d785d0c6d6a58c25e50133"
+      },
+      "lead_wall_seconds": 137.616,
+      "metrics": {
+        "cache_coverage_complete": true,
+        "cached_input_tokens": 420864,
+        "coordination": {
+          "coordinator_upward_messages": 1,
+          "delivery_states": {
+            "0": 2,
+            "1": 1,
+            "2": 3
+          },
+          "durable_messages": 6,
+          "mailbox_tool_errors": 1,
+          "peer_direct_messages": 5
+        },
+        "executed_tool_calls": 50,
+        "input_tokens": 518620,
+        "jobs": [
+          {
+            "items": [
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "verification-coordinator",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "specification-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "testing-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              }
+            ],
+            "state": "succeeded"
+          }
+        ],
+        "launched_collaborators": 3,
+        "output_tokens": 10361,
+        "provider_requests": 34,
+        "session_count": 4,
+        "sessions": [
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 38912,
+            "input_tokens": 49423,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1775,
+            "provider_requests": 6
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 96512,
+            "input_tokens": 116296,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1841,
+            "provider_requests": 11
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 45056,
+            "input_tokens": 56438,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1331,
+            "provider_requests": 7
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 240384,
+            "input_tokens": 296463,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 5414,
+            "provider_requests": 10
+          }
+        ],
+        "tool_calls": 50,
+        "usage_complete": true
+      },
+      "model": "gpt-5.6-sol",
+      "orchestration_completed": true,
+      "passed": true,
+      "protected_files_unchanged": true,
+      "repetition": 1,
+      "same_model_verified": true,
+      "timed_out": false
+    },
+    {
+      "arm": "codex",
+      "artifacts": "ledger-r1-codex",
+      "case": "ledger",
+      "cleanup": [],
+      "complexity": "medium: durable state, idempotency, concurrent clients and CLI",
+      "correctness": {
+        "checks": 21,
+        "failed_checks": 0,
+        "failures": [],
+        "passed": true
+      },
+      "effort": "medium",
+      "end_to_end_seconds": 191.669,
+      "exit_code": 0,
+      "implementation_sha256": {
+        "ledger.py": "d25678847e75d6ca2e0093d9d16b23dc2fc5c01dbc632c7bd4697a14e0727f85",
+        "ledger_cli.py": "96b92212b1d59722b40592cc56fb7c05d0aca4a550775277dd48f5fd44780916",
+        "test_public.py": "a28319c92fe453f9cf9865399ae31cf4eb07e64fb5d785d0c6d6a58c25e50133"
+      },
+      "lead_wall_seconds": 191.669,
+      "metrics": {
+        "cache_coverage_complete": true,
+        "cached_input_tokens": 148864,
+        "input_tokens": 175582,
+        "launched_collaborators": 0,
+        "output_tokens": 9290,
+        "provider_requests": null,
+        "rollout_usage_fallback": false,
+        "root_stream_turn_completed": true,
+        "session_count": 1,
+        "sessions": [
+          {
+            "cache_write_input_tokens": 0,
+            "cached_input_tokens": 148864,
+            "completed": true,
+            "input_tokens": 175582,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 9290,
+            "reasoning_output_tokens": 2006,
+            "total_tokens": 184872
+          }
+        ],
+        "tool_calls": 8,
+        "usage_complete": true
+      },
+      "model": "gpt-5.6-sol",
+      "orchestration_completed": true,
+      "passed": true,
+      "protected_files_unchanged": true,
+      "repetition": 1,
+      "same_model_verified": true,
+      "timed_out": false
+    },
+    {
+      "arm": "tny_swarm",
+      "artifacts": "workflow-r1-tny_swarm",
+      "case": "workflow",
+      "cleanup": [],
+      "complexity": "large: validated DAG, deterministic scheduling, retries and failure propagation",
+      "correctness": {
+        "checks": 121,
+        "failed_checks": 0,
+        "failures": [],
+        "passed": true
+      },
+      "effort": "medium",
+      "end_to_end_seconds": 169.584,
+      "exit_code": 0,
+      "implementation_sha256": {
+        "test_public.py": "8c464abb60e18cd57a465c61918d9ae4bbf05d653066fae8de68c917c5c64245",
+        "workflow.py": "a675f2824123352df429a883606fb396340d9c57e7263aeac73fe0e9530ddc89",
+        "workflow_cli.py": "04b22a57c3827ff98927f1888ddb9326441533bad55a892148a25821c273f2d5"
+      },
+      "lead_wall_seconds": 169.582,
+      "metrics": {
+        "cache_coverage_complete": true,
+        "cached_input_tokens": 480128,
+        "coordination": {
+          "coordinator_upward_messages": 2,
+          "delivery_states": {
+            "2": 10
+          },
+          "durable_messages": 10,
+          "mailbox_tool_errors": 2,
+          "peer_direct_messages": 7
+        },
+        "executed_tool_calls": 71,
+        "input_tokens": 628020,
+        "jobs": [
+          {
+            "items": [
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "verification-coordinator",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "specification-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "testing-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              }
+            ],
+            "state": "succeeded"
+          }
+        ],
+        "launched_collaborators": 3,
+        "output_tokens": 15173,
+        "provider_requests": 41,
+        "session_count": 4,
+        "sessions": [
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 49536,
+            "input_tokens": 62240,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 2210,
+            "provider_requests": 7
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 237952,
+            "input_tokens": 321050,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 7204,
+            "provider_requests": 13
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 37888,
+            "input_tokens": 56228,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 3553,
+            "provider_requests": 6
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 154752,
+            "input_tokens": 188502,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 2206,
+            "provider_requests": 15
+          }
+        ],
+        "tool_calls": 71,
+        "usage_complete": true
+      },
+      "model": "gpt-5.6-sol",
+      "orchestration_completed": true,
+      "passed": true,
+      "protected_files_unchanged": true,
+      "repetition": 1,
+      "same_model_verified": true,
+      "timed_out": false
+    },
+    {
+      "arm": "codex",
+      "artifacts": "workflow-r1-codex",
+      "case": "workflow",
+      "cleanup": [],
+      "complexity": "large: validated DAG, deterministic scheduling, retries and failure propagation",
+      "correctness": {
+        "checks": 121,
+        "failed_checks": 0,
+        "failures": [],
+        "passed": true
+      },
+      "effort": "medium",
+      "end_to_end_seconds": 138.862,
+      "exit_code": 0,
+      "implementation_sha256": {
+        "test_public.py": "8c464abb60e18cd57a465c61918d9ae4bbf05d653066fae8de68c917c5c64245",
+        "workflow.py": "b2905e6fe0eccadd26e6d8613083a0cf071b49987276761265ee0ccbede8b750",
+        "workflow_cli.py": "77a18d0e1dc45ff3de8150f52e9f3e455e0310cba49b856d9f12122f865d8fa4"
+      },
+      "lead_wall_seconds": 138.862,
+      "metrics": {
+        "cache_coverage_complete": true,
+        "cached_input_tokens": 143360,
+        "input_tokens": 167333,
+        "launched_collaborators": 0,
+        "output_tokens": 5994,
+        "provider_requests": null,
+        "rollout_usage_fallback": false,
+        "root_stream_turn_completed": true,
+        "session_count": 1,
+        "sessions": [
+          {
+            "cache_write_input_tokens": 0,
+            "cached_input_tokens": 143360,
+            "completed": true,
+            "input_tokens": 167333,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 5994,
+            "reasoning_output_tokens": 1429,
+            "total_tokens": 173327
+          }
+        ],
+        "tool_calls": 8,
+        "usage_complete": true
+      },
+      "model": "gpt-5.6-sol",
+      "orchestration_completed": true,
+      "passed": true,
+      "protected_files_unchanged": true,
+      "repetition": 1,
+      "same_model_verified": true,
+      "timed_out": false
+    }
+  ],
+  "schema_version": 1,
+  "started_utc": "2026-09-20T12:12:49.904251+00:00",
+  "summary": {
+    "ledger": {
+      "codex": {
+        "collaborators_per_run": [
+          0
+        ],
+        "median_cached_input_tokens": 148864,
+        "median_input_tokens": 175582,
+        "median_output_tokens": 9290,
+        "median_seconds": 191.669,
+        "passed": 1,
+        "runs": 1,
+        "usage_complete": true
+      },
+      "tny_swarm": {
+        "collaborators_per_run": [
+          3
+        ],
+        "median_cached_input_tokens": 420864,
+        "median_input_tokens": 518620,
+        "median_output_tokens": 10361,
+        "median_seconds": 137.616,
+        "passed": 1,
+        "runs": 1,
+        "usage_complete": true
+      }
+    },
+    "slug": {
+      "codex": {
+        "collaborators_per_run": [
+          0
+        ],
+        "median_cached_input_tokens": 63360,
+        "median_input_tokens": 73451,
+        "median_output_tokens": 1808,
+        "median_seconds": 47.206,
+        "passed": 1,
+        "runs": 1,
+        "usage_complete": true
+      },
+      "tny_swarm": {
+        "collaborators_per_run": [
+          3
+        ],
+        "median_cached_input_tokens": 366848,
+        "median_input_tokens": 476849,
+        "median_output_tokens": 8214,
+        "median_seconds": 128.154,
+        "passed": 1,
+        "runs": 1,
+        "usage_complete": true
+      }
+    },
+    "workflow": {
+      "codex": {
+        "collaborators_per_run": [
+          0
+        ],
+        "median_cached_input_tokens": 143360,
+        "median_input_tokens": 167333,
+        "median_output_tokens": 5994,
+        "median_seconds": 138.862,
+        "passed": 1,
+        "runs": 1,
+        "usage_complete": true
+      },
+      "tny_swarm": {
+        "collaborators_per_run": [
+          3
+        ],
+        "median_cached_input_tokens": 480128,
+        "median_input_tokens": 628020,
+        "median_output_tokens": 15173,
+        "median_seconds": 169.584,
+        "passed": 1,
+        "runs": 1,
+        "usage_complete": true
+      }
+    }
+  },
+  "timeout_seconds": 360
+}

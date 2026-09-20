@@ -1,6 +1,6 @@
 # Purposeful swarms: delivery evidence and state of play
 
-Date: 2026-09-20. Baseline `28011be`; runtime/test checkpoint `84a0d12`.
+Date: 2026-09-20. Baseline `28011be`; delivery source `8be8d4e`; timed binary `84a0d12`.
 This consolidates the earlier lane notes, whose sandbox limitations describe
 historical attempts rather than the completed host checks below.
 
@@ -20,15 +20,20 @@ and [the user guide](../../purposeful-swarms.md) for v1 boundaries.
 | Release + purposeful/lifecycle/context/collective/wait/benchmark integration pack + unit suite | `84a0d12` | Exit 0, 106.6 s; 520 main unit tests, 29,392 assertions; two additional ownership test executables pass. |
 | `make quality` | `84a0d12` | Exit 0, 212.3 s: formatting, C/C++ Clang analysis, strict warnings and language/workflow linters. GCC analyzer explicitly skipped on Darwin. |
 | `make -j4 leaks` | `84a0d12` | Exit 0, 65.8 s; all checked suites report zero leaked bytes. |
-| Focused manifest mutation experiment | Historical `0694449` parser checkpoint; predates the FIFO-read hardening | Five valid mutants killed; zero survived; four uncompilable mutants excluded. |
+| Focused manifest mutation experiment | Clean detached `580094f` worktree; parser and parser tests unchanged at `8be8d4e` | Exit 0; five valid mutants killed; zero survived; four uncompilable mutants excluded. |
+| Release, focused regression pack, unit tests and leak rerun | `580094f` | Both commands exit 0; repeat after the exact-length recovery-copy change. |
+| `make -j4 test-runner-ownership` | `580094f` plus the fixture-only change committed as `1815d8c` | Exit 0; descriptor/resource acquisition, cancellation/reaping, allocation faults, persistence and checkpoint cleanup oracles pass under ASan/UBSan. |
 | Full `make -j4 test` | Earlier `00e717f` runtime | Exit 2. Only `test_background_agents` and `test_tui` failed. All other reported suites passed. |
 | Baseline/candidate reproduction of both full-suite failures | Baseline `28011be` and candidate `00e717f` executables, identical unchanged PTY tests | Both reproduce on both executables: synthetic held-session dashboard discovery; banner scrolled out by the help overlay. Not attributed to this PR. |
 
-The complete aggregate was not rerun after the narrow capability/metadata changes;
-the affected regression pack and all quality/leak gates were rerun. This is not an
-all-platform or fully green aggregate claim. Linux/GCC and platform CI remain to
-be observed separately. The current stripped Darwin arm64 artifact is 1,170,416
-bytes and links only the system libc++ and libSystem dylibs.
+The complete aggregate was not rerun after the narrow capability/metadata changes.
+This is not an all-platform or fully green aggregate claim. A subsequent quality
+invocation during overlapping builds failed while expanding the regenerated
+version header; it is not counted as a pass. Final quality, focused, ownership and
+leak commands are now serialized on `8be8d4e`, with a distinct terminal status.
+The timed Darwin arm64 artifact at `84a0d12` is 1,170,416 bytes and links only the
+system libc++ and libSystem dylibs. Its size is not attributed to an unmeasured
+later binary.
 
 Private command/status/log records are retained under
 `~/.cache/tny-purposeful-swarms-20260920` and its `-resume` sibling. Their JSON
@@ -76,19 +81,69 @@ attempt logs using the corrected accounting, with original result hash recorded.
 
 ## Post-fix evaluation
 
-A separate one-pair-per-task ladder is being measured against frozen `84a0d12`:
-SHA-256 `af3f1c3110aacbd692925cebce9e6d9225ac8d45da41356ee3501c1459b8d5f4`.
-No development inference or local quality gate overlaps its timed trials.
-Its results are pending; the pre-fix timings must not be reused as post-fix proof.
+[Sanitized post-fix evidence](live-after.json) contains all six trials, completed
+at 2026-09-20 12:26:24 UTC: one matched pair for each task. Both arms used
+`gpt-5.6-sol`, medium effort and Codex CLI `0.156.0-alpha.8` where applicable.
+Every observed session's model matches; input, output and cache usage coverage is
+complete. All three tny runs and all three Codex runs passed external correctness,
+protected-file, model-identity and orchestration-completion checks. There were no
+timeouts or cleanup-induced successes. Each tny run launched three participants;
+each Codex run chose zero despite subagent availability.
 
-## CI portability finding
+| Task | External checks per run | tny seconds | Codex seconds | tny/Codex time | tny input tokens | Codex input tokens |
+|---|---:|---:|---:|---:|---:|---:|
+| Pure Unicode function | 37 | 128.154 | 47.206 | 2.715 | 476,849 | 73,451 |
+| Durable concurrent ledger + CLI | 21 | 137.616 | 191.669 | 0.718 | 518,620 | 175,582 |
+| Retrying DAG scheduler | 121 | 169.584 | 138.862 | 1.221 | 628,020 | 167,333 |
 
-The initial PR Linux lanes rejected the recovery path's `snprintf` under GCC's
-`-Werror=format-truncation`: GCC did not propagate the preceding exact 32-character
-hex validation through that call. The patch copies the already-validated ID plus
-its terminator directly, without suppressing diagnostics or weakening validation.
-A regression also feeds 31-, 33-, 255-character and non-hex directory names.
-This changes neither valid IDs nor swarm semantics; the live binary remains frozen.
-Final local gates and a current-input mutation run are scheduled after the live
-ladder, then the corrected branch will be pushed for another CI run.
+Input counts include their cached subset and include root plus every participant;
+do not add cached tokens again. tny cached-input fractions were 76.9%, 81.2%, and
+76.5%, respectively. The full JSON also records output and per-session usage.
+Token usage remained higher for tny in every pair: approximately 6.49x, 2.95x,
+and 3.75x input. There is no token-efficiency or general speed superiority claim.
 
+Collaboration is observed rather than inferred from launch count: the runs contain
+10, 5, and 7 direct peer messages and 1, 1, and 2 coordinator-upward messages.
+There were still 1, 1, and 2 recoverable mailbox tool-call errors. Successful job
+completion does not mean every message was consumed/acknowledged; final durable
+receipt states are retained. At-least-once delivery and bounded waits do not
+prove consensus, full message consumption or task correctness.
+
+The sampled permission-denial failure pattern did not recur after aligning tools
+with participant capabilities. This is 3/3 post-fix runs versus 3/6 before, not a
+statistical reliability guarantee. The ledger pair was about 28.2% faster; the
+small function and scheduler were slower. Prefer a single agent for small work
+unless an independent perspective is worth the overhead; the data does not yet
+justify automatically applying a fixed swarm to every task.
+
+The binary was frozen at `84a0d12`, SHA-256
+`af3f1c3110aacbd692925cebce9e6d9225ac8d45da41356ee3501c1459b8d5f4`.
+No development inference or local quality gates overlapped these timed trials.
+Subsequent delivery changes are an equivalent validated-ID copy, ownership-test
+signature compatibility, and a Linux-only notification decoder repair. They are
+not retimed here. Results are a small synthetic ladder with different harness
+policies/tool surfaces and uncontrolled provider caching, not a causal estimate
+of swarm benefit. Both pre-fix failures and post-fix data remain published.
+
+## CI portability findings and delivery status
+
+Draft PR: https://github.com/thehumanworks/tny/pull/173.
+Branch: `feat/purposeful-nested-swarms`; primary worktree remains on clean `main`.
+
+The initial Linux lanes rejected recovery's `snprintf` under GCC
+`-Werror=format-truncation`; `580094f` copies the already exact-length-validated ID
+and terminator directly. Its regression feeds 31-, 33-, 255-character and non-hex
+directory names. No compiler warning was suppressed or validation weakened.
+
+At `580094f`, all Linux Python/Node SDK rows, Valgrind, TSAN, and wasm-node passed.
+Remaining diagnosed failures were stale private-API calls in the ownership fault
+fixture (fixed/tested in `1815d8c`) and Linux-only Clang analysis of an inotify
+buffer cast (fixed in `8be8d4e`). The Linux decoder now copies bounded headers
+without alignment/type-punning casts and rejects truncation or lost-notification
+overflow. Linux-only regression cases exercise valid single/multiple records,
+truncated headers, invalid lengths, and each watch-loss mask. These intentionally
+skip on non-Linux; Linux CI supplies their native coverage.
+
+The branch is pushed with these repairs. Replacement CI and the final serialized
+local gate are not yet recorded as complete in this checkpoint; the PR remains a
+draft rather than presenting earlier failed/incomplete runs as merge-ready proof.
