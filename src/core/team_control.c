@@ -652,6 +652,14 @@ int tny_team_run(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op, yy
             yyjson_doc_free(current);
             yyjson_doc_free(status);
             buf_free(&job);
+            /* A busy producer may keep changing snapshots. Observation must
+             * still honor its deadline rather than spin until it becomes idle. */
+            if (monotonic_ms() >= deadline) {
+                envelope(out, "team_wait_timeout", jget_str(args, "id"));
+                buf_appendf(out, ",\"attempt\":%lld,\"cancelled\":false}\n", (long long)fence);
+                tny_jobs_host_watch_close(&watch);
+                return finish(out, err, n, 124);
+            }
             continue;
         }
         yyjson_doc_free(current);

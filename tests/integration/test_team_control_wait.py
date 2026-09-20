@@ -81,6 +81,10 @@ int tny_wait_test_jobs_run_cancel(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args
             }
         }
     }
+    if (op == TNY_JOBS_OP_STATUS && getenv("TNY_WAIT_TEST_INCOHERENT") && out->data) {
+        char *state = strstr(out->data, "\"state\":\"running\"");
+        if (state) memcpy(state + strlen("\"state\":\""), "pending", 7);
+    }
     if (op == TNY_JOBS_OP_STATUS && wait_test_status_calls == 1 &&
         getenv("TNY_WAIT_TEST_SELF_EVENT")) {
         char path[4096];
@@ -283,7 +287,7 @@ class TeamControlWaitTests(jobs.JobsFixture):
         trace = self.workspace / "wait.trace"
         env = {
             **self.env,
-            "TNY_WAIT_TEST_MODE": "session",
+            "TNY_TEAM_TEST_MODE": "session",
             "TNY_WAIT_TEST_TRACE": str(trace),
             "TNY_WAIT_TEST_SELF_EVENT": "1",
         }
@@ -301,6 +305,27 @@ class TeamControlWaitTests(jobs.JobsFixture):
         self.assertEqual(events.count("S"), 2, events)
         self.assertEqual(events.count("N"), 1, events)
 
+    def test_continuous_snapshot_mismatch_still_obeys_deadline(self):
+        run = self.start_held()
+        trace = self.workspace / "wait.trace"
+        env = {
+            **self.env,
+            "TNY_TEAM_TEST_MODE": "session",
+            "TNY_WAIT_TEST_TRACE": str(trace),
+            "TNY_WAIT_TEST_INCOHERENT": "1",
+        }
+        started = time.monotonic()
+        process, event = self.team(
+            "wait-any",
+            {"id": run, "item": 1, "timeout_ms": 80},
+            check=False,
+            env=env,
+        )
+        self.assertEqual(process.returncode, 124)
+        self.assertEqual(event["kind"], "team_wait_timeout")
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertGreaterEqual(trace.read_text().count("S"), 2)
+
     def test_notification_between_subscribe_and_snapshot_is_observed(self):
         run = self.start_held()
         marker = self.workspace / "drained"
@@ -308,7 +333,7 @@ class TeamControlWaitTests(jobs.JobsFixture):
         trace = self.workspace / "wait.trace"
         env = {
             **self.env,
-            "TNY_WAIT_TEST_MODE": "session",
+            "TNY_TEAM_TEST_MODE": "session",
             "TNY_WAIT_TEST_TRACE": str(trace),
             "TNY_WAIT_TEST_BARRIER_DRAIN": "1",
             "TNY_WAIT_TEST_MARKER": str(marker),
@@ -335,7 +360,7 @@ class TeamControlWaitTests(jobs.JobsFixture):
         trace = self.workspace / "wait.trace"
         env = {
             **self.env,
-            "TNY_WAIT_TEST_MODE": "session",
+            "TNY_TEAM_TEST_MODE": "session",
             "TNY_WAIT_TEST_TRACE": str(trace),
             "TNY_WAIT_TEST_BARRIER_DRAIN": "2",
             "TNY_WAIT_TEST_MARKER": str(marker),
@@ -353,7 +378,7 @@ class TeamControlWaitTests(jobs.JobsFixture):
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertEqual(event["kind"], "team_completion")
         self.assertEqual(event["cursor"], {"item": 1, "attempt": 1})
-        self.assertIn(trace.read_text().count("S"), (2, 3))
+        self.assertGreaterEqual(trace.read_text().count("S"), 2)
 
     def test_completion_notification_wakes_wait(self):
         run = self.start_held()
@@ -361,7 +386,7 @@ class TeamControlWaitTests(jobs.JobsFixture):
         trace = self.workspace / "wait.trace"
         env = {
             **self.env,
-            "TNY_WAIT_TEST_MODE": "session",
+            "TNY_TEAM_TEST_MODE": "session",
             "TNY_WAIT_TEST_TRACE": str(trace),
             "TNY_WAIT_TEST_NEXT_MARKER": str(marker),
         }
@@ -373,7 +398,7 @@ class TeamControlWaitTests(jobs.JobsFixture):
         self.assertEqual(event["kind"], "team_completion")
         # If replacement overlaps the public snapshot, the private confirmation
         # deliberately forces one immediate coherent resnapshot.
-        self.assertIn(trace.read_text().count("S"), (2, 3))
+        self.assertGreaterEqual(trace.read_text().count("S"), 2)
 
     def test_cancellation_stops_watch_without_cancelling_job(self):
         run = self.start_held()
@@ -382,7 +407,7 @@ class TeamControlWaitTests(jobs.JobsFixture):
         trace = self.workspace / "wait.trace"
         env = {
             **self.env,
-            "TNY_WAIT_TEST_MODE": "wait-cancel",
+            "TNY_TEAM_TEST_MODE": "wait-cancel",
             "TNY_WAIT_TEST_TRACE": str(trace),
             "TNY_WAIT_TEST_NEXT_MARKER": str(marker),
             "TNY_WAIT_TEST_CANCEL": str(cancel),
@@ -403,7 +428,7 @@ class TeamControlWaitTests(jobs.JobsFixture):
         trace = self.workspace / "wait.trace"
         env = {
             **self.env,
-            "TNY_WAIT_TEST_MODE": "session",
+            "TNY_TEAM_TEST_MODE": "session",
             "TNY_WAIT_TEST_TRACE": str(trace),
             "TNY_WAIT_TEST_NEXT_MARKER": str(marker),
             "TNY_WAIT_TEST_NEXT_ACK": str(ack),
@@ -427,7 +452,7 @@ class TeamControlWaitTests(jobs.JobsFixture):
         marker = self.workspace / "waiting"
         env = {
             **self.env,
-            "TNY_WAIT_TEST_MODE": "session",
+            "TNY_TEAM_TEST_MODE": "session",
             "TNY_WAIT_TEST_NEXT_MARKER": str(marker),
         }
         thread, result = self.wait_async(run, env)
@@ -448,7 +473,7 @@ class TeamControlWaitTests(jobs.JobsFixture):
         marker = self.workspace / "waiting"
         env = {
             **self.env,
-            "TNY_WAIT_TEST_MODE": "session",
+            "TNY_TEAM_TEST_MODE": "session",
             "TNY_WAIT_TEST_NEXT_MARKER": str(marker),
         }
         thread, result = self.wait_async(run, env, timeout_ms=300)
@@ -463,7 +488,7 @@ class TeamControlWaitTests(jobs.JobsFixture):
         run = self.start_held()
         env = {
             **self.env,
-            "TNY_WAIT_TEST_MODE": "session",
+            "TNY_TEAM_TEST_MODE": "session",
             "TNY_WAIT_TEST_NO_WATCH": "1",
         }
         refused, _ = self.team(

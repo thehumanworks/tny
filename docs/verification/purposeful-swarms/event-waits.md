@@ -44,3 +44,14 @@ discovers `test_*.py`, and `nix/source.nix` already includes the complete
 generic native support wording in `docs/team-control.md` and ADR 0148: positive
 waits now intentionally require the Darwin/Linux directory-watch seam, while
 status and zero-time observation remain available on other native job hosts.
+
+## Direct-host follow-up
+
+The primary ran the fixtures outside the development agent's restricted sandbox.
+The initial pass exposed three test failures: the test cancellation mode named
+the wrong environment key and unrelated peer completions invalidated an asserted
+quiet interval. The fixture now waits for unrelated peers to settle, uses the
+real cancellation path and allows legitimate atomic-write notification coalescing.
+A production deadline check also bounds continuously mismatched snapshots.
+The revised nine-test direct-host pass completed with exit 0; a further regression
+covers the continuously changing snapshot deadline before integration.
