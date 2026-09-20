@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "purpose": "Deliver the README task with independent design and test evidence, then verified implementation.",
+  "coordinator": {
+    "name": "implementing-lead",
+    "purpose": "Own all implementation edits, consult the verification group, run tests, collect every collaborator result and reconcile relevant findings before final response."
+  },
+  "agents": [],
+  "swarms": [
+    {
+      "purpose": "Find specification edge cases and concrete verification guidance without changing implementation files.",
+      "coordinator": {
+        "name": "verification-coordinator",
+        "purpose": "Read README, combine scoped evidence from both group peers using bounded mailbox waits, challenge material disagreements, then send a concise actionable synthesis upward to the root lead. Do not edit files."
+      },
+      "agents": [
+        {
+          "name": "specification-reviewer",
+          "purpose": "Read README and current implementation. Identify the three highest-risk correctness requirements and examples. Send concise evidence directly to your group coordinator, optionally discuss disagreements with the testing peer, then finish. Do not edit files."
+        },
+        {
+          "name": "testing-reviewer",
+          "purpose": "Read README and current implementation. Derive focused edge-case and failure tests. Send concise concrete cases directly to your group coordinator, optionally discuss disagreements with the specification peer, then finish. Do not edit files."
+        }
+      ],
+      "swarms": []
+    }
+  ]
+}
