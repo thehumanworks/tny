@@ -1,0 +1,30 @@
+{
+  "source_revision": "bcd8ab253368f1b3d75e9c97575db31c4856b5f9",
+  "source_tree": "42141f31fba077312fe4c5dba6a89a38ca24b53f",
+  "platform": "Darwin arm64",
+  "state": "completed",
+  "exit_code": 0,
+  "elapsed_seconds": 466.08292508125305,
+  "log_sha256": "39e69c50031f509f908ddcbcd03f9fe52044433dd694ce5d9304d9b47cfe3497",
+  "commands": [
+    "make quality",
+    "make -j6 release test-unit",
+    "python3 tests/integration/test_swarm_factory.py -v",
+    "python3 tests/integration/test_swarm_message.py -v",
+    "python3 tests/integration/test_purposeful_swarm.py",
+    "python3 tests/integration/test_swarm_lifecycle.py",
+    "python3 tests/integration/test_swarm_context.py",
+    "python3 tests/integration/test_collective_swarm.py",
+    "python3 tests/integration/test_team_control_wait.py",
+    "python3 tests/integration/test_team_mailbox.py",
+    "python3 tests/integration/test_swarm_effectiveness.py",
+    "python3 tests/integration/test_swarm_benchmark.py",
+    "make -j4 test-runner-ownership test-checkpoint-ownership test-subagent-ownership test-runtime-ownership",
+    "make -j4 leaks"
+  ],
+  "limitations": [
+    "GCC analyzer and Linux-only decoder execution require Linux CI.",
+    "The complete repository-wide make test aggregate was not rerun; earlier baseline PTY failures remain disclosed.",
+    "Live results use frozen fa22354, before the regression-tested final root-address guidance and equivalent prefix-termination correction."
+  ]
+}

@@ -226,6 +226,10 @@ class SwarmMessage(JobsFixture):
             if step < len(invalid):
                 if step:
                     assert "error:" in outputs[-1], outputs[-1]
+                    if step == 1:
+                        assert "root coordinator is root-lead" in outputs[-1], outputs[
+                            -1
+                        ]
                     assert self.mailbox()["messages"] == [], self.mailbox()
                 return invalid[step], None
             if step == len(invalid):
@@ -316,6 +320,11 @@ class SwarmMessage(JobsFixture):
         self.assertEqual(len(self.bodies["alpha"]), 2)
         first_beta_context = "\n".join(user_texts(self.bodies["beta"][0], "chat"))
         self.assertIn("ALPHA-PEER-DONE", first_beta_context)
+        self.assertIn('swarm_message to="root-lead"', first_beta_context)
+        self.assertIn(
+            'swarm_message to="beta"',
+            "\n".join(user_texts(self.bodies["alpha"][0], "chat")),
+        )
         self.assertIn('"kind":"finding"', first_beta_context)
         record = json.loads((self.job_dirs()[0] / "job.json").read_text())
         self.assertEqual(record["state"], "succeeded")

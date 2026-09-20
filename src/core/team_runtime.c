@@ -544,7 +544,8 @@ static bool swarm_message_recipient(yyjson_val *status, const char *name,
         if (strcmp(candidate, name) == 0) found = found == -2 ? (int)i : -3;
     }
     if (found == -2) {
-        snprintf(err, cap, "no purposeful swarm participant named %s", name);
+        snprintf(err, cap, "no purposeful swarm participant named %s; root coordinator is %s", name,
+                 yyjson_get_str(root_name));
         return false;
     }
     if (found == -3) {
@@ -1014,7 +1015,8 @@ bool tny_swarm_message_id(const char *run, int sender_task, uint32_t job_attempt
     bool ok = !buf_oom(&canonical) && sha256((const uint8_t *)canonical.data, canonical.len, hash);
     buf_free(&canonical);
     if (!ok) return false;
-    memcpy(id, "sm1-", 4);
+    /* Terminate the prefix before the digest overwrites that temporary null. */
+    memcpy(id, "sm1-", sizeof "sm1-");
     hex_digest(hash, 30, id + 4); /* 240 content-addressed bits; total mailbox id is 64 bytes. */
     return true;
 }
