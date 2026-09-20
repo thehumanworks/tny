@@ -12,6 +12,14 @@ const char *tny_team_mailbox_permission(yyjson_val *args);
 char *tny_team_mailbox_detail(yyjson_val *args);
 int tny_team_mailbox_run(tools_env *env, yyjson_val *args, bool local_operator, buf_t *out,
                          char *err, size_t errlen);
+/* Purposeful-swarm named send. This remains a permission-checked adapter over
+ * the durable mailbox service; it does not add delivery or acknowledgement
+ * semantics. */
+char *tny_swarm_message_detail(tools_env *env, yyjson_val *args, char *err, size_t errlen);
+int tny_swarm_message_run(tools_env *env, yyjson_val *args, buf_t *out, char *err, size_t errlen);
+bool tny_swarm_message_id(const char *run, int sender_task, uint32_t job_attempt,
+                          uint32_t sender_attempt, int recipient_task, uint32_t recipient_attempt,
+                          const char *payload, size_t payload_len, char id[65]);
 /* Check a service-owned current job record. -2 denied, -1 operator/recorded
  * parent, otherwise the capability-authenticated current member index. The
  * record and caller inputs are trusted C service inputs, never request identity.

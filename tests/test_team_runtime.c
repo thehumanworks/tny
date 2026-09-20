@@ -168,16 +168,25 @@ TEST collective_mailbox_schema_and_permission_identity(void) {
     ASSERT(doc);
     size_t i, n;
     yyjson_val *item, *parameters = NULL;
+    yyjson_val *message_parameters = NULL;
     yyjson_arr_foreach(yyjson_doc_get_root(doc), i, n, item) {
         yyjson_val *function = jget(item, "function");
         const char *name = jget_str(function, "name");
         if (name && !strcmp(name, "team_mailbox")) parameters = jget(function, "parameters");
+        if (name && !strcmp(name, "swarm_message"))
+            message_parameters = jget(function, "parameters");
     }
     ASSERT(parameters);
+    ASSERT(message_parameters);
     yyjson_val *timeout = jget(jget(parameters, "properties"), "timeout_ms");
     ASSERT_STR_EQ("integer", jget_str(timeout, "type"));
     ASSERT_EQ(0, jget_int(timeout, "minimum", -1));
     ASSERT_EQ(30000, jget_int(timeout, "maximum", -1));
+    ASSERT_FALSE(jget_bool(message_parameters, "additionalProperties", true));
+    yyjson_val *message_properties = jget(message_parameters, "properties");
+    ASSERT_EQ(256, jget_int(jget(message_properties, "topic"), "maxLength", -1));
+    ASSERT_EQ(16384, jget_int(jget(message_properties, "text"), "maxLength", -1));
+    ASSERT_EQ(7, (int)yyjson_arr_size(jget(jget(message_properties, "kind"), "enum")));
     yyjson_doc_free(doc);
     free(schema);
     const char *invalid[] = {
@@ -192,6 +201,124 @@ TEST collective_mailbox_schema_and_permission_identity(void) {
         ASSERT_EQ(NULL, tny_team_mailbox_detail(yyjson_doc_get_root(doc)));
         yyjson_doc_free(doc);
     }
+    PASS();
+}
+
+TEST swarm_message_ids_and_context_are_attempt_scoped(void) {
+    const char *payload =
+        "{\"version\":1,\"kind\":\"finding\",\"topic\":\"utf8-\xE2\x9C\x93\",\"body\":\"same\"}";
+    char first[65], retry[65], next_attempt[65], other_recipient[65];
+    ASSERT(tny_swarm_message_id(run_id, 0, 1, 1, -1, 0, payload, strlen(payload), first));
+    ASSERT(tny_swarm_message_id(run_id, 0, 1, 1, -1, 0, payload, strlen(payload), retry));
+    ASSERT(tny_swarm_message_id(run_id, 0, 2, 2, -1, 0, payload, strlen(payload), next_attempt));
+    ASSERT(tny_swarm_message_id(run_id, 0, 1, 1, 1, 1, payload, strlen(payload), other_recipient));
+    ASSERT_STR_EQ(first, retry);
+    ASSERT(strcmp(first, next_attempt) != 0);
+    ASSERT(strcmp(first, other_recipient) != 0);
+    ASSERT_EQ(64, (int)strlen(first));
+    ASSERT(str_starts(first, "sm1-"));
+
+    const char *request = "{\"to\":\"root\",\"kind\":\"finding\",\"topic\":\"t\",\"text\":\"x\"}";
+    yyjson_doc *args = jparse(request, strlen(request));
+    ASSERT(args);
+    tny_ctx ctx = {0};
+    tny_session_state session = {.ctx = &ctx, .id = "0123456789abcdef"};
+    session.doc = yyjson_mut_doc_new(jallocator());
+    ASSERT(session.doc);
+    yyjson_mut_val *root = yyjson_mut_obj(session.doc);
+    yyjson_mut_doc_set_root(session.doc, root);
+    tools_env env = {.ctx = &ctx, .session = &session};
+    char err[256] = "";
+    ASSERT_EQ(NULL, tny_swarm_message_detail(&env, yyjson_doc_get_root(args), err, sizeof err));
+    ASSERT(strstr(err, "current purposeful activation"));
+
+    yyjson_mut_val *meta = yyjson_mut_obj(session.doc);
+    ASSERT(yyjson_mut_obj_add_strcpy(session.doc, meta, "activation", "active"));
+    ASSERT(
+        yyjson_mut_obj_add_strcpy(session.doc, meta, "run_id", "ffffffffffffffffffffffffffffffff"));
+    ASSERT(yyjson_mut_obj_add_val(session.doc, root, "swarm_definition", meta));
+    const char *prior = getenv("TNY_TEAM_RUN");
+    char *saved = prior ? xstrdup(prior) : NULL;
+    setenv("TNY_TEAM_RUN", run_id, 1);
+    err[0] = 0;
+    ASSERT_EQ(NULL, tny_swarm_message_detail(&env, yyjson_doc_get_root(args), err, sizeof err));
+    ASSERT(strstr(err, "ambiguous"));
+    if (saved) setenv("TNY_TEAM_RUN", saved, 1);
+    else unsetenv("TNY_TEAM_RUN");
+    secure_free(saved);
+    yyjson_mut_doc_free(session.doc);
+    yyjson_doc_free(args);
+    PASS();
+}
+
+static bool schema_has(const char *schema, const char *name) {
+    yyjson_doc *doc = jparse(schema, strlen(schema));
+    yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+    bool found = false;
+    size_t i, n;
+    yyjson_val *item;
+    yyjson_arr_foreach(root, i, n, item) {
+        const char *candidate = jget_str(jget(item, "function"), "name");
+        if (candidate && strcmp(candidate, name) == 0) found = true;
+    }
+    yyjson_doc_free(doc);
+    return found;
+}
+
+TEST swarm_message_profile_and_unsupported_boundaries_are_explicit(void) {
+    char root[] = "/tmp/tny-swarm-message-boundary-XXXXXX";
+    ASSERT(mkdtemp(root));
+    char *state = path_join(root, "state");
+    ASSERT(state);
+    tny_ctx ctx = {.tool_profile = TNY_TOOLS_ALL, .workspace_read_only = true, .tny_dir = state};
+    tools_env env = {.ctx = &ctx};
+    const char *prior = getenv("TNY_SWARM_NAME");
+    char *saved = prior ? xstrdup(prior) : NULL;
+    setenv("TNY_SWARM_NAME", "reviewer", 1);
+    char *schema = tools_schema_json(&env);
+    ASSERT(schema && schema_has(schema, "swarm_message"));
+    free(schema);
+
+    ctx.tool_profile = TNY_TOOLS_TERMINAL;
+    schema = tools_schema_json(&env);
+    ASSERT(schema && !schema_has(schema, "swarm_message"));
+    free(schema);
+    ctx.tool_profile = TNY_TOOLS_ALL;
+    ctx.ssh_host = "fixture.invalid";
+    schema = tools_schema_json(&env);
+    ASSERT(schema && !schema_has(schema, "swarm_message"));
+    free(schema);
+    const char *request = "{\"to\":\"root\",\"kind\":\"finding\",\"topic\":\"t\",\"text\":\"x\"}";
+    yyjson_doc *args = jparse(request, strlen(request));
+    ASSERT(args);
+    buf_t output = {0};
+    char err[256] = "";
+    ASSERT_EQ(1, tny_swarm_message_run(&env, yyjson_doc_get_root(args), &output, err, sizeof err));
+    ASSERT(strstr(err, "native local CLI runner"));
+    ASSERT_FALSE(dir_exists(state));
+    buf_free(&output);
+    ctx.ssh_host = NULL;
+    ctx.library_mode = true;
+    schema = tools_schema_json(&env);
+    ASSERT(schema && !schema_has(schema, "swarm_message"));
+    free(schema);
+    err[0] = 0;
+    ASSERT_EQ(1, tny_swarm_message_run(&env, yyjson_doc_get_root(args), &output, err, sizeof err));
+    ASSERT(strstr(err, "native local CLI runner"));
+    ASSERT_FALSE(dir_exists(state));
+    buf_free(&output);
+    ctx.library_mode = false;
+
+    tools_call call;
+    ASSERT_EQ(-1, tools_call_prepare(&env, "swarm_message", request, &call));
+    ASSERT(call.error && strstr(call.error, "current purposeful activation"));
+    tools_call_free(&call);
+    if (saved) setenv("TNY_SWARM_NAME", saved, 1);
+    else unsetenv("TNY_SWARM_NAME");
+    secure_free(saved);
+    yyjson_doc_free(args);
+    free(state);
+    ASSERT_EQ(0, rmdir(root));
     PASS();
 }
 
@@ -236,6 +363,8 @@ TEST linux_team_watch_rejects_lost_or_malformed_events(void) {
 SUITE(team_runtime_suite) {
     RUN_TEST(linux_team_watch_rejects_lost_or_malformed_events);
     RUN_TEST(collective_mailbox_schema_and_permission_identity);
+    RUN_TEST(swarm_message_ids_and_context_are_attempt_scoped);
+    RUN_TEST(swarm_message_profile_and_unsupported_boundaries_are_explicit);
     RUN_TEST(swarm_count_and_failed_resume_are_bounded);
     RUN_TEST(team_owned_background_is_refused_without_a_task_record);
     RUN_TEST(team_runtime_authentication_is_scoped_and_fenced);
