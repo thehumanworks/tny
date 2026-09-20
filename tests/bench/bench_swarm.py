@@ -69,6 +69,7 @@ def tny_metrics(home: Path, lead_events: Path) -> dict[str, Any]:
                 "output_tokens": usage.get("out"),
                 "cached_input_tokens": usage.get("cached_in"),
                 "provider_requests": usage.get("requests"),
+                "models": [value["model"]] if value.get("model") else [],
                 "cache_coverage_complete": bool(usage.get("requests"))
                 and usage.get("requests") == usage.get("cache_read_requests"),
             }
@@ -431,6 +432,9 @@ def run_trial(
         if arm == "tny_swarm"
         else codex_metrics(codex_home, sample / "events.jsonl")
     )
+    same_model_verified = bool(metrics["sessions"]) and all(
+        item.get("models") == [args.model] for item in metrics["sessions"]
+    )
     completed = exit_code == 0 and not timed_out and not cleanup
     if arm == "tny_swarm":
         completed = completed and all(
@@ -448,9 +452,11 @@ def run_trial(
         "lead_wall_seconds": round(lead_seconds, 3),
         "end_to_end_seconds": round(elapsed_seconds, 3),
         "orchestration_completed": completed,
+        "same_model_verified": same_model_verified,
         "correctness": correctness,
         "protected_files_unchanged": all(protected.values()),
         "passed": completed
+        and same_model_verified
         and correctness.get("passed", False)
         and all(protected.values()),
         "metrics": metrics,
