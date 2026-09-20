@@ -73,6 +73,9 @@ static int parse_globals(int argc, char **argv, cli_globals *g, bool diagnostics
         } else if (strcmp(a, "--system-prompt") == 0) {
             if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
             g->system_prompt = v;
+        } else if (strcmp(a, "--child-context") == 0) {
+            if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
+            g->child_context = v;
         } else if (strcmp(a, "--swarm") == 0 || str_starts(a, "--swarm=")) {
             g->swarm_cap = tny_swarm_option(argc, argv, &i);
             if (!g->swarm_cap) {

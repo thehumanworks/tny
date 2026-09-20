@@ -63,7 +63,13 @@ GLOBAL_PARSERS = ("main", "cli_parse_globals", "parse_globals")
 PARSED_WITHOUT_HELP = {
     # Descriptor-only internal runner entry. It is not a user operation and
     # refuses without its private inherited socket/listener/writer handles.
-    "<global>": {"--resume-*", "--runner-restart", "--agent", "--bridge-bin"},
+    "<global>": {
+        "--resume-*",
+        "--runner-restart",
+        "--child-context",
+        "--agent",
+        "--bridge-bin",
+    },
     "image": {"--job-no-replace"},
     "provider": {"--api-key"},
 }

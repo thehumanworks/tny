@@ -184,6 +184,10 @@ typedef struct tny_ctx {
 /* Load settings + env + repo config for the given --cwd (NULL = getcwd).
  * Cheap: two small file reads, no network, no backend spawn. */
 tny_ctx *tny_ctx_load(const char *cwd_flag);
+/* Internal durable-child load: settings and authority resolve normally, but
+ * ambient project instructions are not read before a private snapshot is
+ * restored by the CLI child-init seam. */
+tny_ctx *tny_ctx_load_child(const char *cwd_flag);
 /* Deterministic embedding context: no settings, repo config, or environment
  * provider/authority loading. Caller supplies an existing workspace and an
  * explicit state directory. Defaults to ask mode and the OpenAI backend. */

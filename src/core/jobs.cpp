@@ -14,6 +14,8 @@
  * tny CLI as owned children. */
 extern "C" {
 #include "core/jobs.h"
+#include "core/instructions.h"
+#include "core/tasks.h"
 #include "core/admission.h"
 #include "core/backend.h"
 #include "core/team_runtime.h"
@@ -233,6 +235,227 @@ static yyjson_mut_val *jm_item(yyjson_mut_doc *doc, int index) {
 static int jm_item_count(yyjson_mut_doc *doc) {
     yyjson_mut_val *items = jm_items(doc);
     return items ? (int)yyjson_mut_arr_size(items) : 0;
+}
+
+/* A DAG child inherits only instruction context. Provider/chat and image
+ * allowances remain in the separate anonymous supervisor payload and can
+ * never be recovered through this file. */
+static constexpr size_t JOBS_CONTEXT_TEXT_MAX = 2u * 1024u * 1024u;
+static constexpr size_t JOBS_CONTEXT_SYSTEM_MAX = 256u * 1024u;
+static constexpr size_t JOBS_CONTEXT_PATH_MAX = 4096u;
+static constexpr size_t JOBS_CONTEXT_PATHS_MAX = 64u;
+
+static bool lower_hex(const char *text, size_t length) {
+    if (!text || strlen(text) != length) return false;
+    for (size_t i = 0; i < length; ++i)
+        if (!((text[i] >= '0' && text[i] <= '9') || (text[i] >= 'a' && text[i] <= 'f')))
+            return false;
+    return true;
+}
+
+static bool context_text(yyjson_val *value, size_t max, bool nullable) {
+    if (nullable && yyjson_is_null(value)) return true;
+    const char *text = yyjson_get_str(value);
+    size_t length = yyjson_get_len(value);
+    return text && length <= max && strlen(text) == length && utf8_valid_bytes(text, length);
+}
+
+static bool task_digest_matches(const char *body, const char *expected) {
+    uint8_t bytes[20];
+    char actual[TNY_TASK_DIGEST_HEX_LEN + 1];
+    return body && lower_hex(expected, TNY_TASK_DIGEST_HEX_LEN) &&
+           sha1((const uint8_t *)body, strlen(body), bytes) &&
+           (hex_of(bytes, sizeof bytes, actual), strcmp(actual, expected) == 0);
+}
+
+static bool jobs_child_context_valid(yyjson_val *root, yyjson_val **payload_out);
+
+static char *jobs_child_context_build(tny_ctx *ctx) {
+    if (!ctx || (!ctx->instructions_snapshot_ready && instructions_refresh(ctx) != 0) ||
+        !ctx->instructions_snapshot || strlen(ctx->instructions_snapshot) > JOBS_CONTEXT_TEXT_MAX ||
+        (ctx->system_prompt && strlen(ctx->system_prompt) > JOBS_CONTEXT_SYSTEM_MAX) ||
+        ctx->n_instruction_paths < 0 || (size_t)ctx->n_instruction_paths > JOBS_CONTEXT_PATHS_MAX)
+        return NULL;
+    tny::mutable_document doc(yyjson_mut_doc_new(jallocator()));
+    yyjson_mut_val *root = doc ? yyjson_mut_obj(doc.get()) : NULL;
+    yyjson_mut_val *payload = doc ? yyjson_mut_obj(doc.get()) : NULL;
+    yyjson_mut_val *paths = doc ? yyjson_mut_arr(doc.get()) : NULL;
+    if (!root || !payload || !paths) return NULL;
+    yyjson_mut_doc_set_root(doc.get(), root);
+    jm_set_str(doc.get(), payload, "system_prompt", ctx->system_prompt);
+    jm_set_str(doc.get(), payload, "task_name", ctx->task_name);
+    jm_set_str(doc.get(), payload, "task_source", ctx->task_source);
+    jm_set_str(doc.get(), payload, "task_instructions", ctx->task_instructions);
+    jm_set_str(doc.get(), payload, "task_digest", ctx->task_digest);
+    jm_set_bool(doc.get(), payload, "task_explicit", ctx->task_explicit);
+    jm_set_bool(doc.get(), payload, "context_enabled", ctx->context_enabled);
+    jm_set_str(doc.get(), payload, "instructions_snapshot", ctx->instructions_snapshot);
+    for (int i = 0; i < ctx->n_instruction_paths; ++i) {
+        const char *path = ctx->instruction_paths[i];
+        if (!path || !*path || strlen(path) > JOBS_CONTEXT_PATH_MAX ||
+            !yyjson_mut_arr_append(paths, yyjson_mut_strcpy(doc.get(), path)))
+            return NULL;
+    }
+    if (!yyjson_mut_obj_put(payload, yyjson_mut_strcpy(doc.get(), "instruction_paths"), paths))
+        return NULL;
+    jm_set_str(doc.get(), payload, "instructions_digest", ctx->instructions_digest);
+    jm_set_bool(doc.get(), payload, "instructions_snapshot_ready",
+                ctx->instructions_snapshot_ready);
+    tny::c_string payload_json(jwrite_mut_val(payload));
+    tny::c_string digest(
+        payload_json ? sha256_hex_of(payload_json.get(), strlen(payload_json.get())) : NULL);
+    if (!digest) return NULL;
+    jm_set_int(doc.get(), root, "version", 1);
+    if (!yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc.get(), "payload"), payload)) return NULL;
+    jm_set_str(doc.get(), root, "sha256", digest.get());
+    char *json = jwrite(doc.get());
+    tny::document check(json ? jparse(json, strlen(json)) : NULL);
+    yyjson_val *checked_payload = NULL;
+    if (json && (strlen(json) > TNY_JOBS_PAYLOAD_MAX || !check ||
+                 !jobs_child_context_valid(yyjson_doc_get_root(check.get()), &checked_payload))) {
+        secure_free(json);
+        json = NULL;
+    }
+    return json;
+}
+
+static bool jobs_child_context_valid(yyjson_val *root, yyjson_val **payload_out) {
+    yyjson_val *payload = jget(root, "payload");
+    const char *expected = jget_str(root, "sha256");
+    if (!yyjson_is_obj(root) || yyjson_obj_size(root) != 3 || jget_int(root, "version", 0) != 1 ||
+        !yyjson_is_obj(payload) || yyjson_obj_size(payload) != 11 || !lower_hex(expected, 64))
+        return false;
+    tny::c_string payload_json(jwrite_val(payload));
+    tny::c_string actual(
+        payload_json ? sha256_hex_of(payload_json.get(), strlen(payload_json.get())) : NULL);
+    if (!actual || strcmp(actual.get(), expected) != 0 ||
+        !context_text(jget(payload, "system_prompt"), JOBS_CONTEXT_SYSTEM_MAX, true) ||
+        !yyjson_is_bool(jget(payload, "task_explicit")) ||
+        !yyjson_is_bool(jget(payload, "context_enabled")) ||
+        !context_text(jget(payload, "instructions_snapshot"), JOBS_CONTEXT_TEXT_MAX, false) ||
+        !yyjson_is_bool(jget(payload, "instructions_snapshot_ready")) ||
+        !jget_bool(payload, "instructions_snapshot_ready", false) ||
+        !lower_hex(jget_str(payload, "instructions_digest"), 16))
+        return false;
+    const char *snapshot = jget_str(payload, "instructions_snapshot");
+    char instructions_digest[17];
+    snprintf(instructions_digest, sizeof instructions_digest, "%016llx",
+             (unsigned long long)fnv1a(snapshot, strlen(snapshot)));
+    if (strcmp(instructions_digest, jget_str(payload, "instructions_digest")) != 0) return false;
+    yyjson_val *paths = jget(payload, "instruction_paths");
+    if (!yyjson_is_arr(paths) || yyjson_arr_size(paths) > JOBS_CONTEXT_PATHS_MAX) return false;
+    size_t i, max;
+    yyjson_val *path;
+    yyjson_arr_foreach(paths, i, max, path) {
+        if (!context_text(path, JOBS_CONTEXT_PATH_MAX, false) || yyjson_get_len(path) == 0)
+            return false;
+    }
+    yyjson_val *task_name = jget(payload, "task_name");
+    yyjson_val *task_source = jget(payload, "task_source");
+    yyjson_val *task_body = jget(payload, "task_instructions");
+    const char *digest = jget_str(payload, "task_digest");
+    bool no_task = yyjson_is_null(task_name) && yyjson_is_null(task_source) &&
+                   yyjson_is_null(task_body) && digest && !*digest;
+    bool task = context_text(task_name, TNY_TASK_NAME_MAX - 1, false) &&
+                context_text(task_source, 32, false) &&
+                context_text(task_body, TNY_TASK_BODY_MAX, false) &&
+                tny_task_name_valid(jget_str(payload, "task_name")) &&
+                tny_task_source_valid(jget_str(payload, "task_source")) &&
+                task_digest_matches(jget_str(payload, "task_instructions"), digest);
+    if (!no_task && !task) return false;
+    *payload_out = payload;
+    return true;
+}
+
+static int jobs_child_context_read(const tny_ctx *ctx, const char *path, yyjson_doc **doc_out,
+                                   yyjson_val **payload_out, char *err, size_t errlen) {
+    *doc_out = NULL;
+    *payload_out = NULL;
+    char *root = path_join(ctx->tny_dir, "jobs");
+    char *absolute = path_abs(path);
+    const char *leaf = absolute ? strrchr(absolute, '/') : NULL;
+    char *parent = leaf && leaf != absolute ? xstrndup(absolute, (size_t)(leaf - absolute)) : NULL;
+    const char *job = parent ? strrchr(parent, '/') : NULL;
+    bool confined = root && absolute && parent && job && strcmp(leaf + 1, "context.json") == 0 &&
+                    tny_jobs_valid_id(job + 1) && path_is_within(root, absolute);
+    buf_t raw;
+    buf_init(&raw);
+    int rc = confined ? tny_image_io_read_confined(root, absolute, TNY_JOBS_PAYLOAD_MAX, &raw) : -1;
+    free(root);
+    free(absolute);
+    free(parent);
+    yyjson_doc *doc = rc == 0 && raw.len ? jparse(raw.data, raw.len) : NULL;
+    yyjson_val *payload = NULL;
+    bool valid = doc && jobs_child_context_valid(yyjson_doc_get_root(doc), &payload);
+    buf_free(&raw);
+    if (!valid) {
+        yyjson_doc_free(doc);
+        safe_err(err, errlen, "the private snapshot is missing, corrupt or outside its job");
+        return -1;
+    }
+    *doc_out = doc;
+    *payload_out = payload;
+    return 0;
+}
+
+int tny_jobs_child_context_apply(tny_ctx *ctx, const char *path, char *err, size_t errlen) {
+    yyjson_doc *doc = NULL;
+    yyjson_val *payload = NULL;
+    if (!ctx || !path || jobs_child_context_read(ctx, path, &doc, &payload, err, errlen) != 0)
+        return -1;
+    const char *system = jget_str(payload, "system_prompt");
+    const char *task_name = jget_str(payload, "task_name");
+    const char *task_source = jget_str(payload, "task_source");
+    const char *task_body = jget_str(payload, "task_instructions");
+    const char *instructions = jget_str(payload, "instructions_snapshot");
+    yyjson_val *paths = jget(payload, "instruction_paths");
+    char *new_system = system ? xstrdup(system) : NULL;
+    char *new_name = task_name ? xstrdup(task_name) : NULL;
+    char *new_source = task_source ? xstrdup(task_source) : NULL;
+    char *new_body = task_body ? xstrdup(task_body) : NULL;
+    char *new_instructions = xstrdup(instructions);
+    size_t count = yyjson_arr_size(paths);
+    char **new_paths = count ? static_cast<char **>(calloc(count, sizeof *new_paths)) : NULL;
+    bool ok = (!system || new_system) && (!task_name || new_name) && (!task_source || new_source) &&
+              (!task_body || new_body) && new_instructions && (!count || new_paths);
+    for (size_t i = 0; ok && i < count; ++i) {
+        new_paths[i] = xstrdup(yyjson_get_str(yyjson_arr_get(paths, i)));
+        ok = new_paths[i] != NULL;
+    }
+    if (!ok) {
+        free(new_system);
+        free(new_name);
+        free(new_source);
+        free(new_body);
+        free(new_instructions);
+        for (size_t i = 0; i < count; ++i) free(new_paths ? new_paths[i] : NULL);
+        free(new_paths);
+        yyjson_doc_free(doc);
+        safe_err(err, errlen, "out of memory while restoring the private snapshot");
+        return -1;
+    }
+    free(ctx->system_prompt);
+    free(ctx->task_name);
+    free(ctx->task_source);
+    free(ctx->task_instructions);
+    free(ctx->instructions_snapshot);
+    for (int i = 0; i < ctx->n_instruction_paths; ++i) free(ctx->instruction_paths[i]);
+    free(ctx->instruction_paths);
+    ctx->system_prompt = new_system;
+    ctx->task_name = new_name;
+    ctx->task_source = new_source;
+    ctx->task_instructions = new_body;
+    ctx->task_explicit = jget_bool(payload, "task_explicit", false);
+    snprintf(ctx->task_digest, sizeof ctx->task_digest, "%s", jget_str(payload, "task_digest"));
+    ctx->context_enabled = jget_bool(payload, "context_enabled", false);
+    ctx->instructions_snapshot = new_instructions;
+    ctx->instruction_paths = new_paths;
+    ctx->n_instruction_paths = (int)count;
+    snprintf(ctx->instructions_digest, sizeof ctx->instructions_digest, "%s",
+             jget_str(payload, "instructions_digest"));
+    ctx->instructions_snapshot_ready = true;
+    yyjson_doc_free(doc);
+    return 0;
 }
 
 static bool state_is_terminal(const char *state) {
@@ -705,6 +928,8 @@ typedef struct {
     char *outputs[TNY_JOBS_MAX_ITEMS]; /* canonical image outputs, else NULL */
     char
         *launch[TNY_JOBS_MAX_ITEMS]; /* owned private per-item provider snapshot; never persisted */
+    char *child_context;             /* owned private context-only snapshot */
+    char *child_context_path;        /* confined sidecar path, never public metadata */
 } jobs_request;
 
 static void jobs_request_free(jobs_request *r) {
@@ -712,6 +937,8 @@ static void jobs_request_free(jobs_request *r) {
         free(r->outputs[i]);
         secure_free(r->launch[i]);
     }
+    secure_free(r->child_context);
+    free(r->child_context_path);
     memset(r, 0, sizeof *r);
 }
 
@@ -1120,6 +1347,12 @@ static bool jobs_item_provider_supported(tny_ctx *ctx, yyjson_val *item, bool ad
 
 static int jobs_prepare_launches(tny_ctx *ctx, jobs_request *r, char *err, size_t errlen) {
     if (!r->dag) return 0;
+    r->child_context = jobs_child_context_build(ctx);
+    if (!r->child_context) {
+        safe_err(err, errlen, "cannot capture the bounded child instruction context");
+        jobs_request_free(r);
+        return -1;
+    }
     for (int i = 0; i < r->n_items; i++)
         if (!jobs_item_provider_supported(ctx, r->items[i], r->admission != NULL, err, errlen)) {
             jobs_request_free(r);
@@ -1146,6 +1379,42 @@ static int jobs_prepare_launches(tny_ctx *ctx, jobs_request *r, char *err, size_
             }
         }
     }
+    return 0;
+}
+
+static int jobs_child_context_publish(const char *dir, jobs_request *request, char *err,
+                                      size_t errlen) {
+    if (!request->dag || request->image || !request->child_context) return 0;
+    char *path = jobs_file(dir, "context.json");
+    int rc =
+        path ? tny_jobs_host_snapshot(path, request->child_context, strlen(request->child_context))
+             : ENOMEM;
+    if (rc) {
+        free(path);
+        safe_err(err, errlen, "cannot publish the immutable child context snapshot");
+        return rc;
+    }
+    free(request->child_context_path);
+    request->child_context_path = path;
+    return 0;
+}
+
+static int jobs_child_context_reuse(const tny_ctx *ctx, const char *dir, jobs_request *request,
+                                    char *err, size_t errlen) {
+    if (!request->dag || request->image) return 0;
+    char *path = jobs_file(dir, "context.json");
+    yyjson_doc *doc = NULL;
+    yyjson_val *payload = NULL;
+    if (!path || jobs_child_context_read(ctx, path, &doc, &payload, err, errlen) != 0) {
+        free(path);
+        return EINVAL;
+    }
+    (void)payload;
+    yyjson_doc_free(doc);
+    secure_free(request->child_context);
+    request->child_context = NULL;
+    free(request->child_context_path);
+    request->child_context_path = path;
     return 0;
 }
 
@@ -2226,6 +2495,7 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
     jm_set_str(doc, root, "perm_mode", tny_perm_mode_name(ctx->perm_mode));
     jm_set_bool(doc, root, "no_self_improve", ctx->no_self_improve);
     jm_set_str(doc, root, "tools", tny_tool_profile_name(ctx->tool_profile));
+    jm_set_str(doc, root, "child_context", request->child_context_path);
     /* Chat and image credentials are two separate allowances (A14): an ask
      * item never receives the image allowance and an image item never
      * receives the chat key. They are distinct mappings even when one account
@@ -3000,6 +3270,18 @@ static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
         free(self);
         jobs_request_free(&request);
         safe_err(err, errlen, "cannot write the job record");
+        return 2;
+    }
+
+    rc = jobs_child_context_publish(dir, &request, err, errlen);
+    if (rc) {
+        submit_finish_failed(dir, 1, TNY_JOBS_CODE_IO, err);
+        yyjson_mut_doc_free(record);
+        owner_fd.reset();
+        free(owner_path);
+        free(dir);
+        free(self);
+        jobs_request_free(&request);
         return 2;
     }
 
@@ -4109,6 +4391,12 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
             free(owner_path);
             goto invalid;
         }
+        if (jobs_child_context_reuse(ctx, dir, &request, err, errlen) != 0) {
+            jobs_request_free(&request);
+            yyjson_doc_free(parsed);
+            free(owner_path);
+            goto invalid;
+        }
 
         if (jm_bool(root, "dag", false)) {
             for (int i = 0; i < count; i++) {
@@ -4959,8 +5247,9 @@ static void worker_env_free(char **envp, char **owned, int n_owned) {
     free(envp);
 }
 
-/* argv carries selectors only: the canonical ask/image CLI this build already
- * ships, never a credential and never the prompt. */
+/* argv carries selectors and one confined private sidecar path: the canonical
+ * ask/image CLI this build already ships, never a credential, instruction body
+ * or prompt. */
 static int worker_build_argv(yyjson_val *payload, yyjson_val *item, const char *prepared_cwd,
                              bool image, char **argv, int cap) {
     int n = 0;
@@ -5001,6 +5290,12 @@ static int worker_build_argv(yyjson_val *payload, yyjson_val *item, const char *
         }
         argv[n] = NULL;
         return jget_str(item, "output_file") ? 0 : -1;
+    }
+    const char *child_context = jget_str(payload, "child_context");
+    if (jget_bool(payload, "dag", false)) {
+        if (!child_context || n + 2 >= cap) return -1;
+        argv[n++] = (char *)"--child-context";
+        argv[n++] = (char *)child_context;
     }
     const char *provider =
         jget_str(chat, "provider") ? jget_str(chat, "provider") : jget_str(payload, "provider");
@@ -5088,12 +5383,12 @@ static int worker_spawn_item(yyjson_val *payload, yyjson_val *item, bool image, 
     }
     slot->log_fd.adopt(
         open(slot->log_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600));
-    char *argv[32];
+    char *argv[40];
     char **owned = NULL;
     int n_owned = 0;
     char **envp = worker_child_env(payload, item, slot, image, &owned, &n_owned);
     int rc = slot->log_fd.borrow() < 0 || !envp ||
-                     worker_build_argv(payload, item, slot->cwd, image, argv, 32) != 0
+                     worker_build_argv(payload, item, slot->cwd, image, argv, 40) != 0
                  ? EINVAL
                  : 0;
     pid_t pid = -1;

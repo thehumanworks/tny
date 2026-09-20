@@ -19,6 +19,7 @@ typedef struct {
     const char *model;             /* --model */
     const char *effort;            /* --effort | --reasoning-effort */
     const char *system_prompt;     /* --system-prompt */
+    const char *child_context;     /* private durable-job context snapshot */
     int swarm_cap;                 /* --swarm[=N], -1 means lead decides */
     const char *swarm_file;        /* --swarm-file PATH */
     char *swarm_definition;        /* validated canonical snapshot */

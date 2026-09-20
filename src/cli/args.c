@@ -2,6 +2,7 @@
 #include "cli/cli.h"
 #include "core/backend.h"
 #include "core/extensions.h"
+#include "core/jobs.h"
 #include "core/ssh.h"
 #include "core/tasks.h"
 #include "core/swarm.h"
@@ -12,8 +13,18 @@
 #include <string.h>
 
 tny_ctx *cli_make_ctx(const cli_globals *g) {
-    tny_ctx *ctx = tny_ctx_load(g->cwd);
+    tny_ctx *ctx = g->child_context ? tny_ctx_load_child(g->cwd) : tny_ctx_load(g->cwd);
     if (!ctx) return NULL;
+
+    if (g->child_context) {
+        char error[192] = "";
+        if (tny_jobs_child_context_apply(ctx, g->child_context, error, sizeof error) != 0) {
+            fprintf(stderr, "tny: child context: %s\n",
+                    error[0] ? error : "the private snapshot is unavailable or invalid");
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+    }
 
     ctx->swarm_cap = g->swarm_cap;
     ctx->swarm_explicit = g->swarm_cap != 0;

@@ -177,6 +177,11 @@ bool tny_jobs_valid_id(const char *id);
  * separately from their resolved private mapping, never inherited. */
 bool tny_jobs_env_entry_is_foreign(const char *entry, bool image, bool chat_codex);
 
+/* Hidden child-init seam for immutable DAG context. The path must name the
+ * bounded private context.json of one confined job directory. No credentials
+ * are present in this sidecar; corruption or absence fails closed. */
+int tny_jobs_child_context_apply(tny_ctx *ctx, const char *path, char *err, size_t errlen);
+
 /* True when `manifest_path` is absent, or when that image generation manifest
  * (ADR 0088) still records exactly this committed artifact and hash. Read as
  * data: no image service call, no provider contact, no file opened but the
