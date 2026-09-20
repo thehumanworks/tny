@@ -27,7 +27,10 @@
         "depends_on": [
           "specification-reviewer",
           "testing-reviewer"
-        ]
+        ],
+        "workspace": {
+          "policy": "shared_read_only"
+        }
       },
       "agents": [
         {

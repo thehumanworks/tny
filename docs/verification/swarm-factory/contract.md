@@ -1,7 +1,9 @@
 # Swarm-factory effectiveness: verification contract
 
 Baseline `8f77e71`; worktree `~/projects/tny/.worktrees/swarm-factory`;
-branch `feat/swarm-factory-effectiveness`, stacked on the existing swarm work.
+branch `feat/swarm-factory-effectiveness`, now merged with main through `e5721a7`.
+The main worktree remains unchanged. Writable/yolo defaults from ADR 0159 remain;
+read-only and isolated contribution workspaces are explicit overrides.
 
 1. Research primary sources before implementation; document which conclusions
    are studies, implementation reports and local hypotheses. Preserve collective

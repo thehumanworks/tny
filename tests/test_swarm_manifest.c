@@ -97,7 +97,7 @@ TEST swarm_manifest_v2_canonicalizes_contracts_and_resolves_names(void) {
     ASSERT_FALSE(manifest->groups[0].coordinator_contract.workspace_declared);
     ASSERT_STR_EQ("analyst", manifest->participants[0].name);
     ASSERT_FALSE(manifest->participants[0].contract.workspace_declared);
-    ASSERT_EQ(TNY_SWARM_WORKSPACE_SHARED_READ_ONLY,
+    ASSERT_EQ(TNY_SWARM_WORKSPACE_SHARED_WRITABLE,
               manifest->participants[0].contract.workspace_policy);
     ASSERT_STR_EQ("implementer", manifest->participants[1].name);
     ASSERT_EQ(1, manifest->participants[1].contract.dependency_count);
@@ -221,8 +221,8 @@ TEST swarm_manifest_v2_rejects_malformed_contracts_and_root_worker_fields(void) 
     ASSERT(invalid_contains(
         "{\"version\":2,\"purpose\":\"p\",\"coordinator\":{\"name\":\"lead\",\"purpose\":\"p\"},"
         "\"agents\":[{\"name\":\"a\",\"purpose\":\"p\",\"workspace\":{\"policy\":"
-        "\"shared_writable\"}}],\"swarms\":[]}",
-        16, "must be shared_read_only or isolated"));
+        "\"unknown-policy\"}}],\"swarms\":[]}",
+        16, "must be shared_writable, shared_read_only or isolated"));
     ASSERT(invalid_contains(
         "{\"version\":2,\"purpose\":\"p\",\"coordinator\":{\"name\":\"lead\",\"purpose\":\"p\"},"
         "\"agents\":[{\"name\":\"a\",\"purpose\":\"p\",\"workspace\":{\"policy\":"
@@ -497,7 +497,30 @@ TEST swarm_manifest_v2_enforces_contract_boundaries(void) {
     PASS();
 }
 
+TEST swarm_manifest_v2_workspace_defaults_and_explicit_policies(void) {
+    const char *policies[] = {"shared_writable", "shared_read_only", "isolated"};
+    for (size_t i = 0; i < sizeof policies / sizeof policies[0]; ++i) {
+        buf_t json = {0};
+        buf_appendf(&json,
+                    "{\"version\":2,\"purpose\":\"p\",\"coordinator\":{\"name\":\"lead\","
+                    "\"purpose\":\"p\"},"
+                    "\"agents\":[{\"name\":\"a\",\"purpose\":\"p\",\"workspace\":{\"policy\":\"%"
+                    "s\"}}],\"swarms\":[]}",
+                    policies[i]);
+        tny_swarm_manifest *manifest = NULL;
+        char err[256];
+        ASSERT_EQ(0, tny_swarm_manifest_parse(json.data, json.len, 1, &manifest, err, sizeof err));
+        ASSERT_STR_EQ(policies[i], tny_swarm_manifest_workspace_name(
+                                       manifest->participants[0].contract.workspace_policy));
+        ASSERT_STR_EQ(json.data, manifest->canonical_json);
+        tny_swarm_manifest_free(manifest);
+        buf_free(&json);
+    }
+    PASS();
+}
+
 SUITE(swarm_manifest_suite) {
+    RUN_TEST(swarm_manifest_v2_workspace_defaults_and_explicit_policies);
     RUN_TEST(swarm_manifest_flattens_nested_groups_and_canonicalizes);
     RUN_TEST(swarm_manifest_v2_canonicalizes_contracts_and_resolves_names);
     RUN_TEST(swarm_manifest_rejects_ambiguous_or_incomplete_shapes);

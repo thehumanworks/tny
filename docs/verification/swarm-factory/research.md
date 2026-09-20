@@ -17,8 +17,8 @@ Reported benchmark results are not measurements of tny and are not assumed to tr
 
 ## Baseline findings and falsifiable hypotheses
 
-Baseline: `8f77e71`, existing draft PR #173. Version-1 membership has names/purposes
-but every worker is forced into a review-only role, the manifest cannot express
+Historical experimental baseline: `8f77e71`, subsequently merged in PR #173. Version-1 membership has names/purposes
+and historically launched read-only reviewers; the manifest cannot express
 causal dependencies or an expected deliverable, and generic mailbox send requires
 run/task/id bookkeeping. The last evaluation retained four recoverable mailbox
 errors. Existing jobs already provide dependency readiness, task workspaces,
@@ -35,3 +35,19 @@ no implicit permission widening.
 H3: Compare externally verified task outcomes, elapsed time, errors, peer participation,
 context/cache telemetry and total usage. Raw tokens are a cost measurement, never
 an automatic failure or the optimization objective. Preserve unfavorable trials.
+
+## Delivery reconciliation
+
+The sources above were reopened on 2026-09-20 during delivery. The implementation
+is now merged with main through `e5721a7`, including the explicit writable/yolo
+agent-default decision in `ca7eb71` (ADR 0159). Version-2 omitted workspace policy
+therefore means shared writable; both read-only and isolated policies are explicit.
+The historical review-roster experiment uses an `8f77e71` frozen baseline and opts
+all candidate peers into read-only to match that capability. It is not a comparison
+against the new writable default or evidence of multi-writer integration speed.
+
+Research informs hypotheses, not acceptance. The scaling study's controlled
+budget penalties should not be treated as a requirement to reduce the user's
+chosen inference budget. The target here is useful verified contributions, fewer
+premature handoffs and failed operations, and clear evidence for independent
+acceptance. Extra reasoning and competing proposals are legitimate costs.

@@ -353,16 +353,16 @@ class SwarmFactory(JobsFixture):
             "Acceptance criteria (declarative, not automatically proven)",
             initial_text,
         )
-        self.assertIn("Workspace capability: isolated managed worktree", initial_text)
+        self.assertIn("Workspace capability: isolated", initial_text)
         self.assertIn(
             "terminal", {tool["function"]["name"] for tool in initial["tools"]}
         )
 
         peer = self.participant_bodies("independent-peer")[0]
-        self.assertIn("Workspace capability: shared_read_only", message_text(peer))
-        self.assertFalse(
+        self.assertIn("Workspace capability: shared_writable", message_text(peer))
+        self.assertTrue(
             {"terminal", "write_file", "edit_file"}
-            & {tool["function"]["name"] for tool in peer["tools"]}
+            <= {tool["function"]["name"] for tool in peer["tools"]}
         )
 
     def test_failed_predecessor_blocks_consumer_before_provider(self):

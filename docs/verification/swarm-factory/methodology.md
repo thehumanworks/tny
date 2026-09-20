@@ -10,7 +10,8 @@ tokens. Token usage is telemetry, not a failure condition or the optimization ta
 ## Controlled comparison
 
 `tests/bench/bench_swarm_effectiveness.py` compares a frozen baseline tny binary
-and version-1 review roster against a frozen candidate binary and the version-2
+at historical `8f77e71` and its version-1 review roster against a frozen candidate
+binary and the version-2
 `examples/swarm/benchmark-contract-review.json` roster. Both rosters have the same
 root and three named participants. Both use `gpt-5.6-sol` with medium effort,
 fresh state/workspaces, the same task prompts and independent correctness oracle,
@@ -60,3 +61,12 @@ workspace options remain explicit and isolated changes never auto-merge. Future
 larger repository evaluations should include competing implementation experiments,
 integration conflict rates, external acceptance coverage and verified defects
 caught—not merely number of agents or lines of generated code.
+
+## Workspace matching
+
+The baseline predates the writable-agent-default commit `ca7eb71`. To isolate the
+review workflow comparison from that policy change, all three candidate peers,
+including the delayed coordinator, explicitly choose `shared_read_only`. The root
+is writable in both arms. These are intentional benchmark settings, not new
+read-only defaults. Main's current writable baseline is not measured in this
+experiment, and differences cannot be attributed to one mechanism alone.

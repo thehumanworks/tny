@@ -33,15 +33,16 @@ new fields are invalid in version 1.
 Use explicit bounded contracts: deliverable is non-blank and at most 4096 UTF-8
 bytes; acceptance contains 1..16 non-blank criteria of at most 1024 bytes each;
 dependencies contain at most 15 globally unique participant names; workspace is a
-closed `shared_read_only` or `isolated` policy, with an optional isolated-only base
+closed `shared_writable`, `shared_read_only` or `isolated` policy, with an optional isolated-only base
 of at most 256 bytes. Preserve the existing 64 KiB manifest, 64-byte name, 4096-byte
 purpose, depth-4, and 16-launched-participant limits.
 
 The current session remains the root coordinator. Root deliverable and acceptance
 describe its synthesis contract. Reject root dependencies and workspace because the
 root is neither a schedulable task nor a managed worker checkout. Omitted worker
-workspace remains shared read-only. An inherited read-only caller cannot request
-isolated execution.
+workspace is shared writable, matching the current agent defaults in ADR 0159.
+Read-only and isolated policies are explicit choices. An inherited read-only caller
+cannot request writable or isolated execution.
 
 Resolve dependency names against the complete validated membership and compile them
 to the existing DAG indices. Before any job, provider, or worktree effect, reject an
