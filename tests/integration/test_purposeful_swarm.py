@@ -113,6 +113,27 @@ class PurposefulSwarm(JobsFixture):
         self.assertIn(b"differs from the saved session", refused.stderr)
         self.assertEqual(len(self.state["bodies"]), before_requests)
 
+    def test_activation_honors_denial_and_unresolved_ask_without_submitting(self):
+        path = self.write_definition()
+        settings = self.home / ".tny" / "settings.json"
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        for rules in ({"rules": [{"tool": "team_start", "allow": False}]}, {}):
+            with self.subTest(rules=rules):
+                settings.write_text(json.dumps({"permission": rules}))
+                result = self.run_tny(
+                    "--permission-mode",
+                    "ask",
+                    "--swarm-file",
+                    str(path),
+                    "ask",
+                    "MUST_NOT_POST",
+                    check=False,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(b"permission", result.stderr)
+                self.assertEqual(self.state["bodies"], [])
+                self.assertFalse(list((self.home / ".tny" / "jobs").glob("*/job.json")))
+
     def test_invalid_and_unsupported_inputs_have_no_execution_effects(self):
         invalid = definition()
         invalid["swarms"][0].pop("coordinator")
