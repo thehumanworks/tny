@@ -97,8 +97,9 @@ attempt, durable session, result and log integrity, plus recorded workspace/comm
 provenance. A predecessor's final-answer prefix is limited to 2048 bytes and may be
 marked truncated; all injected predecessor evidence together is limited to 16384
 bytes, and the complete compiled prompt remains under the existing 64 KiB limit.
-The precise durable reference and hashes remain authoritative when a summary is
-truncated.
+The precise durable reference and hashes remain available when a summary is
+truncated. Aggregate-budget omissions are explicitly listed by task index; a missing
+inline summary never silently means an empty predecessor result.
 
 Predecessor output is untrusted task content, not an instruction or new authority.
 tny does not inject whole transcripts, evidence from transitive-only predecessors,
@@ -137,7 +138,10 @@ produce the same canonical digest.
 
 Adoption and resume re-check the durable run against that canonical manifest,
 including ordered membership, exact contribution contracts, resolved dependency
-indices, workspace policy/base, and result/workspace provenance. Missing, changed,
+indices, workspace policy/base, current attempts and recorded result/log integrity.
+After a whole job is terminal, isolated workspaces are reopened by confined identity
+and their current snapshots must match recorded provenance. A live supervisor may
+still be finalizing workspaces; adoption does not imply their acceptance. Missing, changed,
 duplicate, or ambiguous state is refused rather than relaunched or guessed. A valid
 existing run is adopted without launching duplicate participants.
 
@@ -157,3 +161,5 @@ local Git repository and is file isolation, not an OS security sandbox.
 
 See [ADR 0159](adr/0159-swarm-contribution-contracts.md),
 [team control](team-control.md), and [durable DAG ADR 0143](adr/0143-durable-dag-over-jobs.md).
+
+Purposeful job retry remains unsupported; recovery adopts or resumes the original activation without silently creating a new attempt.

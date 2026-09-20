@@ -162,3 +162,6 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 
 - [0157: Purposeful file-defined swarms](0157-purposeful-file-defined-swarms.md) — required coordinators, bounded nested definitions and one durable runtime.
 - [0158: Capability-aligned purposeful participant context](0158-purposeful-capability-surface.md) — readonly reviewer tool surface and evidence-based evaluation.
+
+- [0159: Swarm contribution contracts](0159-swarm-contribution-contracts.md) — causal readiness, bounded direct evidence and explicit isolated workspaces.
+- [0160: Typed swarm messages](0160-typed-swarm-messages.md) — named recipients and approval-bound durable sends.

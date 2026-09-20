@@ -24,6 +24,10 @@ resolve from the launch directory. It cannot be combined with `--swarm[=N]`: the
 definition itself fixes the number of launched participants. Existing numeric
 `--swarm[=N]` and interactive `/swarm [N]` behavior is unchanged.
 
+Version 1 remains compatible. [Version 2](swarm-factory.md) adds explicit
+contribution contracts, dependencies, and opt-in isolated writer workspaces;
+[typed messages](swarm-messages.md) provide named-peer evidence and handoffs.
+
 ## Version 1 format
 
 The normative machine-readable shape is

@@ -36,6 +36,8 @@ reproducible offline evidence from unmeasured live-model improvement.
 | [team-control.md](team-control.md) | Job-backed async teams, captured parent identity, bounded collection and truthful verification state |
 | [team-mailbox.md](team-mailbox.md) | Durable addressed collaboration, safe-boundary delivery, acknowledgment and retirement |
 | [purposeful-swarms.md](purposeful-swarms.md) | Strict file-defined nested teams, activation, persistence and platform limits |
+| [swarm-factory.md](swarm-factory.md) | Version-2 contribution contracts, causal dependencies, isolated writers and bounded evidence |
+| [swarm-messages.md](swarm-messages.md) | Typed named-peer messages, approval-bound delivery, retries and acknowledgment |
 | [task-workspaces.md](task-workspaces.md) | Isolated editing, provenance, explicit integration and conflict-safe cleanup |
 | [admission.md](admission.md) | Shared launch permits, cleanup holds, scope limits and honest usage policies |
 | [settings.md](settings.md) | settings.json defaults, schema, env-key HTTP profiles |
