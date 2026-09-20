@@ -590,7 +590,13 @@ TEST tool_prepare_validates_rewrites_and_complete_permission_subjects(void) {
 TEST session_roundtrip(void) {
     ensure_env();
     write_settings("{}");
-    tny_ctx *ctx = tny_ctx_load(g_ws);
+    /* Other core tests leave sessions in g_ws. Their second-resolution update
+     * timestamps can tie this one; roundtrip is not a recency tie-break test. */
+    char *workspace = path_join(g_ws, "session-roundtrip");
+    ASSERT(workspace);
+    ASSERT_EQ(0, mkdir_p(workspace));
+    tny_ctx *ctx = tny_ctx_load(workspace);
+    free(workspace);
     tny_session_state *s = session_new(ctx);
     ASSERT(s);
     session_add_text(s, "user", "hello");

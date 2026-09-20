@@ -46,8 +46,8 @@ static bool exact_object(yyjson_val *value, const char *const *fields, size_t co
             yyjson_obj_getn(value, name, len) != child)
             return false;
     }
-    for (size_t i = 0; i < count; ++i)
-        if (!yyjson_obj_get(value, fields[i])) return false;
+    for (size_t field = 0; field < count; ++field)
+        if (!yyjson_obj_get(value, fields[field])) return false;
     return true;
 }
 
