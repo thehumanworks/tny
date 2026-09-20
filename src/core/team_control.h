@@ -14,6 +14,8 @@ typedef enum {
     TNY_TEAM_WAIT_ANY,
     TNY_TEAM_CANCEL,
     TNY_TEAM_VERIFY,
+    TNY_TEAM_REVIEW,
+    TNY_TEAM_REVIEW_READ,
     TNY_TEAM_NONE
 } tny_team_op;
 

@@ -27,7 +27,7 @@
     },
     {
       "name": "isolated-implementer",
-      "purpose": "Implement the approved bounded design in a managed worktree without changing the primary checkout.",
+      "purpose": "Implement the proposed bounded design within the root's authorized scope in a managed worktree without changing the primary checkout. A successful researcher exit is not a separate approval decision.",
       "deliverable": "A focused committed change in the isolated worktree with exact tests run, results, commit provenance, and remaining limitations.",
       "acceptance": [
         "The intended files are committed in the managed worktree and unrelated files are untouched.",

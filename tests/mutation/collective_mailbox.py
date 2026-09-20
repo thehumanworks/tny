@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Three targeted mailbox mutants in a disposable source copy; never edits checkout."""
+"""Targeted mailbox mutants in a disposable source copy; never edits checkout."""
 
+import argparse
 import hashlib
 import json
 import os
@@ -32,6 +33,24 @@ MUTANTS = [
         "if (event == 0) continue;",
         "test_event_wait_quiet_has_one_snapshot_and_no_periodic_rescans",
     ),
+    (
+        "capacity-hides-retained-history",
+        "out->history_used = t.count;",
+        "out->history_used = 0;",
+        "test_capacity_snapshot_never_delivers_and_ack_only_frees_outstanding",
+    ),
+    (
+        "capacity-drops-older-attempt-backlog",
+        "t.messages[i].recipient.task == caller->task && outstanding(&t.messages[i])",
+        "addressed(&t.messages[i], caller) && outstanding(&t.messages[i])",
+        "test_capacity_includes_old_attempts_and_retained_tombstones",
+    ),
+    (
+        "capacity-allows-overquota-underflow",
+        "out->outstanding_used > TNY_MAILBOX_OUTSTANDING_MAX",
+        "out->outstanding_used > TNY_MAILBOX_HISTORY_MAX",
+        "test_capacity_full_history_and_backlog_and_corrupt_overquota",
+    ),
 ]
 
 
@@ -57,6 +76,13 @@ def run(copy, name, test=None):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=ROOT / "docs/verification/collective-swarm/artifacts/mutations.json",
+    )
+    args = parser.parse_args()
     original = (ROOT / SOURCE).read_text()
     outcomes = []
     # The only writes are under this worktree's ignored build directory.
@@ -89,8 +115,8 @@ def main():
         final = run(copy, "restored")
         assert final["exit"] == 0, final["output"]
         outcomes.append(final)
-    artifact = ROOT / "docs/verification/collective-swarm/artifacts/mutations.json"
-    artifact.parent.mkdir(exist_ok=True)
+    artifact = args.output
+    artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text(
         json.dumps(
             {
@@ -101,7 +127,7 @@ def main():
         )
         + "\n"
     )
-    print("PASS: three behavioral kills; original source unchanged")
+    print(f"PASS: {len(MUTANTS)} behavioral kills; original source unchanged")
 
 
 if __name__ == "__main__":

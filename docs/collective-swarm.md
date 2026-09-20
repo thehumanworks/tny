@@ -74,6 +74,21 @@ implicitly acknowledge, promise exactly-once effects or guarantee convergence.
 The stable bounded policy is a cache-friendly prefix; actual cache hits depend on
 the provider and are not established by localhost fixtures.
 
+## Useful review and finite persistence
+
+Collaboration guidance follows the resolved tool profile: terminal agents receive
+direct CLI mailbox/team recipes; all-tools purposeful agents prefer typed named
+messages. Use challenges for consequential uncertainty, not a required ceremony.
+Send the exact artifact identity and evidence needed for independent inspection.
+A completed peer cannot answer new questions; ask the parent for explicitly scoped
+follow-up work rather than relaunching a completed purposeful roster.
+
+Use `tny mailbox status --run RUN` to diagnose remaining history and caller backlog
+without delivery or acknowledgment. It is an observation, not a space reservation
+or polling mechanism. Preserve decisions and unresolved findings in
+[root-owned review packets](swarm-review.md); packets remain unverified, and neither
+packets nor acknowledgment make a finite run into persistent agent memory.
+
 ## Support
 
 | Context | Collective mode / wait |

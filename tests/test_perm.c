@@ -486,6 +486,8 @@ TEST team_read_only_precedes_modes_rules_and_grants(void) {
         ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "cat README.md"));
         ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "git status --short"));
         ASSERT_EQ(PERM_ALLOW, perm_check(p, "team_send", "same-run recipient"));
+        ASSERT_EQ(PERM_ALLOW, perm_check(p, "team_review_read", "historical packet"));
+        ASSERT_EQ(PERM_DENY, perm_check(p, "team_review", "record packet"));
     }
     perm_free(p);
     tny_ctx_free(ctx);

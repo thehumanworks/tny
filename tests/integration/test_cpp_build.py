@@ -152,6 +152,25 @@ int main() { return 0; }
             self.assertNotEqual(run.returncode, 0, run.stdout + run.stderr)
         return (run.stdout + run.stderr).replace("\\\n", " ").replace("\t", " ")
 
+    def test_owner_backend_test_objects_track_header_dependencies(self):
+        self.write("src/core/owner_layout.h", "#define OWNER_SIZE 1\n")
+        self.write(
+            "tests/test_runtime.c",
+            '#include "core/owner_layout.h"\n'
+            "int fixture_owner_size(void) { return OWNER_SIZE; }\n",
+        )
+        for sanitize, directory in (("0", "fault-pic"), ("1", "fault-san-pic")):
+            with self.subTest(sanitize=sanitize):
+                target = f"build/{directory}/tests/test_runtime.o"
+                self.make(target, f"SANITIZE={sanitize}")
+                original = (self.root / target).stat().st_mtime_ns
+                time.sleep(1.1)  # GNU make 3.81 compares whole-second mtimes.
+                self.write(
+                    "src/core/owner_layout.h", f"#define OWNER_SIZE {sanitize}2\n"
+                )
+                self.make(target, f"SANITIZE={sanitize}")
+                self.assertGreater((self.root / target).stat().st_mtime_ns, original)
+
     def test_isolated_child_drops_unavailable_parent_jobserver(self):
         inherited = {
             "MAKEFLAGS": "-j --jobserver-fds=987,988",

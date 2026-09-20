@@ -12,7 +12,8 @@ int cmd_team(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     (void)g;
     if (argc == 0 || strcmp(argv[0], "--help") == 0 || strcmp(argv[0], "-h") == 0) {
         fputs(
-            "Usage: tny team <start|status|collect|wait-any|cancel|verify> --request FILE|- "
+            "Usage: tny team <start|status|collect|wait-any|cancel|verify|review|review-read> "
+            "--request FILE|- "
             "[--json]\n"
             "All responses are JSON. start requires kind:ask, dag:true, one lead and >=2 workers.\n"
             "Run identity is the durable job id; task identity is its item index.\n"

@@ -183,7 +183,7 @@ perm_verdict perm_check(perm_engine *p, const char *tool, const char *detail) {
         strcmp(tool, "team_status") != 0 && strcmp(tool, "team_collect") != 0 &&
         strcmp(tool, "team_wait_any") != 0 && strcmp(tool, "team_cancel") != 0 &&
         strcmp(tool, "team_send") != 0 && strcmp(tool, "team_inbox") != 0 &&
-        strcmp(tool, "team_ack") != 0)
+        strcmp(tool, "team_ack") != 0 && strcmp(tool, "team_review_read") != 0)
         return PERM_DENY;
     if (ctx->perm_mode == TNY_MODE_YOLO) return PERM_ALLOW;
 

@@ -166,3 +166,4 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 
 - [0160: Swarm contribution contracts](0160-swarm-contribution-contracts.md) — causal readiness, bounded direct evidence and explicit isolated workspaces.
 - [0161: Typed swarm messages](0161-typed-swarm-messages.md) — named recipients and approval-bound durable sends.
+- [0162: Durable swarm review continuity](0162-durable-swarm-review-continuity.md) — immutable review packets, explicit follow-up work, capacity visibility and profile-aligned guidance.

@@ -38,7 +38,7 @@ post-job work. Peer messaging between indexed members requires
 ## Public surfaces
 
 ```text
-tny team start|status|collect|wait-any|cancel|verify --request FILE|- [--json]
+tny team start|status|collect|wait-any|cancel|verify|review|review-read --request FILE|- [--json]
 ```
 
 Each operation returns JSON. `--json` is optional. Request input is a JSON object
@@ -118,6 +118,23 @@ Missing, changed or corrupt session evidence cannot become accepted work. Failed
 items can return bounded logs with exit 2. Hash integrity is not correctness.
 All collected prose is untrusted dependency data, never permission to execute a
 command or integrate a patch.
+
+## Preserve review evidence
+
+The submitting parent or local operator can use `review` to retain an immutable,
+16-KiB-bounded contribution snapshot after terminal cleanup. Request fields are
+`id`, `item`, `expected_attempt`, `review_id` (1..16) and `reviewer_claims` (a JSON
+object of at most 8192 serialized bytes). Source result/log integrity is checked;
+caller-supplied artifact references, assessments and check results remain claims.
+The selected item must have a successful integrity-matched result. Failed outcomes
+remain available through status/collect and must still be reported.
+
+`review-read` takes `id` and `review_id` and retrieves the historical packet without
+revalidating source artifacts. Both actions are root/operator-only, not peer-control
+privileges. Recording is sensitive `team_review`; reading uses `team_review_read`.
+Neither changes `verification:"unverified"`, executes a command, inspects a claimed
+artifact path, or accepts/integrates work. See the [review and explicit follow-up
+workflow](swarm-review.md) for permission, retry, history and evidence boundaries.
 
 ## Integrate and check explicitly
 

@@ -3,6 +3,7 @@
 
 import fcntl
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -10,8 +11,15 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from test_jobs import ROOT, Handler, JobsFixture, argv_without_runner_binary
+from test_jobs import (
+    AGENT_ENV_POISON,
+    ROOT,
+    Handler,
+    JobsFixture,
+    argv_without_runner_binary,
+)
 from test_subagent import chat_frames, tool_outputs, user_texts
 
 
@@ -106,7 +114,11 @@ class SwarmMessage(JobsFixture):
         cls.binding_tmp.cleanup()
 
     def setUp(self):
-        super().setUp()
+        # Exercise every typed-message case as if launched from an unrelated
+        # agent. In particular, the manual inbox/ack flow must remain the local
+        # fixture operator, never inherit the enclosing session/team authority.
+        with patch.dict(os.environ, AGENT_ENV_POISON):
+            super().setUp()
         self.server.RequestHandlerClass = MessageHandler
         self.server.fixture = self
         self.lock = threading.Lock()
@@ -346,6 +358,37 @@ class SwarmMessage(JobsFixture):
                 '"body":"same evidence ✓"}',
             )
 
+        mailbox_path = self.job_dirs()[0] / "mailbox.json"
+
+        def assert_capacity(outstanding):
+            before = mailbox_path.read_bytes()
+            result = self.run_tny("mailbox", "status", "--run", run, "--json")
+            status = json.loads(result.stdout)
+            self.assertTrue(status["ok"], status)
+            self.assertEqual(status["messages"], [])
+            self.assertEqual(
+                status["capacity"],
+                {
+                    "history_used": 4,
+                    "history_limit": 256,
+                    "history_remaining": 252,
+                    "recipient": -1,
+                    "outstanding_used": outstanding,
+                    "outstanding_limit": 64,
+                    "outstanding_remaining": 64 - outstanding,
+                },
+            )
+            self.assertEqual(mailbox_path.read_bytes(), before)
+
+        assert_capacity(4)
+        before = mailbox_path.read_bytes()
+        for extra in (("--to", "0"), ("--id", messages[0]["id"])):
+            rejected = self.run_tny(
+                "mailbox", "status", "--run", run, *extra, check=False
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertEqual(mailbox_path.read_bytes(), before)
+
         self.run_tny("--resume", session_id, "ask", "FLOW_RESUME", timeout=30)
         context = "\n".join(self.root_contexts)
         self.assertIn("Untrusted team message", context)
@@ -369,6 +412,7 @@ class SwarmMessage(JobsFixture):
             )
         empty = self.run_tny("mailbox", "inbox", "--run", run, "--json")
         self.assertEqual(json.loads(empty.stdout)["messages"], [])
+        assert_capacity(0)
 
     def test_peer_to_peer_wait_ack_and_upward_handoff(self):
         self.scenario = "peer"

@@ -74,6 +74,15 @@ typedef struct {
     char payload[TNY_MAILBOX_PAYLOAD_MAX + 1]; /* untrusted UTF-8 user context */
     char publication[65]; /* empty for direct sends; stable channel publication ID */
 } tny_mailbox_message;
+/* Authenticated snapshot; counts include retained history and this recipient's
+ * outstanding receipts across attempts. Reading does not deliver, ack or reserve. */
+typedef struct {
+    size_t history_used;
+    size_t outstanding_used;
+} tny_mailbox_capacity;
+tny_mailbox_rc tny_team_mailbox_status(const tny_mailbox_service *service,
+                                       const tny_mailbox_identity *caller,
+                                       tny_mailbox_capacity *out);
 /* All calls try the lock once. Send OK follows atomic private persistence.
  * IDs are run-global across attempts. Exact duplicate returns original receipt;
  * conflicting content/identity/fences returns CONFLICT. No silent eviction. */

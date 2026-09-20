@@ -11,6 +11,9 @@ process assertion observes real detached `tny` children with `ps` and
 `os.kill(pid, 0)`. Nothing here mocks the job supervisor, the child processes
 or the advisory locks — those are the things under test.
 
+JobsFixture removes inherited agent identity and control carriers before adding
+fixture credentials. Individual tests may then supply explicit env overrides.
+
 With TNY_TEST_EXPECT_WASM=1 only the documented unsupported-execution cases
 run: the browser build cannot own a child process.
 """
@@ -383,6 +386,89 @@ def pids_matching(*needles: str) -> list[int]:
     return found
 
 
+# Synthetic outer-agent context. Never copy a real capability into test output.
+# Keep this independent of fixture_environment's filtering rules so regressions
+# in either exact-name or private-namespace filtering remain observable.
+AGENT_ENV_POISON = dict.fromkeys(
+    (
+        "TNY_SESSION_ID",
+        "TNY_SESSION_SOCK",
+        "TNY_NESTED",
+        "TNY_NESTED_MODE",
+        "TNY_TOOLS",
+        "TNY_JOB_PARENT_PID",
+        "TNY_TEAM_RUN",
+        "TNY_TEAM_TASK",
+        "TNY_TEAM_ATTEMPT",
+        "TNY_TEAM_CAPABILITY",
+        "TNY_TEAM_COLLECTIVE",
+        "TNY_TEAM_READ_ONLY",
+        "TNY_ADMISSION_ENROLLED",
+        "TNY_SWARM_NAME",
+        "TNY_SWARM_ROLE",
+        "TNY_SWARM_GROUP",
+        "TNY_SWARM_PURPOSE",
+        "TNY_SWARM_DELIVERABLE",
+        "TNY_SWARM_ACCEPTANCE",
+        "TNY_SWARM_WORKSPACE",
+    ),
+    "fixture-inherited-agent",
+)
+
+
+def fixture_environment(source):
+    """Preserve toolchain settings, not the invoking agent's private identity."""
+    runtime_names = {
+        "TNY_SESSION_ID",
+        "TNY_SESSION_SOCK",
+        "TNY_NESTED",
+        "TNY_NESTED_MODE",
+        "TNY_TOOLS",
+        "TNY_JOB_PARENT_PID",
+    }
+    return {
+        key: value
+        for key, value in source.items()
+        if not key.endswith(("_API_KEY", "_BASE_URL"))
+        and key not in runtime_names
+        and not key.startswith(("TNY_TEAM_", "TNY_SWARM_", "TNY_ADMISSION_"))
+    }
+
+
+class FixtureEnvironment(unittest.TestCase):
+    def test_inherited_agent_context_is_removed_without_mutating_source(self):
+        source = dict(AGENT_ENV_POISON)
+        self.assertEqual(fixture_environment(source), {})
+        self.assertEqual(source, AGENT_ENV_POISON)
+
+    def test_toolchain_and_test_controls_survive_but_credentials_do_not(self):
+        retained = {
+            "PATH": "/fixture/toolchain/bin",
+            "CC": "fixture-clang",
+            "CFLAGS": "-g",
+            "TNY": "/fixture/tny",
+            "TNY_TEST_EXPECT_WASM": "1",
+            "TNY_TEST_SUITE": "fixture",
+        }
+        source = dict(
+            retained,
+            CUSTOM_API_KEY="fixture-not-real",
+            CUSTOM_BASE_URL="http://127.0.0.1:1",
+            TNY_TEAM_FUTURE_CARRIER="fixture-private",
+            TNY_SWARM_FUTURE_CARRIER="fixture-private",
+            TNY_ADMISSION_FUTURE_CARRIER="fixture-private",
+        )
+        self.assertEqual(fixture_environment(source), retained)
+
+    def test_explicit_test_overrides_remain_available(self):
+        env = fixture_environment(AGENT_ENV_POISON)
+        env.update(TNY_TOOLS="terminal", TNY_NESTED="1", TNY_NESTED_MODE="yolo")
+        self.assertEqual(
+            env,
+            {"TNY_TOOLS": "terminal", "TNY_NESTED": "1", "TNY_NESTED_MODE": "yolo"},
+        )
+
+
 class JobsFixture(unittest.TestCase):
     """Throwaway HOME, loopback provider, real detached children."""
 
@@ -416,12 +502,7 @@ class JobsFixture(unittest.TestCase):
         self.server.lock = threading.Lock()
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         url = f"http://127.0.0.1:{self.server.server_port}"
-        env = {
-            k: v
-            for k, v in os.environ.items()
-            if not k.endswith("_API_KEY") and not k.endswith("_BASE_URL")
-        }
-        env.pop("TNY_TOOLS", None)
+        env = fixture_environment(os.environ)
         env.update(
             {
                 "HOME": str(self.home),
