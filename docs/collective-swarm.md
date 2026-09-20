@@ -24,6 +24,11 @@ Legacy job retry is refused in mode; create new parent-owned tasks instead. Exis
 DAG dependencies, roles, workspaces and attempt outcomes remain authoritative.
 The cap protects harness launch paths; it does not sandbox arbitrary same-user code.
 
+For repeatable named membership, use a
+[purposeful swarm definition](purposeful-swarms.md) with `--swarm-file PATH`.
+Purposeful nested coordinators are flattened into one durable team rather than using
+the legacy recursive-collaborator path; numeric `--swarm` behavior remains unchanged.
+
 ## Peer messages and shared channel
 
 Each durable run is a channel. Private `team_mailbox send` remains available.

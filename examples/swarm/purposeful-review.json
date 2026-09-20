@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "purpose": "Review a change from implementation, verification, and integration perspectives.",
+  "coordinator": {
+    "name": "lead",
+    "purpose": "Own scope, reconcile evidence, and report the verified result."
+  },
+  "agents": [
+    {
+      "name": "implementation-reviewer",
+      "purpose": "Inspect the implementation for correctness and maintainability."
+    }
+  ],
+  "swarms": [
+    {
+      "purpose": "Establish independent verification evidence.",
+      "coordinator": {
+        "name": "verification-coordinator",
+        "purpose": "Coordinate focused checks and synthesize their evidence upward."
+      },
+      "agents": [
+        {
+          "name": "test-reviewer",
+          "purpose": "Inspect focused and regression test coverage."
+        },
+        {
+          "name": "risk-reviewer",
+          "purpose": "Identify failure modes, platform limits, and unresolved risks."
+        }
+      ],
+      "swarms": []
+    }
+  ]
+}

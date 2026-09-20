@@ -35,6 +35,7 @@ reproducible offline evidence from unmeasured live-model improvement.
 | [workflows.md](workflows.md) | Dependency DAGs and parallel agents from shell, Python, and TypeScript |
 | [team-control.md](team-control.md) | Job-backed async teams, captured parent identity, bounded collection and truthful verification state |
 | [team-mailbox.md](team-mailbox.md) | Durable addressed collaboration, safe-boundary delivery, acknowledgment and retirement |
+| [purposeful-swarms.md](purposeful-swarms.md) | Strict file-defined nested teams, activation, persistence and platform limits |
 | [task-workspaces.md](task-workspaces.md) | Isolated editing, provenance, explicit integration and conflict-safe cleanup |
 | [admission.md](admission.md) | Shared launch permits, cleanup holds, scope limits and honest usage policies |
 | [settings.md](settings.md) | settings.json defaults, schema, env-key HTTP profiles |

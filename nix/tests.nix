@@ -97,6 +97,8 @@ stdenv.mkDerivation {
     # with stdenv's compiler and existing fixtures. Pause/crash/fault tests use
     # stdlib fcntl, signals and subprocesses; no provider or new program is needed.
     # test_swarm_agents.py also uses stdlib PTYs and the existing jobs fixture;
+    # test_purposeful_swarm.py uses the same stdlib loopback provider and real CLI;
+    # schemas/swarm.schema.json and examples/swarm are source-closure inputs.
     # git/procps below suffice, with no new runtime program or live credential.
     # test_background_agents.py uses stdlib PTYs, fcntl writer probes, owned
     # processes, and local HTTP; test_native_search.py uses split SSE fixtures.

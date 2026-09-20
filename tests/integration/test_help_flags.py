@@ -33,6 +33,7 @@ COMMAND_PARSERS = {
     "image": ("cmd_image_service", "cmd_image", "tny_image_options"),
     "jobs": ("cmd_jobs", "tny_jobs_parse_argv"),
     "team": ("cmd_team", "tny_team_parse_argv"),
+    "swarm": ("cmd_swarm",),
     "mailbox": ("cmd_mailbox", "tny_team_mailbox_parse_argv"),
     "task-workspace": ("cmd_task_workspace", "tny_workspace_parse_argv"),
     "logout": ("cmd_logout",),

@@ -728,13 +728,20 @@ static int deliver_run(tools_env *env, const char *id, bool member, char *err, s
     yyjson_val *own =
         caller.identity.task >= 0 ? yyjson_arr_get(items, (size_t)caller.identity.task) : NULL;
     const char *role = jget_str(own, "role");
-    if (caller.identity.task == TNY_MAILBOX_LEAD || (role && strcmp(role, "lead") == 0)) {
+    const char *swarm_role = jget_str(own, "swarm_role");
+    bool swarm_coordinator = swarm_role && strcmp(swarm_role, "coordinator") == 0;
+    if (caller.identity.task == TNY_MAILBOX_LEAD || (role && strcmp(role, "lead") == 0) ||
+        swarm_coordinator) {
         size_t i, n;
         yyjson_val *item;
         yyjson_arr_foreach(items, i, n, item) {
             const char *state = jget_str(item, "state");
             if (!state || strcmp(state, "queued") == 0 || strcmp(state, "running") == 0 ||
                 (int)i == caller.identity.task)
+                continue;
+            if (swarm_coordinator &&
+                jget_int(item, "swarm_group", -1) != jget_int(own, "swarm_group", -2) &&
+                jget_int(item, "swarm_parent_coordinator_task", -2) != caller.identity.task)
                 continue;
             char key[128], text[384];
             snprintf(key, sizeof key, "completion:%s:%zu:%lld", id, i,

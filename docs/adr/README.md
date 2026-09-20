@@ -7,6 +7,7 @@ files in this directory are the complete record.
 
 | ADR | Decision |
 | --- | --- |
+| [0157](0157-purposeful-file-defined-swarms.md) | Strict versioned swarm files compile bounded nesting into one durable team with persisted provenance |
 | [0150](0150-agent-first-harness-and-measured-footprint.md) | Agent-first harness: effective context, no binary-size ceiling, no competitor-size target |
 | [0136](0136-terminal-background-completion.md) | Owned background terminal completion, bounded observation and no PID polling |
 | [0001](0001-run-all-agents-in-yolo-mode.md) | All agents run in yolo mode by default |

@@ -54,6 +54,12 @@ int main(int argc, char **argv) {
         fprintf(stderr, "tny: unknown command '%s'\n", cmd);
         goto done;
     }
+    /* Definition validation is deliberately context-free: no workspace,
+     * settings, provider, session, or jobs state is opened. */
+    if (cmd && strcmp(cmd, "swarm") == 0) {
+        rc = cmd_swarm(&g, cargc, cargv);
+        goto done;
+    }
     if (cli_swarm_preflight(&g, cmd, cargc, cargv) != 0) goto done;
     if (g.worktree) {
         if (g.ssh) {
@@ -191,6 +197,8 @@ done:
     tny_ctx_free(ctx);
     worktree_close(g.active_worktree);
     free(g.add_dirs);
+    free(g.swarm_definition);
+    free(g.swarm_source);
 #ifdef __EMSCRIPTEN__
     /* an Asyncified main's return value is dropped after an unwind; only an
      * explicit exit() carries the code to the host (docs/adr/0017) */

@@ -253,8 +253,32 @@ static int session_task_reconcile_impl(tny_session_state *s, char *err, size_t e
 int session_task_reconcile(tny_session_state *s, char *err, size_t errsz) {
     if (!s || !s->ctx) return -1;
     int previous_cap = s->ctx->swarm_cap;
+    int previous_participants = s->ctx->swarm_participants;
+    char previous_digest[sizeof s->ctx->swarm_definition_digest];
+    snprintf(previous_digest, sizeof previous_digest, "%s", s->ctx->swarm_definition_digest);
+    char *previous_definition = s->ctx->swarm_definition ? xstrdup(s->ctx->swarm_definition) : NULL;
+    char *previous_source = s->ctx->swarm_source ? xstrdup(s->ctx->swarm_source) : NULL;
+    if ((s->ctx->swarm_definition && !previous_definition) ||
+        (s->ctx->swarm_source && !previous_source)) {
+        free(previous_definition);
+        free(previous_source);
+        snprintf(err, errsz, "could not preserve swarm selection during reconciliation");
+        return -1;
+    }
     int rc = session_task_reconcile_impl(s, err, errsz);
-    if (rc) s->ctx->swarm_cap = previous_cap;
+    if (rc) {
+        s->ctx->swarm_cap = previous_cap;
+        s->ctx->swarm_participants = previous_participants;
+        free(s->ctx->swarm_definition);
+        free(s->ctx->swarm_source);
+        s->ctx->swarm_definition = previous_definition;
+        s->ctx->swarm_source = previous_source;
+        snprintf(s->ctx->swarm_definition_digest, sizeof s->ctx->swarm_definition_digest, "%s",
+                 previous_digest);
+    } else {
+        free(previous_definition);
+        free(previous_source);
+    }
     return rc;
 }
 

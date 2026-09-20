@@ -17,7 +17,21 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
 
     ctx->swarm_cap = g->swarm_cap;
     ctx->swarm_explicit = g->swarm_cap != 0;
-    if (g->swarm_cap && (g->ephemeral || g->ssh || !tny_swarm_supported(ctx))) {
+    if (g->swarm_definition) {
+        ctx->swarm_definition = xstrdup(g->swarm_definition);
+        ctx->swarm_source = xstrdup(g->swarm_source);
+        if (!ctx->swarm_definition || !ctx->swarm_source) {
+            fputs("tny: could not retain the validated swarm definition\n", stderr);
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        snprintf(ctx->swarm_definition_digest, sizeof ctx->swarm_definition_digest, "%s",
+                 g->swarm_definition_digest);
+        ctx->swarm_participants = g->swarm_participants;
+        ctx->swarm_cap = g->swarm_participants;
+        ctx->swarm_explicit = true;
+    }
+    if (ctx->swarm_cap && (g->ephemeral || g->ssh || !tny_swarm_supported(ctx))) {
         fputs("tny: swarm requires a saved native local lead session\n", stderr);
         tny_ctx_free(ctx);
         return NULL;

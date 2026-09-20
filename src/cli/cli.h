@@ -15,11 +15,16 @@ typedef struct {
     const char *cwd;     /* --cwd */
     bool worktree;       /* --worktree [NAME] */
     const char *worktree_name;
-    tny_worktree *active_worktree;        /* borrowed from main; NULL outside worktree mode */
-    const char *model;                    /* --model */
-    const char *effort;                   /* --effort | --reasoning-effort */
-    const char *system_prompt;            /* --system-prompt */
-    int swarm_cap;                        /* --swarm[=N], -1 means lead decides */
+    tny_worktree *active_worktree; /* borrowed from main; NULL outside worktree mode */
+    const char *model;             /* --model */
+    const char *effort;            /* --effort | --reasoning-effort */
+    const char *system_prompt;     /* --system-prompt */
+    int swarm_cap;                 /* --swarm[=N], -1 means lead decides */
+    const char *swarm_file;        /* --swarm-file PATH */
+    char *swarm_definition;        /* validated canonical snapshot */
+    char *swarm_source;            /* absolute selection provenance */
+    char swarm_definition_digest[65];
+    int swarm_participants;
     const char *task;                     /* --task NAME */
     const char *perm_mode;                /* --permission-mode | --yolo | --auto */
     const char *max_steps;                /* --max-steps N|unlimited (0 = no cap) */
@@ -57,7 +62,7 @@ bool cli_is_command(const char *name);
 /* Quiet grammar-only command lookup; frees all temporary parser allocations. */
 int cli_command_index(int argc, char **argv);
 /* Reject unsupported swarm execution before workspace/SSH setup. */
-int cli_swarm_preflight(const cli_globals *g, const char *command, int argc, char **argv);
+int cli_swarm_preflight(cli_globals *g, const char *command, int argc, char **argv);
 
 /* --ssh TARGET: open the remote tool runtime on ctx (docs/adr/0022). Prints
  * its own error; 0 ok. Shared by cli_make_ctx and the TUI /ssh command. */
@@ -91,6 +96,8 @@ int cmd_jobs(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_mailbox(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_task_workspace(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_team(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+/* Stateless definition validation; dispatched before context/provider setup. */
+int cmd_swarm(const cli_globals *g, int argc, char **argv);
 int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

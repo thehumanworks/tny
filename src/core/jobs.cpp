@@ -673,6 +673,9 @@ typedef struct {
     bool peer_messages;
     yyjson_val *admission;
     yyjson_val *budget;
+    const char *swarm_definition_sha256;
+    const char *swarm_root_coordinator;
+    const char *swarm_purpose;
     int max_steps;
     int concurrency;
     int n_items;
@@ -713,6 +716,45 @@ static int validate_ask_item(yyjson_val *item, char *err, size_t errlen) {
         }
     }
     return 0;
+}
+
+static bool sha256_field(yyjson_val *value) {
+    const char *text = yyjson_get_str(value);
+    if (!text || yyjson_get_len(value) != 64 || strlen(text) != 64) return false;
+    for (size_t i = 0; i < 64; ++i)
+        if (!((text[i] >= '0' && text[i] <= '9') || (text[i] >= 'a' && text[i] <= 'f')))
+            return false;
+    return true;
+}
+
+static bool swarm_item_metadata_valid(yyjson_val *item) {
+    const char *role = jget_str(item, "swarm_role");
+    return bounded_string(jget(item, "swarm_name"), 64) && role &&
+           (strcmp(role, "agent") == 0 || strcmp(role, "coordinator") == 0) &&
+           yyjson_is_uint(jget(item, "swarm_group")) && jget_int(item, "swarm_group", -1) >= 0 &&
+           jget_int(item, "swarm_group", 99) <= 16 &&
+           bounded_string(jget(item, "swarm_purpose"), 4096) &&
+           bounded_string(jget(item, "swarm_group_purpose"), 4096) &&
+           yyjson_is_int(jget(item, "swarm_coordinator_task")) &&
+           jget_int(item, "swarm_coordinator_task", -2) >= -1 &&
+           jget_int(item, "swarm_coordinator_task", 99) < TNY_JOBS_MAX_ITEMS &&
+           yyjson_is_int(jget(item, "swarm_parent_coordinator_task")) &&
+           jget_int(item, "swarm_parent_coordinator_task", -2) >= -1 &&
+           jget_int(item, "swarm_parent_coordinator_task", 99) < TNY_JOBS_MAX_ITEMS;
+}
+
+static bool swarm_metadata_valid(yyjson_val *args) {
+    yyjson_val *digest = jget(args, "swarm_definition_sha256");
+    if (!digest) return !jget(args, "swarm_root_coordinator") && !jget(args, "swarm_purpose");
+    if (!sha256_field(digest) || !bounded_string(jget(args, "swarm_root_coordinator"), 64) ||
+        !bounded_string(jget(args, "swarm_purpose"), 4096))
+        return false;
+    size_t i, count;
+    yyjson_val *item;
+    yyjson_arr_foreach(jget(args, "items"), i, count, item) {
+        if (!swarm_item_metadata_valid(item)) return false;
+    }
+    return true;
 }
 
 static int validate_image_item(tny_ctx *ctx, yyjson_val *item, char **canonical_out, char *err,
@@ -1046,6 +1088,13 @@ static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, c
         return -1;
     }
     if (!dag_validate(args, err, errlen)) return -1;
+    if (!swarm_metadata_valid(args)) {
+        safe_err(err, errlen, "invalid purposeful swarm identity metadata");
+        return -1;
+    }
+    r->swarm_definition_sha256 = jget_str(args, "swarm_definition_sha256");
+    r->swarm_root_coordinator = jget_str(args, "swarm_root_coordinator");
+    r->swarm_purpose = jget_str(args, "swarm_purpose");
     r->dag = jget_bool(args, "dag", false);
     r->admission = jget(args, "admission");
     r->budget = jget(args, "budget");
@@ -1825,6 +1874,13 @@ static void job_items_json(yyjson_mut_doc *doc, buf_t *out) {
                         (long long)jm_int(item, "attempt", 1));
             static const char *const keys[] = {"label",
                                                "role",
+                                               "swarm_name",
+                                               "swarm_role",
+                                               "swarm_group",
+                                               "swarm_purpose",
+                                               "swarm_group_purpose",
+                                               "swarm_coordinator_task",
+                                               "swarm_parent_coordinator_task",
                                                "verification",
                                                "definition_sha256",
                                                "dependency_sha256",
@@ -1887,11 +1943,18 @@ static void job_json(yyjson_mut_doc *doc, const char *dir, buf_t *out) {
     jescape(out, jm_str(root, "id"));
     if (jm_bool(root, "dag", false)) {
         buf_appends(out, ",\"dag\":true");
-        static const char *const keys[] = {"run_id",       "parent_session_id",
-                                           "verification", "workspace_revision",
-                                           "provider",     "model",
-                                           "effort",       "permission_ceiling",
-                                           "tool_ceiling"};
+        static const char *const keys[] = {"run_id",
+                                           "parent_session_id",
+                                           "verification",
+                                           "workspace_revision",
+                                           "provider",
+                                           "model",
+                                           "effort",
+                                           "permission_ceiling",
+                                           "tool_ceiling",
+                                           "swarm_definition_sha256",
+                                           "swarm_root_coordinator",
+                                           "swarm_purpose"};
         for (size_t k = 0; k < sizeof keys / sizeof keys[0]; k++) {
             char *json = jwrite_mut_val(yyjson_mut_obj_get(root, keys[k]));
             buf_appendf(out, ",\"%s\":%s", keys[k], json ? json : "null");
@@ -2156,6 +2219,19 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
             jm_set_str(doc, item, "workspace_policy", workspace_policy(request->items[i]));
             jm_set_str(doc, item, "workspace_base",
                        jget_str(jget(request->items[i], "workspace"), "base"));
+            static const char *const swarm_strings[] = {"swarm_name", "swarm_role", "swarm_purpose",
+                                                        "swarm_group_purpose"};
+            for (size_t k = 0; k < sizeof swarm_strings / sizeof swarm_strings[0]; ++k)
+                jm_set_str(doc, item, swarm_strings[k],
+                           jget_str(request->items[i], swarm_strings[k]));
+            if (jget(request->items[i], "swarm_group")) {
+                jm_set_int(doc, item, "swarm_group",
+                           jget_int(request->items[i], "swarm_group", -1));
+                jm_set_int(doc, item, "swarm_coordinator_task",
+                           jget_int(request->items[i], "swarm_coordinator_task", -1));
+                jm_set_int(doc, item, "swarm_parent_coordinator_task",
+                           jget_int(request->items[i], "swarm_parent_coordinator_task", -1));
+            }
         }
         static const char *const passthrough[] = {"model",   "effort", "task",
                                                   "quality", "size",   "operation"};
@@ -2408,7 +2484,17 @@ static char *dag_workspace_revision(const char *cwd) {
 static char *dag_definition_hash(yyjson_mut_val *item) {
     buf_t b;
     buf_init(&b);
-    static const char *const keys[] = {"request", "depends_on", "label", "role"};
+    static const char *const keys[] = {"request",
+                                       "depends_on",
+                                       "label",
+                                       "role",
+                                       "swarm_name",
+                                       "swarm_role",
+                                       "swarm_group",
+                                       "swarm_purpose",
+                                       "swarm_group_purpose",
+                                       "swarm_coordinator_task",
+                                       "swarm_parent_coordinator_task"};
     for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) {
         char *json = jwrite_mut_val(yyjson_mut_obj_get(item, keys[i]));
         if (!json) {
@@ -2499,6 +2585,9 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
         jm_set_str(doc, root, "effort", ctx->reasoning_effort);
         jm_set_str(doc, root, "permission_ceiling", tny_perm_mode_name(ctx->perm_mode));
         jm_set_str(doc, root, "tool_ceiling", tny_tool_profile_name(ctx->tool_profile));
+        jm_set_str(doc, root, "swarm_definition_sha256", request->swarm_definition_sha256);
+        jm_set_str(doc, root, "swarm_root_coordinator", request->swarm_root_coordinator);
+        jm_set_str(doc, root, "swarm_purpose", request->swarm_purpose);
     }
     jm_set_str(doc, root, "created", now ? now : "");
     jm_set_str(doc, root, "updated", now ? now : "");
@@ -2539,6 +2628,19 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
             jm_set_str(doc, item, "label", jget_str(request->items[i], "label"));
             const char *role = jget_str(request->items[i], "role");
             jm_set_str(doc, item, "role", role ? role : "worker");
+            static const char *const swarm_strings[] = {"swarm_name", "swarm_role", "swarm_purpose",
+                                                        "swarm_group_purpose"};
+            for (size_t k = 0; k < sizeof swarm_strings / sizeof swarm_strings[0]; ++k)
+                jm_set_str(doc, item, swarm_strings[k],
+                           jget_str(request->items[i], swarm_strings[k]));
+            if (jget(request->items[i], "swarm_group")) {
+                jm_set_int(doc, item, "swarm_group",
+                           jget_int(request->items[i], "swarm_group", -1));
+                jm_set_int(doc, item, "swarm_coordinator_task",
+                           jget_int(request->items[i], "swarm_coordinator_task", -1));
+                jm_set_int(doc, item, "swarm_parent_coordinator_task",
+                           jget_int(request->items[i], "swarm_parent_coordinator_task", -1));
+            }
             yyjson_val *deps = jget(request->items[i], "depends_on");
             yyjson_mut_obj_put(item, yyjson_mut_strcpy(doc, "depends_on"),
                                deps ? yyjson_val_mut_copy(doc, deps) : yyjson_mut_arr(doc));
@@ -4310,6 +4412,14 @@ static bool jobs_private_payload_value(yyjson_val *payload, const char *value) {
     return false;
 }
 
+static char *worker_env_pair(const char *name, const char *value) {
+    if (!name || !value) return NULL;
+    buf_t entry;
+    buf_init(&entry);
+    buf_appendf(&entry, "%s=%s", name, value);
+    return buf_oom(&entry) ? (buf_free(&entry), nullptr) : buf_detach(&entry);
+}
+
 static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *slot, bool image,
                                char ***owned_out, int *n_owned) {
     yyjson_val *chat = jget(item, "chat") ? jget(item, "chat") : jget(payload, "chat");
@@ -4320,7 +4430,7 @@ static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *
     /* Exactly one side of the split supplies these, never both. */
     const char *token = image ? jget_str(image_creds, "token") : jget_str(chat, "token");
     const char *account = image ? jget_str(image_creds, "account") : jget_str(chat, "account");
-    char **owned = static_cast<char **>(tny_alloc_calloc(54, sizeof *owned));
+    char **owned = static_cast<char **>(tny_alloc_calloc(64, sizeof *owned));
     if (!owned) return NULL;
     int n = 0;
     buf_t entry;
@@ -4372,6 +4482,15 @@ static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *
     const char *scope_label = jget_str(jget(payload, "admission"), "label");
     if (scope_label && str_starts(scope_label, "swarm_"))
         owned[n++] = xstrdup("TNY_TEAM_COLLECTIVE=1");
+    const char *swarm_name = jget_str(item, "swarm_name");
+    if (swarm_name) {
+        owned[n++] = worker_env_pair("TNY_SWARM_NAME", swarm_name);
+        owned[n++] = worker_env_pair("TNY_SWARM_ROLE", jget_str(item, "swarm_role"));
+        owned[n++] = worker_env_pair("TNY_SWARM_PURPOSE", jget_str(item, "swarm_purpose"));
+        char group[24];
+        snprintf(group, sizeof group, "%lld", (long long)jget_int(item, "swarm_group", -1));
+        owned[n++] = worker_env_pair("TNY_SWARM_GROUP", group);
+    }
     const char *policy = jget_str(item, "workspace_policy");
     if (jget_bool(payload, "read_only", false) ||
         (policy && strcmp(policy, "shared_read_only") == 0))

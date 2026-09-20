@@ -14,6 +14,7 @@
 #include <sys/wait.h>
 #include "core/jobs.h"
 #include "util/jobs_host.h"
+#include "util/image_io.h"
 #include "util/process.h"
 #include "core/image.h"
 #include "core/image_service.h"
@@ -5434,6 +5435,16 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ctx->max_steps = 7;
     ctx->swarm_cap = 3;
     ctx->swarm_explicit = true;
+    ctx->swarm_definition =
+        xstrdup("{\"version\":1,\"purpose\":\"root\",\"coordinator\":{\"name\":\"lead\","
+                "\"purpose\":\"coordinate\"},\"agents\":[{\"name\":\"one\",\"purpose\":"
+                "\"inspect\"},{\"name\":\"two\",\"purpose\":\"verify\"},{\"name\":\"three\","
+                "\"purpose\":\"report\"}],\"swarms\":[]}");
+    ctx->swarm_source = xstrdup("/tmp/fixture-swarm.json");
+    ctx->swarm_participants = 3;
+    ASSERT(ctx->swarm_definition && ctx->swarm_source);
+    ASSERT(tny_image_io_sha256_hex(ctx->swarm_definition, strlen(ctx->swarm_definition),
+                                   ctx->swarm_definition_digest));
     ctx->no_self_improve = true;
     ctx->tool_profile = TNY_TOOLS_TERMINAL;
     ctx->extensions_enabled = false;
@@ -5456,6 +5467,10 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT_EQ(TNY_MODE_ASK, restored->perm_mode);
     ASSERT_EQ(7, restored->max_steps);
     ASSERT_EQ(3, restored->swarm_cap);
+    ASSERT_EQ(3, restored->swarm_participants);
+    ASSERT_STR_EQ(ctx->swarm_definition_digest, restored->swarm_definition_digest);
+    ASSERT_STR_EQ(ctx->swarm_definition, restored->swarm_definition);
+    ASSERT_STR_EQ(ctx->swarm_source, restored->swarm_source);
     ASSERT(restored->swarm_explicit);
     ASSERT(restored->no_self_improve);
     tny_ctx_free(restored);
@@ -5479,6 +5494,9 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT_EQ(TNY_MODE_ASK, recovered->perm_mode);
     ASSERT_EQ(7, recovered->max_steps);
     ASSERT_EQ(3, recovered->swarm_cap);
+    ASSERT_EQ(3, recovered->swarm_participants);
+    ASSERT_STR_EQ(ctx->swarm_definition_digest, recovered->swarm_definition_digest);
+    ASSERT_STR_EQ(ctx->swarm_definition, recovered->swarm_definition);
     ASSERT(recovered->swarm_explicit);
     ASSERT(recovered->no_self_improve);
     ASSERT_STR_EQ("private-runtime-key", recovered->api_key);
@@ -5494,6 +5512,93 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     yyjson_doc_free(parsed);
     yyjson_mut_doc_free(doc);
     yyjson_mut_doc_free(copy);
+    PASS();
+}
+
+TEST session_swarm_definition_restores_snapshot_and_rejects_change(void) {
+    ensure_env();
+    const char *canonical =
+        "{\"version\":1,\"purpose\":\"root\",\"coordinator\":{\"name\":\"lead\","
+        "\"purpose\":\"coordinate\"},\"agents\":[{\"name\":\"worker\",\"purpose\":"
+        "\"inspect\"}],\"swarms\":[]}";
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->swarm_cap = 1;
+    ctx->swarm_explicit = true;
+    ctx->swarm_participants = 1;
+    ctx->swarm_definition = xstrdup(canonical);
+    ctx->swarm_source = xstrdup("/tmp/original-swarm.json");
+    ASSERT(ctx->swarm_definition && ctx->swarm_source);
+    ASSERT(tny_image_io_sha256_hex(canonical, strlen(canonical), ctx->swarm_definition_digest));
+    tny_session_state *session = session_new(ctx);
+    ASSERT(session);
+    ASSERT_EQ(0, session_save(session));
+    char *id = xstrdup(session->id);
+    ASSERT(id);
+    session_close(session);
+    tny_ctx_free(ctx);
+
+    tny_ctx *restored_ctx = tny_ctx_load(g_ws);
+    ASSERT(restored_ctx);
+    session = session_open(restored_ctx, id);
+    ASSERT(session);
+    char err[256];
+    ASSERT_EQ(0, session_task_reconcile(session, err, sizeof err));
+    ASSERT_EQ(1, restored_ctx->swarm_cap);
+    ASSERT_EQ(1, restored_ctx->swarm_participants);
+    ASSERT_STR_EQ(canonical, restored_ctx->swarm_definition);
+    ASSERT_STR_EQ("/tmp/original-swarm.json", restored_ctx->swarm_source);
+    session_close(session);
+    tny_ctx_free(restored_ctx);
+
+    tny_ctx *numeric = tny_ctx_load(g_ws);
+    ASSERT(numeric);
+    numeric->swarm_cap = 1;
+    numeric->swarm_explicit = true;
+    session = session_open(numeric, id);
+    ASSERT(session);
+    ASSERT(session_task_reconcile(session, err, sizeof err) != 0);
+    ASSERT(strstr(err, "saved purposeful definition"));
+    session_close(session);
+    tny_ctx_free(numeric);
+
+    tny_ctx *matching = tny_ctx_load(g_ws);
+    ASSERT(matching);
+    matching->swarm_cap = 1;
+    matching->swarm_explicit = true;
+    matching->swarm_participants = 1;
+    matching->swarm_definition = xstrdup(canonical);
+    matching->swarm_source = xstrdup("/tmp/equivalent-copy.json");
+    ASSERT(matching->swarm_definition && matching->swarm_source);
+    ASSERT(
+        tny_image_io_sha256_hex(canonical, strlen(canonical), matching->swarm_definition_digest));
+    session = session_open(matching, id);
+    ASSERT(session);
+    ASSERT_EQ(0, session_task_reconcile(session, err, sizeof err));
+    ASSERT_STR_EQ("/tmp/original-swarm.json", matching->swarm_source);
+    session_close(session);
+    tny_ctx_free(matching);
+
+    tny_ctx *changed = tny_ctx_load(g_ws);
+    ASSERT(changed);
+    changed->swarm_cap = 1;
+    changed->swarm_explicit = true;
+    changed->swarm_participants = 1;
+    changed->swarm_definition =
+        xstrdup("{\"version\":1,\"purpose\":\"changed\",\"coordinator\":{\"name\":\"lead\","
+                "\"purpose\":\"coordinate\"},\"agents\":[{\"name\":\"worker\",\"purpose\":"
+                "\"inspect\"}],\"swarms\":[]}");
+    changed->swarm_source = xstrdup("/tmp/changed-swarm.json");
+    ASSERT(changed->swarm_definition && changed->swarm_source);
+    ASSERT(tny_image_io_sha256_hex(changed->swarm_definition, strlen(changed->swarm_definition),
+                                   changed->swarm_definition_digest));
+    session = session_open(changed, id);
+    ASSERT(session);
+    ASSERT(session_task_reconcile(session, err, sizeof err) != 0);
+    ASSERT(strstr(err, "differs from the saved session"));
+    session_close(session);
+    tny_ctx_free(changed);
+    free(id);
     PASS();
 }
 
@@ -5647,6 +5752,7 @@ SUITE(core_suite) {
     RUN_TEST(grep_files_fanout_matches_serial_scan);
     RUN_TEST(semantic_search_fanout_matches_serial_scan);
     RUN_TEST(context_checkpoint_preserves_resolved_selection);
+    RUN_TEST(session_swarm_definition_restores_snapshot_and_rejects_change);
     RUN_TEST(job_wait_cancellation_leaves_live_job_untouched);
     RUN_TEST(job_spawn_maps_colliding_descriptors_without_clobbering);
     RUN_TEST(job_parent_watch_is_off_for_ordinary_commands);
