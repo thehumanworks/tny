@@ -63,6 +63,9 @@ def tny_metrics(home: Path, lead_events: Path) -> dict[str, Any]:
     for path in sorted((home / ".tny/sessions").rglob("session.json")):
         value = json.loads(path.read_text())
         usage = value.get("usage", {})
+        totals["tool_calls"] += sum(
+            len(message.get("tool_calls", [])) for message in value.get("messages", [])
+        )
         sessions.append(
             {
                 "input_tokens": usage.get("in"),
@@ -83,14 +86,58 @@ def tny_metrics(home: Path, lead_events: Path) -> dict[str, Any]:
             if isinstance(usage.get(source), int):
                 totals[target] += usage[source]
     event_files = [lead_events, *(home / ".tny/jobs").rglob("*.log")]
-    totals["tool_calls"] = sum(
+    executed_tool_calls = sum(
         event.get("type") == "tool_start"
         for path in event_files
         for event in records(path)
     )
+    mailbox_errors = sum(
+        event.get("type") == "tool_end"
+        and event.get("tool_name") == "team_mailbox"
+        and not event.get("tool_ok", True)
+        for path in event_files
+        for event in records(path)
+    )
+    coordination = {
+        "durable_messages": 0,
+        "peer_direct_messages": 0,
+        "coordinator_upward_messages": 0,
+        "delivery_states": {},
+        "mailbox_tool_errors": mailbox_errors,
+    }
     jobs = []
     for path in sorted((home / ".tny/jobs").rglob("job.json")):
         value = json.loads(path.read_text())
+        mailbox = path.with_name("mailbox.json")
+        messages = (
+            json.loads(mailbox.read_text()).get("messages", [])
+            if mailbox.is_file()
+            else []
+        )
+        items = value.get("items", [])
+        for message in messages:
+            coordination["durable_messages"] += 1
+            state = message.get("state", "unknown")
+            coordination["delivery_states"][state] = (
+                coordination["delivery_states"].get(state, 0) + 1
+            )
+            sender, recipient = (
+                message.get("sender_task", -2),
+                message.get("recipient_task", -2),
+            )
+            if (
+                sender >= 0
+                and recipient >= 0
+                and sender != recipient
+                and not message.get("publication")
+            ):
+                coordination["peer_direct_messages"] += 1
+            if (
+                0 <= sender < len(items)
+                and items[sender].get("swarm_role") == "coordinator"
+                and recipient == items[sender].get("swarm_parent_coordinator_task", -2)
+            ):
+                coordination["coordinator_upward_messages"] += 1
         jobs.append(
             {
                 "state": value.get("state"),
@@ -109,6 +156,8 @@ def tny_metrics(home: Path, lead_events: Path) -> dict[str, Any]:
         )
     return {
         **totals,
+        "executed_tool_calls": executed_tool_calls,
+        "coordination": coordination,
         "sessions": sessions,
         "session_count": len(sessions),
         "jobs": jobs,
@@ -365,6 +414,8 @@ def run_trial(
             args.model,
             "-c",
             f'model_reasoning_effort="{args.effort}"',
+            "-c",
+            "agents.enabled=true",
             "-c",
             f'agents.default_subagent_model="{args.model}"',
             "-c",
