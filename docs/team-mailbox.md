@@ -75,6 +75,26 @@ duplicates return the original receipt. Reusing an ID for different content or
 endpoints returns `MAILBOX_CONFLICT`. Do not turn a timeout into a new logical
 message ID. No exactly-once external side effects are promised.
 
+## Capacity without consuming messages
+
+`tny mailbox status --run RUN` (typed `team_mailbox` action `status`) returns an
+authenticated, locked snapshot without reading payloads into context, marking
+delivery, acknowledging, or reserving space. It uses the existing `team_inbox`
+permission and accepts no `to`, `id`, `text` or `timeout_ms` fields.
+
+The response adds `capacity` with `history_used`, `history_limit` (256),
+`history_remaining`, `recipient` (the caller task, or -1 for the parent),
+`outstanding_used`, `outstanding_limit` (64), and `outstanding_remaining`.
+Outstanding counts include older attempts for this recipient. A publication uses
+one history row per recipient, not one row per publication. Acknowledgment or
+retirement frees outstanding capacity only; retained history does not shrink.
+A corrupt over-limit count refuses rather than reporting a wrapped remaining value.
+
+Use status for occasional diagnosis near saturation, not model-driven polling.
+Concurrent sends can consume the reported space immediately. Prefer targeted
+messages, acknowledge only processed receipts, and report history exhaustion to
+the root. There is no automatic eviction, archival or run rollover.
+
 ## Retired queues and limits
 
 Storage is `<job-dir>/mailbox.json`, under the job's state lock. Entries retain
@@ -90,7 +110,7 @@ A repeated retirement can report zero because the earlier call already applied.
 | Payload | At most 16,384 UTF-8 bytes; no embedded NUL. |
 | Message ID | 1–64 ASCII letters/digits/`.`/`_`/`-`, unique across the run. |
 | Outstanding | At most 64 queued/delivered messages per recipient across attempts. |
-| History | Bounded; exhaustion refuses rather than silently deleting evidence. |
+| History | At most 256 retained receipts per run; exhaustion refuses rather than silently deleting evidence. |
 
 Busy, denied, stale, terminal, full, history-full, corrupt and I/O errors are not
 acceptance. Retry transient lock contention with a bound. Invalid/corrupt records

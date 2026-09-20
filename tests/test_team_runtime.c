@@ -204,6 +204,34 @@ TEST collective_mailbox_schema_and_permission_identity(void) {
     PASS();
 }
 
+TEST mailbox_capacity_status_has_read_permission_and_closed_grammar(void) {
+    char err[128];
+    char *argv[] = {"status", "--run", (char *)run_id, "--json"};
+    char *request = tny_team_mailbox_parse_argv(4, argv, err, sizeof err);
+    ASSERT(request);
+    yyjson_doc *doc = jparse(request, strlen(request));
+    ASSERT(doc);
+    ASSERT_STR_EQ("team_inbox", tny_team_mailbox_permission(yyjson_doc_get_root(doc)));
+    char *detail = tny_team_mailbox_detail(yyjson_doc_get_root(doc));
+    ASSERT(detail && strstr(detail, "action=status"));
+    free(detail);
+    free(request);
+    yyjson_doc_free(doc);
+    const char *fields[] = {"\"id\":\"x\"", "\"to\":0", "\"timeout_ms\":0", "\"text\":\"x\""};
+    for (size_t i = 0; i < sizeof fields / sizeof *fields; i++) {
+        buf_t json = {0};
+        buf_appendf(&json, "{\"action\":\"status\",\"run\":\"%s\",%s}", run_id, fields[i]);
+        doc = jparse(json.data, json.len);
+        ASSERT(doc);
+        ASSERT_EQ(NULL, tny_team_mailbox_detail(yyjson_doc_get_root(doc)));
+        yyjson_doc_free(doc);
+        buf_free(&json);
+    }
+    char *bad[] = {"status", "--run", (char *)run_id, "--id", "x"};
+    ASSERT_EQ(NULL, tny_team_mailbox_parse_argv(5, bad, err, sizeof err));
+    PASS();
+}
+
 TEST swarm_message_ids_and_context_are_attempt_scoped(void) {
     const char *payload =
         "{\"version\":1,\"kind\":\"finding\",\"topic\":\"utf8-\xE2\x9C\x93\",\"body\":\"same\"}";
@@ -388,6 +416,7 @@ TEST linux_team_watch_rejects_lost_or_malformed_events(void) {
 SUITE(team_runtime_suite) {
     RUN_TEST(linux_team_watch_rejects_lost_or_malformed_events);
     RUN_TEST(collective_mailbox_schema_and_permission_identity);
+    RUN_TEST(mailbox_capacity_status_has_read_permission_and_closed_grammar);
     RUN_TEST(swarm_message_ids_and_context_are_attempt_scoped);
     RUN_TEST(swarm_message_prepared_request_rejects_changed_payload_and_run);
     RUN_TEST(swarm_message_profile_and_unsupported_boundaries_are_explicit);

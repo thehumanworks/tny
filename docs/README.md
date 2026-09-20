@@ -38,6 +38,7 @@ reproducible offline evidence from unmeasured live-model improvement.
 | [purposeful-swarms.md](purposeful-swarms.md) | Strict file-defined nested teams, activation, persistence and platform limits |
 | [swarm-factory.md](swarm-factory.md) | Version-2 contribution contracts, causal dependencies, isolated writers and bounded evidence |
 | [swarm-messages.md](swarm-messages.md) | Typed named-peer messages, approval-bound delivery, retries and acknowledgment |
+| [swarm-review.md](swarm-review.md) | Immutable review packets, truthful evidence boundaries and explicit follow-up work |
 | [task-workspaces.md](task-workspaces.md) | Isolated editing, provenance, explicit integration and conflict-safe cleanup |
 | [admission.md](admission.md) | Shared launch permits, cleanup holds, scope limits and honest usage policies |
 | [settings.md](settings.md) | settings.json defaults, schema, env-key HTTP profiles |

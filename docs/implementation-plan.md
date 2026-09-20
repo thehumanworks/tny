@@ -27,6 +27,11 @@ live inference without authorization. Nix invokes the same Makefile.
 
 ## Collective swarm extension (ADR 0156)
 
+[Review continuity](swarm-review.md) adds bounded immutable review packets,
+profile-aligned collaboration guidance and observational mailbox capacity without
+turning claims into acceptance. Current gates and deferred roadmap items are in
+[review-continuity evidence](verification/swarm-review/evidence.md).
+
 Mode, shared admission, atomic run publications and native mailbox waits extend the
 existing team infrastructure. Acceptance status and remaining platform/gate evidence
 are tracked in [collective-swarm evidence](verification/collective-swarm/evidence.md).

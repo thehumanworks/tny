@@ -39,19 +39,21 @@ static bool terminal(const char *state) {
 }
 
 tny_team_op tny_team_op_parse(const char *name) {
-    static const char *const names[] = {"start",    "status", "collect",
-                                        "wait-any", "cancel", "verify"};
+    static const char *const names[] = {"start",  "status", "collect", "wait-any",
+                                        "cancel", "verify", "review",  "review-read"};
     for (int i = 0; i < TNY_TEAM_NONE; ++i)
         if (same(name, names[i])) return (tny_team_op)i;
     return TNY_TEAM_NONE;
 }
 const char *tny_team_permission_tool(tny_team_op op) {
-    static const char *const names[] = {"team_start",    "team_status", "team_collect",
-                                        "team_wait_any", "team_cancel", "team_verify"};
+    static const char *const names[] = {"team_start",    "team_status",     "team_collect",
+                                        "team_wait_any", "team_cancel",     "team_verify",
+                                        "team_review",   "team_review_read"};
     return op >= TNY_TEAM_START && op < TNY_TEAM_NONE ? names[op] : NULL;
 }
 bool tny_team_op_is_sensitive(tny_team_op op) {
-    return op == TNY_TEAM_START || op == TNY_TEAM_CANCEL || op == TNY_TEAM_VERIFY;
+    return op == TNY_TEAM_START || op == TNY_TEAM_CANCEL || op == TNY_TEAM_VERIFY ||
+           op == TNY_TEAM_REVIEW;
 }
 
 /* Duplicate JSON keys are ambiguous permission identities. Reject recursively,
@@ -111,6 +113,32 @@ static int validate(tny_team_op op, yyjson_val *args, char *err, size_t n) {
             jget(args, "session_id"))
             return fail(err, n, "caller identity cannot be supplied in a request");
         return 0; /* Remaining execution settings belong to jobs_detail/run. */
+    }
+    if (op == TNY_TEAM_REVIEW || op == TNY_TEAM_REVIEW_READ) {
+        size_t i, max;
+        yyjson_val *key, *value;
+        yyjson_obj_foreach(args, i, max, key, value) {
+            (void)value;
+            const char *name = yyjson_get_str(key);
+            if (!same(name, "id") && !same(name, "review_id") &&
+                !(op == TNY_TEAM_REVIEW && (same(name, "item") || same(name, "expected_attempt") ||
+                                            same(name, "reviewer_claims"))))
+                return fail(err, n, "unknown field in review request");
+        }
+        if (!tny_jobs_valid_id(jget_str(args, "id")) || !uint_field(args, "review_id", 1, 16, true))
+            return fail(err, n, "review requires run id and review_id 1..16");
+        if (op == TNY_TEAM_REVIEW) {
+            yyjson_val *claims = jget(args, "reviewer_claims");
+            char *json = yyjson_is_obj(claims) ? jwrite_val(claims) : NULL;
+            bool bounded = json && strlen(json) <= 8192;
+            free(json);
+            if (!bounded || !uint_field(args, "item", 0, TNY_JOBS_MAX_ITEMS - 1, true) ||
+                !uint_field(args, "expected_attempt", 1, INT_MAX, true))
+                return fail(
+                    err, n,
+                    "review requires item, expected_attempt and claims object <=8192 bytes");
+        }
+        return 0;
     }
     size_t i, max;
     yyjson_val *key, *value;
@@ -284,6 +312,8 @@ static int preflight(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op
     yyjson_val *root = yyjson_doc_get_root(*record);
     int member = authority(caller, root, err, n);
     if (member == -2) return 1;
+    if (member >= 0 && (op == TNY_TEAM_REVIEW || op == TNY_TEAM_REVIEW_READ))
+        return fail(err, n, "review packets require the submitting parent or local operator");
     if (jget(args, "item") &&
         !yyjson_arr_get(jget(root, "items"), (size_t)jget_int(args, "item", -1)))
         return fail(err, n, "no such task in this run");
@@ -483,6 +513,200 @@ static int collect(tny_ctx *ctx, yyjson_val *args, yyjson_val *root, buf_t *out,
     return finish(out, err, n, same(state, "succeeded") && integrity ? 0 : 2);
 }
 
+/* Review packets preserve observations and claims, never an acceptance decision.
+ * Fixed slots bound history without directory scans, eviction or a second store
+ * index. The job state lock fences retry while evidence is read and published. */
+static bool append_field(buf_t *out, yyjson_val *root, const char *key) {
+    yyjson_val *value = jget(root, key);
+    char *json = value ? jwrite_val(value) : NULL;
+    if (value && !json) return false;
+    buf_appendf(out, ",\"%s\":%s", key, json ? json : "null");
+    free(json);
+    return !buf_oom(out);
+}
+
+static bool review_snapshot_valid(yyjson_val *value, yyjson_val *args) {
+    static const char *const fields[] = {"kind",
+                                         "schema_version",
+                                         "run_id",
+                                         "verification",
+                                         "integration",
+                                         "review_id",
+                                         "evidence_scope",
+                                         "artifact_validation",
+                                         "claims_verification",
+                                         "author_session",
+                                         "author_local_operator",
+                                         "attempt",
+                                         "item",
+                                         "item_attempt",
+                                         "execution",
+                                         "session_id",
+                                         "result_integrity",
+                                         "result_sha256",
+                                         "result_bytes",
+                                         "log_sha256",
+                                         "log_bytes",
+                                         "recorded_provenance",
+                                         "reviewer_claims"};
+    if (!yyjson_is_obj(value) || yyjson_obj_size(value) != sizeof fields / sizeof fields[0] ||
+        !unique_keys(value, 0))
+        return false;
+    for (size_t i = 0; i < sizeof fields / sizeof fields[0]; ++i)
+        if (!jget(value, fields[i])) return false;
+    const char *result = jget_str(value, "result_sha256");
+    const char *log = jget_str(value, "log_sha256");
+    yyjson_val *author = jget(value, "author_session");
+    yyjson_val *claims = jget(value, "reviewer_claims");
+    char *json = yyjson_is_obj(claims) ? jwrite_val(claims) : NULL;
+    bool bounded = json && strlen(json) <= 8192;
+    free(json);
+    return same(jget_str(value, "kind"), "team_review") &&
+           jget_int(value, "schema_version", 0) == 1 &&
+           same(jget_str(value, "run_id"), jget_str(args, "id")) &&
+           jget_int(value, "review_id", 0) == jget_int(args, "review_id", -1) &&
+           same(jget_str(value, "verification"), "unverified") &&
+           same(jget_str(value, "integration"), "not_recorded") &&
+           same(jget_str(value, "evidence_scope"), "recording_time_only") &&
+           same(jget_str(value, "claims_verification"), "unverified") &&
+           same(jget_str(value, "artifact_validation"), "not_performed") &&
+           same(jget_str(value, "execution"), "succeeded") &&
+           same(jget_str(value, "result_integrity"), "matched") &&
+           uint_field(value, "attempt", 1, INT_MAX, true) &&
+           uint_field(value, "item_attempt", 1, INT_MAX, true) &&
+           jget_int(value, "item_attempt", 0) <= jget_int(value, "attempt", 0) &&
+           uint_field(value, "item", 0, TNY_JOBS_MAX_ITEMS - 1, true) &&
+           uint_field(value, "result_bytes", 0, TNY_TEAM_SESSION_MAX, true) &&
+           uint_field(value, "log_bytes", 0, TNY_JOBS_LOG_MAX, true) &&
+           session_id_valid(jget_str(value, "session_id")) &&
+           (yyjson_is_null(author) || session_id_valid(yyjson_get_str(author))) &&
+           yyjson_is_bool(jget(value, "author_local_operator")) && result && strlen(result) == 64 &&
+           strspn(result, "0123456789abcdef") == 64 && log && strlen(log) == 64 &&
+           strspn(log, "0123456789abcdef") == 64 &&
+           yyjson_is_obj(jget(value, "recorded_provenance")) && bounded;
+}
+
+static int review_packet(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op,
+                         yyjson_val *args, buf_t *out, char *err, size_t n) {
+    char *dir = run_dir(ctx, jget_str(args, "id"));
+    char *lock_path = dir ? path_join(dir, "state.lock") : NULL;
+    int lock = lock_path ? tny_jobs_host_lock_open(lock_path) : -1;
+    free(lock_path);
+    int rc = 1;
+    yyjson_doc *record = NULL, *collected = NULL, *stored = NULL;
+    buf_t packet = {0}, observation = {0};
+    char *path = NULL;
+    if (lock < 0 || tny_jobs_host_lock_try(lock) != TNY_JOBS_LOCK_ACQUIRED) {
+        fail(err, n, "review state lock is unavailable or busy; retry the same review_id");
+        goto done;
+    }
+    if (preflight(ctx, caller, op, args, &record, err, n)) goto done;
+    char leaf[32];
+    snprintf(leaf, sizeof leaf, "review-%lld.json", (long long)jget_int(args, "review_id", 0));
+    path = path_join(dir, leaf);
+    if (!path) {
+        fail(err, n, "review path allocation failed");
+        goto done;
+    }
+    yyjson_val *root = yyjson_doc_get_root(record);
+    if (op == TNY_TEAM_REVIEW_READ) {
+        if (tny_image_io_read_confined(dir, path, 16384, &packet)) {
+            fail(err, n, "review packet is unavailable or exceeds 16384 bytes");
+            goto done;
+        }
+        stored = jparse(packet.data, packet.len);
+        yyjson_val *value = stored ? yyjson_doc_get_root(stored) : NULL;
+        if (!review_snapshot_valid(value, args)) {
+            fail(err, n, "invalid review packet");
+            goto done;
+        }
+    } else {
+        if (!terminal(jget_str(root, "state")) || !same(jget_str(root, "cleanup"), "complete") ||
+            !yyjson_is_false(jget(root, "cleanup_hold"))) {
+            fail(err, n, "review requires a terminal run with complete cleanup and no hold");
+            goto done;
+        }
+        if (collect(ctx, args, root, &observation, err, n)) {
+            if (!err[0]) fail(err, n, "review requires a successful integrity-matched result");
+            goto done;
+        }
+        collected = jparse(observation.data, observation.len);
+        if (!collected) {
+            fail(err, n, "review observation allocation failed");
+            goto done;
+        }
+        envelope(&packet, "team_review", jget_str(args, "id"));
+        buf_appendf(&packet,
+                    ",\"review_id\":%lld,\"evidence_scope\":\"recording_time_only\","
+                    "\"artifact_validation\":\"not_performed\","
+                    "\"claims_verification\":\"unverified\",\"author_session\":",
+                    (long long)jget_int(args, "review_id", 0));
+        nullable_string(&packet, caller->session_id);
+        buf_appendf(&packet, ",\"author_local_operator\":%s",
+                    caller->local_operator ? "true" : "false");
+        static const char *const observed_fields[] = {
+            "attempt",          "item",          "item_attempt", "execution",  "session_id",
+            "result_integrity", "result_sha256", "result_bytes", "log_sha256", "log_bytes"};
+        yyjson_val *observed = yyjson_doc_get_root(collected);
+        for (size_t i = 0; i < sizeof observed_fields / sizeof observed_fields[0]; ++i)
+            if (!append_field(&packet, observed, observed_fields[i])) packet.oom = true;
+        yyjson_val *item = yyjson_arr_get(jget(root, "items"), (size_t)jget_int(args, "item", 0));
+        buf_appends(&packet, ",\"recorded_provenance\":{\"source\":\"job_record\"");
+        static const char *const provenance_fields[] = {"swarm_name",
+                                                        "swarm_role",
+                                                        "definition_sha256",
+                                                        "dependency_sha256",
+                                                        "dependency_evidence_sha256",
+                                                        "execution_scope_sha256",
+                                                        "carried_from_attempt",
+                                                        "workspace",
+                                                        "workspace_policy",
+                                                        "workspace_preparation",
+                                                        "workspace_cwd",
+                                                        "workspace_base",
+                                                        "workspace_revision",
+                                                        "workspace_branch",
+                                                        "workspace_origin",
+                                                        "workspace_patch",
+                                                        "workspace_status",
+                                                        "workspace_dirty",
+                                                        "workspace_inspection"};
+        for (size_t i = 0; i < sizeof provenance_fields / sizeof provenance_fields[0]; ++i)
+            if (!append_field(&packet, item, provenance_fields[i])) packet.oom = true;
+        buf_appends(&packet, "}");
+        if (!append_field(&packet, args, "reviewer_claims")) packet.oom = true;
+        buf_appends(&packet, "}\n");
+        if (buf_oom(&packet) || packet.len > 16384) {
+            fail(err, n, "review packet allocation failed or exceeds 16384 bytes");
+            goto done;
+        }
+        stored = jparse(packet.data, packet.len);
+        if (!stored || !review_snapshot_valid(yyjson_doc_get_root(stored), args)) {
+            fail(err, n, "source record cannot produce a valid review packet");
+            goto done;
+        }
+        if (tny_jobs_host_snapshot(path, packet.data, packet.len)) {
+            fail(err, n, "review packet write failed or review_id conflicts; no history replaced");
+            goto done;
+        }
+    }
+    buf_append(out, packet.data, packet.len);
+    rc = finish(out, err, n, 0);
+done:
+    yyjson_doc_free(stored);
+    yyjson_doc_free(collected);
+    yyjson_doc_free(record);
+    buf_free(&observation);
+    buf_free(&packet);
+    free(path);
+    if (lock >= 0) {
+        tny_jobs_host_lock_release(lock);
+        tny_jobs_host_lock_close(lock);
+    }
+    free(dir);
+    return rc;
+}
+
 int tny_team_run(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op, yyjson_val *args,
                  buf_t *out, char *err, size_t n, bool (*cancelled)(void *), void *cancel_ud) {
     yyjson_doc *record = NULL;
@@ -494,6 +718,10 @@ int tny_team_run(tny_ctx *ctx, const tny_team_caller *caller, tny_team_op op, yy
     if (cancelled && cancelled(cancel_ud)) {
         yyjson_doc_free(record);
         return 130;
+    }
+    if (op == TNY_TEAM_REVIEW || op == TNY_TEAM_REVIEW_READ) {
+        yyjson_doc_free(record);
+        return review_packet(ctx, caller, op, args, out, err, n);
     }
     if (op == TNY_TEAM_VERIFY) {
         yyjson_doc_free(record);

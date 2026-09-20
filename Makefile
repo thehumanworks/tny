@@ -818,6 +818,9 @@ test-parser-backend-ownership: $(OWNER_BACKEND_BIN)
 .PHONY: test-parser-backend-ownership test-runtime-ownership
 RUNTIME_TEST_OBJS := $(OWNER_BACKEND_OBJS)
 RUNTIME_TEST := $(OWNER_BACKEND_BIN)
+# Instrumented test objects are not in the library or normal debug dependency
+# lists. Their header dependencies must follow tools_call/runtime layout changes.
+-include $(OWNER_BACKEND_OBJS:.o=.d)
 test-runtime-ownership: $(RUNTIME_TEST)
 	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
 	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(RUNTIME_TEST) -s runtime_suite

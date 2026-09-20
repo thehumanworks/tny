@@ -121,6 +121,133 @@ class PurposefulSwarm(JobsFixture):
             )
         )
 
+    def assert_profile_policy(self, profile, read_only=False):
+        value = definition()
+        if read_only:
+            value["version"] = 2
+            value["agents"][0]["workspace"] = {"policy": "shared_read_only"}
+        path = self.write_definition(value)
+        env = dict(self.env, TNY_TOOLS=profile)
+        self.run_tny(
+            "--swarm-file", str(path), "ask", "PROFILE_ROOT", env=env, timeout=30
+        )
+        session_path, saved = self.saved_session()
+        self.await_terminal(saved["swarm_definition"]["run_id"])
+        self.run_tny(
+            "--resume",
+            session_path.parent.name,
+            "ask",
+            "PROFILE_RESUMED",
+            env=env,
+            timeout=30,
+        )
+        members = 0
+        roots = 0
+        for body in self.state["bodies"]:
+            system = "\n".join(
+                m.get("content", "")
+                for m in body.get("messages", [])
+                if m.get("role") == "system"
+            )
+            policy = system[system.index("# Collective collaboration policy") :]
+            names = {t["function"]["name"] for t in body["tools"]}
+            if "Participant: " in policy:
+                members += 1
+            else:
+                roots += 1
+            if profile == "all":
+                self.assertIn("swarm_message", names)
+                self.assertIn("Prefer swarm_message", policy)
+                self.assertIn('"timeout_ms":30000', policy)
+                self.assertIn('team_mailbox {"action":"status","run":"RUN"}', policy)
+                self.assertNotIn("tny mailbox send", policy)
+            else:
+                self.assertNotIn("swarm_message", names)
+                for unavailable in ("swarm_message", "team_mailbox", "team_control"):
+                    self.assertNotIn(unavailable, policy)
+                for recipe in (
+                    "tny mailbox send --run RUN --to TASK --id ID",
+                    "tny mailbox wait --run RUN --timeout-ms 30000",
+                    "tny mailbox ack --run RUN --id ID",
+                    "tny mailbox status --run RUN",
+                    "tny team status --request /absolute/request.json --json",
+                    "without shell pipelines or wrappers",
+                ):
+                    self.assertIn(recipe, policy)
+            if read_only and "Participant: root-agent" in policy:
+                self.assertIn("Workspace capability: shared_read_only", policy)
+                self.assertIn("denied even in yolo mode", policy)
+                if profile == "all":
+                    self.assertIn("Use native read_file", policy)
+                else:
+                    self.assertNotIn("Use native read_file", policy)
+                    self.assertIn("single permitted read command", policy)
+            for clause in (
+                "only after processing",
+                "Acknowledgment frees outstanding backlog, not retained history",
+                "not a reservation or a periodic polling loop",
+                "its queued mailbox accepts it",
+                "Completed peers cannot answer new questions",
+                "source run, task and attempt",
+                "inspect the referenced artifact and relevant diff",
+                "checks as claims, not independent verification",
+                "proposed decisions separate from root-approved decisions",
+                "never automatically establish acceptance",
+                "explicit follow-up review task through the existing DAG/job flow",
+                "pending review, not approved",
+                "not for ceremony",
+            ):
+                self.assertIn(clause, policy)
+        self.assertEqual(members, 3)
+        self.assertEqual(roots, 2)
+
+    def test_all_profile_initial_member_and_resumed_policy(self):
+        self.assert_profile_policy("all")
+
+    def test_terminal_profile_initial_member_and_resumed_policy(self):
+        self.assert_profile_policy("terminal")
+
+    def test_terminal_edit_profile_initial_member_and_resumed_policy(self):
+        self.assert_profile_policy("terminal+edit")
+
+    def test_all_read_only_profile_policy(self):
+        self.assert_profile_policy("all", read_only=True)
+
+    def test_terminal_read_only_profile_policy(self):
+        self.assert_profile_policy("terminal", read_only=True)
+
+    def test_collective_policy_uses_effective_profile(self):
+        for profile in ("all", "terminal", "terminal+edit"):
+            with self.subTest(profile=profile):
+                self.run_tny(
+                    "--swarm=1",
+                    "ask",
+                    "PROFILE_COLLECTIVE",
+                    env=dict(self.env, TNY_TOOLS=profile),
+                    timeout=30,
+                )
+                system = "\n".join(
+                    m.get("content", "")
+                    for m in self.state["bodies"][-1].get("messages", [])
+                    if m.get("role") == "system"
+                )
+                policy = system[system.index("Collective collaboration policy") :]
+                if profile == "all":
+                    self.assertIn("Use team_control with action:start", policy)
+                    self.assertNotIn("Use team_start", policy)
+                    self.assertIn("Use team_mailbox send", policy)
+                    names = {
+                        t["function"]["name"] for t in self.state["bodies"][-1]["tools"]
+                    }
+                    self.assertIn("team_control", names)
+                    self.assertNotIn("team_start", names)
+                else:
+                    self.assertIn("tny team start --request FILE --json", policy)
+                    self.assertIn("tny mailbox send", policy)
+                    for unavailable in ("team_start", "team_mailbox", "team_control"):
+                        self.assertNotIn(unavailable, policy)
+                self.assertIn("pending review, not approved", policy)
+
     def test_all_participants_can_edit_by_default(self):
         path = self.write_definition()
         self.state["envdump"] = 'printf allowed > "${TNY_SWARM_NAME:-root}.txt"'

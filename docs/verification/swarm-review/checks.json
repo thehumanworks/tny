@@ -1,0 +1,78 @@
+{
+  "product_revision": "7f7531c8eaaf3caf1f5d3e0d64e8a48756b861ca",
+  "final_serial_script_exit": 0,
+  "checks": {
+    "cpp-build": 0,
+    "focused": 0,
+    "footprint": 0,
+    "leaks": 0,
+    "mutation": 0,
+    "ownership": 0,
+    "quality": 0,
+    "unit": 0
+  },
+  "mailbox_mutations": {
+    "source_sha256": "80b2bf8cd48e80679d3131be7a185d2a4de532fdcec8e12ae56d8fee3d36451a",
+    "results": [
+      {
+        "name": "baseline",
+        "exit": 0,
+        "test": null
+      },
+      {
+        "name": "publication-content-conflict",
+        "exit": 1,
+        "test": "test_collective_publication_is_atomic_and_recipient_replayable"
+      },
+      {
+        "name": "publication-exact-quota-boundary",
+        "exit": 1,
+        "test": "test_collective_full_recipient_aborts_every_receipt"
+      },
+      {
+        "name": "wait-periodic-resnapshot",
+        "exit": 1,
+        "test": "test_event_wait_quiet_has_one_snapshot_and_no_periodic_rescans"
+      },
+      {
+        "name": "capacity-hides-retained-history",
+        "exit": 1,
+        "test": "test_capacity_snapshot_never_delivers_and_ack_only_frees_outstanding"
+      },
+      {
+        "name": "capacity-drops-older-attempt-backlog",
+        "exit": 1,
+        "test": "test_capacity_includes_old_attempts_and_retained_tombstones"
+      },
+      {
+        "name": "capacity-allows-overquota-underflow",
+        "exit": 1,
+        "test": "test_capacity_full_history_and_backlog_and_corrupt_overquota"
+      },
+      {
+        "name": "restored",
+        "exit": 0,
+        "test": null
+      }
+    ]
+  },
+  "initial_full_make_test": {
+    "exit": 2,
+    "source_patch_sha256": "3d7862ec2c4afcef61a75fab07acfe41c862cb12b22a2efea36aeeffa798bdb6",
+    "failed_suites": [
+      "test_background_agents",
+      "test_libtny_mutation_fault",
+      "test_tui"
+    ],
+    "rerun_boundary": "Affected suites and all final gates listed above rerun; whole repository suite not rerun after final fixes"
+  },
+  "baseline_revision": "4c81d60bc1a54e4c1b326658762fcab88b2151d5",
+  "baseline_checks": {
+    "test_background_agents": 1,
+    "test_tui": 1,
+    "test-runtime-ownership_and_test-libtny-fault": 0
+  },
+  "stripped_darwin_arm64_bytes": 1203504,
+  "binary_sha256": "9cd92d2c02e5c759b17f3347761e2e6d86b5737da36b5519b51cba1fc52273b9",
+  "live_effectiveness_measured": false
+}

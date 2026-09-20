@@ -129,6 +129,17 @@ dependency and workspace/result provenance needed for that inspection; successfu
 execution continues to report unverified acceptance unless an external process
 establishes otherwise.
 
+## Review and explicit follow-up
+
+Use [durable review packets](swarm-review.md) to retain an integrity-checked
+contribution snapshot and separately labelled reviewer claims after terminal
+cleanup. Review the actual artifact, not only a predecessor's bounded summary.
+A packet neither mounts an isolated artifact into a reviewer checkout nor runs
+external checks. If a completed contributor needs to revise work, the parent
+creates explicitly scoped follow-up work through the existing jobs/team API,
+carrying source run/task/attempt, artifact and review references as context. There
+is no automatic revision edge or relaunch of the saved purposeful roster.
+
 ## Durability, resume, and trust
 
 The canonical version-2 manifest and digest are saved in the session/checkpoint.

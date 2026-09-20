@@ -105,6 +105,13 @@ native durable jobs refuse before a message effect. See
 [purposeful swarms](purposeful-swarms.md), and
 [ADR 0161](adr/0161-typed-swarm-messages.md).
 
+Terminal-only profiles receive direct `tny mailbox` recipes rather than an
+unavailable `swarm_message` tool call. `team_mailbox` action `status` (CLI
+`tny mailbox status --run RUN`) reports retained history and caller outstanding
+capacity without delivery or reservation. Acknowledgment never frees retained
+history. [Review packets and explicit follow-up work](swarm-review.md) preserve
+findings beyond a completed peer without pretending it can answer new questions.
+
 Preparation binds both the canonical definition identity and a digest computed from
 the actual ordered names, roles, groups and coordinator links. The locked send
 recomputes that projection: changing the sender or an unrelated member while

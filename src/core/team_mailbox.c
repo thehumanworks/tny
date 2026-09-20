@@ -433,6 +433,27 @@ done:
     return rc;
 }
 
+tny_mailbox_rc tny_team_mailbox_status(const tny_mailbox_service *s,
+                                       const tny_mailbox_identity *caller,
+                                       tny_mailbox_capacity *out) {
+    if (!out) return TNY_MAILBOX_INVALID;
+    memset(out, 0, sizeof *out);
+    mailbox_txn t = {.lock = -1};
+    tny_mailbox_rc rc = txn_begin(s, caller, &t);
+    if (rc == TNY_MAILBOX_OK) {
+        out->history_used = t.count;
+        for (size_t i = 0; i < t.count; i++)
+            if (t.messages[i].recipient.task == caller->task && outstanding(&t.messages[i]))
+                out->outstanding_used++;
+        if (out->outstanding_used > TNY_MAILBOX_OUTSTANDING_MAX) {
+            memset(out, 0, sizeof *out);
+            rc = TNY_MAILBOX_CORRUPT;
+        }
+    }
+    txn_end(&t);
+    return rc;
+}
+
 tny_mailbox_rc tny_team_mailbox_inbox(const tny_mailbox_service *s,
                                       const tny_mailbox_identity *caller, uint64_t after_sequence,
                                       tny_mailbox_message *out, size_t capacity, size_t byte_limit,

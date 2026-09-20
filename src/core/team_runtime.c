@@ -707,7 +707,8 @@ const char *tny_team_mailbox_permission(yyjson_val *args) {
     if (strcmp(action, "send") == 0 || strcmp(action, "publish") == 0) return "team_send";
     if (strcmp(action, "ack") == 0) return "team_ack";
     if (strcmp(action, "retire") == 0) return "team_retire";
-    if (strcmp(action, "inbox") == 0 || strcmp(action, "read") == 0 || strcmp(action, "wait") == 0)
+    if (strcmp(action, "inbox") == 0 || strcmp(action, "read") == 0 ||
+        strcmp(action, "wait") == 0 || strcmp(action, "status") == 0)
         return "team_inbox";
     return NULL;
 }
@@ -801,14 +802,16 @@ char *tny_team_mailbox_parse_argv(int argc, char **argv, char *err, size_t cap) 
     bool publish = strcmp(argv[0], "publish") == 0, wait = strcmp(argv[0], "wait") == 0;
     bool send = strcmp(argv[0], "send") == 0;
     bool inbox = strcmp(argv[0], "inbox") == 0;
+    bool status = strcmp(argv[0], "status") == 0;
     bool retire = strcmp(argv[0], "retire") == 0;
-    if (!publish && !wait && !send && !inbox && !retire && strcmp(argv[0], "read") != 0 &&
-        strcmp(argv[0], "ack") != 0)
+    if (!publish && !wait && !send && !inbox && !status && !retire &&
+        strcmp(argv[0], "read") != 0 && strcmp(argv[0], "ack") != 0)
         goto invalid;
     if ((send && (!id || !to || !text)) || (publish && (!id || !text || to)) ||
-        ((inbox || wait) && id) || (!send && !publish && text) || (!send && !retire && to) ||
-        (!inbox && !wait && !retire && !id) || (retire && (!to || !before || id)) ||
-        (!retire && before) || (wait && !timeout) || (!wait && timeout))
+        ((inbox || wait || status) && id) || (!send && !publish && text) ||
+        (!send && !retire && to) || (!inbox && !wait && !status && !retire && !id) ||
+        (retire && (!to || !before || id)) || (!retire && before) || (wait && !timeout) ||
+        (!wait && timeout))
         goto invalid;
     uint32_t duration = 0;
     if (timeout && !number(timeout, 30000, &duration)) goto invalid;
@@ -838,7 +841,8 @@ char *tny_team_mailbox_parse_argv(int argc, char **argv, char *err, size_t cap) 
     return buf_detach(&body);
 invalid:
     snprintf(err, cap,
-             "use mailbox send|publish|wait|inbox|read|ack|retire --run ID [--to lead|TASK --id ID "
+             "use mailbox send|publish|wait|status|inbox|read|ack|retire --run ID [--to lead|TASK "
+             "--id ID "
              "--text TEXT "
              "--before-attempt N --timeout-ms 0..30000]");
     return NULL;
@@ -892,6 +896,7 @@ int tny_team_mailbox_run(tools_env *env, yyjson_val *args, bool local_operator, 
     tny_mailbox_message *messages = calloc(TNY_JOBS_MAX_ITEMS, sizeof *messages);
     tny_mailbox_rc rc = messages ? TNY_MAILBOX_INVALID : TNY_MAILBOX_IO;
     size_t count = 0, retired = 0;
+    tny_mailbox_capacity capacity = {0};
     const char *id = jget_str(args, "id");
     if (!messages) goto done;
     int64_t lock_deadline = monotonic_ms() + TEAM_LOCK_WAIT_MS;
@@ -918,6 +923,8 @@ int tny_team_mailbox_run(tools_env *env, yyjson_val *args, bool local_operator, 
             rc = tny_team_mailbox_wait(&caller.service, &caller.identity,
                                        (int)jget_int(args, "timeout_ms", 0), mailbox_cancelled, env,
                                        messages, &count);
+        } else if (strcmp(action, "status") == 0) {
+            rc = tny_team_mailbox_status(&caller.service, &caller.identity, &capacity);
         } else if (strcmp(action, "inbox") == 0) {
             rc = tny_team_mailbox_inbox(&caller.service, &caller.identity, 0, messages,
                                         TNY_MAILBOX_BATCH_MAX, TNY_MAILBOX_BATCH_BYTES_MAX, &count);
@@ -959,7 +966,17 @@ done:
             if (i) buf_appends(out, ",");
             message_json(out, &messages[i], strcmp(action, "publish") == 0);
         }
-    buf_appendf(out, "],\"retired\":%zu,\"error\":", retired);
+    buf_appends(out, "]");
+    if (rc == TNY_MAILBOX_OK && strcmp(action, "status") == 0)
+        buf_appendf(out,
+                    ",\"capacity\":{\"history_used\":%zu,\"history_limit\":%u,"
+                    "\"history_remaining\":%zu,\"recipient\":%d,\"outstanding_used\":%zu,"
+                    "\"outstanding_limit\":%u,\"outstanding_remaining\":%zu}",
+                    capacity.history_used, TNY_MAILBOX_HISTORY_MAX,
+                    TNY_MAILBOX_HISTORY_MAX - capacity.history_used, caller.identity.task,
+                    capacity.outstanding_used, TNY_MAILBOX_OUTSTANDING_MAX,
+                    TNY_MAILBOX_OUTSTANDING_MAX - capacity.outstanding_used);
+    buf_appendf(out, ",\"retired\":%zu,\"error\":", retired);
     if (rc != TNY_MAILBOX_OK) {
         snprintf(err, cap, "%s", tny_team_mailbox_error(rc));
         jescape(out, tny_team_mailbox_error(rc));

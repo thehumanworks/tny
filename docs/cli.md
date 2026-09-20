@@ -1223,6 +1223,11 @@ behavior, and `tny image --help` for examples.
 facilitation. N is 1..16 collaborators excluding the lead; omission lets the lead
 choose. See [collective swarm](collective-swarm.md) for persistence, admission,
 `mailbox publish`, bounded `mailbox wait --timeout-ms`, and platform limits.
+`mailbox status --run RUN` reports retained history and caller backlog capacity
+without delivery, acknowledgment or reservation. Root/operator `team review` and
+`team review-read` preserve immutable contribution snapshots and separately labelled
+reviewer claims; see [review continuity](swarm-review.md). They never execute checks
+or establish acceptance.
 
 `--swarm-file PATH` (global or ask-local) strictly validates, snapshots and activates
 a [purposeful swarm](purposeful-swarms.md), including version-2

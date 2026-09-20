@@ -46,6 +46,10 @@ class Identity(c.Structure):
     ]
 
 
+class Capacity(c.Structure):
+    _fields_ = [("history_used", c.c_size_t), ("outstanding_used", c.c_size_t)]
+
+
 class Recipient(c.Structure):
     _fields_ = [("task", c.c_int), ("task_attempt", c.c_uint32)]
 
@@ -94,6 +98,7 @@ def identity(task=-1, attempt=1, task_attempt=None):
 def load_library(path):
     lib = c.CDLL(str(path))
     base = [c.POINTER(Service), c.POINTER(Identity)]
+    lib.tny_team_mailbox_status.argtypes = base + [c.POINTER(Capacity)]
     lib.tny_team_mailbox_send.argtypes = base + [
         Recipient,
         c.c_char_p,
@@ -284,6 +289,100 @@ class MailboxTests(unittest.TestCase):
             c.byref(count),
         )
         return rc, list(messages[: count.value])
+
+    def capacity(self, caller=None):
+        value = Capacity(999, 999)
+        rc = self.lib.tny_team_mailbox_status(
+            c.byref(self.service), c.byref(caller or identity(0)), c.byref(value)
+        )
+        return rc, value.history_used, value.outstanding_used
+
+    def test_capacity_snapshot_never_delivers_and_ack_only_frees_outstanding(self):
+        self.assertEqual(self.capacity(), (OK, 0, 0))
+        self.assertFalse((self.directory / "mailbox.json").exists())
+        self.assertEqual(self.send()[0], OK)
+        self.assertEqual(self.send(b"other", recipient=1)[0], OK)
+        before = (self.directory / "mailbox.json").read_bytes()
+        self.assertEqual(self.capacity(), (OK, 2, 1))
+        self.assertEqual(self.capacity(identity()), (OK, 2, 0))
+        self.assertEqual((self.directory / "mailbox.json").read_bytes(), before)
+        member = identity(0)
+        self.assertEqual(
+            self.lib.tny_team_mailbox_ack(
+                c.byref(self.service), c.byref(member), b"m1"
+            ),
+            BAD_STATE,
+        )
+        self.assertEqual(
+            self.lib.tny_team_mailbox_mark_delivered(
+                c.byref(self.service), c.byref(member), b"m1"
+            ),
+            OK,
+        )
+        self.assertEqual(self.capacity(), (OK, 2, 1))
+        self.assertEqual(
+            self.lib.tny_team_mailbox_ack(
+                c.byref(self.service), c.byref(member), b"m1"
+            ),
+            OK,
+        )
+        self.assertEqual(self.capacity(), (OK, 2, 0))
+        self.assertEqual(self.capacity(identity(1)), (OK, 2, 1))
+
+    def test_capacity_includes_old_attempts_and_retained_tombstones(self):
+        self.assertEqual(self.send()[0], OK)
+        self.job["attempt"] = 2
+        self.job["items"][0]["attempt"] = 2
+        self.write_job()
+        self.assertEqual(self.capacity(identity(0, attempt=2)), (OK, 1, 1))
+        self.assertEqual(self.capacity(), (STALE, 0, 0))
+        retired = c.c_size_t()
+        self.assertEqual(
+            self.lib.tny_team_mailbox_retire(
+                c.byref(self.service),
+                c.byref(identity(attempt=2)),
+                0,
+                2,
+                c.byref(retired),
+            ),
+            OK,
+        )
+        self.assertEqual(retired.value, 1)
+        self.assertEqual(self.capacity(identity(0, attempt=2)), (OK, 1, 0))
+
+    def test_capacity_authorization_corruption_and_platform_fail_closed(self):
+        self.job["fixture_authority"].pop("0")
+        self.write_job()
+        self.assertEqual(self.capacity(), (DENIED, 0, 0))
+        self.service.native_local = False
+        self.assertEqual(self.capacity(), (UNSUPPORTED, 0, 0))
+        self.service.native_local = True
+        (self.directory / "mailbox.json").write_text("not json")
+        self.assertEqual(self.capacity(identity()), (CORRUPT, 0, 0))
+
+    def test_capacity_full_history_and_backlog_and_corrupt_overquota(self):
+        for recipient in range(4):
+            for index in range(64):
+                self.assertEqual(
+                    self.send(f"{recipient}-{index}".encode(), recipient=recipient)[0],
+                    OK,
+                )
+        self.assertEqual(self.capacity(), (OK, 256, 64))
+        self.assertEqual(self.capacity(identity(4)), (OK, 256, 0))
+        self.assertEqual(self.send(b"overflow", recipient=4)[0], HISTORY_FULL)
+        record = self.record()
+        record["messages"][64]["recipient_task"] = 0
+        (self.directory / "mailbox.json").write_text(json.dumps(record))
+        self.assertEqual(self.capacity(), (CORRUPT, 0, 0))
+
+    def test_capacity_history_counts_publication_receipts_not_publications(self):
+        self.job["fixture_peers"] = True
+        self.write_job()
+        self.assertEqual(self.publish()[0], OK)
+        self.assertEqual(self.capacity(), (OK, 5, 1))
+        self.assertEqual(self.publish()[0], OK)
+        self.assertEqual(self.capacity(), (OK, 5, 1))
+        self.assertEqual(self.capacity(identity()), (OK, 5, 0))
 
     def test_collective_publication_is_atomic_and_recipient_replayable(self):
         self.job["fixture_peers"] = True

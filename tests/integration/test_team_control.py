@@ -305,6 +305,270 @@ class TeamControlTests(jobs.JobsFixture):
         )
         self.assertEqual(denied.returncode, 1)
 
+    def review_request(self, run, **changes):
+        return {
+            "id": run,
+            "item": 0,
+            "expected_attempt": 1,
+            "review_id": 1,
+            "reviewer_claims": {
+                "disposition": "changes_requested",
+                "artifact": "src/example.c at claimed revision",
+                "checks": [{"command": "make test", "exit_code": 0}],
+                "followup": {"run": run, "item": 1, "attempt": 1},
+            },
+            **changes,
+        }
+
+    def test_review_packet_is_bounded_immutable_claims_not_acceptance(self):
+        _, handle = self.team("start", self.specification())
+        run = handle["run_id"]
+        final = self.await_terminal(run)
+        marker = self.workspace / "must-not-execute"
+        request = self.review_request(run)
+        request["reviewer_claims"]["checks"][0]["command"] = f"touch {marker}"
+        _, packet = self.team("review", request)
+        self.assertFalse(marker.exists())
+        self.assertEqual(packet["kind"], "team_review")
+        self.assertEqual(packet["verification"], "unverified")
+        self.assertEqual(packet["claims_verification"], "unverified")
+        self.assertEqual(packet["evidence_scope"], "recording_time_only")
+        self.assertEqual(packet["artifact_validation"], "not_performed")
+        self.assertEqual(packet["reviewer_claims"], request["reviewer_claims"])
+        for key in ("result_sha256", "log_sha256", "session_id"):
+            self.assertEqual(packet[key], final["items"][0][key])
+        self.assertEqual(packet["item_attempt"], final["items"][0]["attempt"])
+        self.assertEqual(
+            packet["recorded_provenance"]["workspace"],
+            final["items"][0].get("workspace"),
+        )
+        path = self.home / ".tny" / "jobs" / run / "review-1.json"
+        original = path.read_bytes()
+        self.assertLessEqual(len(original), 16384)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        _, retried = self.team("review", request)
+        _, read = self.team("review-read", {"id": run, "review_id": 1})
+        self.assertEqual(packet, retried)
+        self.assertEqual(packet, read)
+        conflict, _ = self.team(
+            "review", self.review_request(run, reviewer_claims={}), check=False
+        )
+        self.assertEqual(conflict.returncode, 1)
+        self.assertEqual(path.read_bytes(), original)
+        for slot in range(2, 17):
+            self.team("review", self.review_request(run, review_id=slot))
+        full, _ = self.team(
+            "review", self.review_request(run, review_id=17), check=False
+        )
+        self.assertEqual(full.returncode, 1)
+        self.assertEqual(len(list(path.parent.glob("review-*.json"))), 16)
+        self.assertEqual(self.status(run)["verification"], "unverified")
+        for field, value in (
+            ("accepted", True),
+            ("claims_verification", "verified"),
+            ("artifact_validation", "matched"),
+            ("result_sha256", "not-a-hash"),
+            ("item_attempt", 0),
+            ("item_attempt", packet["attempt"] + 1),
+        ):
+            path.write_text(json.dumps({**packet, field: value}))
+            rejected, _ = self.team(
+                "review-read", {"id": run, "review_id": 1}, check=False
+            )
+            self.assertEqual(rejected.returncode, 1)
+        path.write_bytes(original)
+
+    def test_review_validates_claims_attempt_and_caller_before_writing(self):
+        _, handle = self.team("start", self.specification())
+        run = handle["run_id"]
+        final = self.await_terminal(run)
+        for changes in (
+            {"review_id": 0},
+            {"review_id": True},
+            {"review_id": "../escape"},
+            {"expected_attempt": 2},
+            {"reviewer_claims": []},
+            {"reviewer_claims": {"text": "x" * 8192}},
+            {"reviewer_claims": {"text": "nul\u0000value"}},
+            {"reviewer_claims": {"text": "é" * 4096}},
+            {"command": "true"},
+            {"session_id": final["items"][0]["session_id"]},
+        ):
+            rejected, _ = self.team(
+                "review", self.review_request(run, **changes), check=False
+            )
+            self.assertEqual(rejected.returncode, 1, changes)
+        duplicate = json.dumps(self.review_request(run)).replace(
+            '"disposition": "changes_requested"',
+            '"disposition": "accepted", "disposition": "changes_requested"',
+        )
+        rejected = self.run_tny(
+            "team", "review", "--request", "-", stdin=duplicate.encode(), check=False
+        )
+        self.assertEqual(rejected.returncode, 1)
+        worker = {
+            **self.env,
+            "TNY_TEAM_TEST_MODE": "session",
+            "TNY_TEAM_TEST_SESSION": final["items"][0]["session_id"],
+            "TNY_TEAM_TEST_RUN": run,
+            "TNY_TEAM_TEST_TASK": "0",
+            "TNY_TEAM_TEST_ATTEMPT": "1",
+        }
+        for op, request in (
+            ("review", self.review_request(run)),
+            ("review-read", {"id": run, "review_id": 1}),
+        ):
+            denied, _ = self.team(op, request, check=False, env=worker)
+            self.assertEqual(denied.returncode, 1)
+            self.assertIn(b"parent or local operator", denied.stderr)
+            for mode in ("embedded", "ephemeral", "ssh"):
+                refused, _ = self.team(
+                    op,
+                    request,
+                    check=False,
+                    env={**self.env, "TNY_TEAM_TEST_MODE": mode},
+                )
+                self.assertEqual(refused.returncode, 1)
+        self.assertEqual(
+            list((self.home / ".tny" / "jobs" / run).glob("review-*.json")), []
+        )
+
+    def test_review_fences_cleanup_and_changed_evidence_but_reads_history(self):
+        _, handle = self.team("start", self.specification())
+        run = handle["run_id"]
+        final = self.await_terminal(run)
+        request = self.review_request(run)
+        _, packet = self.team("review", request)
+        job_path = self.home / ".tny" / "jobs" / run / "job.json"
+        original = job_path.read_bytes()
+        job = json.loads(original)
+        for field, value in (
+            ("state", "running"),
+            ("cleanup", "unknown"),
+            ("cleanup_hold", True),
+        ):
+            job_path.write_text(json.dumps({**job, field: value}))
+            rejected, _ = self.team(
+                "review", self.review_request(run, review_id=2), check=False
+            )
+            self.assertEqual(rejected.returncode, 1)
+            job_path.write_bytes(original)
+        sid = final["items"][0]["session_id"]
+        session_path = next(
+            (self.home / ".tny" / "sessions").glob(f"*/{sid}/session.json")
+        )
+        session = json.loads(session_path.read_text())
+        for message in reversed(session["messages"]):
+            if message.get("role") == "assistant":
+                message["content"] = "changed after review"
+                break
+        session_path.write_text(json.dumps(session))
+        rejected, _ = self.team("review", request, check=False)
+        self.assertEqual(rejected.returncode, 1)
+        _, historical = self.team("review-read", {"id": run, "review_id": 1})
+        self.assertEqual(historical, packet)
+        self.assertEqual(historical["evidence_scope"], "recording_time_only")
+        Path(final["items"][1]["log_path"]).write_text("changed")
+        rejected, _ = self.team(
+            "review", self.review_request(run, item=1, review_id=2), check=False
+        )
+        self.assertEqual(rejected.returncode, 1)
+        self.assertFalse((job_path.parent / "review-2.json").exists())
+
+    def test_review_checks_source_attempt_and_supports_bounded_long_evidence(self):
+        import hashlib
+
+        parent = "0123456789abcdef"
+        env = {
+            **self.env,
+            "TNY_TEAM_TEST_MODE": "session",
+            "TNY_TEAM_TEST_SESSION": parent,
+        }
+        _, handle = self.team("start", self.specification(), env=env)
+        run = handle["run_id"]
+        final = self.await_terminal(run)
+        directory = self.home / ".tny" / "jobs" / run
+        path = directory / "job.json"
+        job = json.loads(path.read_text())
+        for attempt in (0, "bad", 2):
+            malformed = json.loads(json.dumps(job))
+            malformed["items"][0]["attempt"] = attempt
+            path.write_text(json.dumps(malformed))
+            rejected, _ = self.team(
+                "review", self.review_request(run), check=False, env=env
+            )
+            self.assertEqual(rejected.returncode, 1)
+            self.assertFalse((directory / "review-1.json").exists())
+        sid = final["items"][0]["session_id"]
+        session_path = next(
+            (self.home / ".tny" / "sessions").glob(f"*/{sid}/session.json")
+        )
+        session = json.loads(session_path.read_text())
+        answer = "long synthetic result " * 4096
+        for message in reversed(session["messages"]):
+            if message.get("role") == "assistant":
+                message["content"] = answer
+                break
+        session_path.write_text(json.dumps(session))
+        log = b"long synthetic log\n" * 4096
+        Path(final["items"][0]["log_path"]).write_bytes(log)
+        job["items"][0]["result_sha256"] = hashlib.sha256(answer.encode()).hexdigest()
+        job["items"][0]["log_sha256"] = hashlib.sha256(log).hexdigest()
+        # A carried success has an older item attempt than the new run attempt.
+        job["attempt"] = 2
+        path.write_text(json.dumps(job))
+        claims = {"text": "x" * 8181}  # exactly 8192 compact encoded JSON bytes
+        self.assertEqual(len(json.dumps(claims, separators=(",", ":")).encode()), 8192)
+        request = self.review_request(run, expected_attempt=2, reviewer_claims=claims)
+        _, packet = self.team("review", request, env=env)
+        self.assertEqual(packet["result_bytes"], len(answer))
+        self.assertEqual(packet["log_bytes"], len(log))
+        self.assertEqual(packet["attempt"], 2)
+        self.assertEqual(packet["item_attempt"], 1)
+        self.assertEqual(packet["author_session"], parent)
+        self.assertFalse(packet["author_local_operator"])
+        self.assertLessEqual((directory / "review-1.json").stat().st_size, 16384)
+        foreign = {**env, "TNY_TEAM_TEST_SESSION": "fedcba9876543210"}
+        for op, args in (
+            ("review", request),
+            ("review-read", {"id": run, "review_id": 1}),
+        ):
+            rejected, _ = self.team(op, args, check=False, env=foreign)
+            self.assertEqual(rejected.returncode, 1)
+
+    def test_review_packet_refuses_links_conflicts_and_busy_lock(self):
+        import fcntl
+
+        _, handle = self.team("start", self.specification())
+        run = handle["run_id"]
+        self.await_terminal(run)
+        directory = self.home / ".tny" / "jobs" / run
+        request = self.review_request(run)
+        target = self.workspace / "outside-review"
+        target.write_text("preserve")
+        path = directory / "review-1.json"
+        path.symlink_to(target)
+        for op, args in (
+            ("review", request),
+            ("review-read", {"id": run, "review_id": 1}),
+        ):
+            rejected, _ = self.team(op, args, check=False)
+            self.assertEqual(rejected.returncode, 1)
+        self.assertEqual(target.read_text(), "preserve")
+        path.unlink()
+        with (directory / "state.lock").open("a") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            rejected, _ = self.team("review", request, check=False)
+            self.assertEqual(rejected.returncode, 1)
+            self.assertIn(b"busy", rejected.stderr)
+        self.assertFalse(path.exists())
+        path.write_text("{}")
+        rejected, _ = self.team("review", request, check=False)
+        self.assertEqual(rejected.returncode, 1)
+        self.assertEqual(path.read_text(), "{}")
+        rejected, _ = self.team("review-read", {"id": run, "review_id": 1}, check=False)
+        self.assertEqual(rejected.returncode, 1)
+
     def test_verification_refuses_without_fabricated_success_or_side_effects(self):
         _, handle = self.team("start", self.specification())
         run = handle["run_id"]
