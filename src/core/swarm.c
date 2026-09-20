@@ -98,6 +98,9 @@ int tny_swarm_bind(tny_session_state *s) {
     const char *activation = same(old_digest, s->ctx->swarm_definition_digest)
                                  ? yyjson_mut_get_str(yyjson_mut_obj_get(old, "activation"))
                                  : NULL;
+    const char *activation_id = same(old_digest, s->ctx->swarm_definition_digest)
+                                    ? yyjson_mut_get_str(yyjson_mut_obj_get(old, "activation_id"))
+                                    : NULL;
     yyjson_mut_val *meta = yyjson_mut_obj(s->doc);
     yyjson_mut_val *copy =
         snapshot ? yyjson_val_mut_copy(s->doc, yyjson_doc_get_root(snapshot)) : NULL;
@@ -107,7 +110,11 @@ int tny_swarm_bind(tny_session_state *s) {
               yyjson_mut_obj_add_int(s->doc, meta, "participants", s->ctx->swarm_participants) &&
               yyjson_mut_obj_add_val(s->doc, meta, "snapshot", copy);
     if (ok && run) ok = yyjson_mut_obj_add_strcpy(s->doc, meta, "run_id", run);
-    if (ok && activation) ok = yyjson_mut_obj_add_strcpy(s->doc, meta, "activation", activation);
+    if (ok)
+        ok = yyjson_mut_obj_add_strcpy(s->doc, meta, "activation",
+                                       activation ? activation : "not_started");
+    if (ok && activation_id)
+        ok = yyjson_mut_obj_add_strcpy(s->doc, meta, "activation_id", activation_id);
     if (ok) ok = yyjson_mut_obj_put(root, yyjson_mut_str(s->doc, "swarm_definition"), meta);
     yyjson_doc_free(snapshot);
     tny_swarm_manifest_free(manifest);
@@ -120,12 +127,12 @@ static int restore_definition(tny_session_state *s, yyjson_mut_val *meta, char *
         return -1;
     }
     size_t count = yyjson_mut_obj_size(meta);
-    if (count < 5 || count > 7) {
+    if (count < 6 || count > 8) {
         snprintf(err, cap, "saved swarm definition metadata is invalid");
         return -1;
     }
-    static const char *const allowed[] = {"version",  "source", "sha256",    "participants",
-                                          "snapshot", "run_id", "activation"};
+    static const char *const allowed[] = {"version",  "source", "sha256",     "participants",
+                                          "snapshot", "run_id", "activation", "activation_id"};
     size_t i, max;
     yyjson_mut_val *key, *value;
     yyjson_mut_obj_foreach(meta, i, max, key, value) {
@@ -138,32 +145,55 @@ static int restore_definition(tny_session_state *s, yyjson_mut_val *meta, char *
             return -1;
         }
     }
-    const char *run = yyjson_mut_get_str(yyjson_mut_obj_get(meta, "run_id"));
-    const char *activation = yyjson_mut_get_str(yyjson_mut_obj_get(meta, "activation"));
+    yyjson_mut_val *run_value = yyjson_mut_obj_get(meta, "run_id");
+    yyjson_mut_val *activation_value = yyjson_mut_obj_get(meta, "activation");
+    yyjson_mut_val *activation_id_value = yyjson_mut_obj_get(meta, "activation_id");
+    const char *run = yyjson_mut_get_str(run_value);
+    const char *activation = yyjson_mut_get_str(activation_value);
+    const char *activation_id = yyjson_mut_get_str(activation_id_value);
+    bool not_started = same(activation, "not_started");
     bool active = same(activation, "active");
     bool launching = same(activation, "launching");
-    if ((activation && !active && !launching) || (run && !tny_jobs_valid_id(run)) ||
-        (active != (run != NULL)) || (launching && run)) {
+    if (!yyjson_mut_is_str(activation_value) || (run_value && !yyjson_mut_is_str(run_value)) ||
+        (activation_id_value && !yyjson_mut_is_str(activation_id_value)) ||
+        (!not_started && !active && !launching) || (run && !tny_jobs_valid_id(run)) ||
+        (activation_id && !tny_jobs_valid_id(activation_id)) ||
+        (not_started && (run || activation_id)) || (launching && (run || !activation_id)) ||
+        (active && (!run || !activation_id))) {
         snprintf(err, cap, "saved swarm activation state is invalid");
         return -1;
     }
-    const char *source = yyjson_mut_get_str(yyjson_mut_obj_get(meta, "source"));
-    const char *digest = yyjson_mut_get_str(yyjson_mut_obj_get(meta, "sha256"));
+    yyjson_mut_val *source_value = yyjson_mut_obj_get(meta, "source");
+    yyjson_mut_val *digest_value = yyjson_mut_obj_get(meta, "sha256");
+    yyjson_mut_val *snapshot_value = yyjson_mut_obj_get(meta, "snapshot");
+    const char *source = yyjson_mut_is_str(source_value) ? yyjson_mut_get_str(source_value) : NULL;
+    const char *digest = yyjson_mut_is_str(digest_value) ? yyjson_mut_get_str(digest_value) : NULL;
     yyjson_mut_val *participants_value = yyjson_mut_obj_get(meta, "participants");
+    int64_t participants_saved =
+        yyjson_mut_is_int(participants_value) ? yyjson_mut_get_sint(participants_value) : 0;
     int participants =
-        yyjson_mut_is_int(participants_value) ? (int)yyjson_mut_get_sint(participants_value) : 0;
-    char *json = jwrite_mut_val(yyjson_mut_obj_get(meta, "snapshot"));
+        participants_saved >= 1 && participants_saved <= TNY_SWARM_MANIFEST_MAX_PARTICIPANTS
+            ? (int)participants_saved
+            : 0;
+    char *json = yyjson_mut_is_obj(snapshot_value) ? jwrite_mut_val(snapshot_value) : NULL;
     tny_swarm_manifest *manifest = NULL;
     int rc = json
                  ? tny_swarm_manifest_parse(json, strlen(json), TNY_SWARM_MANIFEST_MAX_PARTICIPANTS,
                                             &manifest, err, cap)
                  : -1;
     char computed[65];
-    if (rc || !source || !*source || !digest_valid(digest) || participants < 1 ||
-        participants != (int)(manifest ? manifest->participant_count : 0) ||
+    if (rc || !source || source[0] != '/' || strlen(source) > TNY_IMAGE_IO_PATH_MAX ||
+        strlen(source) != yyjson_mut_get_len(source_value) || !digest_valid(digest) ||
+        participants < 1 || participants != (int)(manifest ? manifest->participant_count : 0) ||
         !tny_image_io_sha256_hex(manifest->canonical_json, manifest->canonical_len, computed) ||
         strcmp(computed, digest) != 0) {
         if (!err[0]) snprintf(err, cap, "saved swarm definition snapshot is invalid");
+        free(json);
+        tny_swarm_manifest_free(manifest);
+        return -1;
+    }
+    if (active && !tny_jobs_swarm_validate_run(s->ctx, run, s->id, activation_id, manifest, digest,
+                                               participants, err, cap)) {
         free(json);
         tny_swarm_manifest_free(manifest);
         return -1;
@@ -207,6 +237,16 @@ static int restore_definition(tny_session_state *s, yyjson_mut_val *meta, char *
 
 int tny_swarm_restore(tny_session_state *s, char *err, size_t cap) {
     yyjson_mut_val *root = yyjson_mut_doc_get_root(s->doc);
+    size_t ri, rm;
+    yyjson_mut_val *key, *value;
+    yyjson_mut_obj_foreach(root, ri, rm, key, value) {
+        const char *name = yyjson_mut_get_str(key);
+        if (name && (strcmp(name, "swarm_cap") == 0 || strcmp(name, "swarm_definition") == 0) &&
+            yyjson_mut_obj_get(root, name) != value) {
+            snprintf(err, cap, "duplicate saved swarm metadata");
+            return -1;
+        }
+    }
     yyjson_mut_val *v = yyjson_mut_obj_get(root, "swarm_cap");
     if (v && (!yyjson_mut_is_int(v) || yyjson_mut_get_sint(v) < -1 ||
               yyjson_mut_get_sint(v) > TNY_SWARM_MANIFEST_MAX_PARTICIPANTS)) {
@@ -231,7 +271,10 @@ int tny_swarm_restore(tny_session_state *s, char *err, size_t cap) {
         snprintf(err, cap, "a swarm file cannot be added after session turns exist");
         return -1;
     }
-    if (meta) saved = s->ctx->swarm_participants;
+    if (meta && saved != s->ctx->swarm_participants) {
+        snprintf(err, cap, "saved swarm cap differs from purposeful participant count");
+        return -1;
+    }
     if (s->ctx->swarm_explicit && saved && saved != s->ctx->swarm_cap) {
         snprintf(err, cap, "swarm selection differs from saved session; start a new session");
         return -1;
@@ -370,7 +413,17 @@ static yyjson_doc *compile_request(const tny_ctx *ctx, const tny_swarm_manifest 
     return request;
 }
 
-static int set_activation(tny_session_state *session, const char *state, const char *run) {
+static void activation_hex(const uint8_t raw[16], char out[33]) {
+    static const char digits[] = "0123456789abcdef";
+    for (size_t i = 0; i < 16; ++i) {
+        out[i * 2] = digits[raw[i] >> 4];
+        out[i * 2 + 1] = digits[raw[i] & 15];
+    }
+    out[32] = 0;
+}
+
+static int set_activation(tny_session_state *session, const char *state, const char *activation_id,
+                          const char *run) {
     yyjson_mut_val *meta = definition_meta(session);
     if (!yyjson_mut_is_obj(meta) ||
         !yyjson_mut_obj_put(meta, yyjson_mut_strcpy(session->doc, "activation"),
@@ -380,14 +433,48 @@ static int set_activation(tny_session_state *session, const char *state, const c
                                    yyjson_mut_strcpy(session->doc, run)))
         return -1;
     if (!run) yyjson_mut_obj_remove_key(meta, "run_id");
+    if (activation_id && !yyjson_mut_obj_put(meta, yyjson_mut_strcpy(session->doc, "activation_id"),
+                                             yyjson_mut_strcpy(session->doc, activation_id)))
+        return -1;
+    if (!activation_id) yyjson_mut_obj_remove_key(meta, "activation_id");
     return session_save(session);
+}
+
+/* Root coordination context and active identity cross one session-save
+ * boundary. A crash therefore leaves either recoverable launching state or a
+ * complete active state, never an active run without its context. */
+static int activate_run(tny_session_state *session, const tny_swarm_manifest *manifest,
+                        const char *activation_id, const char *run) {
+    char context[320];
+    snprintf(context, sizeof context,
+             "Purposeful swarm activated as durable run %s with %zu participants. You are "
+             "the root coordinator %s. Use bounded team/mailbox operations; progress and "
+             "convergence are not guaranteed.",
+             run, manifest->participant_count, manifest->groups[0].coordinator_name);
+    session_add_text(session, "user", context);
+    return set_activation(session, "active", activation_id, run);
 }
 
 /* Explicit file selection is not an exemption from the native permission
  * engine. Approval applies to this already validated, immutable request. */
-static int authorize_activation(tools_env *env, yyjson_val *request, char *err, size_t cap) {
+static int authorize_activation(tools_env *env, yyjson_val *request,
+                                const tny_swarm_manifest *manifest, char *err, size_t cap) {
     char *reason = NULL;
-    char *detail = tool_team_detail(env, TNY_TEAM_START, request, &reason);
+    char *request_detail = tny_jobs_swarm_detail(env->ctx, request, manifest,
+                                                 env->ctx->swarm_definition_digest, &reason);
+    buf_t wrapped = {0};
+    if (request_detail) {
+        buf_appends(&wrapped, "{\"operation\":\"team_start\",\"local_operator\":false,");
+        buf_appends(&wrapped, "\"caller_session\":");
+        jescape(&wrapped, env->session->id);
+        buf_appends(&wrapped, ",\"caller_run\":null,\"caller_task\":-1,\"caller_attempt\":0,"
+                              "\"request_detail\":");
+        jescape(&wrapped, request_detail);
+        buf_appends(&wrapped, "}");
+    }
+    free(request_detail);
+    char *detail = buf_oom(&wrapped) ? NULL : buf_detach(&wrapped);
+    if (!detail) buf_free(&wrapped);
     if (!detail || !env->perm) {
         snprintf(err, cap, "%s", reason ? reason : "swarm permission context is unavailable");
         free(reason);
@@ -408,6 +495,7 @@ static int authorize_activation(tools_env *env, yyjson_val *request, char *err, 
         }
     }
     free(detail);
+    free(reason);
     if (verdict == PERM_ALLOW) return 0;
     if (verdict == PERM_PROMPT) env->perm_blocked = true;
     snprintf(err, cap, "%s",
@@ -421,49 +509,76 @@ int tny_swarm_activate(tools_env *env, char *err, size_t cap) {
     if (!env || !env->ctx || !env->session || !env->ctx->swarm_definition) return 0;
     yyjson_mut_val *meta = definition_meta(env->session);
     const char *run = yyjson_mut_get_str(yyjson_mut_obj_get(meta, "run_id"));
-    if (run && tny_jobs_valid_id(run)) return tny_team_register_run(env, run);
     const char *activation = yyjson_mut_get_str(yyjson_mut_obj_get(meta, "activation"));
-    if (same(activation, "launching")) {
-        snprintf(err, cap,
-                 "swarm activation is uncertain after interruption; inspect owned jobs before "
-                 "retrying");
-        return -1;
-    }
+    const char *saved_activation_id = yyjson_mut_get_str(yyjson_mut_obj_get(meta, "activation_id"));
     tny_swarm_manifest *manifest = NULL;
     if (validate_ctx_definition(env->ctx, &manifest, err, cap) != 0) return -1;
+    if (same(activation, "active")) {
+        int rc = tny_jobs_swarm_validate_run(env->ctx, run, env->session->id, saved_activation_id,
+                                             manifest, env->ctx->swarm_definition_digest,
+                                             env->ctx->swarm_participants, err, cap)
+                     ? tny_team_register_run(env, run)
+                     : -1;
+        tny_swarm_manifest_free(manifest);
+        return rc;
+    }
+    char activation_id[33] = "";
+    if (same(activation, "launching")) {
+        snprintf(activation_id, sizeof activation_id, "%s", saved_activation_id);
+        char recovered[TNY_JOBS_ID_LEN + 1];
+        int found = tny_jobs_swarm_recover(env->ctx, env->session->id, activation_id, manifest,
+                                           env->ctx->swarm_definition_digest,
+                                           env->ctx->swarm_participants, recovered, err, cap);
+        if (found < 0) {
+            tny_swarm_manifest_free(manifest);
+            return -1;
+        }
+        if (found == 1) {
+            int rc = activate_run(env->session, manifest, activation_id, recovered);
+            if (rc == 0) rc = tny_team_register_run(env, recovered);
+            if (rc != 0) snprintf(err, cap, "could not persist recovered swarm run %s", recovered);
+            tny_swarm_manifest_free(manifest);
+            return rc;
+        }
+    } else {
+        uint8_t raw[16];
+        if (!random_bytes(raw, sizeof raw)) {
+            snprintf(err, cap, "could not create swarm activation identity");
+            tny_swarm_manifest_free(manifest);
+            return -1;
+        }
+        activation_hex(raw, activation_id);
+    }
     yyjson_doc *request = compile_request(env->ctx, manifest, last_user_prompt(env->session));
-    if (request && authorize_activation(env, yyjson_doc_get_root(request), err, cap) != 0) {
+    if (request &&
+        authorize_activation(env, yyjson_doc_get_root(request), manifest, err, cap) != 0) {
         yyjson_doc_free(request);
         tny_swarm_manifest_free(manifest);
         return -1;
     }
-    if (!request || set_activation(env->session, "launching", NULL) != 0) {
+    if (!request || (!same(activation, "launching") &&
+                     set_activation(env->session, "launching", activation_id, NULL) != 0)) {
         snprintf(err, cap, "could not persist swarm activation intent");
         yyjson_doc_free(request);
         tny_swarm_manifest_free(manifest);
         return -1;
     }
     buf_t out = {0};
-    int rc = tool_team_run(env, TNY_TEAM_START, yyjson_doc_get_root(request), &out, err, cap);
+    int rc = tny_jobs_swarm_submit(env->ctx, yyjson_doc_get_root(request), &out, err, cap,
+                                   env->cancelled, env->cancelled_ud, env->session->id,
+                                   activation_id, manifest, env->ctx->swarm_definition_digest);
     yyjson_doc *result = out.len ? jparse(out.data, out.len) : NULL;
-    const char *run_id = result ? jget_str(yyjson_doc_get_root(result), "run_id") : NULL;
+    const char *run_id = result ? jget_str(yyjson_doc_get_root(result), "id") : NULL;
     if (run_id && tny_jobs_valid_id(run_id)) {
-        if (set_activation(env->session, "active", run_id) != 0) {
+        if (activate_run(env->session, manifest, activation_id, run_id) != 0) {
             snprintf(err, cap,
                      "swarm run %s was submitted but activation persistence failed; inspect it "
                      "and do not resubmit",
                      run_id);
             rc = 2;
         } else {
-            char context[320];
-            snprintf(context, sizeof context,
-                     "Purposeful swarm activated as durable run %s with %zu participants. You are "
-                     "the root coordinator %s. Use bounded team/mailbox operations; progress and "
-                     "convergence are not guaranteed.",
-                     run_id, manifest->participant_count, manifest->groups[0].coordinator_name);
-            session_add_text(env->session, "user", context);
-            if (session_save(env->session) != 0) {
-                snprintf(err, cap, "swarm run %s is active but root context persistence failed",
+            if (tny_team_register_run(env, run_id) != 0) {
+                snprintf(err, cap, "swarm run %s is active but registration persistence failed",
                          run_id);
                 rc = 2;
             }

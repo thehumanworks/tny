@@ -40,10 +40,18 @@ bounded, and acknowledgements/replay keep their existing semantics. Communicatio
 optional and neither completion nor delivery guarantees progress or convergence.
 
 Store the canonical definition, SHA-256 digest, absolute source provenance, participant
-count, activation state and resulting run ID in the session. Checkpoints preserve the
-same resolved snapshot. Resume uses the snapshot without rereading the source; an
-explicitly supplied file must validate and match. Persist `launching` before submission
-and refuse automatic resubmission if the outcome is uncertain.
+count, activation state, a fresh activation identity and resulting run ID in the
+session. Checkpoints preserve the same resolved snapshot. Resume uses the snapshot
+without rereading the source; an explicitly supplied file must validate and match.
+Permission precedes the persisted `launching` intent. The job records that intent's
+identity. Under the parent session writer lock, recovery adopts exactly one matching
+parent-owned run after canonical topology validation, retries the same identity when
+none exists, and refuses ambiguity or corruption.
+
+Purposeful topology is compiler-owned transient context, not a JSON authorization bit.
+Public team/job requests reject every `swarm_*` field. The narrow internal submission
+API receives the validated manifest out of band and compares the complete ordered
+membership, group purposes and coordinator links before durable job creation.
 
 Keep `--swarm[=N]` and `/swarm [N]` unchanged. Purposeful activation is supported only
 for native local saved Darwin/Linux leads with the jobs/watch seams; validation is
@@ -58,10 +66,10 @@ orchestration. Reserving all team-local participant slots avoids coordinator/pee
 deadlock at the cost of requesting the full validated concurrency from global admission.
 
 Canonical snapshots make resume deterministic even if the file is edited or removed.
-An interruption during submission can require operator inspection because tny favors
-duplicate prevention over speculative recovery. Purposeful collaboration may still
-fail, time out, disagree or produce a wrong synthesis; the runtime does not claim
-guaranteed convergence.
+Interruption recovery is deterministic while the private job store remains readable;
+an ambiguous, mismatched or malformed candidate requires repair rather than adoption.
+Purposeful collaboration may still fail, time out, disagree or produce a wrong
+synthesis; the runtime does not claim guaranteed convergence.
 
 ## Alternatives rejected
 

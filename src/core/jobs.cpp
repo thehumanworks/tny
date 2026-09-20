@@ -254,6 +254,27 @@ static bool record_state_is_known(yyjson_val *state) {
     return text && strlen(text) == yyjson_get_len(state) && state_is_known(text);
 }
 
+static bool json_unique_keys(yyjson_val *value, unsigned depth) {
+    if (!value || depth > 64) return false;
+    size_t i, max;
+    yyjson_val *key, *child;
+    if (yyjson_is_obj(value)) {
+        yyjson_obj_foreach(value, i, max, key, child) {
+            const char *name = yyjson_get_str(key);
+            size_t len = yyjson_get_len(key);
+            if (!name || strlen(name) != len || yyjson_obj_getn(value, name, len) != child ||
+                !json_unique_keys(child, depth + 1))
+                return false;
+        }
+    } else if (yyjson_is_arr(value)) {
+        yyjson_arr_foreach(value, i, max,
+                           child) if (!json_unique_keys(child, depth + 1)) return false;
+    } else if (yyjson_is_str(value) && strlen(yyjson_get_str(value)) != yyjson_get_len(value)) {
+        return false;
+    }
+    return true;
+}
+
 static yyjson_mut_doc *jobs_record_load(const char *dir, const char *id, char *err, size_t errlen) {
     tny::c_string path(jobs_file(dir, "job.json"));
     if (!path) return NULL;
@@ -270,7 +291,7 @@ static yyjson_mut_doc *jobs_record_load(const char *dir, const char *id, char *e
     tny::document doc(jparse(data.get(), len));
     data.reset(); /* The parsed document owns its bytes from this point. */
     yyjson_val *root = doc ? yyjson_doc_get_root(doc.get()) : NULL;
-    if (!root || !yyjson_is_obj(root)) {
+    if (!root || !yyjson_is_obj(root) || !json_unique_keys(root, 0)) {
         safe_err(err, errlen, "the job record is not a JSON object");
         return NULL;
     }
@@ -759,22 +780,32 @@ static bool swarm_metadata_valid(yyjson_val *args, const tny_swarm_manifest *man
     if (!definition_sha256 || !sha256_field(jget(args, "swarm_definition_sha256")) ||
         strcmp(jget_str(args, "swarm_definition_sha256"), definition_sha256) != 0 ||
         !jget_str(args, "swarm_root_coordinator") ||
-        strcmp(jget_str(args, "swarm_root_coordinator"),
-               manifest->groups[0].coordinator_name) != 0 ||
+        strcmp(jget_str(args, "swarm_root_coordinator"), manifest->groups[0].coordinator_name) !=
+            0 ||
         !jget_str(args, "swarm_purpose") ||
         strcmp(jget_str(args, "swarm_purpose"), manifest->groups[0].purpose) != 0 ||
         !yyjson_is_arr(items) || yyjson_arr_size(items) != manifest->participant_count)
         return false;
+    size_t ri, rm;
+    yyjson_val *root_key, *root_value;
+    yyjson_obj_foreach(args, ri, rm, root_key, root_value) {
+        (void)root_value;
+        const char *name = yyjson_get_str(root_key);
+        if (name && str_starts(name, "swarm_") && strcmp(name, "swarm_definition_sha256") != 0 &&
+            strcmp(name, "swarm_root_coordinator") != 0 && strcmp(name, "swarm_purpose") != 0)
+            return false;
+    }
     size_t i, count;
     yyjson_val *item;
     yyjson_arr_foreach(items, i, count, item) {
         const tny_swarm_manifest_participant *participant = &manifest->participants[i];
         const tny_swarm_manifest_group *group = &manifest->groups[participant->group];
         int coordinator = manifest_coordinator_task(manifest, participant->group);
-        int parent = group->parent == SIZE_MAX ? -1
-                                               : manifest_coordinator_task(manifest, group->parent);
+        int parent =
+            group->parent == SIZE_MAX ? -1 : manifest_coordinator_task(manifest, group->parent);
         if (object_has_swarm_field(item) &&
-            (!jget_str(item, "swarm_name") ||
+            (!jget_str(item, "label") || strcmp(jget_str(item, "label"), participant->name) != 0 ||
+             !jget_str(item, "swarm_name") ||
              strcmp(jget_str(item, "swarm_name"), participant->name) != 0 ||
              !jget_str(item, "swarm_role") ||
              strcmp(jget_str(item, "swarm_role"),
@@ -800,8 +831,7 @@ static bool swarm_metadata_valid(yyjson_val *args, const tny_swarm_manifest *man
             const char *name = yyjson_get_str(key);
             if (name && str_starts(name, "swarm_") && strcmp(name, "swarm_name") != 0 &&
                 strcmp(name, "swarm_role") != 0 && strcmp(name, "swarm_group") != 0 &&
-                strcmp(name, "swarm_purpose") != 0 &&
-                strcmp(name, "swarm_group_purpose") != 0 &&
+                strcmp(name, "swarm_purpose") != 0 && strcmp(name, "swarm_group_purpose") != 0 &&
                 strcmp(name, "swarm_coordinator_task") != 0 &&
                 strcmp(name, "swarm_parent_coordinator_task") != 0)
                 return false;
@@ -1119,8 +1149,9 @@ static int jobs_prepare_launches(tny_ctx *ctx, jobs_request *r, char *err, size_
     return 0;
 }
 
-static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, char *err,
-                              size_t errlen) {
+static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r,
+                              const tny_swarm_manifest *manifest, const char *definition_sha256,
+                              char *err, size_t errlen) {
     memset(r, 0, sizeof *r);
     const char *kind = jget_str(args, "kind");
     if (!kind || (strcmp(kind, "ask") != 0 && strcmp(kind, "image") != 0)) {
@@ -1141,8 +1172,10 @@ static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r, c
         return -1;
     }
     if (!dag_validate(args, err, errlen)) return -1;
-    if (!swarm_metadata_valid(args)) {
-        safe_err(err, errlen, "invalid purposeful swarm identity metadata");
+    if (!swarm_metadata_valid(args, manifest, definition_sha256)) {
+        safe_err(err, errlen,
+                 manifest ? "purposeful topology differs from its canonical manifest"
+                          : "purposeful swarm metadata is compiler-owned");
         return -1;
     }
     r->swarm_definition_sha256 = jget_str(args, "swarm_definition_sha256");
@@ -1307,7 +1340,9 @@ static int jobs_request_parse_retry(tny_ctx *ctx, yyjson_val *args, jobs_request
 
 /* ------------------------------------------------- permission detail string */
 
-char *tny_jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, char **error) {
+static char *jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args,
+                         const tny_swarm_manifest *manifest, const char *definition_sha256,
+                         char **error) {
     if (error) *error = NULL;
     buf_t d;
     buf_init(&d);
@@ -1315,7 +1350,8 @@ char *tny_jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, char **err
     if (op == TNY_JOBS_OP_SUBMIT) {
         jobs_request request;
         char err[256] = "";
-        if (jobs_request_parse(ctx, args, &request, err, sizeof err) != 0) {
+        if (jobs_request_parse(ctx, args, &request, manifest, definition_sha256, err, sizeof err) !=
+            0) {
             buf_free(&d);
             if (error) {
                 buf_t e;
@@ -1389,6 +1425,15 @@ char *tny_jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, char **err
                         (long long)jget_int(args, "expected_attempt", 0));
     }
     return buf_detach(&d);
+}
+
+char *tny_jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, char **error) {
+    return jobs_detail(ctx, op, args, NULL, NULL, error);
+}
+
+char *tny_jobs_swarm_detail(tny_ctx *ctx, yyjson_val *args, const tny_swarm_manifest *manifest,
+                            const char *definition_sha256, char **error) {
+    return jobs_detail(ctx, TNY_JOBS_OP_SUBMIT, args, manifest, definition_sha256, error);
 }
 
 /* ------------------------------------------------------------ argv grammar */
@@ -2589,7 +2634,8 @@ static char *dag_dependency_hash(yyjson_mut_doc *doc, yyjson_mut_val *item) {
 }
 
 static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, const char *job_id,
-                                  const char *dir, const char *parent_session) {
+                                  const char *dir, const char *parent_session,
+                                  const char *swarm_activation_id) {
     yyjson_mut_doc *doc = yyjson_mut_doc_new(jallocator());
     yyjson_mut_val *root = doc ? yyjson_mut_obj(doc) : NULL;
     if (!root) {
@@ -2645,6 +2691,7 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
         jm_set_str(doc, root, "swarm_definition_sha256", request->swarm_definition_sha256);
         jm_set_str(doc, root, "swarm_root_coordinator", request->swarm_root_coordinator);
         jm_set_str(doc, root, "swarm_purpose", request->swarm_purpose);
+        jm_set_str(doc, root, "swarm_activation_id", swarm_activation_id);
     }
     jm_set_str(doc, root, "created", now ? now : "");
     jm_set_str(doc, root, "updated", now ? now : "");
@@ -2891,14 +2938,17 @@ static int jobs_admission(tny_ctx *ctx, yyjson_val *config, const char *id, int 
 }
 
 static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen,
-                       bool (*cancelled)(void *), void *cancel_ud, const char *parent_session) {
+                       bool (*cancelled)(void *), void *cancel_ud, const char *parent_session,
+                       const char *swarm_activation_id, const tny_swarm_manifest *manifest,
+                       const char *definition_sha256) {
     if (!tny_jobs_execution_supported()) {
         safe_err(err, errlen,
                  "durable jobs need a native tny build; this runtime cannot own a child process");
         return 1;
     }
     jobs_request request;
-    if (jobs_request_parse(ctx, args, &request, err, errlen) != 0) return 1;
+    if (jobs_request_parse(ctx, args, &request, manifest, definition_sha256, err, errlen) != 0)
+        return 1;
 
     char *self = tny_process_self_path();
     uint8_t raw[16];
@@ -2939,7 +2989,8 @@ static int jobs_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, si
         return 2;
     }
 
-    yyjson_mut_doc *record = record_new(ctx, &request, job_id, dir, parent_session);
+    yyjson_mut_doc *record =
+        record_new(ctx, &request, job_id, dir, parent_session, swarm_activation_id);
     rc = record ? jobs_record_store(dir, record) : ENOMEM;
     if (rc) {
         yyjson_mut_doc_free(record);
@@ -3433,6 +3484,217 @@ static int jobs_list(tny_ctx *ctx, buf_t *out, char *err, size_t errlen) {
 #endif
 }
 
+static yyjson_doc *swarm_record_read(tny_ctx *ctx, const char *id, char *err, size_t errlen) {
+#ifdef __EMSCRIPTEN__
+    (void)ctx;
+    (void)id;
+    safe_err(err, errlen, "purposeful swarm recovery is unavailable");
+    return NULL;
+#else
+    tny::c_string root(jobs_root(ctx));
+    tny::c_string authority(root ? path_abs(root.get()) : NULL);
+    tny::c_string dir(authority && tny_jobs_valid_id(id) ? path_join(authority.get(), id) : NULL);
+    tny::c_string path(dir ? path_join(dir.get(), "job.json") : NULL);
+    buf_t raw = {};
+    int rc =
+        path ? tny_image_io_read_confined(authority.get(), path.get(), TNY_JOBS_PAYLOAD_MAX, &raw)
+             : -1;
+    yyjson_doc *doc = rc == 0 ? jparse(raw.data, raw.len) : NULL;
+    buf_free(&raw);
+    if (!doc || !yyjson_is_obj(yyjson_doc_get_root(doc))) {
+        yyjson_doc_free(doc);
+        safe_err(err, errlen, "purposeful swarm job record is unreadable");
+        return NULL;
+    }
+    return doc;
+#endif
+}
+
+#ifndef __EMSCRIPTEN__
+/* Submission cannot launch before job.json is stored. A record-less directory
+ * is therefore a safe zero-match only when no submitter owns its lock (or the
+ * crash preceded creation of that lock). Existing malformed/link records stay
+ * ambiguous and block retry. */
+static bool swarm_incomplete_record_safe(tny_ctx *ctx, const char *id) {
+    tny::c_string dir(jobs_dir(ctx, id));
+    tny::c_string record(dir ? path_join(dir.get(), "job.json") : NULL);
+    struct stat st;
+    if (!record || lstat(record.get(), &st) == 0 || errno != ENOENT) return false;
+    tny::c_string owner(dir ? path_join(dir.get(), "owner.lock") : NULL);
+    if (!owner) return false;
+    if (lstat(owner.get(), &st) != 0) return errno == ENOENT;
+    return tny_jobs_host_owner_state(owner.get()) == TNY_JOBS_OWNER_FREE;
+}
+#endif
+
+static bool swarm_record_matches(yyjson_val *root, const char *id, const char *parent_session,
+                                 const char *activation_id, const tny_swarm_manifest *manifest,
+                                 const char *definition_sha256, int admission_cap, char *err,
+                                 size_t errlen) {
+    char label[64];
+    snprintf(label, sizeof label, "swarm_%s", parent_session);
+    yyjson_val *admission = jget(root, "admission");
+    yyjson_val *items = jget(root, "items");
+    bool root_ok =
+        json_unique_keys(root, 0) && jget_str(root, "id") &&
+        strcmp(jget_str(root, "id"), id) == 0 && jget_str(root, "run_id") &&
+        strcmp(jget_str(root, "run_id"), id) == 0 && jget_str(root, "parent_session_id") &&
+        strcmp(jget_str(root, "parent_session_id"), parent_session) == 0 &&
+        jget_str(root, "swarm_activation_id") &&
+        strcmp(jget_str(root, "swarm_activation_id"), activation_id) == 0 &&
+        jget_str(root, "swarm_definition_sha256") &&
+        strcmp(jget_str(root, "swarm_definition_sha256"), definition_sha256) == 0 &&
+        jget_str(root, "swarm_root_coordinator") &&
+        strcmp(jget_str(root, "swarm_root_coordinator"), manifest->groups[0].coordinator_name) ==
+            0 &&
+        jget_str(root, "swarm_purpose") &&
+        strcmp(jget_str(root, "swarm_purpose"), manifest->groups[0].purpose) == 0 &&
+        yyjson_is_bool(jget(root, "dag")) && jget_bool(root, "dag", false) &&
+        jget_str(root, "job_kind") && strcmp(jget_str(root, "job_kind"), "ask") == 0 &&
+        yyjson_is_int(jget(root, "concurrency")) &&
+        jget_int(root, "concurrency", -1) == (int64_t)manifest->participant_count &&
+        admission_cap == (int)manifest->participant_count && yyjson_is_obj(admission) &&
+        yyjson_obj_size(admission) == 5 && jget_str(admission, "label") &&
+        strcmp(jget_str(admission, "label"), label) == 0 && jget_str(admission, "provider_scope") &&
+        strcmp(jget_str(admission, "provider_scope"), "swarm") == 0 &&
+        yyjson_is_int(jget(admission, "cap")) && jget_int(admission, "cap", -1) == admission_cap &&
+        yyjson_is_int(jget(admission, "queue_cap")) &&
+        jget_int(admission, "queue_cap", -1) == 128 &&
+        yyjson_is_int(jget(admission, "claim_limit")) &&
+        jget_int(admission, "claim_limit", -1) == 1024 &&
+        yyjson_is_bool(jget(root, "peer_messages")) && jget_bool(root, "peer_messages", false) &&
+        yyjson_is_arr(items) && yyjson_arr_size(items) == manifest->participant_count;
+    if (!root_ok) {
+        safe_err(err, errlen, "purposeful swarm run provenance or capacity is invalid");
+        return false;
+    }
+    size_t i, count;
+    yyjson_val *item;
+    yyjson_arr_foreach(items, i, count, item) {
+        const tny_swarm_manifest_participant *participant = &manifest->participants[i];
+        const tny_swarm_manifest_group *group = &manifest->groups[participant->group];
+        int coordinator = manifest_coordinator_task(manifest, participant->group);
+        int parent =
+            group->parent == SIZE_MAX ? -1 : manifest_coordinator_task(manifest, group->parent);
+        if (!yyjson_is_obj(item) || !yyjson_is_int(jget(item, "index")) ||
+            jget_int(item, "index", -1) != (int64_t)i || !jget_str(item, "role") ||
+            strcmp(jget_str(item, "role"), "worker") != 0 || !jget_str(item, "label") ||
+            strcmp(jget_str(item, "label"), participant->name) != 0 ||
+            !jget_str(item, "swarm_name") ||
+            strcmp(jget_str(item, "swarm_name"), participant->name) != 0 ||
+            !jget_str(item, "swarm_role") ||
+            strcmp(jget_str(item, "swarm_role"),
+                   participant->coordinator ? "coordinator" : "agent") != 0 ||
+            !yyjson_is_int(jget(item, "swarm_group")) ||
+            jget_int(item, "swarm_group", -1) != (int64_t)participant->group ||
+            !jget_str(item, "swarm_purpose") ||
+            strcmp(jget_str(item, "swarm_purpose"), participant->purpose) != 0 ||
+            !jget_str(item, "swarm_group_purpose") ||
+            strcmp(jget_str(item, "swarm_group_purpose"), group->purpose) != 0 ||
+            !yyjson_is_int(jget(item, "swarm_coordinator_task")) ||
+            jget_int(item, "swarm_coordinator_task", -2) != coordinator ||
+            !yyjson_is_int(jget(item, "swarm_parent_coordinator_task")) ||
+            jget_int(item, "swarm_parent_coordinator_task", -2) != parent) {
+            safe_err(err, errlen,
+                     "purposeful swarm ordered membership or coordinator links are invalid");
+            return false;
+        }
+    }
+    return true;
+}
+
+bool tny_jobs_swarm_validate_run(tny_ctx *ctx, const char *run_id, const char *parent_session,
+                                 const char *activation_id, const tny_swarm_manifest *manifest,
+                                 const char *definition_sha256, int admission_cap, char *err,
+                                 size_t errlen) {
+    if (!ctx || !tny_jobs_valid_id(run_id) || !parent_session || strlen(parent_session) != 16 ||
+        !tny_jobs_valid_id(activation_id) || !manifest || !definition_sha256) {
+        safe_err(err, errlen, "purposeful swarm activation identity is invalid");
+        return false;
+    }
+    yyjson_doc *doc = swarm_record_read(ctx, run_id, err, errlen);
+    bool ok =
+        doc && swarm_record_matches(yyjson_doc_get_root(doc), run_id, parent_session, activation_id,
+                                    manifest, definition_sha256, admission_cap, err, errlen);
+    yyjson_doc_free(doc);
+    return ok;
+}
+
+int tny_jobs_swarm_recover(tny_ctx *ctx, const char *parent_session, const char *activation_id,
+                           const tny_swarm_manifest *manifest, const char *definition_sha256,
+                           int admission_cap, char run_id[TNY_JOBS_ID_LEN + 1], char *err,
+                           size_t errlen) {
+#ifdef __EMSCRIPTEN__
+    (void)ctx;
+    (void)parent_session;
+    (void)activation_id;
+    (void)manifest;
+    (void)definition_sha256;
+    (void)admission_cap;
+    (void)run_id;
+    safe_err(err, errlen, "purposeful swarm recovery is unavailable");
+    return -1;
+#else
+    if (!ctx || !parent_session || strlen(parent_session) != 16 ||
+        !tny_jobs_valid_id(activation_id) || !manifest || !definition_sha256 || !run_id) {
+        safe_err(err, errlen, "purposeful swarm activation identity is invalid");
+        return -1;
+    }
+    run_id[0] = 0;
+    tny::c_string root(jobs_root(ctx));
+    DIR *directory = root ? opendir(root.get()) : NULL;
+    if (!directory) {
+        if (errno == ENOENT) return 0;
+        safe_err(err, errlen, "purposeful swarm job store is unreadable");
+        return -1;
+    }
+    int matches = 0;
+    size_t scanned = 0;
+    struct dirent *entry;
+    while ((entry = readdir(directory))) {
+        if (!tny_jobs_valid_id(entry->d_name)) continue;
+        if (++scanned > JOBS_LIST_MAX) {
+            safe_err(err, errlen, "too many jobs to recover purposeful activation safely");
+            matches = -1;
+            break;
+        }
+        yyjson_doc *doc = swarm_record_read(ctx, entry->d_name, NULL, 0);
+        if (!doc) {
+            if (swarm_incomplete_record_safe(ctx, entry->d_name)) continue;
+            safe_err(err, errlen,
+                     "a job record is unreadable; purposeful activation recovery is ambiguous");
+            matches = -1;
+            break;
+        }
+        yyjson_val *record = doc ? yyjson_doc_get_root(doc) : NULL;
+        const char *stored = jget_str(record, "swarm_activation_id");
+        if (stored && strcmp(stored, activation_id) == 0) {
+            if (++matches > 1) {
+                safe_err(err, errlen, "multiple jobs claim the same purposeful activation");
+                yyjson_doc_free(doc);
+                matches = -1;
+                break;
+            }
+            if (!swarm_record_matches(record, entry->d_name, parent_session, activation_id,
+                                      manifest, definition_sha256, admission_cap, err, errlen)) {
+                yyjson_doc_free(doc);
+                matches = -1;
+                break;
+            }
+            snprintf(run_id, TNY_JOBS_ID_LEN + 1, "%s", entry->d_name);
+        }
+        yyjson_doc_free(doc);
+    }
+    closedir(directory);
+    if (matches < 0) return -1;
+    if (matches > 1) {
+        safe_err(err, errlen, "multiple jobs claim the same purposeful activation");
+        return -1;
+    }
+    return matches;
+#endif
+}
+
 bool tny_jobs_swarm_transition_safe(tny_ctx *ctx, const char *session) {
 #ifdef __EMSCRIPTEN__
     (void)ctx;
@@ -3660,6 +3922,11 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
     bool image;
     char *job_id = xstrdup(jm_str(root, "id"));
     {
+        if (jm_str(root, "swarm_definition_sha256")) {
+            safe_err(err, errlen,
+                     "purposeful swarm retries require the owning parent session and compiler");
+            goto invalid;
+        }
         if (!state_is_terminal(jm_str(root, "state"))) {
             safe_err(err, errlen, "this job has not finished yet");
             goto invalid;
@@ -4159,7 +4426,8 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
     switch (op) {
     case TNY_JOBS_OP_SUBMIT: {
         if (!ctx->swarm_cap)
-            return jobs_submit(ctx, args, out, err, errlen, cancelled, cancel_ud, parent_session);
+            return jobs_submit(ctx, args, out, err, errlen, cancelled, cancel_ud, parent_session,
+                               NULL, NULL, NULL);
         int cap = ctx->swarm_cap < 0 ? 16 : ctx->swarm_cap;
         yyjson_val *items = jget(args, "items");
         if (!parent_session || strlen(parent_session) != 16 || ctx->no_save ||
@@ -4198,7 +4466,7 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
         char *json = ok ? jwrite(d) : nullptr;
         yyjson_doc *request = json ? jparse(json, strlen(json)) : nullptr;
         int result = request ? jobs_submit(ctx, yyjson_doc_get_root(request), out, err, errlen,
-                                           cancelled, cancel_ud, parent_session)
+                                           cancelled, cancel_ud, parent_session, NULL, NULL, NULL)
                              : 1;
         if (!request) safe_err(err, errlen, "swarm request allocation failed");
         yyjson_doc_free(request);
@@ -4217,6 +4485,61 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
     }
     safe_err(err, errlen, "unknown jobs operation");
     return 1;
+}
+
+int tny_jobs_swarm_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen,
+                          bool (*cancelled)(void *), void *cancel_ud, const char *parent_session,
+                          const char *activation_id, const tny_swarm_manifest *manifest,
+                          const char *definition_sha256) {
+    if (err && errlen) err[0] = 0;
+    yyjson_val *items = jget(args, "items");
+    int cap = ctx && ctx->swarm_cap > 0 ? ctx->swarm_cap : 0;
+    if (!ctx || !out || !manifest || !definition_sha256 ||
+        !sha256_field(jget(args, "swarm_definition_sha256")) || !parent_session ||
+        strlen(parent_session) != 16 || !tny_jobs_valid_id(activation_id) || ctx->no_save ||
+        ctx->ssh_host || ctx->library_mode || !tny_jobs_execution_supported() ||
+        getenv("TNY_ADMISSION_ENROLLED") || getenv("TNY_TEAM_RUN") ||
+        cap != (int)manifest->participant_count || !jget_bool(args, "dag", false) ||
+        !jget_str(args, "kind") || strcmp(jget_str(args, "kind"), "ask") != 0 ||
+        !yyjson_is_arr(items) || yyjson_arr_size(items) != manifest->participant_count ||
+        jget_int(args, "concurrency", -1) != (int64_t)manifest->participant_count ||
+        jget(args, "admission")) {
+        safe_err(err, errlen, "invalid compiler-owned purposeful swarm submission");
+        return 1;
+    }
+    size_t i, count;
+    yyjson_val *item;
+    yyjson_arr_foreach(items, i, count, item) {
+        if (!jget_str(item, "role") || strcmp(jget_str(item, "role"), "worker") != 0) {
+            safe_err(err, errlen, "purposeful swarm participants must be ordered workers");
+            return 1;
+        }
+    }
+    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+    yyjson_mut_val *root = d ? yyjson_val_mut_copy(d, args) : NULL;
+    yyjson_mut_val *admission = d ? yyjson_mut_obj(d) : NULL;
+    char label[64];
+    snprintf(label, sizeof label, "swarm_%s", parent_session);
+    bool ok =
+        root && admission && yyjson_mut_obj_add_strcpy(d, admission, "label", label) &&
+        yyjson_mut_obj_add_strcpy(d, admission, "provider_scope", "swarm") &&
+        yyjson_mut_obj_add_int(d, admission, "cap", cap) &&
+        yyjson_mut_obj_add_int(d, admission, "queue_cap", 128) &&
+        yyjson_mut_obj_add_int(d, admission, "claim_limit", 1024) &&
+        yyjson_mut_obj_add_val(d, root, "admission", admission) &&
+        yyjson_mut_obj_put(root, yyjson_mut_str(d, "peer_messages"), yyjson_mut_bool(d, true));
+    if (root) yyjson_mut_doc_set_root(d, root);
+    char *json = ok ? jwrite(d) : NULL;
+    yyjson_doc *request = json ? jparse(json, strlen(json)) : NULL;
+    int result =
+        request ? jobs_submit(ctx, yyjson_doc_get_root(request), out, err, errlen, cancelled,
+                              cancel_ud, parent_session, activation_id, manifest, definition_sha256)
+                : 1;
+    if (!request) safe_err(err, errlen, "purposeful swarm request allocation failed");
+    yyjson_doc_free(request);
+    free(json);
+    yyjson_mut_doc_free(d);
+    return result;
 }
 
 /* ============================ the detached supervisor ==================== */

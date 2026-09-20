@@ -57,9 +57,13 @@ was attempted.
   durable run ID persist in the session; checkpoint tests cover the snapshot/digest.
   Resume works from the snapshot when the source is absent or changed, while an
   explicitly selected changed definition and numeric-mode substitution are rejected.
-- Activation intent persists before submission. Missing/ambiguous submission identity
-  remains `launching` and is fail-closed against duplicate resubmission. Existing run
-  IDs are registered instead of relaunched.
+- Permission precedes activation intent. A unique persisted identity is copied into the
+  job record; interrupted activation adopts one fully validated parent-owned match,
+  safely retries zero matches with the same identity, and refuses ambiguity. Active
+  restore revalidates ownership, digest, cap, count and canonical topology.
+- Public team/job requests reject all purposeful metadata. The trusted compiler passes
+  its manifest through a narrow non-serialized API, which validates ordered membership
+  and coordinator links before submission.
 - Stable system policy contains identity/purpose only. Current task content remains in
   the dynamic participant prompt, and mailbox messages retain existing durable replay,
   acknowledgment and attempt fencing.
@@ -72,8 +76,8 @@ was attempted.
   itself is local and context-free.
 - Linux execution and all localhost-backed integration behavior still require primary/CI
   evidence. This lane does not claim the blocked integration tests passed.
-- A process interruption after activation intent but before durable run identity is
-  recorded requires operator inspection; automatic guessing could duplicate work.
+- Corrupt or ambiguous activation candidates require repair; recovery never guesses or
+  adopts an unrelated run.
 - Flattened nesting is bounded and uses one scheduler. It does not provide recursive
   autonomous supervisors, guaranteed discussion, progress, agreement, correctness or
   convergence.

@@ -97,10 +97,19 @@ not reread the source file. Supplying the same `--swarm-file` on resume validate
 and requires its canonical digest to match; a changed file is refused. An existing
 run is registered rather than relaunched.
 
-Activation intent is persisted before job submission. If interruption leaves the
-state at `launching`, tny refuses to guess or submit a duplicate run; inspect owned
-jobs and resolve the uncertain state explicitly. This is a deliberate fail-closed
-boundary, not automatic recovery.
+Activation permission is resolved before intent. The intent contains a fresh
+128-bit activation identity before job submission, and the durable job records the
+same identity with its parent session and definition digest. If interruption leaves
+the state at `launching`, resume scans the bounded private job store: exactly one
+matching run is adopted only after its capacity, ordered membership and coordinator
+links match the canonical saved manifest; no match retries the same identity; multiple
+or malformed matches fail closed. An `active` restore performs the same provenance and
+topology checks before provider I/O.
+
+All `swarm_*` request metadata is compiler-owned. Public `team start` and `jobs submit`
+JSON cannot assert it, even partially. The internal compiler passes the validated
+manifest through a non-serialized API and jobs validates the complete projection
+before it creates a directory.
 
 ## Platform support
 

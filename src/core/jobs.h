@@ -13,6 +13,7 @@
 #define TNY_JOBS_H
 
 #include "core/config.h"
+#include "core/swarm_manifest.h"
 #include "util/util.h"
 
 #define TNY_JOBS_SCHEMA_VERSION      1
@@ -129,6 +130,28 @@ int tny_jobs_run_cancel(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *o
 int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,
                          size_t errlen, bool (*cancelled)(void *), void *cancel_ud,
                          const char *parent_session);
+
+/* Purposeful definitions enter jobs only through this compiler-owned seam.
+ * Public request JSON cannot confer this authority. The immutable manifest is
+ * checked against every ordered item and coordinator edge before submission.
+ * activation_id is a persisted nonce from the parent session and is copied to
+ * job.json so an interrupted caller can discover exactly its own submission. */
+char *tny_jobs_swarm_detail(tny_ctx *ctx, yyjson_val *args, const tny_swarm_manifest *manifest,
+                            const char *definition_sha256, char **error);
+int tny_jobs_swarm_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen,
+                          bool (*cancelled)(void *), void *cancel_ud, const char *parent_session,
+                          const char *activation_id, const tny_swarm_manifest *manifest,
+                          const char *definition_sha256);
+/* 1: exactly one valid matching run copied to run_id; 0: no record exists and
+ * retry with the same activation is safe; -1: ambiguous or invalid state. */
+int tny_jobs_swarm_recover(tny_ctx *ctx, const char *parent_session, const char *activation_id,
+                           const tny_swarm_manifest *manifest, const char *definition_sha256,
+                           int admission_cap, char run_id[TNY_JOBS_ID_LEN + 1], char *err,
+                           size_t errlen);
+bool tny_jobs_swarm_validate_run(tny_ctx *ctx, const char *run_id, const char *parent_session,
+                                 const char *activation_id, const tny_swarm_manifest *manifest,
+                                 const char *definition_sha256, int admission_cap, char *err,
+                                 size_t errlen);
 
 /* The hidden supervisor entry point: `tny jobs _worker <id>` with the bounded
  * payload on stdin, the acknowledgment pipe on stdout and the live owner lock
