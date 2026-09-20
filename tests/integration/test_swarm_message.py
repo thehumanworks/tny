@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Typed purposeful-swarm messages over the real durable mailbox runtime."""
 
+import fcntl
 import json
 import re
+import shlex
+import subprocess
+import tempfile
 import threading
 import unittest
+from pathlib import Path
 
-from test_jobs import Handler, JobsFixture, argv_without_runner_binary
+from test_jobs import ROOT, Handler, JobsFixture, argv_without_runner_binary
 from test_subagent import chat_frames, tool_outputs, user_texts
 
 
@@ -69,6 +74,36 @@ class SwarmMessage(JobsFixture):
         "topic": "résumé/验证",
         "text": "same evidence ✓",
     }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.binding_tmp = tempfile.TemporaryDirectory(prefix="tny-message-binding-")
+        subprocess.run(["make", "release"], cwd=ROOT, check=True, capture_output=True)
+        plan = subprocess.check_output(
+            ["make", "-n", "-B", "release"], cwd=ROOT, text=True
+        ).splitlines()
+        compile_args = shlex.split(
+            next(
+                line
+                for line in plan
+                if " -o build/rel/src/main.o " in line and " -c " in line
+            )
+        )
+        link = shlex.split(next(line for line in plan if " -o build/tny " in line))
+        obj = str(Path(cls.binding_tmp.name) / "binding.o")
+        compile_args[compile_args.index("-o") + 1] = obj
+        compile_args[compile_args.index("src/main.c")] = (
+            "tests/fixtures/swarm_message_binding.c"
+        )
+        subprocess.run(compile_args, cwd=ROOT, check=True, capture_output=True)
+        cls.binding_driver = str(Path(cls.binding_tmp.name) / "binding")
+        link[link.index("-o") + 1] = cls.binding_driver
+        link[link.index("build/rel/src/main.o")] = obj
+        subprocess.run(link, cwd=ROOT, check=True, capture_output=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.binding_tmp.cleanup()
 
     def setUp(self):
         super().setUp()
@@ -183,6 +218,8 @@ class SwarmMessage(JobsFixture):
                 ), None
             assert json.loads(outputs[-1])["state"] == "queued", outputs[-1]
             return None, "VALIDATION-DONE"
+        if self.scenario == "binding":
+            return None, "BINDING-IDLE"
 
         if tag == "beta":
             if not outputs:
@@ -332,6 +369,71 @@ class SwarmMessage(JobsFixture):
         self.await_terminal(jobs[0].name)
         self.assertEqual(self.errors, [])
         self.assertEqual(self.mailbox()["messages"], [])
+
+    def binding_case(self, mutation):
+        self.scenario = "binding"
+        session_id, run = self.activate("MESSAGE_BINDING_SETUP")
+        job_dir = self.job_dirs()[0]
+        path = job_dir / "job.json"
+        original = path.read_bytes()
+        record = json.loads(original)
+        record["state"] = "running"
+        for item in record["items"]:
+            item["state"] = "queued"
+        # Own this synthetic non-running fixture so status projection does not
+        # correctly classify it as an abandoned supervisor while preparing.
+        with (job_dir / "owner.lock").open("r+b") as owner:
+            fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                path.write_text(json.dumps(record))
+                request = dict(self.envelope, to="beta", id="bound-send-1")
+                result = subprocess.run(
+                    [
+                        self.binding_driver,
+                        str(self.workspace),
+                        session_id,
+                        str(path),
+                        mutation or "unchanged",
+                        json.dumps(request),
+                    ],
+                    env=self.env,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                self.assertEqual(result.returncode, 0, (result.stdout, result.stderr))
+            finally:
+                path.write_bytes(original)
+        messages = self.mailbox()["messages"]
+        if mutation:
+            self.assertEqual(messages, [])
+        else:
+            self.assertEqual(len(messages), 1)
+            self.assertEqual(messages[0]["id"], "bound-send-1")
+
+    def test_prepared_send_succeeds_when_binding_is_unchanged(self):
+        self.binding_case("")
+
+    def test_prepared_send_rejects_changed_recipient_name(self):
+        self.binding_case("recipient_name")
+
+    def test_prepared_send_rejects_changed_recipient_attempt(self):
+        self.binding_case("recipient_attempt")
+
+    def test_prepared_send_rejects_changed_sender_attempt(self):
+        self.binding_case("sender_attempt")
+
+    def test_prepared_send_rejects_changed_active_run(self):
+        self.binding_case("active_run")
+
+    def test_prepared_send_rejects_changed_topology(self):
+        self.binding_case("topology")
+
+    def test_prepared_send_rejects_changed_payload(self):
+        self.binding_case("payload")
+
+    def test_prepared_send_rejects_changed_request_run(self):
+        self.binding_case("request_run")
 
 
 if __name__ == "__main__":

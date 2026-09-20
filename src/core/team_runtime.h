@@ -5,6 +5,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+typedef struct tny_swarm_message_plan tny_swarm_message_plan;
 
 /* Same JSON grammar behind CLI, tools and terminal interception. */
 char *tny_team_mailbox_parse_argv(int argc, char **argv, char *err, size_t errlen);
@@ -17,6 +18,12 @@ int tny_team_mailbox_run(tools_env *env, yyjson_val *args, bool local_operator, 
  * semantics. */
 char *tny_swarm_message_detail(tools_env *env, yyjson_val *args, char *err, size_t errlen);
 int tny_swarm_message_run(tools_env *env, yyjson_val *args, buf_t *out, char *err, size_t errlen);
+char *tny_swarm_message_prepare(tools_env *env, yyjson_val *args, tny_swarm_message_plan **plan,
+                                char *err, size_t errlen);
+int tny_swarm_message_run_prepared(tools_env *env, yyjson_val *args, tny_swarm_message_plan *plan,
+                                   buf_t *out, char *err, size_t errlen);
+void tny_swarm_message_plan_free(tny_swarm_message_plan *plan);
+bool tny_swarm_message_request_equal(yyjson_val *prepared, yyjson_val *current);
 bool tny_swarm_message_id(const char *run, int sender_task, uint32_t job_attempt,
                           uint32_t sender_attempt, int recipient_task, uint32_t recipient_attempt,
                           const char *payload, size_t payload_len, char id[65]);

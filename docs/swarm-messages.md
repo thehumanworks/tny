@@ -40,9 +40,13 @@ ambiguous activation state, mismatched runs, stale attempts, forged member
 environment, unknown names, and non-purposeful DAGs fail closed.
 
 The adapter resolves the recipient from `swarm_root_coordinator` and ordered
-`items[].swarm_name` fields in the service-owned current run projection. The final
-send goes through the unchanged locked mailbox authorization and endpoint-attempt
-checks. Peer-to-peer messages therefore still require the run's existing peer
+`items[].swarm_name` fields in the service-owned current run projection. Permission
+preparation privately retains the authenticated sender attempt, exact recipient
+name/task/attempt, topology digest, canonical envelope and ID. Execution sends that
+snapshot to the captured mailbox endpoint without resolving model arguments again.
+Under the mailbox lock it verifies that the topology digest and name mapping are
+unchanged; changed sender, recipient or run attempts are stale and have no message
+effect. Peer-to-peer messages therefore still require the run's existing peer
 messaging authority; parent/member direction and terminal-state rules are
 unchanged.
 

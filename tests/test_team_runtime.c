@@ -251,6 +251,31 @@ TEST swarm_message_ids_and_context_are_attempt_scoped(void) {
     PASS();
 }
 
+TEST swarm_message_prepared_request_rejects_changed_payload_and_run(void) {
+    const char *base = "{\"to\":\"beta\",\"kind\":\"finding\",\"topic\":\"t\","
+                       "\"text\":\"x\",\"id\":\"m1\",\"run\":\"0123456789abcdef0123456789abcdef\"}";
+    const char *same = "{\"run\":\"0123456789abcdef0123456789abcdef\",\"id\":\"m1\","
+                       "\"text\":\"x\",\"topic\":\"t\",\"kind\":\"finding\",\"to\":\"beta\"}";
+    const char *changed_payload =
+        "{\"to\":\"beta\",\"kind\":\"finding\",\"topic\":\"t\",\"text\":\"changed\","
+        "\"id\":\"m1\",\"run\":\"0123456789abcdef0123456789abcdef\"}";
+    const char *changed_run = "{\"to\":\"beta\",\"kind\":\"finding\",\"topic\":\"t\","
+                              "\"text\":\"x\",\"id\":\"m1\","
+                              "\"run\":\"ffffffffffffffffffffffffffffffff\"}";
+    yyjson_doc *docs[4] = {jparse(base, strlen(base)), jparse(same, strlen(same)),
+                           jparse(changed_payload, strlen(changed_payload)),
+                           jparse(changed_run, strlen(changed_run))};
+    for (size_t i = 0; i < 4; ++i) ASSERT(docs[i]);
+    ASSERT(tny_swarm_message_request_equal(yyjson_doc_get_root(docs[0]),
+                                           yyjson_doc_get_root(docs[1])));
+    ASSERT_FALSE(tny_swarm_message_request_equal(yyjson_doc_get_root(docs[0]),
+                                                 yyjson_doc_get_root(docs[2])));
+    ASSERT_FALSE(tny_swarm_message_request_equal(yyjson_doc_get_root(docs[0]),
+                                                 yyjson_doc_get_root(docs[3])));
+    for (size_t i = 0; i < 4; ++i) yyjson_doc_free(docs[i]);
+    PASS();
+}
+
 static bool schema_has(const char *schema, const char *name) {
     yyjson_doc *doc = jparse(schema, strlen(schema));
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
@@ -364,6 +389,7 @@ SUITE(team_runtime_suite) {
     RUN_TEST(linux_team_watch_rejects_lost_or_malformed_events);
     RUN_TEST(collective_mailbox_schema_and_permission_identity);
     RUN_TEST(swarm_message_ids_and_context_are_attempt_scoped);
+    RUN_TEST(swarm_message_prepared_request_rejects_changed_payload_and_run);
     RUN_TEST(swarm_message_profile_and_unsupported_boundaries_are_explicit);
     RUN_TEST(swarm_count_and_failed_resume_are_bounded);
     RUN_TEST(team_owned_background_is_refused_without_a_task_record);

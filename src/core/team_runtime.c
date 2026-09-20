@@ -21,6 +21,25 @@ typedef struct {
     tny_mailbox_service service;
 } team_caller;
 
+struct tny_swarm_message_plan {
+    char *job_dir;
+    char *payload;
+    char *request_snapshot;
+    size_t payload_len;
+    tny_mailbox_identity sender;
+    tny_mailbox_recipient recipient;
+    char topology_digest[65];
+    char recipient_name[65];
+    char topic[SWARM_MESSAGE_TOPIC_MAX + 1];
+    char id[65];
+};
+
+typedef struct {
+    tools_env *env;
+    tny_swarm_message_plan *plan;
+    bool stale;
+} swarm_message_authority;
+
 static bool delivery_retry(tools_env *env, int64_t deadline);
 
 static void hex_digest(const uint8_t *bytes, size_t len, char *out) {
@@ -112,6 +131,32 @@ static bool swarm_message_envelope(yyjson_val *args, buf_t *payload) {
     jescape(payload, jget_str(args, "text"));
     buf_appends(payload, "}");
     return !buf_oom(payload) && payload->len <= TNY_MAILBOX_PAYLOAD_MAX;
+}
+
+static bool swarm_message_request_snapshot(yyjson_val *args, buf_t *snapshot) {
+    if (!swarm_message_request_valid(args)) return false;
+    static const char *const fields[] = {"to", "kind", "topic", "text", "id", "run"};
+    buf_appends(snapshot, "{");
+    for (size_t i = 0; i < sizeof fields / sizeof *fields; ++i) {
+        if (i) buf_appends(snapshot, ",");
+        jescape(snapshot, fields[i]);
+        buf_appends(snapshot, ":");
+        const char *value = jget_str(args, fields[i]);
+        if (value) jescape(snapshot, value);
+        else buf_appends(snapshot, "null");
+    }
+    buf_appends(snapshot, "}");
+    return !buf_oom(snapshot);
+}
+
+bool tny_swarm_message_request_equal(yyjson_val *prepared, yyjson_val *current) {
+    buf_t first = {0}, second = {0};
+    bool equal = swarm_message_request_snapshot(prepared, &first) &&
+                 swarm_message_request_snapshot(current, &second) && first.len == second.len &&
+                 memcmp(first.data, second.data, first.len) == 0;
+    buf_free(&first);
+    buf_free(&second);
+    return equal;
 }
 
 bool tny_team_capability_matches(yyjson_val *root, int task, int attempt, const char *token) {
@@ -513,9 +558,19 @@ static bool swarm_message_authenticate(team_caller *caller, char *err, size_t ca
     return false;
 }
 
-char *tny_swarm_message_detail(tools_env *env, yyjson_val *args, char *err, size_t cap) {
+void tny_swarm_message_plan_free(tny_swarm_message_plan *plan) {
+    if (!plan) return;
+    free(plan->job_dir);
+    free(plan->payload);
+    free(plan->request_snapshot);
+    free(plan);
+}
+
+char *tny_swarm_message_prepare(tools_env *env, yyjson_val *args, tny_swarm_message_plan **prepared,
+                                char *err, size_t cap) {
+    if (prepared) *prepared = NULL;
     if (!env || !env->ctx || env->ctx->library_mode || env->ctx->ssh_host ||
-        !tny_jobs_execution_supported()) {
+        !tny_jobs_execution_supported() || !prepared) {
         snprintf(err, cap, "swarm_message requires a native local CLI runner");
         return NULL;
     }
@@ -552,9 +607,54 @@ char *tny_swarm_message_detail(tools_env *env, yyjson_val *args, char *err, size
         }
     }
     if (!detail && !err[0]) snprintf(err, cap, "swarm_message payload is too large");
+    tny_swarm_message_plan *plan = detail ? calloc(1, sizeof *plan) : NULL;
+    if (plan) {
+        const char *explicit_id = jget_str(args, "id");
+        plan->job_dir = caller.dir;
+        caller.dir = NULL;
+        plan->payload_len = payload.len;
+        plan->payload = buf_detach(&payload);
+        buf_t request_snapshot = {0};
+        if (swarm_message_request_snapshot(args, &request_snapshot))
+            plan->request_snapshot = buf_detach(&request_snapshot);
+        buf_free(&request_snapshot);
+        plan->sender = caller.identity;
+        plan->recipient = recipient;
+        snprintf(plan->topology_digest, sizeof plan->topology_digest, "%s",
+                 jget_str(yyjson_doc_get_root(doc), "swarm_definition_sha256"));
+        snprintf(plan->recipient_name, sizeof plan->recipient_name, "%s", jget_str(args, "to"));
+        snprintf(plan->topic, sizeof plan->topic, "%s", jget_str(args, "topic"));
+        if (!plan->payload || !plan->request_snapshot) {
+            snprintf(err, cap, "could not retain prepared swarm_message");
+            free(detail);
+            detail = NULL;
+        } else if (explicit_id) snprintf(plan->id, sizeof plan->id, "%s", explicit_id);
+        else if (!tny_swarm_message_id(plan->sender.run, plan->sender.task,
+                                       plan->sender.job_attempt, plan->sender.task_attempt,
+                                       plan->recipient.task, plan->recipient.task_attempt,
+                                       plan->payload, plan->payload_len, plan->id)) {
+            snprintf(err, cap, "could not derive swarm_message id");
+            free(detail);
+            detail = NULL;
+        }
+    }
+    if (!plan && detail) {
+        snprintf(err, cap, "could not retain prepared swarm_message");
+        free(detail);
+        detail = NULL;
+    }
+    if (detail) *prepared = plan;
+    else tny_swarm_message_plan_free(plan);
     buf_free(&payload);
     free(caller.dir);
     yyjson_doc_free(doc);
+    return detail;
+}
+
+char *tny_swarm_message_detail(tools_env *env, yyjson_val *args, char *err, size_t cap) {
+    tny_swarm_message_plan *plan = NULL;
+    char *detail = tny_swarm_message_prepare(env, args, &plan, err, cap);
+    tny_swarm_message_plan_free(plan);
     return detail;
 }
 
@@ -859,55 +959,81 @@ bool tny_swarm_message_id(const char *run, int sender_task, uint32_t job_attempt
     return true;
 }
 
-int tny_swarm_message_run(tools_env *env, yyjson_val *args, buf_t *out, char *err, size_t cap) {
-    if (!env || !env->ctx || !swarm_message_request_valid(args)) {
-        snprintf(err, cap, "invalid swarm_message request");
+static bool swarm_message_plan_matches(const tny_swarm_message_plan *plan, yyjson_val *args) {
+    buf_t current = {0};
+    bool matches = plan && plan->request_snapshot &&
+                   swarm_message_request_snapshot(args, &current) &&
+                   current.len == strlen(plan->request_snapshot) &&
+                   memcmp(current.data, plan->request_snapshot, current.len) == 0;
+    buf_free(&current);
+    return matches;
+}
+
+static bool swarm_message_plan_authorize(void *userdata, const tny_mailbox_identity *caller,
+                                         const char *json, size_t len, bool *peers) {
+    swarm_message_authority *authority = userdata;
+    tny_swarm_message_plan *plan = authority->plan;
+    yyjson_doc *doc = jparse(json, len);
+    yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+    tny_mailbox_recipient recipient = {0};
+    char why[160] = "";
+    const char *digest = jget_str(root, "swarm_definition_sha256");
+    *peers = jget_bool(root, "peer_messages", false);
+    yyjson_val *sender = plan->sender.task >= 0
+                             ? yyjson_arr_get(jget(root, "items"), (size_t)plan->sender.task)
+                             : NULL;
+    if (jget_int(root, "attempt", 0) != plan->sender.job_attempt ||
+        (plan->sender.task >= 0 && jget_int(sender, "attempt", 0) != plan->sender.task_attempt) ||
+        !digest || strcmp(digest, plan->topology_digest) != 0 ||
+        !swarm_message_recipient(root, plan->recipient_name, &recipient, why, sizeof why) ||
+        recipient.task != plan->recipient.task ||
+        recipient.task_attempt != plan->recipient.task_attempt) {
+        authority->stale = true;
+        yyjson_doc_free(doc);
+        return false;
+    }
+    bool allowed = tny_team_record_authority(authority->env, root, false) == caller->task;
+    yyjson_doc_free(doc);
+    return allowed;
+}
+
+int tny_swarm_message_run_prepared(tools_env *env, yyjson_val *args, tny_swarm_message_plan *plan,
+                                   buf_t *out, char *err, size_t cap) {
+    if (!env || !env->ctx || !out || !swarm_message_plan_matches(plan, args)) {
+        snprintf(err, cap, "%s", tny_team_mailbox_error(TNY_MAILBOX_STALE));
         return 1;
     }
     if (env->ctx->library_mode || env->ctx->ssh_host || !tny_jobs_execution_supported()) {
         snprintf(err, cap, "swarm_message requires a native local CLI runner");
         return 1;
     }
-    yyjson_doc *doc = NULL;
-    team_caller caller;
-    tny_mailbox_recipient recipient;
-    char run[33];
-    if (!swarm_message_resolve(env, args, &doc, &caller, &recipient, run, err, cap)) return 1;
-    buf_t payload = {0};
-    if (!swarm_message_envelope(args, &payload)) {
-        snprintf(err, cap, "swarm_message payload is too large");
-        free(caller.dir);
-        yyjson_doc_free(doc);
-        buf_free(&payload);
+    char current_run[33];
+    if (!swarm_message_context(env, args, current_run, err, cap) ||
+        strcmp(current_run, plan->sender.run) != 0) {
+        snprintf(err, cap, "%s", tny_team_mailbox_error(TNY_MAILBOX_STALE));
         return 1;
     }
-    char generated[65];
-    const char *id = jget_str(args, "id");
-    if (!id && !tny_swarm_message_id(caller.identity.run, caller.identity.task,
-                                     caller.identity.job_attempt, caller.identity.task_attempt,
-                                     recipient.task, recipient.task_attempt, payload.data,
-                                     payload.len, generated)) {
-        snprintf(err, cap, "could not derive swarm_message id");
-        free(caller.dir);
-        yyjson_doc_free(doc);
-        buf_free(&payload);
-        return 1;
-    }
-    if (!id) id = generated;
+    swarm_message_authority authority = {.env = env, .plan = plan};
+    tny_mailbox_service service = {.job_dir = plan->job_dir,
+                                   .native_local = true,
+                                   .authorize = swarm_message_plan_authorize,
+                                   .userdata = &authority};
     tny_mailbox_message receipt = {0};
     tny_mailbox_rc rc;
     int64_t deadline = monotonic_ms() + TEAM_LOCK_WAIT_MS;
     do {
-        rc = tny_team_mailbox_send(&caller.service, &caller.identity, recipient, id, payload.data,
-                                   payload.len, &receipt);
+        authority.stale = false;
+        rc = tny_team_mailbox_send(&service, &plan->sender, plan->recipient, plan->id,
+                                   plan->payload, plan->payload_len, &receipt);
     } while (rc == TNY_MAILBOX_BUSY && delivery_retry(env, deadline));
+    if (rc == TNY_MAILBOX_DENIED && authority.stale) rc = TNY_MAILBOX_STALE;
     if (rc == TNY_MAILBOX_OK) {
         buf_appends(out, "{\"kind\":\"swarm_message_receipt\",\"id\":");
         jescape(out, receipt.id);
         buf_appends(out, ",\"topic\":");
-        jescape(out, jget_str(args, "topic"));
+        jescape(out, plan->topic);
         buf_appends(out, ",\"recipient\":");
-        jescape(out, jget_str(args, "to"));
+        jescape(out, plan->recipient_name);
         buf_appendf(out, ",\"sequence\":%llu,\"state\":", (unsigned long long)receipt.sequence);
         jescape(out, receipt.state == TNY_MAILBOX_RETIRED     ? "retired"
                      : receipt.state == TNY_MAILBOX_ACKED     ? "acknowledged"
@@ -917,10 +1043,17 @@ int tny_swarm_message_run(tools_env *env, yyjson_val *args, buf_t *out, char *er
     } else {
         snprintf(err, cap, "%s", tny_team_mailbox_error(rc));
     }
-    buf_free(&payload);
-    free(caller.dir);
-    yyjson_doc_free(doc);
     return rc == TNY_MAILBOX_OK && !buf_oom(out) ? 0 : 1;
+}
+
+int tny_swarm_message_run(tools_env *env, yyjson_val *args, buf_t *out, char *err, size_t cap) {
+    tny_swarm_message_plan *plan = NULL;
+    char *detail = tny_swarm_message_prepare(env, args, &plan, err, cap);
+    if (!detail) return 1;
+    free(detail);
+    int rc = tny_swarm_message_run_prepared(env, args, plan, out, err, cap);
+    tny_swarm_message_plan_free(plan);
+    return rc;
 }
 
 static yyjson_mut_val *session_array(tny_session_state *s, const char *name) {

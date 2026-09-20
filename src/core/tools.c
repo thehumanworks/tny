@@ -841,7 +841,8 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         free(call->permission_tool);
         call->permission_tool = xstrdup("team_send");
         char why[320] = "";
-        call->detail = tny_swarm_message_detail(env, call->args, why, sizeof why);
+        call->detail =
+            tny_swarm_message_prepare(env, call->args, &call->swarm_message_plan, why, sizeof why);
         if (!call->permission_tool || !call->detail) {
             call->error = tool_err("%s", why[0] ? why : "invalid swarm_message request");
             return -1;
@@ -980,7 +981,8 @@ char *tools_call_execute(tools_env *env, tools_call *call) {
     if (strcmp(name, "swarm_message") == 0) {
         buf_t result = {0};
         char why[320] = "";
-        int rc = tny_swarm_message_run(env, args, &result, why, sizeof why);
+        int rc = tny_swarm_message_run_prepared(env, args, call->swarm_message_plan, &result, why,
+                                                sizeof why);
         if (rc) {
             buf_free(&result);
             return tool_err("%s", why[0] ? why : "swarm_message failed");
@@ -1031,6 +1033,7 @@ void tools_call_release_storage(tools_call *call) {
     free(call->error);
     tool_image_plan_free(call->image_plan);
     tny_image_preview_selection_free(call->image_selection);
+    tny_swarm_message_plan_free(call->swarm_message_plan);
     tny_intercept_free(call->intercept);
     yyjson_doc_free(call->doc);
     memset(call, 0, sizeof *call);
