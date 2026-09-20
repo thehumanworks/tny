@@ -118,7 +118,9 @@ class SwarmMessage(JobsFixture):
 
     def write_definition(self):
         path = self.workspace / "swarm.json"
-        path.write_text(json.dumps(definition()))
+        path.write_text(
+            json.dumps(getattr(self, "definition_override", None) or definition())
+        )
         return path
 
     def call(self, identity, arguments):
@@ -141,9 +143,16 @@ class SwarmMessage(JobsFixture):
                 return self.call("denied", self.envelope), None
             assert "permission denied for team_send" in outputs[-1], outputs[-1]
             return None, "DENIAL-OBSERVED"
-        if self.scenario == "peer":
+        if self.scenario in ("peer", "queued_coordinator"):
             if tag == "alpha":
                 if not outputs:
+                    if self.scenario == "queued_coordinator":
+                        record = json.loads(
+                            (self.job_dirs()[0] / "job.json").read_text()
+                        )
+                        assert record["items"][0]["swarm_name"] == "beta"
+                        assert record["items"][0]["state"] == "queued"
+                        assert not self.bodies.get("beta")
                     return self.call(
                         "peer-finding", dict(self.envelope, to="beta")
                     ), None
@@ -159,7 +168,10 @@ class SwarmMessage(JobsFixture):
                 ), None
             if len(outputs) == 1:
                 received = json.loads(outputs[-1])["messages"]
-                assert len(received) == 1 and received[0]["sender"] == 0, outputs[-1]
+                sender = 1 if self.scenario == "queued_coordinator" else 0
+                assert len(received) == 1 and received[0]["sender"] == sender, outputs[
+                    -1
+                ]
                 self.receipts["peer"] = received[0]["id"]
                 return (
                     "ack-peer",
@@ -267,6 +279,41 @@ class SwarmMessage(JobsFixture):
         self.await_terminal(run)
         self.assertEqual(self.errors, [])
         return sessions[0].parent.name, run
+
+    def test_typed_evidence_reaches_dependency_delayed_nested_coordinator(self):
+        self.scenario = "queued_coordinator"
+        value = definition()
+        value["version"] = 2
+        value["agents"] = []
+        value["swarms"] = [
+            {
+                "purpose": "Synthesize a causal contribution without idle provider turns.",
+                "coordinator": {
+                    "name": "beta",
+                    "purpose": "Synthesize after evidence arrives.",
+                    "depends_on": ["alpha"],
+                },
+                "agents": [
+                    {"name": "alpha", "purpose": "Send independent peer evidence."}
+                ],
+                "swarms": [],
+            }
+        ]
+        self.definition_override = value
+        _, run = self.activate("QUEUED_PEER_FLOW")
+        self.assertEqual(len(self.bodies["alpha"]), 2)
+        first_beta_context = "\n".join(user_texts(self.bodies["beta"][0], "chat"))
+        self.assertIn("ALPHA-PEER-DONE", first_beta_context)
+        self.assertIn('"kind":"finding"', first_beta_context)
+        record = json.loads((self.job_dirs()[0] / "job.json").read_text())
+        self.assertEqual(record["state"], "succeeded")
+        self.assertEqual(record["items"][0]["depends_on"], [1])
+        messages = self.mailbox()["messages"]
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]["recipient_task"], 0)
+        self.assertEqual(messages[0]["state"], 2)
+        self.assertEqual(messages[1]["recipient_task"], -1)
+        self.assertEqual(json.loads(messages[1]["payload"])["kind"], "handoff")
 
     def test_two_peers_retry_conflict_delivery_and_manual_ack(self):
         session_id, run = self.activate("MESSAGE_FLOW")

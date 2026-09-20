@@ -2682,10 +2682,15 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
             jm_set_str(doc, item, "workspace_base",
                        jget_str(jget(request->items[i], "workspace"), "base"));
             static const char *const swarm_strings[] = {"swarm_name", "swarm_role", "swarm_purpose",
-                                                        "swarm_group_purpose", "swarm_deliverable"};
+                                                        "swarm_group_purpose"};
             for (size_t k = 0; k < sizeof swarm_strings / sizeof swarm_strings[0]; ++k)
                 jm_set_str(doc, item, swarm_strings[k],
                            jget_str(request->items[i], swarm_strings[k]));
+            /* Optional v2 fields must remain absent in v1 and when undeclared;
+             * a persisted null would violate the closed manifest on resume. */
+            if (jget_str(request->items[i], "swarm_deliverable"))
+                jm_set_str(doc, item, "swarm_deliverable",
+                           jget_str(request->items[i], "swarm_deliverable"));
             if (jget(request->items[i], "swarm_group")) {
                 jm_set_int(doc, item, "swarm_group",
                            jget_int(request->items[i], "swarm_group", -1));
@@ -3144,7 +3149,8 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
         if (request->swarm_definition_sha256 &&
             request->swarm_manifest_version == TNY_SWARM_MANIFEST_VERSION_V2) {
             jm_set_int(doc, root, "swarm_manifest_version", request->swarm_manifest_version);
-            jm_set_str(doc, root, "swarm_root_deliverable", request->swarm_root_deliverable);
+            if (request->swarm_root_deliverable)
+                jm_set_str(doc, root, "swarm_root_deliverable", request->swarm_root_deliverable);
             if (request->swarm_root_acceptance)
                 yyjson_mut_obj_put(root, yyjson_mut_strcpy(doc, "swarm_root_acceptance"),
                                    yyjson_val_mut_copy(doc, request->swarm_root_acceptance));
@@ -3191,10 +3197,15 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
             const char *role = jget_str(request->items[i], "role");
             jm_set_str(doc, item, "role", role ? role : "worker");
             static const char *const swarm_strings[] = {"swarm_name", "swarm_role", "swarm_purpose",
-                                                        "swarm_group_purpose", "swarm_deliverable"};
+                                                        "swarm_group_purpose"};
             for (size_t k = 0; k < sizeof swarm_strings / sizeof swarm_strings[0]; ++k)
                 jm_set_str(doc, item, swarm_strings[k],
                            jget_str(request->items[i], swarm_strings[k]));
+            /* Optional v2 fields must remain absent in v1 and when undeclared;
+             * a persisted null would violate the closed manifest on resume. */
+            if (jget_str(request->items[i], "swarm_deliverable"))
+                jm_set_str(doc, item, "swarm_deliverable",
+                           jget_str(request->items[i], "swarm_deliverable"));
             if (jget(request->items[i], "swarm_group")) {
                 jm_set_int(doc, item, "swarm_group",
                            jget_int(request->items[i], "swarm_group", -1));

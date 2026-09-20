@@ -163,6 +163,26 @@ class PurposefulSwarm(JobsFixture):
         self.assertIn(b"differs from the saved session", refused.stderr)
         self.assertEqual(len(self.state["bodies"]), before_requests)
 
+    def test_v2_omitted_optional_fields_roundtrip_without_null_metadata(self):
+        value = definition()
+        value["version"] = 2
+        path = self.write_definition(value)
+        self.run_tny("--swarm-file", str(path), "ask", "OPTIONAL_ROOT", timeout=30)
+        session_path, saved = self.saved_session()
+        run_id = saved["swarm_definition"]["run_id"]
+        self.await_terminal(run_id)
+        job = json.loads((self.home / ".tny/jobs" / run_id / "job.json").read_text())
+        self.assertNotIn("swarm_root_deliverable", job)
+        for item in job["items"]:
+            self.assertNotIn("swarm_deliverable", item)
+            self.assertEqual(item["workspace_policy"], "shared_writable")
+        before = len(self.state["bodies"])
+        self.run_tny(
+            "--resume", session_path.parent.name, "ask", "AFTER_OPTIONAL", timeout=30
+        )
+        self.assertEqual(len(self.state["bodies"]), before + 1)
+        self.assertEqual(len(list((self.home / ".tny/jobs").glob("*/job.json"))), 1)
+
     def test_activation_honors_denial_and_unresolved_ask_without_submitting(self):
         path = self.write_definition()
         settings = self.home / ".tny" / "settings.json"
