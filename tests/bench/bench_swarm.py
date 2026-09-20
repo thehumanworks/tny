@@ -60,8 +60,11 @@ def tny_metrics(home: Path, lead_events: Path) -> dict[str, Any]:
         "tool_calls": 0,
     }
     sessions = []
+    saved_session_ids: set[str] = set()
+    observed_session_ids: set[str] = set()
     for path in sorted((home / ".tny/sessions").rglob("session.json")):
         value = json.loads(path.read_text())
+        saved_session_ids.add(value.get("id") or path.parent.name)
         usage = value.get("usage", {})
         totals["tool_calls"] += sum(
             len(message.get("tool_calls", [])) for message in value.get("messages", [])
@@ -86,6 +89,12 @@ def tny_metrics(home: Path, lead_events: Path) -> dict[str, Any]:
             if isinstance(usage.get(source), int):
                 totals[target] += usage[source]
     event_files = [lead_events, *(home / ".tny/jobs").rglob("*.log")]
+    for path in event_files:
+        observed_session_ids.update(
+            event["session_id"]
+            for event in records(path)
+            if isinstance(event.get("session_id"), str) and event["session_id"]
+        )
     executed_tool_calls = sum(
         event.get("type") == "tool_start"
         for path in event_files
@@ -138,22 +147,32 @@ def tny_metrics(home: Path, lead_events: Path) -> dict[str, Any]:
                 and recipient == items[sender].get("swarm_parent_coordinator_task", -2)
             ):
                 coordination["coordinator_upward_messages"] += 1
-        jobs.append(
-            {
-                "state": value.get("state"),
-                "items": [
-                    {
-                        "label": item.get("label"),
-                        "state": item.get("state"),
-                        "model": item.get("model"),
-                        "attempt": item.get("attempt"),
-                        "usage_known": item.get("usage_known"),
-                        "launched": bool(item.get("session_id")),
-                    }
-                    for item in value.get("items", [])
-                ],
-            }
-        )
+        measured_items = []
+        for index, item in enumerate(items):
+            # Failed/cancelled items can clear session_id while their sessions and
+            # immutable attempt logs remain. A reservation alone is not a launch.
+            identities = {item["session_id"]} if item.get("session_id") else set()
+            for log in path.parent.glob(f"attempt-*-item-{index}.log"):
+                identities.update(
+                    event["session_id"]
+                    for event in records(log)
+                    if isinstance(event.get("session_id"), str) and event["session_id"]
+                )
+            observed_session_ids.update(identities)
+            measured_items.append(
+                {
+                    "label": item.get("label"),
+                    "state": item.get("state"),
+                    "model": item.get("model"),
+                    "attempt": item.get("attempt"),
+                    "usage_known": item.get("usage_known"),
+                    "launched": bool(identities),
+                    "observed_sessions": len(identities),
+                    "exit_code": item.get("exit_code"),
+                    "error_code": item.get("error_code"),
+                }
+            )
+        jobs.append({"state": value.get("state"), "items": measured_items})
     return {
         **totals,
         "executed_tool_calls": executed_tool_calls,
@@ -165,6 +184,7 @@ def tny_metrics(home: Path, lead_events: Path) -> dict[str, Any]:
             item["launched"] for job in jobs for item in job["items"]
         ),
         "usage_complete": bool(sessions)
+        and observed_session_ids <= saved_session_ids
         and all(
             s["input_tokens"] is not None and s["output_tokens"] is not None
             for s in sessions
@@ -208,12 +228,13 @@ def codex_metrics(codex_home: Path, lead_events: Path) -> dict[str, Any]:
                 "local_shell_call",
             ):
                 tool_calls += 1
-        if last_usage:
-            sessions[identity] = {
-                **last_usage,
-                "completed": completed,
-                "models": sorted(models),
-            }
+        # Retain rollouts with missing usage: dropping them would silently
+        # undercount failed children and claim complete accounting.
+        sessions[identity] = {
+            **(last_usage or {}),
+            "completed": completed,
+            "models": sorted(models),
+        }
     events = records(lead_events)
     # Fallback is explicitly partial if the installed CLI does not emit rollout usage.
     fallback = False
@@ -247,7 +268,13 @@ def codex_metrics(codex_home: Path, lead_events: Path) -> dict[str, Any]:
         "sessions": list(sessions.values()),
         "session_count": len(sessions),
         "launched_collaborators": max(0, len(sessions) - 1),
-        "usage_complete": bool(sessions) and not fallback,
+        "usage_complete": bool(sessions)
+        and not fallback
+        and all(
+            isinstance(s.get("input_tokens"), int)
+            and isinstance(s.get("output_tokens"), int)
+            for s in sessions.values()
+        ),
         "cache_coverage_complete": bool(sessions)
         and all("cached_input_tokens" in item for item in sessions.values()),
         "root_stream_turn_completed": any(

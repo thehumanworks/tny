@@ -96,3 +96,12 @@ are diagnostic evidence, not release-candidate timing claims. They demonstrate
 that a fixed review roster imposes overhead on a trivial task; extra agents are
 not automatically an optimization. Final candidate results must be reported
 separately, including unsuccessful trials.
+
+## Failed-attempt accounting correction
+
+Failed/cancelled job items can clear their current `session_id` even though their
+attempt logs and model sessions survive. Accounting now uses those observed session
+identities, not successful-item metadata, to count collaborators. A reservation is
+not evidence of a launch. A referenced tny session without usage or a Codex rollout
+without cumulative usage makes coverage incomplete. Failed job states remain failures;
+this correction changes neither generated artifacts nor their original timing.

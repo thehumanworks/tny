@@ -60,7 +60,11 @@ class BenchmarkTests(unittest.TestCase):
             ):
                 directory = root / ".tny/sessions" / str(index)
                 directory.mkdir(parents=True)
-                (directory / "session.json").write_text(json.dumps({"usage": usage}))
+                (directory / "session.json").write_text(
+                    json.dumps(
+                        {"id": "parent" if index == 0 else "child", "usage": usage}
+                    )
+                )
             job = root / ".tny/jobs/run"
             job.mkdir(parents=True)
             (job / "job.json").write_text(
@@ -81,6 +85,75 @@ class BenchmarkTests(unittest.TestCase):
             self.assertEqual(report["output_tokens"], 13)
             self.assertEqual(report["launched_collaborators"], 1)
             self.assertTrue(report["usage_complete"])
+            self.assertFalse(report["cache_coverage_complete"])
+
+    def test_failed_tny_child_is_counted_from_attempt_log_and_missing_usage_is_explicit(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = root / ".tny/sessions/parent"
+            parent.mkdir(parents=True)
+            (parent / "session.json").write_text(
+                json.dumps({"id": "parent", "usage": {"in": 10, "out": 2}})
+            )
+            job = root / ".tny/jobs/run"
+            job.mkdir(parents=True)
+            (job / "job.json").write_text(
+                json.dumps(
+                    {
+                        "state": "failed",
+                        "items": [
+                            {"state": "failed", "session_id": None, "exit_code": 2},
+                            {"state": "failed", "launch_claimed": True},
+                        ],
+                    }
+                )
+            )
+            (job / "attempt-1-item-0.log").write_text(
+                json.dumps({"type": "turn_end", "session_id": "child"})
+            )
+            report = bench.tny_metrics(root, root / "missing-lead")
+            self.assertEqual(report["launched_collaborators"], 1)
+            self.assertFalse(report["usage_complete"])
+            self.assertEqual(report["jobs"][0]["items"][0]["exit_code"], 2)
+            child = root / ".tny/sessions/child"
+            child.mkdir()
+            (child / "session.json").write_text(
+                json.dumps({"id": "child", "usage": {"in": 20, "out": 3}})
+            )
+            report = bench.tny_metrics(root, root / "missing-lead")
+            self.assertEqual(report["input_tokens"], 30)
+            self.assertEqual(report["launched_collaborators"], 1)
+            self.assertTrue(report["usage_complete"])
+
+    def test_codex_missing_child_usage_is_not_silently_dropped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "sessions").mkdir()
+            (root / "sessions/child.jsonl").write_text(
+                json.dumps({"type": "session_meta", "payload": {"id": "child"}})
+            )
+            (root / "sessions/parent.jsonl").write_text(
+                json.dumps(
+                    {
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "total_token_usage": {
+                                    "input_tokens": 10,
+                                    "output_tokens": 2,
+                                }
+                            },
+                        },
+                    }
+                )
+            )
+            report = bench.codex_metrics(root, root / "missing-lead")
+            self.assertEqual(report["session_count"], 2)
+            self.assertEqual(report["launched_collaborators"], 1)
+            self.assertFalse(report["usage_complete"])
             self.assertFalse(report["cache_coverage_complete"])
 
     def test_codex_uses_last_cumulative_usage_in_each_session(self):
