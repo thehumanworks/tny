@@ -4084,10 +4084,74 @@ static bool swarm_incomplete_record_safe(tny_ctx *ctx, const char *id) {
 }
 #endif
 
-static bool swarm_record_matches(yyjson_val *root, const char *id, const char *parent_session,
-                                 const char *activation_id, const tny_swarm_manifest *manifest,
-                                 const char *definition_sha256, int admission_cap, char *err,
-                                 size_t errlen) {
+/* Restore must not turn a static contract match into trust in altered results.
+ * Live owners may still be finalizing workspaces; complete jobs additionally
+ * re-open each isolated workspace by its confined identity and verify its snapshot. */
+static bool swarm_dynamic_record_valid(tny_ctx *ctx, yyjson_val *record, const char *id, char *err,
+                                       size_t errlen) {
+    tny::mutable_document copy(yyjson_mut_doc_new(jallocator()));
+    yyjson_mut_val *root = copy ? yyjson_val_mut_copy(copy.get(), record) : NULL;
+    if (!root) return false;
+    yyjson_mut_doc_set_root(copy.get(), root);
+    /* Purposeful retry is refused by jobs_retry; every supported activation
+     * therefore has exactly its original attempt. Do not adopt fabricated retries. */
+    if (!yyjson_is_uint(jget(record, "attempt")) || jget_int(record, "attempt", 0) != 1 ||
+        !record_state_is_known(jget(record, "state"))) {
+        safe_err(err, errlen, "purposeful swarm attempt or state is invalid");
+        return false;
+    }
+    bool complete = state_is_terminal(jget_str(record, "state"));
+    for (int i = 0; i < jm_item_count(copy.get()); i++) {
+        yyjson_mut_val *item = jm_item(copy.get(), i);
+        yyjson_mut_val *attempt = yyjson_mut_obj_get(item, "attempt");
+        const char *state = jm_str(item, "state");
+        if (!yyjson_mut_is_uint(attempt) || jm_int(item, "attempt", 0) != 1 || !state) {
+            safe_err(err, errlen, "purposeful participant attempt is invalid");
+            return false;
+        }
+        const char *bound = jm_str(item, "dependency_sha256");
+        bool succeeded = strcmp(state, "succeeded") == 0;
+        if (bound || succeeded) {
+            tny::c_string actual(dag_dependency_hash(copy.get(), item));
+            if (!bound || !actual || strcmp(bound, actual.get()) != 0) {
+                safe_err(err, errlen, "purposeful participant dependency evidence changed");
+                return false;
+            }
+        }
+        if (!succeeded) continue;
+        if (verify_carried_success(ctx, item, false, err, errlen) != 0) return false;
+        const char *policy = jm_str(item, "workspace_policy");
+        if (!complete || !policy || strcmp(policy, "isolated") != 0) continue;
+        task_workspace_id identity = {id, i, 1};
+        task_workspace *workspace = NULL;
+        task_workspace_result actual{};
+        bool ok = task_workspace_open(ctx->cwd, identity, &workspace, err, errlen) == 0 &&
+                  task_workspace_inspect(workspace, &actual, err, errlen) == 0;
+        const char *keys[] = {"workspace_cwd",    "workspace_branch",   "workspace_base",
+                              "workspace_origin", "workspace_revision", "workspace_patch",
+                              "workspace_status"};
+        const char *values[] = {actual.path,     actual.branch, actual.base,  actual.origin,
+                                actual.revision, actual.patch,  actual.status};
+        for (size_t k = 0; ok && k < sizeof keys / sizeof keys[0]; k++) {
+            const char *saved = jm_str(item, keys[k]);
+            ok = saved && values[k] && strcmp(saved, values[k]) == 0;
+        }
+        ok = ok && yyjson_mut_is_bool(yyjson_mut_obj_get(item, "workspace_dirty")) &&
+             jm_bool(item, "workspace_dirty", false) == actual.dirty;
+        task_workspace_result_free(&actual);
+        task_workspace_close(workspace);
+        if (!ok) {
+            safe_err(err, errlen, "purposeful isolated workspace provenance changed");
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool swarm_record_matches(tny_ctx *ctx, yyjson_val *root, const char *id,
+                                 const char *parent_session, const char *activation_id,
+                                 const tny_swarm_manifest *manifest, const char *definition_sha256,
+                                 int admission_cap, char *err, size_t errlen) {
     char label[64];
     snprintf(label, sizeof label, "swarm_%s", parent_session);
     yyjson_val *admission = jget(root, "admission");
@@ -4195,7 +4259,7 @@ static bool swarm_record_matches(yyjson_val *root, const char *id, const char *p
             return false;
         }
     }
-    return true;
+    return !v2 || swarm_dynamic_record_valid(ctx, root, id, err, errlen);
 }
 
 bool tny_jobs_swarm_validate_run(tny_ctx *ctx, const char *run_id, const char *parent_session,
@@ -4208,9 +4272,9 @@ bool tny_jobs_swarm_validate_run(tny_ctx *ctx, const char *run_id, const char *p
         return false;
     }
     yyjson_doc *doc = swarm_record_read(ctx, run_id, err, errlen);
-    bool ok =
-        doc && swarm_record_matches(yyjson_doc_get_root(doc), run_id, parent_session, activation_id,
-                                    manifest, definition_sha256, admission_cap, err, errlen);
+    bool ok = doc && swarm_record_matches(ctx, yyjson_doc_get_root(doc), run_id, parent_session,
+                                          activation_id, manifest, definition_sha256, admission_cap,
+                                          err, errlen);
     yyjson_doc_free(doc);
     return ok;
 }
@@ -4270,7 +4334,7 @@ int tny_jobs_swarm_recover(tny_ctx *ctx, const char *parent_session, const char 
                 matches = -1;
                 break;
             }
-            if (!swarm_record_matches(record, entry->d_name, parent_session, activation_id,
+            if (!swarm_record_matches(ctx, record, entry->d_name, parent_session, activation_id,
                                       manifest, definition_sha256, admission_cap, err, errlen)) {
                 yyjson_doc_free(doc);
                 matches = -1;

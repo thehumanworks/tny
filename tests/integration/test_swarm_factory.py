@@ -483,6 +483,57 @@ class SwarmFactory(JobsFixture):
         refused_resume()
         job_path.write_bytes(job_bytes)
 
+    def test_completed_run_dynamic_corruption_is_refused_before_provider(self):
+        self.state["design_release"].set()
+        session_path, _, run_id = self.launch(factory_definition())
+        record = self.await_terminal(run_id)
+        path = Path(record["metadata_path"])
+        original = path.read_text()
+        before_requests = len(self.state["bodies"])
+        cases = [
+            (0, "result_sha256", "0" * 64),
+            (0, "log_sha256", "0" * 64),
+            (0, "session_id", "0" * 16),
+            (0, "attempt", 2),
+            (0, "dependency_sha256", "0" * 64),
+            (3, "workspace_branch", "refs/heads/forged"),
+            (3, "workspace_base", "0" * 40),
+            (3, "workspace_origin", "/not-the-owner"),
+            (3, "workspace_revision", "0" * 40),
+            (3, "workspace_cwd", "/not-the-workspace"),
+        ]
+        for index, key, value in cases:
+            with self.subTest(field=key):
+                changed = json.loads(original)
+                changed["items"][index][key] = value
+                path.write_text(json.dumps(changed))
+                refused = self.run_tny(
+                    "--resume",
+                    session_path.parent.name,
+                    "ask",
+                    "MUST_NOT_POST",
+                    check=False,
+                    timeout=20,
+                )
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertEqual(len(self.state["bodies"]), before_requests)
+                path.write_text(original)
+        # Duplicate keys already fail the recursive record uniqueness validator.
+        path.write_text(
+            original.replace('"attempt": 1', '"attempt": 1, "attempt": 1', 1)
+        )
+        refused = self.run_tny(
+            "--resume",
+            session_path.parent.name,
+            "ask",
+            "MUST_NOT_POST",
+            check=False,
+            timeout=20,
+        )
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertEqual(len(self.state["bodies"]), before_requests)
+        path.write_text(original)
+
     def test_resume_adopts_without_duplicate_participant_launch(self):
         self.state["design_release"].set()
         session_path, session, run_id = self.launch(factory_definition(), "FIRST_ROOT")
