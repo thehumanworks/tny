@@ -20,6 +20,7 @@ extern "C" {
 struct mcp_client;    /* mcp/mcp.h */
 struct tny_intercept; /* core/intercept.h */
 struct tny_image_plan;
+struct tny_swarm_message_plan;
 struct tny_tool_registration;
 struct custom_tool_pending;
 
@@ -127,6 +128,9 @@ typedef struct {
      * keeps its plan in `intercept` instead, so exactly one owner frees it. */
     struct tny_image_plan *image_plan;
     tny_image_preview_selection *image_selection;
+    /* Exact authenticated endpoint and canonical payload authorized for a
+     * typed send. Execution never resolves model arguments a second time. */
+    struct tny_swarm_message_plan *swarm_message_plan;
 } tools_call;
 
 /* Human label of an intercepted call ("tny edit docs/x.md"), or NULL for an

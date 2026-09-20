@@ -244,6 +244,19 @@ static const char *SCHEMA_JSON =
     "\"id\":{\"type\":\"string\",\"maxLength\":64},\"text\":{\"type\":\"string\",\"maxLength\":"
     "16384}},"
     "\"required\":[\"action\",\"run\"]}}},"
+    "{\"type\":\"function\",\"function\":{\"name\":\"swarm_message\",\"description\":"
+    "\"Send one typed durable message to an exact participant name in the current purposeful "
+    "swarm. kind is finding, question, answer, challenge, decision, handoff, or blocker. run and "
+    "id are optional; omitted run is resolved only from authenticated current context and "
+    "omitted id is content-addressed. Success is a persisted receipt, not processing. Messages "
+    "remain replayable until explicit team_mailbox ack.\",\"parameters\":{\"type\":\"object\","
+    "\"properties\":{\"to\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":64},"
+    "\"kind\":{\"type\":\"string\",\"enum\":[\"finding\",\"question\",\"answer\","
+    "\"challenge\",\"decision\",\"handoff\",\"blocker\"]},\"topic\":{\"type\":"
+    "\"string\",\"minLength\":1,\"maxLength\":256},\"text\":{\"type\":\"string\","
+    "\"minLength\":1,\"maxLength\":16384},\"id\":{\"type\":\"string\",\"minLength\":1,"
+    "\"maxLength\":64},\"run\":{\"type\":\"string\",\"pattern\":\"^[0-9a-f]{32}$\"}},"
+    "\"required\":[\"to\",\"kind\",\"topic\",\"text\"],\"additionalProperties\":false}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"job_submit\",\"description\":\"Submit durable "
     "ask or image work that keeps running after this turn. One item, or a bounded batch of 1-64 "
     "items of the same kind with concurrency 1-16. Returns the job id, its metadata path and the "
@@ -499,7 +512,7 @@ static bool schema_tool_disabled(const tools_env *env, const char *name) {
     if (tool_workspace_op(name) != TNY_WORKSPACE_NONE)
         return !tool_workspace_available(env->ctx, name);
     if (strcmp(name, "team_control") == 0) return !tool_team_available(env->ctx);
-    if (strcmp(name, "team_mailbox") == 0)
+    if (strcmp(name, "team_mailbox") == 0 || strcmp(name, "swarm_message") == 0)
         return env->ctx->library_mode || env->ctx->ssh_host || !tny_jobs_execution_supported();
     if (!env->ctx->library_mode) return false;
     return strcmp(name, "terminal") == 0 || strcmp(name, "open_file") == 0 ||
@@ -529,7 +542,8 @@ static bool schema_tool_hidden(const tools_env *env, const char *name) {
     if (env->ctx->workspace_read_only && getenv("TNY_SWARM_NAME") &&
         env->ctx->tool_profile == TNY_TOOLS_ALL && !perm_tool_is_safe(name) &&
         strcmp(name, "team_control") != 0 && strcmp(name, "team_mailbox") != 0 &&
-        strcmp(name, "job_status") != 0 && strcmp(name, "job_workspace_inspect") != 0)
+        strcmp(name, "swarm_message") != 0 && strcmp(name, "job_status") != 0 &&
+        strcmp(name, "job_workspace_inspect") != 0)
         return true;
     return strcmp(name, "web_search") == 0 &&
            (!tool_web_search_configured(env->ctx) || tool_web_search_native(env->ctx));
@@ -823,6 +837,16 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
                 "(old-attempt cleanup, not team departure). inbox accepts only action,run.");
             return -1;
         }
+    } else if (strcmp(call->name, "swarm_message") == 0) {
+        free(call->permission_tool);
+        call->permission_tool = xstrdup("team_send");
+        char why[320] = "";
+        call->detail =
+            tny_swarm_message_prepare(env, call->args, &call->swarm_message_plan, why, sizeof why);
+        if (!call->permission_tool || !call->detail) {
+            call->error = tool_err("%s", why[0] ? why : "invalid swarm_message request");
+            return -1;
+        }
     } else if (tool_jobs_is_tool(call->name)) {
         /* Every job operation carries its own exact permission identity, and
          * the detail names the job, items, outputs and request digest. */
@@ -954,6 +978,18 @@ char *tools_call_execute(tools_env *env, tools_call *call) {
         return tool_image_export_execute(env, args, strcmp(name, "image_contact_sheet") == 0,
                                          call->detail);
 
+    if (strcmp(name, "swarm_message") == 0) {
+        buf_t result = {0};
+        char why[320] = "";
+        int rc = tny_swarm_message_run_prepared(env, args, call->swarm_message_plan, &result, why,
+                                                sizeof why);
+        if (rc) {
+            buf_free(&result);
+            return tool_err("%s", why[0] ? why : "swarm_message failed");
+        }
+        return buf_detach(&result);
+    }
+
     bool handled;
     char *out = tool_ssh_execute(env, name, args, &handled);
     if (!handled) out = tool_fs_execute(env, name, args, &handled);
@@ -997,6 +1033,7 @@ void tools_call_release_storage(tools_call *call) {
     free(call->error);
     tool_image_plan_free(call->image_plan);
     tny_image_preview_selection_free(call->image_selection);
+    tny_swarm_message_plan_free(call->swarm_message_plan);
     tny_intercept_free(call->intercept);
     yyjson_doc_free(call->doc);
     memset(call, 0, sizeof *call);

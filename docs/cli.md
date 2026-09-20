@@ -1225,7 +1225,8 @@ choose. See [collective swarm](collective-swarm.md) for persistence, admission,
 `mailbox publish`, bounded `mailbox wait --timeout-ms`, and platform limits.
 
 `--swarm-file PATH` (global or ask-local) strictly validates, snapshots and activates
-a version-1 [purposeful swarm](purposeful-swarms.md). It is mutually exclusive with
+a [purposeful swarm](purposeful-swarms.md), including version-2
+[contribution contracts](swarm-factory.md). It is mutually exclusive with
 `--swarm`; the file's flattened participants set the cap. `tny swarm validate FILE
 [--json]` performs local, side-effect-free validation. Activation requires a native
 local saved lead session, while resume uses the persisted canonical snapshot rather

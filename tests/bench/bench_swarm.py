@@ -479,7 +479,11 @@ def run_trial(
         graded = subprocess.run(
             [
                 sys.executable,
-                str(Path(__file__).with_name("swarm_cases.py")),
+                str(
+                    getattr(
+                        args, "oracle_path", Path(__file__).with_name("swarm_cases.py")
+                    )
+                ),
                 "--grade",
                 case.name,
                 "--workspace",
