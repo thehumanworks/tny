@@ -145,6 +145,7 @@ TEST swarm_manifest_enforces_depth_size_and_shared_capacity(void) {
     ASSERT_EQ(0, tny_swarm_manifest_parse(many.data, many.len, 16, &maximum, err, sizeof err));
     ASSERT_EQ(16, maximum->participant_count);
     tny_swarm_manifest_free(maximum);
+    ASSERT(invalid_contains(many.data, 15, "available capacity of 15"));
     /* One nested coordinator would be the seventeenth launched participant. */
     const char suffix[] = "],\"swarms\":[]}";
     ASSERT(str_ends(many.data, suffix));
@@ -179,6 +180,16 @@ TEST swarm_manifest_file_load_is_bounded_and_owned(void) {
     char err[256];
     ASSERT_EQ(0, tny_swarm_manifest_parse_file(path, 4, &manifest, err, sizeof err));
     ASSERT(manifest && manifest->canonical_json);
+    char *padded = malloc(TNY_SWARM_MANIFEST_MAX_BYTES);
+    ASSERT(padded);
+    memcpy(padded, valid_nested, strlen(valid_nested));
+    memset(padded + strlen(valid_nested), ' ', TNY_SWARM_MANIFEST_MAX_BYTES - strlen(valid_nested));
+    ASSERT_EQ(0, file_write_atomic(path, padded, TNY_SWARM_MANIFEST_MAX_BYTES));
+    free(padded);
+    tny_swarm_manifest *boundary = NULL;
+    ASSERT_EQ(0, tny_swarm_manifest_parse_file(path, 4, &boundary, err, sizeof err));
+    ASSERT_STR_EQ(manifest->canonical_json, boundary->canonical_json);
+    tny_swarm_manifest_free(boundary);
     ASSERT_EQ(0, unlink(path));
     ASSERT_STR_EQ("lead", manifest->groups[0].coordinator_name);
     tny_swarm_manifest_free(manifest);
