@@ -127,6 +127,32 @@ class BenchmarkTests(unittest.TestCase):
             self.assertEqual(report["launched_collaborators"], 1)
             self.assertTrue(report["usage_complete"])
 
+    def test_cancelled_child_without_turn_end_still_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            child = root / ".tny/sessions/child"
+            child.mkdir(parents=True)
+            (child / "session.json").write_text(
+                json.dumps({"id": "child", "usage": {"in": 10, "out": 2}})
+            )
+            job = root / ".tny/jobs/run"
+            job.mkdir(parents=True)
+            (job / "job.json").write_text(
+                json.dumps(
+                    {
+                        "state": "cancelled",
+                        "items": [{"state": "cancelled", "session_id": None}],
+                    }
+                )
+            )
+            (job / "attempt-1-item-0.log").write_text(
+                json.dumps({"type": "tool_start", "session_id": "child"})
+            )
+            report = bench.tny_metrics(root, root / "missing-lead")
+            self.assertEqual(report["launched_collaborators"], 1)
+            self.assertTrue(report["usage_complete"])
+            self.assertEqual(report["jobs"][0]["state"], "cancelled")
+
     def test_codex_missing_child_usage_is_not_silently_dropped(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -149,8 +149,8 @@ def tny_metrics(home: Path, lead_events: Path) -> dict[str, Any]:
                 coordination["coordinator_upward_messages"] += 1
         measured_items = []
         for index, item in enumerate(items):
-            # Failed/cancelled items can clear session_id while their sessions and
-            # immutable attempt logs remain. A reservation alone is not a launch.
+            # session_id is success-only job provenance; failed/cancelled model
+            # sessions survive in attempt logs. A reservation is not a launch.
             identities = {item["session_id"]} if item.get("session_id") else set()
             for log in path.parent.glob(f"attempt-*-item-{index}.log"):
                 identities.update(

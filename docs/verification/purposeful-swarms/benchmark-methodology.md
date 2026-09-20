@@ -99,8 +99,8 @@ separately, including unsuccessful trials.
 
 ## Failed-attempt accounting correction
 
-Failed/cancelled job items can clear their current `session_id` even though their
-attempt logs and model sessions survive. Accounting now uses those observed session
+The job's `session_id` is success-only provenance; failed/cancelled items leave it
+null even though their attempt logs and model sessions survive. Accounting now uses those observed session
 identities, not successful-item metadata, to count collaborators. A reservation is
 not evidence of a launch. A referenced tny session without usage or a Codex rollout
 without cumulative usage makes coverage incomplete. Failed job states remain failures;
