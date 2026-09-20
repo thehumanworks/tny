@@ -997,7 +997,8 @@ bool tny_swarm_message_id(const char *run, int sender_task, uint32_t job_attempt
     bool ok = !buf_oom(&canonical) && sha256((const uint8_t *)canonical.data, canonical.len, hash);
     buf_free(&canonical);
     if (!ok) return false;
-    memcpy(id, "sm1-", 4);
+    /* Terminate the prefix before the digest overwrites that temporary null. */
+    memcpy(id, "sm1-", sizeof "sm1-");
     hex_digest(hash, 30, id + 4); /* 240 content-addressed bits; total mailbox id is 64 bytes. */
     return true;
 }
