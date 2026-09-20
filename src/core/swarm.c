@@ -250,6 +250,10 @@ int tny_swarm_restore(tny_session_state *s, char *err, size_t cap) {
     size_t ri, rm;
     yyjson_mut_val *key, *value;
     yyjson_mut_obj_foreach(root, ri, rm, key, value) {
+        if (!key || !value) {
+            snprintf(err, cap, "invalid saved swarm metadata");
+            return -1;
+        }
         const char *name = yyjson_mut_get_str(key);
         if (name && (strcmp(name, "swarm_cap") == 0 || strcmp(name, "swarm_definition") == 0) &&
             yyjson_mut_obj_get(root, name) != value) {
