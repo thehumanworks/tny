@@ -574,12 +574,12 @@ static void durable_cleanup_faults(const char *directory) {
                       : "{\"kind\":\"ask\",\"items\":[{\"index\":0,\"prompt\":\"quick\"}]}";
         auto *args = jparse(json, std::strlen(json));
         jobs_request request{};
-        assert(jobs_request_parse(ctx, yyjson_doc_get_root(args), &request, error, sizeof error) ==
-               0);
+        assert(jobs_request_parse(ctx, yyjson_doc_get_root(args), &request, nullptr, nullptr, error,
+                                  sizeof error) == 0);
         /* A real claim exercises the same shared reservation policy as image
          * jobs; these local ask children never contact a provider. */
         request.outputs[0] = xstrdup(output_path);
-        auto *record = record_new(ctx, &request, id, dir, nullptr);
+        auto *record = record_new(ctx, &request, id, dir, nullptr, nullptr);
         assert(record && jobs_record_store(dir, record) == 0);
         yyjson_mut_doc_free(record);
         assert(reservation_claim_one(ctx, output_path, id, 0, 1, error, sizeof error) == 0);
