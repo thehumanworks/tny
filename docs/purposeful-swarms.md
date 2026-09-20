@@ -90,19 +90,20 @@ synthesis, progress or convergence.
 
 ## Match purposes to capabilities
 
-Version 1 uses the existing **shared-read-only** workspace policy for every defined
-participant, including nested coordinators. The root owns edits and executable
-checks. A participant's purpose describes its contribution, not additional permission.
-Reviewers ask the root for a specific execution result and share independent evidence;
-the root reconciles that evidence rather than treating launches as successful work.
-This version does not yet accept per-participant writable/isolated workspace options.
+Every defined participant, including nested coordinators, defaults to **shared
+writable** access and inherits the root's permission mode (default **yolo**).
+Participants can edit files and run executable checks. Assign distinct ownership
+to avoid concurrent writes to the same files. The root reconciles work and evidence
+rather than treating launches as successful work. Purpose does not grant additional
+authority. This version does not accept per-participant workspace options; use
+ordinary teams for explicit `shared_read_only` or `isolated` workspace policies.
 
-The default all-tools profile advertises native inspection and collaboration tools
-rather than terminals, mutating tools or new agent launchers to these reviewers.
-This trims unusable context and prevents predictable permission failures. It is not
-an enforcement boundary: direct calls still use the unchanged permission engine.
-Explicit shell-only profiles retain their interface and the existing single-simple-
-read-command restriction. User permissions and read-only ceilings are never relaxed.
+The default all-tools profile advertises inspection, editing, terminal and
+collaboration tools. Explicit permission overrides remain authoritative. If a
+participant inherits an explicit read-only ceiling, its advertised all-tools surface
+is restricted to inspection and collaboration, and shell-only profiles allow only
+single simple read commands. Schema filtering is not an enforcement boundary:
+direct calls still use the permission engine. See [ADR 0159](adr/0159-yolo-agent-defaults.md).
 
 A nested coordinator does not gain authority to collect/cancel peer tasks. Scoped
 completion notices and bounded mailbox waits supply peer evidence; status can explain

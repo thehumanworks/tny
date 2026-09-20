@@ -96,17 +96,14 @@ class PurposefulSwarm(JobsFixture):
             self.assertTrue(
                 {"read_file", "list_files", "team_mailbox", "team_control"} <= names
             )
-            self.assertFalse(
-                {"terminal", "write_file", "edit_file", "subagent", "job_submit"}
-                & names
-            )
+            self.assertTrue({"terminal", "write_file", "edit_file"} <= names)
             system = "\n".join(
                 m.get("content", "")
                 for m in body["messages"]
                 if m.get("role") == "system"
             )
+            self.assertNotIn("Workspace capability: shared_read_only", system)
             for clause in (
-                "Workspace capability: shared_read_only",
                 "not peer collect/cancel/wait-any",
                 '"timeout_ms":30000',
                 '"to":-1',
@@ -123,6 +120,16 @@ class PurposefulSwarm(JobsFixture):
                 for b in root_bodies
             )
         )
+
+    def test_all_participants_can_edit_by_default(self):
+        path = self.write_definition()
+        self.state["envdump"] = 'printf allowed > "${TNY_SWARM_NAME:-root}.txt"'
+        self.run_tny("--swarm-file", str(path), "ask", "ENVDUMP edit", timeout=30)
+        _, saved = self.saved_session()
+        run = self.await_terminal(saved["swarm_definition"]["run_id"])
+        self.assertEqual(run["state"], "succeeded", run)
+        for name in ("root", "root-agent", "verify-lead", "test-agent"):
+            self.assertEqual((self.workspace / f"{name}.txt").read_text(), "allowed")
 
     def test_resume_uses_snapshot_and_explicit_changed_file_refuses(self):
         path = self.write_definition()

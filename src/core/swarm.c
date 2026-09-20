@@ -719,10 +719,11 @@ void tny_swarm_policy(const tny_ctx *ctx, buf_t *out) {
                             manifest->participants[i].coordinator ? "coordinator" : "agent",
                             manifest->participants[i].group, manifest->participants[i].purpose);
             buf_appends(out,
-                        "All definition participants are shared-read-only reviewers, including "
-                        "nested coordinators. You own implementation edits and executable tests; "
-                        "perform requested checks and share compact results. Work while peers "
-                        "investigate. Before finalizing, collect every participant's terminal "
+                        "All definition participants, including nested coordinators, can edit "
+                        "and run checks by default, subject to explicit permission overrides. "
+                        "Assign distinct file ownership to avoid shared-workspace write races. "
+                        "Coordinate implementation and verification and share compact results. "
+                        "Before finalizing, collect every participant's terminal "
                         "outcome and reconcile evidence. A correct artifact does not erase a "
                         "failed, cancelled or missing participant; report these explicitly.\n");
             tny_swarm_manifest_free(manifest);

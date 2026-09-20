@@ -60,16 +60,18 @@ This is a captured-parent request (not an operator-only start):
 
 ```json
 {"kind":"ask","dag":true,"concurrency":2,"items":[
-  {"role":"worker","label":"reliability","prompt":"Read only: review reliability. Return paths and evidence."},
-  {"role":"worker","label":"tests","prompt":"Read only: review test coverage. Return paths and gaps."}
+  {"role":"worker","label":"reliability","prompt":"Read only: review reliability. Return paths and evidence.","workspace":{"policy":"shared_read_only"}},
+  {"role":"worker","label":"tests","prompt":"Read only: review test coverage. Return paths and gaps.","workspace":{"policy":"shared_read_only"}}
 ]}
 ```
 
 Independent items overlap up to concurrency/admission ceilings. Use
 `depends_on:[INDEX,...]` for ordering. The default workspace policy is
-`shared_read_only`, enforced by the native worker's tool policy, not just prose.
-Choose `workspace:{"policy":"isolated"}` explicitly for editing. Shared writable
-access is an explicit, riskier opt-in. A worktree is not an OS sandbox.
+`shared_writable`; workers inherit the parent's permission mode, which defaults to
+`yolo`. For enforced read-only work, explicitly pass
+`workspace:{"policy":"shared_read_only"}`; prompt prose alone does not restrict tools.
+Choose `workspace:{"policy":"isolated"}` for editing in a separate worktree to avoid
+shared-checkout write races. A worktree is not an OS sandbox.
 
 An implicit item uses the parent's resolved provider/account. A DAG item may
 select a supported native `provider` independently; per-item model/effort remain

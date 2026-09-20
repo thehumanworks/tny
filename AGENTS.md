@@ -39,7 +39,7 @@ The product source is live under `src/` with unit, integration, mutation, and la
 - Isolation: on native builds every turn — interactive and one-shot — executes in a detached, forked **session runner** that survives caller crashes and finalizes into the session; the caller renders its NDJSON stream from `<session>/sock` (`docs/adr/0053`). No tmux. wasm, `--ephemeral`, and `TNY_ISOLATE=0` are the only in-process turns.
 - One event loop; normalize HTTP streams to the shared event schema.
 - Native loop owns tools/MCP/skills/permissions for every provider.
-- Permission mode defaults to **yolo** for every provider (`docs/adr/0001`); `ask`/`auto` are explicit opt-ins.
+- Permission mode defaults to **yolo** for every provider and agent (`docs/adr/0001`, `docs/adr/0159`). Teams and swarms default to shared writable workspaces. Read-only workspace policies and `ask`/`auto` modes require explicit overrides; never introduce a read-only agent default.
 - Decisions are recorded in `docs/adr/`; add a new ADR when you change one.
 - CLI is noninteractive-first: flags, stdin, `--json`, layered `--help` with examples (`docs/cli.md`).
 - TUI is a shell, not an IDE (`docs/tui.md`). No ncurses.

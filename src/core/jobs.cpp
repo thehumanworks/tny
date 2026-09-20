@@ -1222,7 +1222,7 @@ static bool admission_public_config(tny_ctx *ctx, yyjson_val *v) {
 
 static const char *workspace_policy(yyjson_val *item) {
     const char *policy = jget_str(jget(item, "workspace"), "policy");
-    return policy ? policy : "shared_read_only";
+    return policy ? policy : "shared_writable";
 }
 
 static bool dag_validate(yyjson_val *args, char *err, size_t errlen) {

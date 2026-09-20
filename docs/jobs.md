@@ -211,8 +211,8 @@ the existing job ID, item index and attempt. DAG items accept:
 
 | Policy | Scheduler behavior |
 | --- | --- |
-| `shared_read_only` | DAG default. Launch checkout; child receives `TNY_TEAM_READ_ONLY=1`. |
-| `shared_writable` | Explicit editing in the launch checkout. No file isolation. |
+| `shared_read_only` | Explicit read-only override. Launch checkout; child receives `TNY_TEAM_READ_ONLY=1`. |
+| `shared_writable` | DAG default. Editing in the launch checkout. No file isolation. Permission mode defaults to `yolo`. |
 | `isolated` | Prepare a distinct owned worktree for this item attempt; child uses its returned cwd. |
 
 `base` is optional and only valid with `isolated`. Without it, the helper requires
