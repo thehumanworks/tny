@@ -51,7 +51,8 @@ def evidence_metrics(home: Path, events: Path) -> dict[str, Any]:
         value = json.loads(path.read_text())
         for message in value.get("messages", []):
             try:
-                envelope = json.loads(message.get("text", ""))
+                # Durable mailbox storage uses payload; API receipts expose text.
+                envelope = json.loads(message.get("payload", message.get("text", "")))
             except (TypeError, ValueError):
                 continue
             if not isinstance(envelope, dict):

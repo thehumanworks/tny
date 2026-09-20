@@ -96,9 +96,9 @@ class EffectivenessTests(unittest.TestCase):
                 json.dumps(
                     {
                         "messages": [
-                            {"text": "I claim success"},
+                            {"payload": "I claim success"},
                             {
-                                "text": json.dumps(
+                                "payload": json.dumps(
                                     {
                                         "version": 1,
                                         "kind": "finding",
@@ -108,7 +108,7 @@ class EffectivenessTests(unittest.TestCase):
                                 )
                             },
                             {
-                                "text": json.dumps(
+                                "payload": json.dumps(
                                     {
                                         "version": 1,
                                         "kind": "challenge",

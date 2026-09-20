@@ -1,0 +1,65 @@
+{
+  "version": 2,
+  "purpose": "Deliver the README task with independent design and test evidence, then verified implementation.",
+  "coordinator": {
+    "name": "implementing-lead",
+    "purpose": "Own all implementation edits, consult the verification group, run tests, collect every collaborator result and reconcile relevant findings before final response.",
+    "deliverable": "Working implementation files in the root workspace, independently checked against README, with every participant outcome reconciled.",
+    "acceptance": [
+      "Public tests remain unchanged; run relevant executable checks and name their results.",
+      "Collect the verification coordinator result and address concrete counterexamples before finalizing.",
+      "Distinguish observed checks, proposed checks, failed peers and unverified assumptions."
+    ]
+  },
+  "agents": [],
+  "swarms": [
+    {
+      "purpose": "Find specification edge cases and concrete verification guidance without changing implementation files.",
+      "coordinator": {
+        "name": "verification-coordinator",
+        "purpose": "Synthesize the retained results of both independent reviewers. Use direct peer evidence and challenge material disagreements. Send one actionable synthesis upward to the root lead with swarm_message. Do not edit files or wait for already-completed peers to reply.",
+        "deliverable": "A compact synthesis of specification risks, concrete test cases, disagreements, and which root checks are still needed.",
+        "acceptance": [
+          "Reference both direct predecessor results; do not repeat their full transcripts.",
+          "Separate observed implementation defects from hypotheses and unrun checks.",
+          "Send the root a typed handoff and finish; do not wait on your own completion."
+        ],
+        "depends_on": [
+          "specification-reviewer",
+          "testing-reviewer"
+        ]
+      },
+      "agents": [
+        {
+          "name": "specification-reviewer",
+          "purpose": "Read README and current implementation. Identify the three highest-risk correctness requirements and examples. Send concise evidence directly to your group coordinator, optionally discuss disagreements with the testing peer, then finish. Do not edit files.",
+          "deliverable": "A concise independent contribution with at most three high-value findings, supporting evidence and a concrete next check.",
+          "acceptance": [
+            "Read README and relevant implementation; identify concrete examples, not generic advice.",
+            "Use swarm_message to send findings to verification-coordinator; its dependency-delayed start does not require you to wait.",
+            "Send needed execution requests to implementing-lead; do not execute tests in a read-only workspace.",
+            "Finish with the same evidence summary so the durable handoff is usable without another model turn."
+          ],
+          "workspace": {
+            "policy": "shared_read_only"
+          }
+        },
+        {
+          "name": "testing-reviewer",
+          "purpose": "Read README and current implementation. Derive focused edge-case and failure tests. Send concise concrete cases directly to your group coordinator, optionally discuss disagreements with the specification peer, then finish. Do not edit files.",
+          "deliverable": "A concise independent contribution with at most three high-value findings, supporting evidence and a concrete next check.",
+          "acceptance": [
+            "Read README and relevant implementation; identify concrete examples, not generic advice.",
+            "Use swarm_message to send findings to verification-coordinator; its dependency-delayed start does not require you to wait.",
+            "Send needed execution requests to implementing-lead; do not execute tests in a read-only workspace.",
+            "Finish with the same evidence summary so the durable handoff is usable without another model turn."
+          ],
+          "workspace": {
+            "policy": "shared_read_only"
+          }
+        }
+      ],
+      "swarms": []
+    }
+  ]
+}
