@@ -3866,6 +3866,40 @@ TEST tool_profile_filters_schema_enforces_and_keeps_custom_tools(void) {
     PASS();
 }
 
+TEST purposeful_readonly_schema_preserves_authority_and_explicit_profiles(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    perm_engine *perm = perm_new(ctx);
+    ASSERT(perm);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    ctx->workspace_read_only = true;
+    ctx->perm_mode = TNY_MODE_YOLO;
+    ctx->tool_profile = TNY_TOOLS_ALL;
+    ASSERT(tool_schema_has(&env, "terminal")); /* ordinary teams unchanged */
+    setenv("TNY_SWARM_NAME", "purposeful-reviewer", 1);
+    ASSERT_FALSE(tool_schema_has(&env, "terminal"));
+    ASSERT_FALSE(tool_schema_has(&env, "write_file"));
+    ASSERT_FALSE(tool_schema_has(&env, "subagent"));
+    ASSERT(tool_schema_has(&env, "read_file"));
+    ASSERT(tool_schema_has(&env, "team_mailbox"));
+    ASSERT_EQ(PERM_DENY, perm_check(perm, "terminal", "git status && git log"));
+    ASSERT_EQ(PERM_ALLOW, perm_check(perm, "terminal", "git status"));
+    ASSERT_EQ(PERM_DENY, perm_check(perm, "write_file", g_ws));
+    ctx->tool_profile = TNY_TOOLS_TERMINAL;
+    ASSERT(tool_schema_has(&env, "terminal")); /* explicit shell interface survives */
+    ASSERT_FALSE(tool_schema_has(&env, "read_file"));
+    ctx->tool_profile = TNY_TOOLS_ALL;
+    ctx->workspace_read_only = false;
+    ASSERT(tool_schema_has(&env, "terminal")); /* no widening/narrowing root authority */
+    ASSERT(tool_schema_has(&env, "write_file"));
+    unsetenv("TNY_SWARM_NAME");
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 /* ---- subagent (docs/features/mcp-and-skills.md#subagents, ADR 0087) ---- */
 
 #define SA_CREATE_EXAMPLE "{\"action\":\"create\",\"prompt\":\"...\"}"
@@ -5783,6 +5817,7 @@ SUITE(core_suite) {
     RUN_TEST(embedded_public_runtime_does_not_claim_library_linkage);
     RUN_TEST(tool_profile_parsing_precedence_and_ignored_modes);
     RUN_TEST(tool_profile_filters_schema_enforces_and_keeps_custom_tools);
+    RUN_TEST(purposeful_readonly_schema_preserves_authority_and_explicit_profiles);
     RUN_TEST(max_steps_default_and_overrides);
     RUN_TEST(extension_config_default_and_overrides);
     RUN_TEST(env_defined_providers);

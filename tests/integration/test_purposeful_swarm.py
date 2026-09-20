@@ -81,6 +81,48 @@ class PurposefulSwarm(JobsFixture):
         ]
         self.assertTrue(any("Participant: verify-lead" in text for text in systems))
         self.assertTrue(any("Participant: test-agent" in text for text in systems))
+        member_bodies = [
+            body
+            for body in self.state["bodies"]
+            if any(
+                "Participant: " in m.get("content", "")
+                for m in body.get("messages", [])
+                if m.get("role") == "system"
+            )
+        ]
+        self.assertEqual(len(member_bodies), 3)
+        for body in member_bodies:
+            names = {t["function"]["name"] for t in body["tools"]}
+            self.assertTrue(
+                {"read_file", "list_files", "team_mailbox", "team_control"} <= names
+            )
+            self.assertFalse(
+                {"terminal", "write_file", "edit_file", "subagent", "job_submit"}
+                & names
+            )
+            system = "\n".join(
+                m.get("content", "")
+                for m in body["messages"]
+                if m.get("role") == "system"
+            )
+            for clause in (
+                "Workspace capability: shared_read_only",
+                "not peer collect/cancel/wait-any",
+                '"timeout_ms":30000',
+                '"to":-1',
+                "not a subagent session id",
+            ):
+                self.assertIn(clause, system)
+        root_bodies = [
+            body for body in self.state["bodies"] if body not in member_bodies
+        ]
+        self.assertTrue(root_bodies)
+        self.assertTrue(
+            all(
+                "terminal" in {t["function"]["name"] for t in b["tools"]}
+                for b in root_bodies
+            )
+        )
 
     def test_resume_uses_snapshot_and_explicit_changed_file_refuses(self):
         path = self.write_definition()

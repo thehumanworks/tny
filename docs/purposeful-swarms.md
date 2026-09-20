@@ -88,6 +88,29 @@ attempt rules. Participants should acknowledge processed receipts, prefer scoped
 evidence, and use bounded waits. A completed task is not proof of agreement, correct
 synthesis, progress or convergence.
 
+## Match purposes to capabilities
+
+Version 1 uses the existing **shared-read-only** workspace policy for every defined
+participant, including nested coordinators. The root owns edits and executable
+checks. A participant's purpose describes its contribution, not additional permission.
+Reviewers ask the root for a specific execution result and share independent evidence;
+the root reconciles that evidence rather than treating launches as successful work.
+This version does not yet accept per-participant writable/isolated workspace options.
+
+The default all-tools profile advertises native inspection and collaboration tools
+rather than terminals, mutating tools or new agent launchers to these reviewers.
+This trims unusable context and prevents predictable permission failures. It is not
+an enforcement boundary: direct calls still use the unchanged permission engine.
+Explicit shell-only profiles retain their interface and the existing single-simple-
+read-command restriction. User permissions and read-only ceilings are never relaxed.
+
+A nested coordinator does not gain authority to collect/cancel peer tasks. Scoped
+completion notices and bounded mailbox waits supply peer evidence; status can explain
+a failure, but repeated model-driven status polling is not a waiting mechanism.
+The stable policy includes typed send/wait/ack examples, numeric task addresses and
+clear upward-synthesis responsibilities. The root must disclose unsuccessful peers,
+even when the generated artifact passes its checks.
+
 ## Resume and failure behavior
 
 Before activation, tny canonicalizes the validated definition, records its SHA-256

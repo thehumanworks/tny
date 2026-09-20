@@ -523,6 +523,14 @@ static bool schema_tool_hidden(const tools_env *env, const char *name) {
     if (schema_tool_disabled(env, name)) return true;
     if (!env || !env->ctx || !name) return false;
     if (!profile_allows_builtin(env, name)) return true;
+    /* Purposeful reviewers inherit read-only authority. Keep the full-profile
+     * advertised surface aligned with it; direct calls still use the existing
+     * permission engine. Shell-only profiles retain their explicit interface. */
+    if (env->ctx->workspace_read_only && getenv("TNY_SWARM_NAME") &&
+        env->ctx->tool_profile == TNY_TOOLS_ALL && !perm_tool_is_safe(name) &&
+        strcmp(name, "team_control") != 0 && strcmp(name, "team_mailbox") != 0 &&
+        strcmp(name, "job_status") != 0 && strcmp(name, "job_workspace_inspect") != 0)
+        return true;
     return strcmp(name, "web_search") == 0 &&
            (!tool_web_search_configured(env->ctx) || tool_web_search_native(env->ctx));
 }
@@ -552,6 +560,7 @@ static char *append_custom_schema(char *base, custom_tool_registry *registry) {
 char *tools_schema_json(tools_env *env) {
     if (env && env->ctx &&
         (env->ctx->prompt_optimisation || env->ctx->mcp_disabled || env->ctx->library_mode ||
+         (env->ctx->workspace_read_only && getenv("TNY_SWARM_NAME")) ||
          env->ctx->tool_profile != TNY_TOOLS_ALL ||
          (!tool_web_search_configured(env->ctx) || tool_web_search_native(env->ctx)) ||
          !tny_speech_available(env->ctx, NULL, true, NULL, 0) || env->ctx->ssh_host ||

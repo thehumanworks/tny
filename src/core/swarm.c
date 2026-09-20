@@ -678,6 +678,30 @@ void tny_swarm_policy(const tny_ctx *ctx, buf_t *out) {
         buf_appendf(out, "Participant: %s\nRole: %s\nGroup: %s\nPurpose: %s\n", member_name,
                     member_role ? member_role : "agent", member_group ? member_group : "unknown",
                     member_purpose ? member_purpose : "unspecified");
+        if (ctx->workspace_read_only)
+            buf_appends(out,
+                        "Workspace capability: shared_read_only. Use native read_file, "
+                        "list_files, grep_files and file_info for inspection. Do not edit files "
+                        "or execute Python, tests, compound shell commands or pipelines; these "
+                        "are denied even in yolo mode. Ask the root lead to run a precise check "
+                        "and return its evidence. In shell-only profiles use only a single "
+                        "permitted read command at a time. The root task is shared context, not "
+                        "an instruction to take over the root's execution role.\n");
+        buf_appends(out,
+                    "Do useful independent work before waiting. Share concise evidence with your "
+                    "coordinator, including uncertainty; avoid repeating the full task. "
+                    "Your task index is not a subagent session id. Coordinators do not gain peer "
+                    "control authority: use team_control status and delivered completion notices, "
+                    "not peer collect/cancel/wait-any. Never wait on your own completion. "
+                    "Use bounded mailbox wait for responses; report missing/failed peers rather "
+                    "than repeatedly polling. Send synthesis upward before your final answer.\n"
+                    "Mailbox recipes (replace RUN, ID and TEXT; to is an integer task index, "
+                    "-1 for root): {\"action\":\"send\",\"run\":\"RUN\","
+                    "\"id\":\"ID\",\"to\":-1,\"text\":\"TEXT\"}; "
+                    "{\"action\":\"wait\",\"run\":\"RUN\",\"timeout_ms\":30000}; "
+                    "{\"action\":\"ack\",\"run\":\"RUN\",\"id\":\"ID\"}. "
+                    "Use exact receipt ids when acknowledging; send retries reuse the original "
+                    "id and body. Inbox accepts only action and run.\n");
         return;
     }
     if (ctx->swarm_definition) {
@@ -694,6 +718,13 @@ void tny_swarm_policy(const tny_ctx *ctx, buf_t *out) {
                             manifest->participants[i].name,
                             manifest->participants[i].coordinator ? "coordinator" : "agent",
                             manifest->participants[i].group, manifest->participants[i].purpose);
+            buf_appends(out,
+                        "All definition participants are shared-read-only reviewers, including "
+                        "nested coordinators. You own implementation edits and executable tests; "
+                        "perform requested checks and share compact results. Work while peers "
+                        "investigate. Before finalizing, collect every participant's terminal "
+                        "outcome and reconcile evidence. A correct artifact does not erase a "
+                        "failed, cancelled or missing participant; report these explicitly.\n");
             tny_swarm_manifest_free(manifest);
         }
     } else if (ctx->swarm_cap < 0) {
