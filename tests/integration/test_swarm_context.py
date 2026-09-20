@@ -172,5 +172,15 @@ class DurableContextSnapshot(JobsDAG):
         self.assertFalse(self.state["bodies"])
 
 
+def load_tests(_loader, _tests, _pattern):
+    # Reuse DAG setup helpers, not the entire separately registered jobs suite.
+    return unittest.TestSuite(
+        cls(name)
+        for cls in (FileSwarmContext, DurableContextSnapshot)
+        for name, method in vars(cls).items()
+        if name.startswith("test_") and callable(method)
+    )
+
+
 if __name__ == "__main__":
     unittest.main(argv=argv_without_runner_binary())
