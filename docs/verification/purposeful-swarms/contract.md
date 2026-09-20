@@ -40,3 +40,12 @@ No credentials or private account identifiers enter committed evidence.
 8. Commit coherent checkpoints; push this branch and create a PR. Leave the
    primary worktree and other worktrees unchanged. Completion requires an actual
    PR URL and an honest reconciliation of every invariant above.
+
+## Delivery checkpoint — 2026-09-20
+
+The authoritative final result/revision ledger is [evidence.md](evidence.md).
+Both complete live datasets are retained in `live-before.json` and
+`live-after.json`. Final local quality, focused integration/unit, ownership/fault,
+mutation and leak evidence is recorded there. PR #173 remains draft pending
+complete CI confirmation; earlier baseline PTY failures are not waived or counted
+as successes. V1 participant workspaces remain explicitly shared read-only.

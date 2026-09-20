@@ -17,20 +17,24 @@ and [the user guide](../../purposeful-swarms.md) for v1 boundaries.
 
 | Check | Recorded input | Result |
 |---|---|---|
-| Release + purposeful/lifecycle/context/collective/wait/benchmark integration pack + unit suite | `84a0d12` | Exit 0, 106.6 s; 520 main unit tests, 29,392 assertions; two additional ownership test executables pass. |
+| Release + purposeful/lifecycle/context/collective/wait/benchmark integration pack + unit suite | `84a0d12` | Exit 0, 106.6 s; 520 main unit tests, 29,392 assertions; two additional tool-profile test invocations pass. |
 | `make quality` | `84a0d12` | Exit 0, 212.3 s: formatting, C/C++ Clang analysis, strict warnings and language/workflow linters. GCC analyzer explicitly skipped on Darwin. |
 | `make -j4 leaks` | `84a0d12` | Exit 0, 65.8 s; all checked suites report zero leaked bytes. |
 | Focused manifest mutation experiment | Clean detached `580094f` worktree; parser and parser tests unchanged at `8be8d4e` | Exit 0; five valid mutants killed; zero survived; four uncompilable mutants excluded. |
 | Release, focused regression pack, unit tests and leak rerun | `580094f` | Both commands exit 0; repeat after the exact-length recovery-copy change. |
 | `make -j4 test-runner-ownership` | `580094f` plus the fixture-only change committed as `1815d8c` | Exit 0; descriptor/resource acquisition, cancellation/reaping, allocation faults, persistence and checkpoint cleanup oracles pass under ASan/UBSan. |
+| Final serialized quality + focused/unit + runner ownership + leak gate | Production source `8be8d4e`, documentation-only checkpoint `d4d2d8d` | Exit 0, 417.9 s. Main unit invocation: 521 tests, 520 passed, zero failed, one Linux-only decoder test skipped on Darwin; 29,392 assertions. Full local quality and zero-leak checks pass. |
+| Additional ownership/fault parity | `fab6fad` (test-only checkpoint-schema extension) | Exit 0, 67.7 s: checkpoint mutation, subagent ownership, runtime ownership, parser/backend ownership, parser ownership, search ownership, native request ownership and formatting checks. Platform-specific skips remain explicit. |
 | Full `make -j4 test` | Earlier `00e717f` runtime | Exit 2. Only `test_background_agents` and `test_tui` failed. All other reported suites passed. |
 | Baseline/candidate reproduction of both full-suite failures | Baseline `28011be` and candidate `00e717f` executables, identical unchanged PTY tests | Both reproduce on both executables: synthetic held-session dashboard discovery; banner scrolled out by the help overlay. Not attributed to this PR. |
 
 The complete aggregate was not rerun after the narrow capability/metadata changes.
 This is not an all-platform or fully green aggregate claim. A subsequent quality
 invocation during overlapping builds failed while expanding the regenerated
-version header; it is not counted as a pass. Final quality, focused, ownership and
-leak commands are now serialized on `8be8d4e`, with a distinct terminal status.
+version header; it is not counted as a pass. The final serial quality, focused,
+ownership and leak invocation completed successfully, with a distinct terminal
+status, as did the additional ownership/fault parity invocation. No final product
+source changed after `8be8d4e`; later source changes only extend fixture coverage.
 The timed Darwin arm64 artifact at `84a0d12` is 1,170,416 bytes and links only the
 system libc++ and libSystem dylibs. Its size is not attributed to an unmeasured
 later binary.
@@ -144,6 +148,16 @@ overflow. Linux-only regression cases exercise valid single/multiple records,
 truncated headers, invalid lengths, and each watch-loss mask. These intentionally
 skip on non-Linux; Linux CI supplies their native coverage.
 
-The branch is pushed with these repairs. Replacement CI and the final serialized
-local gate are not yet recorded as complete in this checkpoint; the PR remains a
-draft rather than presenting earlier failed/incomplete runs as merge-ready proof.
+After those fixes, CI reached another stale assertion in the checkpoint ownership
+fixture: its schema oracle predated both numeric swarm fields and file-definition
+metadata. `fab6fad` updates the exact independent schema oracle and adds populated
+metadata roundtrips, invalid/inconsistent metadata rejection, public/private field
+checks and allocation-fault sweeps. It preserves explicit nulls in public legacy
+snapshots rather than silently weakening presence checks. The complete checkpoint
+ownership and mutation gates now pass locally.
+
+All diagnosed CI repairs are pushed. The final local serial and additional
+ownership/fault gates completed successfully, and all live benchmark processes
+completed. Replacement full CI is still not established as green. The PR remains
+a draft, not merged or advertised as merge-ready; the two reproduced baseline PTY
+failures and unobserved final cross-platform results remain explicit limitations.
