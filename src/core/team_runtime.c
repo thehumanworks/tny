@@ -28,6 +28,7 @@ struct tny_swarm_message_plan {
     size_t payload_len;
     tny_mailbox_identity sender;
     tny_mailbox_recipient recipient;
+    char definition_digest[65];
     char topology_digest[65];
     char recipient_name[65];
     char topic[SWARM_MESSAGE_TOPIC_MAX + 1];
@@ -468,6 +469,47 @@ static bool swarm_message_context(tools_env *env, yyjson_val *args, char run[33]
 
 static bool topology_name(yyjson_val *value) { return json_string(value, 64, true); }
 
+/* Hash the actual ordered name/group projection, not just a stored manifest
+ * digest. Recomputed under the mailbox lock so unrelated renames cannot silently
+ * change the topology for which ALLOW_ONCE was granted. */
+static bool swarm_message_topology_digest(yyjson_val *record, char digest[65]) {
+    yyjson_val *root_name = jget(record, "swarm_root_coordinator");
+    yyjson_val *items = jget(record, "items");
+    if (!topology_name(root_name) || !yyjson_is_arr(items) || !yyjson_arr_size(items) ||
+        yyjson_arr_size(items) > TNY_JOBS_MAX_ITEMS)
+        return false;
+    buf_t projection = {0};
+    buf_appends(&projection, "swarm-message-topology-v1\n");
+    jescape(&projection, yyjson_get_str(root_name));
+    static const char *const keys[] = {"swarm_name", "swarm_role", "swarm_group",
+                                       "swarm_coordinator_task", "swarm_parent_coordinator_task"};
+    size_t i, count;
+    yyjson_val *item;
+    yyjson_arr_foreach(items, i, count, item) {
+        if (!topology_name(jget(item, "swarm_name"))) {
+            buf_free(&projection);
+            return false;
+        }
+        for (size_t k = 0; k < sizeof keys / sizeof keys[0]; ++k) {
+            yyjson_val *value = jget(item, keys[k]);
+            char *json = value ? jwrite_val(value) : NULL;
+            if (!json) {
+                buf_free(&projection);
+                return false;
+            }
+            buf_appends(&projection, "\n");
+            buf_appends(&projection, json);
+            free(json);
+        }
+    }
+    uint8_t hash[32];
+    bool ok =
+        !buf_oom(&projection) && sha256((const uint8_t *)projection.data, projection.len, hash);
+    buf_free(&projection);
+    if (ok) hex_digest(hash, sizeof hash, digest);
+    return ok;
+}
+
 static bool swarm_message_recipient(yyjson_val *status, const char *name,
                                     tny_mailbox_recipient *recipient, char *err, size_t cap) {
     yyjson_val *root_name = jget(status, "swarm_root_coordinator");
@@ -620,11 +662,12 @@ char *tny_swarm_message_prepare(tools_env *env, yyjson_val *args, tny_swarm_mess
         buf_free(&request_snapshot);
         plan->sender = caller.identity;
         plan->recipient = recipient;
-        snprintf(plan->topology_digest, sizeof plan->topology_digest, "%s",
+        snprintf(plan->definition_digest, sizeof plan->definition_digest, "%s",
                  jget_str(yyjson_doc_get_root(doc), "swarm_definition_sha256"));
         snprintf(plan->recipient_name, sizeof plan->recipient_name, "%s", jget_str(args, "to"));
         snprintf(plan->topic, sizeof plan->topic, "%s", jget_str(args, "topic"));
-        if (!plan->payload || !plan->request_snapshot) {
+        if (!plan->payload || !plan->request_snapshot ||
+            !swarm_message_topology_digest(yyjson_doc_get_root(doc), plan->topology_digest)) {
             snprintf(err, cap, "could not retain prepared swarm_message");
             free(detail);
             detail = NULL;
@@ -978,13 +1021,16 @@ static bool swarm_message_plan_authorize(void *userdata, const tny_mailbox_ident
     tny_mailbox_recipient recipient = {0};
     char why[160] = "";
     const char *digest = jget_str(root, "swarm_definition_sha256");
+    char topology_digest[65];
     *peers = jget_bool(root, "peer_messages", false);
     yyjson_val *sender = plan->sender.task >= 0
                              ? yyjson_arr_get(jget(root, "items"), (size_t)plan->sender.task)
                              : NULL;
     if (jget_int(root, "attempt", 0) != plan->sender.job_attempt ||
         (plan->sender.task >= 0 && jget_int(sender, "attempt", 0) != plan->sender.task_attempt) ||
-        !digest || strcmp(digest, plan->topology_digest) != 0 ||
+        !digest || strcmp(digest, plan->definition_digest) != 0 ||
+        !swarm_message_topology_digest(root, topology_digest) ||
+        strcmp(topology_digest, plan->topology_digest) != 0 ||
         !swarm_message_recipient(root, plan->recipient_name, &recipient, why, sizeof why) ||
         recipient.task != plan->recipient.task ||
         recipient.task_attempt != plan->recipient.task_attempt) {

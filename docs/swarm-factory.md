@@ -164,3 +164,11 @@ See [ADR 0160](adr/0160-swarm-contribution-contracts.md),
 [team control](team-control.md), and [durable DAG ADR 0143](adr/0143-durable-dag-over-jobs.md).
 
 Purposeful job retry remains unsupported; recovery adopts or resumes the original activation without silently creating a new attempt.
+
+For a shared checkout, handoff evidence reports an initial `baseline_revision`,
+not an attributed participant HEAD. Unobserved `head_revision` and `dirty` are
+`null`, never invented clean-state evidence. Only inspected isolated workspaces
+provide participant-owned HEAD/dirty snapshots. Completed failed/cancelled
+participants with prepared isolated worktrees are also provenance-checked on
+resume; unsuccessful work retains evidence and edits rather than escaping
+validation. Failed preparation with no worktree remains distinguishable.

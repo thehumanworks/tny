@@ -4128,10 +4128,18 @@ static bool swarm_dynamic_record_valid(tny_ctx *ctx, yyjson_val *record, const c
                 return false;
             }
         }
-        if (!succeeded) continue;
-        if (verify_carried_success(ctx, item, false, err, errlen) != 0) return false;
+        if (succeeded && verify_carried_success(ctx, item, false, err, errlen) != 0) return false;
         const char *policy = jm_str(item, "workspace_policy");
         if (!complete || !policy || strcmp(policy, "isolated") != 0) continue;
+        const char *prepared = jm_str(item, "workspace_preparation");
+        /* Failed preparation may have no worktree; a prepared failed/cancelled
+         * participant still owns retained edits whose provenance must be checked. */
+        if (!succeeded && (!prepared || strcmp(prepared, "prepared") != 0)) continue;
+        const char *inspection = jm_str(item, "workspace_inspection");
+        if (!inspection || strcmp(inspection, "recorded") != 0) {
+            safe_err(err, errlen, "purposeful isolated workspace provenance changed");
+            return false;
+        }
         task_workspace_id identity = {id, i, 1};
         task_workspace *workspace = NULL;
         task_workspace_result actual{};
@@ -5348,8 +5356,9 @@ static bool worker_dependency_evidence(tny_ctx *ctx, yyjson_val *payload, job_sl
         }
         const char *policy = jm_str(dep, "workspace_policy");
         bool isolated = policy && strcmp(policy, "isolated") == 0;
-        const char *revision = jm_str(dep, "workspace_revision");
-        if (!revision && !isolated) revision = jm_str(root, "workspace_revision");
+        /* A shared checkout can change concurrently; the run's initial
+         * revision is a baseline, never an observed predecessor HEAD. */
+        const char *revision = isolated ? jm_str(dep, "workspace_revision") : NULL;
         if (i) buf_appends(&evidence, ",");
         buf_appends(&evidence, "{\"name\":");
         evidence_nullable_string(&evidence, jm_str(dep, "swarm_name"));
@@ -5372,8 +5381,13 @@ static bool worker_dependency_evidence(tny_ctx *ctx, yyjson_val *payload, job_sl
         evidence_nullable_string(&evidence, jm_str(dep, "workspace_origin"));
         buf_appends(&evidence, ",\"head_revision\":");
         evidence_nullable_string(&evidence, revision);
-        buf_appendf(&evidence, ",\"dirty\":%s,\"isolated_not_merged\":%s}}",
-                    jm_bool(dep, "workspace_dirty", false) ? "true" : "false",
+        buf_appends(&evidence, ",\"baseline_revision\":");
+        evidence_nullable_string(&evidence, isolated ? NULL : jm_str(root, "workspace_revision"));
+        yyjson_mut_val *dirty = yyjson_mut_obj_get(dep, "workspace_dirty");
+        const char *dirty_json = isolated && yyjson_mut_is_bool(dirty)
+                                     ? (yyjson_mut_get_bool(dirty) ? "true" : "false")
+                                     : "null";
+        buf_appendf(&evidence, ",\"dirty\":%s,\"isolated_not_merged\":%s}}", dirty_json,
                     isolated ? "true" : "false");
     }
     buf_appends(&evidence, "]\nBounded final-answer summaries:\n[");

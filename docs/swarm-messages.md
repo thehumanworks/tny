@@ -104,3 +104,8 @@ native durable jobs refuse before a message effect. See
 [durable team mailboxes](team-mailbox.md),
 [purposeful swarms](purposeful-swarms.md), and
 [ADR 0161](adr/0161-typed-swarm-messages.md).
+
+Preparation binds both the canonical definition identity and a digest computed from
+the actual ordered names, roles, groups and coordinator links. The locked send
+recomputes that projection: changing the sender or an unrelated member while
+leaving the stored definition hash unchanged still makes the approval stale.

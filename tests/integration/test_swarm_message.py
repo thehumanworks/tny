@@ -464,6 +464,15 @@ class SwarmMessage(JobsFixture):
     def test_prepared_send_rejects_changed_recipient_name(self):
         self.binding_case("recipient_name")
 
+    def test_prepared_send_rejects_changed_sender_name(self):
+        self.binding_case("sender_name")
+
+    def test_prepared_send_rejects_changed_unrelated_name(self):
+        self.binding_case("unrelated_name")
+
+    def test_prepared_send_rejects_changed_unrelated_group(self):
+        self.binding_case("unrelated_group")
+
     def test_prepared_send_rejects_changed_recipient_attempt(self):
         self.binding_case("recipient_attempt")
 

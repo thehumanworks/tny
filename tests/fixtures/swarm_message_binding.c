@@ -33,6 +33,15 @@ int main(int argc, char **argv) {
     if (strcmp(mutation, "recipient_name") == 0)
         yyjson_mut_obj_put(recipient, yyjson_mut_strcpy(record, "swarm_name"),
                            yyjson_mut_strcpy(record, "renamed-beta"));
+    else if (strcmp(mutation, "sender_name") == 0)
+        yyjson_mut_obj_put(root, yyjson_mut_strcpy(record, "swarm_root_coordinator"),
+                           yyjson_mut_strcpy(record, "renamed-root"));
+    else if (strcmp(mutation, "unrelated_name") == 0)
+        yyjson_mut_obj_put(yyjson_mut_arr_get(items, 0), yyjson_mut_strcpy(record, "swarm_name"),
+                           yyjson_mut_strcpy(record, "renamed-alpha"));
+    else if (strcmp(mutation, "unrelated_group") == 0)
+        yyjson_mut_obj_put(yyjson_mut_arr_get(items, 0), yyjson_mut_strcpy(record, "swarm_group"),
+                           yyjson_mut_int(record, 99));
     else if (strcmp(mutation, "recipient_attempt") == 0)
         yyjson_mut_obj_put(recipient, yyjson_mut_strcpy(record, "attempt"),
                            yyjson_mut_int(record, 2));

@@ -202,6 +202,17 @@ class FactoryHandler(Handler):
         if name == "implementer" and not after_tool:
             super().chat(prompt, after_tool)
             return
+        if (
+            name == "implementer"
+            and after_tool
+            and state.get("fail_after_implementation")
+        ):
+            self.reply(
+                500,
+                "application/json",
+                b'{"error":{"message":"post-edit fixture failure"}}',
+            )
+            return
         self.stream_text(self.answers[name])
 
 
@@ -582,6 +593,64 @@ class SwarmFactory(JobsFixture):
         self.assertNotEqual(refused.returncode, 0)
         self.assertEqual(len(self.state["bodies"]), before_requests)
         path.write_text(original)
+
+    def test_failed_isolated_workspace_provenance_is_checked_on_resume(self):
+        self.state["design_release"].set()
+        self.state["fail_after_implementation"] = True
+        self.state["envdump"] = (
+            "printf retained > factory.txt; git add factory.txt; git commit -qm retained"
+        )
+        session_path, _, run_id = self.launch(factory_definition())
+        record = self.await_terminal(run_id, timeout=30)
+        item = next(i for i in record["items"] if i["swarm_name"] == "implementer")
+        self.assertEqual(item["state"], "failed")
+        self.assertEqual(item["workspace_inspection"], "recorded")
+        retained = Path(item["workspace_cwd"]) / "factory.txt"
+        self.assertEqual(retained.read_text(), "retained")
+        self.state["fail_after_implementation"] = False
+        self.run_tny(
+            "--resume", session_path.parent.name, "ask", "INSPECT_RETAINED", timeout=30
+        )
+        before = len(self.state["bodies"])
+        retained.write_text("changed after failure")
+        refused = self.run_tny(
+            "--resume",
+            session_path.parent.name,
+            "ask",
+            "MUST_NOT_POST",
+            check=False,
+            timeout=20,
+        )
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn(b"workspace provenance changed", refused.stderr)
+        self.assertEqual(len(self.state["bodies"]), before)
+
+    def test_shared_writable_handoff_does_not_invent_clean_or_head_state(self):
+        self.state["design_release"].set()
+        value = factory_definition()
+        value["swarms"][0]["agents"][0]["workspace"] = {"policy": "shared_writable"}
+        self.write_definition(value)
+        self.git("add", ".")
+        self.git("commit", "-qm", "declaration")
+        baseline = self.git("rev-parse", "HEAD")
+        self.state["envdump"] = (
+            "printf shared > factory.txt; git add factory.txt; "
+            "git commit -qm shared; printf dirty >> base.txt"
+        )
+        _, _, run_id = self.launch(value)
+        self.assertEqual(self.await_terminal(run_id)["state"], "succeeded")
+        self.assertNotEqual(self.git("rev-parse", "HEAD"), baseline)
+        self.assertTrue(self.git("status", "--porcelain"))
+        context = message_text(self.participant_bodies("review-coordinator")[0])
+        references = json.JSONDecoder().raw_decode(
+            context.split("Durable references:\n", 1)[1]
+        )[0]
+        workspace = next(
+            r["workspace"] for r in references if r["name"] == "implementer"
+        )
+        self.assertIsNone(workspace["head_revision"])
+        self.assertIsNone(workspace["dirty"])
+        self.assertEqual(workspace["baseline_revision"], baseline)
 
     def test_resume_adopts_without_duplicate_participant_launch(self):
         self.state["design_release"].set()
