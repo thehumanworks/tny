@@ -109,3 +109,8 @@ Preparation binds both the canonical definition identity and a digest computed f
 the actual ordered names, roles, groups and coordinator links. The locked send
 recomputes that projection: changing the sender or an unrelated member while
 leaving the stored definition hash unchanged still makes the approval stale.
+
+Participant context supplies the exact upward coordinator name for `swarm_message`
+and its separate numeric address for raw `team_mailbox`. Role labels such as
+`root` and `lead` are not implicit aliases; they are valid only if literally named
+in the definition. Unknown-recipient diagnostics include the declared root name.

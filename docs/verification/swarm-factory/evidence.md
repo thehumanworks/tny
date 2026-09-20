@@ -49,13 +49,64 @@ explicitly choose read-only to match that historical baseline; current product
 defaults remain writable. The comparison does not measure writable-main behavior
 or independent isolated-implementation speed.
 
-The three-task paired ladder is running after successful verification and completed
-development inference. No results are claimed yet. The protocol freezes the
-external oracle and retains failed/incomplete outcomes. Raw credentials, login
-references, model transcripts and generated workspaces remain private. Only
-sanitized aggregate/per-trial records will be committed.
+The six-trial experiment completed at **2026-09-20 16:17:40 UTC**, after successful
+verification and completed development inference. All six trials passed external
+correctness, protected-file, exact-roster and orchestration checks. Every trial
+had four observed model sessions: root plus exactly three collaborators. Usage
+coverage and actual model identity are complete. No failed trial was removed.
+See [live-results.json](live-results.json) for all observations and source hashes.
+
+| Task | Baseline seconds | Candidate seconds | External checks per run | Acceptance |
+|---|---:|---:|---:|---|
+| Unicode function | 106.971 | 140.263 | 37 | Both passed |
+| Durable concurrent ledger and CLI | 195.578 | 221.907 | 21 | Both passed |
+| Retrying DAG scheduler | 140.726 | 214.855 | 121 | Both passed |
+
+Across these three pairs, the candidate used 1,881,148 input tokens versus
+2,411,157 (22.0% fewer), but took 577.025 versus 443.275 summed seconds (30.2%
+longer). Output totals were 37,960 versus 39,951. Input already includes cached
+input. Token savings do not establish effectiveness: both conditions accepted
+3/3 tasks and this sample shows **no acceptance or speed improvement**.
+
+There were nine candidate tool errors versus four baseline errors. Candidate
+communication nevertheless produced observed findings, challenges, questions,
+answers and handoffs; their presence does not prove those messages improved the
+answer. Five of its six typed-message errors attempted the aliases `root` or
+`lead` instead of the declared root name; the sixth addressed a terminal member.
+One remaining team-control error and two file-deletion errors are retained too.
+
+The final delivery corrects that root-address information gap: every participant
+now receives the exact JSON-escaped name of its upward coordinator, separately
+from the raw mailbox index. Unknown-recipient diagnostics also name the root.
+A nested queued-coordinator regression checks both routes. No aliases are
+silently authorized, and this post-evaluation guidance change is **not retimed**.
+The measurements remain about frozen `fa22354`, not a claim for the changed prompt.
+
+Declared dependencies trade concurrency for usable causal evidence and may add to
+the critical path. This experiment changes several mechanisms together, has one
+pair per synthetic task and uncontrolled provider caching, and does not isolate
+causes or establish general statistical gains. Larger, repeated repository tasks
+are needed to assess task-solving effectiveness. The verified product gains here
+are contribution control, causal handoffs and correctness under tested failure
+cases, not demonstrated superiority on the live ladder.
+
+Raw credentials, login references, model transcripts and generated workspaces
+remain private; only sanitized aggregate/per-trial records are committed.
 
 Acceptance criteria in a definition are declarations for review, not automatically
 proven checks. A passed tool, terminal process or acknowledged message never
 substitutes for external correctness. Isolated commits still require explicit
 integration; completed participants are not silently relaunched.
+
+## Review submission and portability follow-up
+
+PR #174 was submitted as an **open non-draft PR** at **2026-09-20 16:02:14 UTC**
+(**17:02:14 Europe/London / BST**). The primary checkout is unchanged.
+
+Linux CI identified a Clang diagnostic for copying the four-character message-ID
+prefix without its intermediate terminator. The fix explicitly copies the null
+byte too, then the digest overwrites it; the resulting 64-character IDs are
+unchanged. No warning was suppressed. Together with the observed root-address
+guidance correction, this is being checked by a new final serial gate. Superseded
+checks are retained with their nonzero exits; CI and final verification statuses
+are recorded separately rather than inferred from a started command.

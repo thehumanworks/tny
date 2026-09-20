@@ -544,7 +544,8 @@ static bool swarm_message_recipient(yyjson_val *status, const char *name,
         if (strcmp(candidate, name) == 0) found = found == -2 ? (int)i : -3;
     }
     if (found == -2) {
-        snprintf(err, cap, "no purposeful swarm participant named %s", name);
+        snprintf(err, cap, "no purposeful swarm participant named %s; root coordinator is %s", name,
+                 yyjson_get_str(root_name));
         return false;
     }
     if (found == -3) {

@@ -341,20 +341,13 @@ static void append_peer_map(buf_t *prompt, const tny_swarm_manifest *manifest,
                 buf_appendf(prompt, " %s=%d;", manifest->groups[i].coordinator_name,
                             coordinator_task(manifest, i));
     }
-    buf_appends(prompt, "\nUpward coordinator: ");
-    if (participant->coordinator) {
-        if (group->parent == SIZE_MAX || coordinator_task(manifest, group->parent) < 0)
-            buf_appends(prompt, "root lead (mailbox recipient lead)");
-        else
-            buf_appendf(prompt, "%s (task %d)", manifest->groups[group->parent].coordinator_name,
-                        coordinator_task(manifest, group->parent));
-    } else if (coordinator_task(manifest, participant->group) < 0) {
-        buf_appends(prompt, "root lead (mailbox recipient lead)");
-    } else {
-        buf_appendf(prompt, "%s (task %d)", group->coordinator_name,
-                    coordinator_task(manifest, participant->group));
-    }
-    buf_appends(prompt, "\n");
+    size_t upward_group = participant->coordinator ? group->parent : participant->group;
+    if (upward_group == SIZE_MAX) upward_group = 0;
+    buf_appends(prompt, "\nUpward coordinator: swarm_message to=");
+    jescape(prompt, manifest->groups[upward_group].coordinator_name);
+    buf_appendf(prompt,
+                "; raw team_mailbox to=%d. Use the exact declared name, not a role alias.\n",
+                coordinator_task(manifest, upward_group));
 }
 
 static char *participant_prompt(const tny_swarm_manifest *manifest, size_t index,

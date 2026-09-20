@@ -1,0 +1,1244 @@
+{
+  "binaries": {
+    "baseline": {
+      "sha256": "219012a5f736e3899358a1a4c5adc5fedfcdad77add2079b5796bb0bdbf20a25",
+      "version": "0.18.0-44-g8f77e71"
+    },
+    "candidate": {
+      "sha256": "9eb3d3cc02a6d42cd4bcd0332161f66534cb864994a7b0af90ff280e4f647761",
+      "version": "0.18.0-64-gfa22354"
+    }
+  },
+  "canonical_definition_sha256": {
+    "baseline": "553358bdf6e9a70eb2a49a41094de7429803c34b6c1e17e41c3cbbb3339cd5a0",
+    "candidate": "366d1003701504f7535337a97d3db9894fb3799cd1e7db1b4869417133123ac3"
+  },
+  "cases_sha256": "2062d2880ae02e2c1391faad147acefc568b1f8bc7d0e3d9ee71eea7f1d444b1",
+  "completed_utc": "2026-09-20T16:17:40.303453+00:00",
+  "definition_sha256": {
+    "baseline": "c5157268886b04f479e5b91af160d15bb531b801dc7b71cc287348d717024396",
+    "candidate": "a2e6772f846f633084d8fc35cc86e0b3332d25cdaf61d54f3a0db8514807666a"
+  },
+  "effort": "medium",
+  "limitations": [
+    "Small synthetic task ladder, not a statistical or real-repository superiority claim.",
+    "Same model/effort, participant count, external tasks and oracle; binary and contribution protocol differ together.",
+    "No claim that topology, tool ergonomics or context changes alone caused any observed difference.",
+    "Order alternates across cases and repetitions. Workspaces and state are fresh; provider cache state is uncontrolled.",
+    "Input includes cached input. Missing usage is unknown, never zero. Cost is not acceptance.",
+    "Failed/timeout trials remain. No message count or terminal success substitutes for external correctness.",
+    "Raw logs, authentication references and generated workspaces remain private."
+  ],
+  "max_steps": 60,
+  "model": "gpt-5.6-sol",
+  "participants_per_condition": 3,
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "publication": {
+    "note": "All six trials retained. Model sessions, login references and generated workspaces remain private. Final delivery also corrects root-address guidance and prefix initialization; these post-evaluation changes were not retimed.",
+    "original_result_sha256": "3e154a630fe89fdeb190f504311d042ac35c50ea147542ae37bd6a34f14691bc"
+  },
+  "runs": [
+    {
+      "arm": "tny_swarm",
+      "artifacts": "baseline/slug-r1-tny_swarm",
+      "case": "slug",
+      "cleanup": [],
+      "complexity": "small: one pure function",
+      "condition": "baseline",
+      "correctness": {
+        "checks": 37,
+        "failed_checks": 0,
+        "failures": [],
+        "passed": true
+      },
+      "declared_participation_observed": true,
+      "effort": "medium",
+      "end_to_end_seconds": 106.971,
+      "exit_code": 0,
+      "implementation_sha256": {
+        "normalise.py": "e680df48493c3ec93060b41c6a71adc64a458fbf2f6e9ecb46295ef8e8a97baa",
+        "test_public.py": "f87a3f1c1f8d5b37868199cb98dbf15f1c76ca3bd956c1b8ccf588fe5447c213"
+      },
+      "lead_wall_seconds": 106.97,
+      "metrics": {
+        "cache_coverage_complete": true,
+        "cached_input_tokens": 535168,
+        "coordination": {
+          "coordinator_upward_messages": 2,
+          "delivery_states": {
+            "2": 15
+          },
+          "durable_messages": 15,
+          "mailbox_tool_errors": 2,
+          "peer_direct_messages": 12
+        },
+        "executed_tool_calls": 76,
+        "input_tokens": 668399,
+        "jobs": [
+          {
+            "items": [
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "verification-coordinator",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "specification-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "testing-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              }
+            ],
+            "state": "succeeded"
+          }
+        ],
+        "launched_collaborators": 3,
+        "output_tokens": 9119,
+        "provider_requests": 49,
+        "session_count": 4,
+        "sessions": [
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 137856,
+            "input_tokens": 162593,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 2475,
+            "provider_requests": 12
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 251520,
+            "input_tokens": 323758,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 2867,
+            "provider_requests": 16
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 75008,
+            "input_tokens": 94878,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1796,
+            "provider_requests": 11
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 70784,
+            "input_tokens": 87170,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1981,
+            "provider_requests": 10
+          }
+        ],
+        "tool_calls": 77,
+        "usage_complete": true
+      },
+      "model": "gpt-5.6-sol",
+      "orchestration_completed": true,
+      "passed": true,
+      "protected_files_unchanged": true,
+      "protocol_observations": {
+        "distinct_typed_topics": 0,
+        "interpretation": "Observed calls and messages are not evidence of acceptance or consensus.",
+        "tool_attempts_by_name": {
+          "edit_file": 1,
+          "glob_files": 2,
+          "list_files": 4,
+          "read_file": 12,
+          "team_control": 10,
+          "team_mailbox": 37,
+          "terminal": 9,
+          "write_file": 2
+        },
+        "tool_errors_by_name": {
+          "team_mailbox": 2
+        },
+        "typed_message_kinds": {}
+      },
+      "repetition": 1,
+      "roster_observation": {
+        "expected_names": [
+          "verification-coordinator",
+          "specification-reviewer",
+          "testing-reviewer"
+        ],
+        "participants": [
+          {
+            "name": "verification-coordinator",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          },
+          {
+            "name": "specification-reviewer",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          },
+          {
+            "name": "testing-reviewer",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          }
+        ],
+        "purposeful_runs": 1,
+        "unrelated_jobs": 0,
+        "verified": true
+      },
+      "same_model_verified": true,
+      "timed_out": false
+    },
+    {
+      "arm": "tny_swarm",
+      "artifacts": "candidate/slug-r1-tny_swarm",
+      "case": "slug",
+      "cleanup": [],
+      "complexity": "small: one pure function",
+      "condition": "candidate",
+      "correctness": {
+        "checks": 37,
+        "failed_checks": 0,
+        "failures": [],
+        "passed": true
+      },
+      "declared_participation_observed": true,
+      "effort": "medium",
+      "end_to_end_seconds": 140.263,
+      "exit_code": 0,
+      "implementation_sha256": {
+        "normalise.py": "aee9212115aa7b39891dbf4da9d6fb651de97649ec9d2b3a8ac0e001105e93cc",
+        "test_public.py": "f87a3f1c1f8d5b37868199cb98dbf15f1c76ca3bd956c1b8ccf588fe5447c213"
+      },
+      "lead_wall_seconds": 140.26,
+      "metrics": {
+        "cache_coverage_complete": true,
+        "cached_input_tokens": 495872,
+        "coordination": {
+          "coordinator_upward_messages": 1,
+          "delivery_states": {
+            "1": 3,
+            "2": 2
+          },
+          "durable_messages": 5,
+          "mailbox_tool_errors": 0,
+          "peer_direct_messages": 2
+        },
+        "executed_tool_calls": 47,
+        "input_tokens": 605082,
+        "jobs": [
+          {
+            "items": [
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "verification-coordinator",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "specification-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "testing-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              }
+            ],
+            "state": "succeeded"
+          }
+        ],
+        "launched_collaborators": 3,
+        "output_tokens": 7673,
+        "provider_requests": 34,
+        "session_count": 4,
+        "sessions": [
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 358400,
+            "input_tokens": 434603,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 2789,
+            "provider_requests": 15
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 38016,
+            "input_tokens": 48015,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1349,
+            "provider_requests": 6
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 45184,
+            "input_tokens": 59120,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1836,
+            "provider_requests": 7
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 54272,
+            "input_tokens": 63344,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1699,
+            "provider_requests": 6
+          }
+        ],
+        "tool_calls": 48,
+        "usage_complete": true
+      },
+      "model": "gpt-5.6-sol",
+      "orchestration_completed": true,
+      "passed": true,
+      "protected_files_unchanged": true,
+      "protocol_observations": {
+        "distinct_typed_topics": 5,
+        "interpretation": "Observed calls and messages are not evidence of acceptance or consensus.",
+        "tool_attempts_by_name": {
+          "edit_file": 2,
+          "file_info": 2,
+          "glob_files": 1,
+          "list_files": 4,
+          "read_file": 13,
+          "swarm_message": 7,
+          "team_control": 8,
+          "team_mailbox": 4,
+          "terminal": 5,
+          "write_file": 2
+        },
+        "tool_errors_by_name": {
+          "swarm_message": 2,
+          "team_control": 1
+        },
+        "typed_message_kinds": {
+          "finding": 2,
+          "handoff": 3
+        }
+      },
+      "repetition": 1,
+      "roster_observation": {
+        "expected_names": [
+          "verification-coordinator",
+          "specification-reviewer",
+          "testing-reviewer"
+        ],
+        "participants": [
+          {
+            "name": "verification-coordinator",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          },
+          {
+            "name": "specification-reviewer",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          },
+          {
+            "name": "testing-reviewer",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          }
+        ],
+        "purposeful_runs": 1,
+        "unrelated_jobs": 0,
+        "verified": true
+      },
+      "same_model_verified": true,
+      "timed_out": false
+    },
+    {
+      "arm": "tny_swarm",
+      "artifacts": "candidate/ledger-r1-tny_swarm",
+      "case": "ledger",
+      "cleanup": [],
+      "complexity": "medium: durable state, idempotency, concurrent clients and CLI",
+      "condition": "candidate",
+      "correctness": {
+        "checks": 21,
+        "failed_checks": 0,
+        "failures": [],
+        "passed": true
+      },
+      "declared_participation_observed": true,
+      "effort": "medium",
+      "end_to_end_seconds": 221.907,
+      "exit_code": 0,
+      "implementation_sha256": {
+        "ledger.py": "e5ceb31d9303823e76e183655d20466596132b26a9f728877d1ef2d14946cc41",
+        "ledger_cli.py": "2b38a79793360d75da40d3de7572a87ea51af8b8d75abab3e43989d672916d30",
+        "test_public.py": "a28319c92fe453f9cf9865399ae31cf4eb07e64fb5d785d0c6d6a58c25e50133"
+      },
+      "lead_wall_seconds": 221.905,
+      "metrics": {
+        "cache_coverage_complete": true,
+        "cached_input_tokens": 534784,
+        "coordination": {
+          "coordinator_upward_messages": 4,
+          "delivery_states": {
+            "0": 1,
+            "1": 6,
+            "2": 3
+          },
+          "durable_messages": 10,
+          "mailbox_tool_errors": 0,
+          "peer_direct_messages": 3
+        },
+        "executed_tool_calls": 62,
+        "input_tokens": 606672,
+        "jobs": [
+          {
+            "items": [
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "verification-coordinator",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "specification-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "testing-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              }
+            ],
+            "state": "succeeded"
+          }
+        ],
+        "launched_collaborators": 3,
+        "output_tokens": 15482,
+        "provider_requests": 40,
+        "session_count": 4,
+        "sessions": [
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 28160,
+            "input_tokens": 39847,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1310,
+            "provider_requests": 5
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 51584,
+            "input_tokens": 59551,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1608,
+            "provider_requests": 7
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 362240,
+            "input_tokens": 398012,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 8328,
+            "provider_requests": 20
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 92800,
+            "input_tokens": 109262,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 4236,
+            "provider_requests": 8
+          }
+        ],
+        "tool_calls": 64,
+        "usage_complete": true
+      },
+      "model": "gpt-5.6-sol",
+      "orchestration_completed": true,
+      "passed": true,
+      "protected_files_unchanged": true,
+      "protocol_observations": {
+        "distinct_typed_topics": 8,
+        "interpretation": "Observed calls and messages are not evidence of acceptance or consensus.",
+        "tool_attempts_by_name": {
+          "delete_file": 1,
+          "edit_file": 8,
+          "glob_files": 1,
+          "list_files": 3,
+          "read_file": 20,
+          "swarm_message": 10,
+          "team_control": 2,
+          "team_mailbox": 6,
+          "terminal": 10,
+          "write_file": 3
+        },
+        "tool_errors_by_name": {
+          "delete_file": 1,
+          "swarm_message": 2
+        },
+        "typed_message_kinds": {
+          "challenge": 1,
+          "finding": 4,
+          "handoff": 3
+        }
+      },
+      "repetition": 1,
+      "roster_observation": {
+        "expected_names": [
+          "verification-coordinator",
+          "specification-reviewer",
+          "testing-reviewer"
+        ],
+        "participants": [
+          {
+            "name": "verification-coordinator",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          },
+          {
+            "name": "specification-reviewer",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          },
+          {
+            "name": "testing-reviewer",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          }
+        ],
+        "purposeful_runs": 1,
+        "unrelated_jobs": 0,
+        "verified": true
+      },
+      "same_model_verified": true,
+      "timed_out": false
+    },
+    {
+      "arm": "tny_swarm",
+      "artifacts": "baseline/ledger-r1-tny_swarm",
+      "case": "ledger",
+      "cleanup": [],
+      "complexity": "medium: durable state, idempotency, concurrent clients and CLI",
+      "condition": "baseline",
+      "correctness": {
+        "checks": 21,
+        "failed_checks": 0,
+        "failures": [],
+        "passed": true
+      },
+      "declared_participation_observed": true,
+      "effort": "medium",
+      "end_to_end_seconds": 195.578,
+      "exit_code": 0,
+      "implementation_sha256": {
+        "ledger.py": "4762c1103b174b3e0d9103c39162fd17029ae68dec0d07f57756361c5b82faa2",
+        "ledger_cli.py": "ba51daf36072053816016df50c8f6012f3acad935e312f9abf4a78aec8977061",
+        "test_public.py": "a28319c92fe453f9cf9865399ae31cf4eb07e64fb5d785d0c6d6a58c25e50133"
+      },
+      "lead_wall_seconds": 195.577,
+      "metrics": {
+        "cache_coverage_complete": true,
+        "cached_input_tokens": 822784,
+        "coordination": {
+          "coordinator_upward_messages": 3,
+          "delivery_states": {
+            "2": 18
+          },
+          "durable_messages": 18,
+          "mailbox_tool_errors": 0,
+          "peer_direct_messages": 15
+        },
+        "executed_tool_calls": 92,
+        "input_tokens": 946362,
+        "jobs": [
+          {
+            "items": [
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "verification-coordinator",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "specification-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "testing-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              }
+            ],
+            "state": "succeeded"
+          }
+        ],
+        "launched_collaborators": 3,
+        "output_tokens": 17025,
+        "provider_requests": 59,
+        "session_count": 4,
+        "sessions": [
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 211584,
+            "input_tokens": 230971,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 3481,
+            "provider_requests": 17
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 79104,
+            "input_tokens": 92197,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 2690,
+            "provider_requests": 10
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 375040,
+            "input_tokens": 437404,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 7689,
+            "provider_requests": 15
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 157056,
+            "input_tokens": 185790,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 3165,
+            "provider_requests": 17
+          }
+        ],
+        "tool_calls": 92,
+        "usage_complete": true
+      },
+      "model": "gpt-5.6-sol",
+      "orchestration_completed": true,
+      "passed": true,
+      "protected_files_unchanged": true,
+      "protocol_observations": {
+        "distinct_typed_topics": 0,
+        "interpretation": "Observed calls and messages are not evidence of acceptance or consensus.",
+        "tool_attempts_by_name": {
+          "edit_file": 3,
+          "file_info": 3,
+          "glob_files": 2,
+          "grep_files": 4,
+          "list_files": 4,
+          "read_file": 21,
+          "team_control": 6,
+          "team_mailbox": 40,
+          "terminal": 6,
+          "write_file": 3
+        },
+        "tool_errors_by_name": {},
+        "typed_message_kinds": {}
+      },
+      "repetition": 1,
+      "roster_observation": {
+        "expected_names": [
+          "verification-coordinator",
+          "specification-reviewer",
+          "testing-reviewer"
+        ],
+        "participants": [
+          {
+            "name": "verification-coordinator",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          },
+          {
+            "name": "specification-reviewer",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          },
+          {
+            "name": "testing-reviewer",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          }
+        ],
+        "purposeful_runs": 1,
+        "unrelated_jobs": 0,
+        "verified": true
+      },
+      "same_model_verified": true,
+      "timed_out": false
+    },
+    {
+      "arm": "tny_swarm",
+      "artifacts": "baseline/workflow-r1-tny_swarm",
+      "case": "workflow",
+      "cleanup": [],
+      "complexity": "large: validated DAG, deterministic scheduling, retries and failure propagation",
+      "condition": "baseline",
+      "correctness": {
+        "checks": 121,
+        "failed_checks": 0,
+        "failures": [],
+        "passed": true
+      },
+      "declared_participation_observed": true,
+      "effort": "medium",
+      "end_to_end_seconds": 140.726,
+      "exit_code": 0,
+      "implementation_sha256": {
+        "test_public.py": "8c464abb60e18cd57a465c61918d9ae4bbf05d653066fae8de68c917c5c64245",
+        "workflow.py": "1b2f177776d922d8b0cf88e7d9890e6eff4ae0c79587181b578e17036816a15e",
+        "workflow_cli.py": "4c2576e603cfe6eccfda3e8af6f6435c0acc8a8d6101f8b65a05471b928517fc"
+      },
+      "lead_wall_seconds": 140.724,
+      "metrics": {
+        "cache_coverage_complete": true,
+        "cached_input_tokens": 668288,
+        "coordination": {
+          "coordinator_upward_messages": 4,
+          "delivery_states": {
+            "0": 1,
+            "1": 4,
+            "2": 7
+          },
+          "durable_messages": 12,
+          "mailbox_tool_errors": 1,
+          "peer_direct_messages": 7
+        },
+        "executed_tool_calls": 72,
+        "input_tokens": 796396,
+        "jobs": [
+          {
+            "items": [
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "verification-coordinator",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "specification-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "testing-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              }
+            ],
+            "state": "succeeded"
+          }
+        ],
+        "launched_collaborators": 3,
+        "output_tokens": 13807,
+        "provider_requests": 49,
+        "session_count": 4,
+        "sessions": [
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 222720,
+            "input_tokens": 257349,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 2684,
+            "provider_requests": 18
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 103680,
+            "input_tokens": 126699,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 3308,
+            "provider_requests": 12
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 47872,
+            "input_tokens": 58592,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 1545,
+            "provider_requests": 7
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 294016,
+            "input_tokens": 353756,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 6270,
+            "provider_requests": 12
+          }
+        ],
+        "tool_calls": 72,
+        "usage_complete": true
+      },
+      "model": "gpt-5.6-sol",
+      "orchestration_completed": true,
+      "passed": true,
+      "protected_files_unchanged": true,
+      "protocol_observations": {
+        "distinct_typed_topics": 0,
+        "interpretation": "Observed calls and messages are not evidence of acceptance or consensus.",
+        "tool_attempts_by_name": {
+          "edit_file": 2,
+          "file_info": 2,
+          "glob_files": 2,
+          "list_files": 4,
+          "read_file": 19,
+          "team_control": 9,
+          "team_mailbox": 26,
+          "terminal": 5,
+          "write_file": 3
+        },
+        "tool_errors_by_name": {
+          "team_control": 1,
+          "team_mailbox": 1
+        },
+        "typed_message_kinds": {}
+      },
+      "repetition": 1,
+      "roster_observation": {
+        "expected_names": [
+          "verification-coordinator",
+          "specification-reviewer",
+          "testing-reviewer"
+        ],
+        "participants": [
+          {
+            "name": "verification-coordinator",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          },
+          {
+            "name": "specification-reviewer",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          },
+          {
+            "name": "testing-reviewer",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          }
+        ],
+        "purposeful_runs": 1,
+        "unrelated_jobs": 0,
+        "verified": true
+      },
+      "same_model_verified": true,
+      "timed_out": false
+    },
+    {
+      "arm": "tny_swarm",
+      "artifacts": "candidate/workflow-r1-tny_swarm",
+      "case": "workflow",
+      "cleanup": [],
+      "complexity": "large: validated DAG, deterministic scheduling, retries and failure propagation",
+      "condition": "candidate",
+      "correctness": {
+        "checks": 121,
+        "failed_checks": 0,
+        "failures": [],
+        "passed": true
+      },
+      "declared_participation_observed": true,
+      "effort": "medium",
+      "end_to_end_seconds": 214.855,
+      "exit_code": 0,
+      "implementation_sha256": {
+        "test_public.py": "8c464abb60e18cd57a465c61918d9ae4bbf05d653066fae8de68c917c5c64245",
+        "workflow.py": "6039344b12b42da4f2764cebb65b54862bfb8d93e44e822e26e5eab84a449c05",
+        "workflow_cli.py": "47765e3b4a9a8d32393f7583e73a2fc4a901b80f6bb386462da1218687b2f933"
+      },
+      "lead_wall_seconds": 214.854,
+      "metrics": {
+        "cache_coverage_complete": true,
+        "cached_input_tokens": 550656,
+        "coordination": {
+          "coordinator_upward_messages": 1,
+          "delivery_states": {
+            "1": 8,
+            "2": 3
+          },
+          "durable_messages": 11,
+          "mailbox_tool_errors": 0,
+          "peer_direct_messages": 7
+        },
+        "executed_tool_calls": 62,
+        "input_tokens": 669394,
+        "jobs": [
+          {
+            "items": [
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "verification-coordinator",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "specification-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              },
+              {
+                "attempt": 1,
+                "error_code": null,
+                "exit_code": 0,
+                "label": "testing-reviewer",
+                "launched": true,
+                "model": "gpt-5.6-sol",
+                "observed_sessions": 1,
+                "state": "succeeded",
+                "usage_known": true
+              }
+            ],
+            "state": "succeeded"
+          }
+        ],
+        "launched_collaborators": 3,
+        "output_tokens": 14805,
+        "provider_requests": 38,
+        "session_count": 4,
+        "sessions": [
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 72832,
+            "input_tokens": 96626,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 2482,
+            "provider_requests": 7
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 39040,
+            "input_tokens": 54398,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 2884,
+            "provider_requests": 6
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 53888,
+            "input_tokens": 62281,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 2116,
+            "provider_requests": 7
+          },
+          {
+            "cache_coverage_complete": true,
+            "cached_input_tokens": 384896,
+            "input_tokens": 456089,
+            "models": [
+              "gpt-5.6-sol"
+            ],
+            "output_tokens": 7323,
+            "provider_requests": 18
+          }
+        ],
+        "tool_calls": 64,
+        "usage_complete": true
+      },
+      "model": "gpt-5.6-sol",
+      "orchestration_completed": true,
+      "passed": true,
+      "protected_files_unchanged": true,
+      "protocol_observations": {
+        "distinct_typed_topics": 9,
+        "interpretation": "Observed calls and messages are not evidence of acceptance or consensus.",
+        "tool_attempts_by_name": {
+          "delete_file": 1,
+          "edit_file": 5,
+          "glob_files": 1,
+          "grep_files": 2,
+          "job_status": 1,
+          "list_files": 4,
+          "read_file": 17,
+          "swarm_message": 12,
+          "team_control": 5,
+          "team_mailbox": 4,
+          "terminal": 9,
+          "write_file": 3
+        },
+        "tool_errors_by_name": {
+          "delete_file": 1,
+          "swarm_message": 2
+        },
+        "typed_message_kinds": {
+          "answer": 1,
+          "finding": 6,
+          "handoff": 2,
+          "question": 1
+        }
+      },
+      "repetition": 1,
+      "roster_observation": {
+        "expected_names": [
+          "verification-coordinator",
+          "specification-reviewer",
+          "testing-reviewer"
+        ],
+        "participants": [
+          {
+            "name": "verification-coordinator",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          },
+          {
+            "name": "specification-reviewer",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          },
+          {
+            "name": "testing-reviewer",
+            "observed_sessions": 1,
+            "state": "succeeded"
+          }
+        ],
+        "purposeful_runs": 1,
+        "unrelated_jobs": 0,
+        "verified": true
+      },
+      "same_model_verified": true,
+      "timed_out": false
+    }
+  ],
+  "schema_version": 1,
+  "source_revisions": {
+    "baseline": "8f77e71",
+    "candidate": "fa22354"
+  },
+  "started_utc": "2026-09-20T16:00:38.961036+00:00",
+  "summary": {
+    "ledger": {
+      "baseline": {
+        "accepted_runs": 1,
+        "attempted_runs": 1,
+        "collaborators_per_observed_run": [
+          3
+        ],
+        "infrastructure_failures": 0,
+        "median_cached_input_tokens": 822784,
+        "median_input_tokens": 946362,
+        "median_output_tokens": 17025,
+        "median_seconds_accepted": 195.578,
+        "median_seconds_all_observed": 195.578,
+        "usage_complete": true
+      },
+      "candidate": {
+        "accepted_runs": 1,
+        "attempted_runs": 1,
+        "collaborators_per_observed_run": [
+          3
+        ],
+        "infrastructure_failures": 0,
+        "median_cached_input_tokens": 534784,
+        "median_input_tokens": 606672,
+        "median_output_tokens": 15482,
+        "median_seconds_accepted": 221.907,
+        "median_seconds_all_observed": 221.907,
+        "usage_complete": true
+      }
+    },
+    "slug": {
+      "baseline": {
+        "accepted_runs": 1,
+        "attempted_runs": 1,
+        "collaborators_per_observed_run": [
+          3
+        ],
+        "infrastructure_failures": 0,
+        "median_cached_input_tokens": 535168,
+        "median_input_tokens": 668399,
+        "median_output_tokens": 9119,
+        "median_seconds_accepted": 106.971,
+        "median_seconds_all_observed": 106.971,
+        "usage_complete": true
+      },
+      "candidate": {
+        "accepted_runs": 1,
+        "attempted_runs": 1,
+        "collaborators_per_observed_run": [
+          3
+        ],
+        "infrastructure_failures": 0,
+        "median_cached_input_tokens": 495872,
+        "median_input_tokens": 605082,
+        "median_output_tokens": 7673,
+        "median_seconds_accepted": 140.263,
+        "median_seconds_all_observed": 140.263,
+        "usage_complete": true
+      }
+    },
+    "workflow": {
+      "baseline": {
+        "accepted_runs": 1,
+        "attempted_runs": 1,
+        "collaborators_per_observed_run": [
+          3
+        ],
+        "infrastructure_failures": 0,
+        "median_cached_input_tokens": 668288,
+        "median_input_tokens": 796396,
+        "median_output_tokens": 13807,
+        "median_seconds_accepted": 140.726,
+        "median_seconds_all_observed": 140.726,
+        "usage_complete": true
+      },
+      "candidate": {
+        "accepted_runs": 1,
+        "attempted_runs": 1,
+        "collaborators_per_observed_run": [
+          3
+        ],
+        "infrastructure_failures": 0,
+        "median_cached_input_tokens": 550656,
+        "median_input_tokens": 669394,
+        "median_output_tokens": 14805,
+        "median_seconds_accepted": 214.855,
+        "median_seconds_all_observed": 214.855,
+        "usage_complete": true
+      }
+    }
+  },
+  "timeout_seconds": 360
+}
