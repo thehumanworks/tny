@@ -8,8 +8,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests/bench"))
@@ -173,6 +173,9 @@ class EffectivenessTests(unittest.TestCase):
             checked = subprocess.CompletedProcess([], 0, stdout='{"participants":3}')
             with (
                 mock.patch.object(sys, "argv", argv),
+                mock.patch.object(
+                    experiment.platform, "platform", return_value="synthetic-host"
+                ),
                 mock.patch.object(experiment.subprocess, "run", return_value=checked),
                 mock.patch.object(
                     experiment.subprocess,
