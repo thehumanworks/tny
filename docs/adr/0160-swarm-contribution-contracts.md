@@ -1,4 +1,4 @@
-# ADR 0159: compile contribution contracts into the durable swarm DAG
+# ADR 0160: compile contribution contracts into the durable swarm DAG
 
 - Status: accepted
 - Date: 2026-09-20

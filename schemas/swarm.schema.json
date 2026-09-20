@@ -54,7 +54,7 @@
         {
           "type": "object",
           "required": ["policy"],
-          "properties": { "policy": { "const": "shared_read_only" } },
+          "properties": { "policy": { "enum": ["shared_writable", "shared_read_only"] } },
           "additionalProperties": false
         },
         {

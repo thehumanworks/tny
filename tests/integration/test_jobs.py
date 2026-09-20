@@ -1441,8 +1441,8 @@ class JobsEnrollment(JobsDAG):
         self.assertEqual(final["state"], "succeeded", final)
         self.assertNotIn(bearer, Path(final["items"][0]["log_path"]).read_text())
 
-    def test_default_read_only_marker_is_assigned_to_owned_child(self):
-        run, payload = self.dag_submit([{"prompt": "DAG_BARRIER read-only marker"}])
+    def test_default_worker_has_no_read_only_marker(self):
+        run, payload = self.dag_submit([{"prompt": "DAG_BARRIER writable default"}])
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertTrue(self.state["dag_entered"].wait(30))
         child = self.item_child_pid(payload["id"])
@@ -1453,7 +1453,9 @@ class JobsEnrollment(JobsDAG):
             text=True,
         ).stdout
         # Do not print the observed environment: it includes a private fixture bearer.
-        self.assertTrue("TNY_TEAM_READ_ONLY=1" in observed, "read-only marker absent")
+        self.assertFalse(
+            "TNY_TEAM_READ_ONLY=1" in observed, "unexpected read-only marker"
+        )
         self.state["dag_release"].set()
         self.assertEqual(self.await_terminal(payload["id"])["state"], "succeeded")
 
@@ -1555,9 +1557,24 @@ class JobsEnrollment(JobsDAG):
             "edited",
         )
 
+    def test_default_worker_can_edit(self):
+        self.state["envdump"] = "printf allowed > allowed.txt"
+        run, payload = self.dag_submit([{"prompt": "ENVDUMP default edit"}])
+        self.assertEqual(run.returncode, 0, run.stderr)
+        record = self.await_terminal(payload["id"])
+        self.assertEqual(record["state"], "succeeded", record)
+        self.assertEqual((self.workspace / "allowed.txt").read_text(), "allowed")
+
     def test_read_only_worker_denies_actual_edit_tool(self):
         self.state["envdump"] = "printf forbidden > forbidden.txt"
-        run, payload = self.dag_submit([{"prompt": "ENVDUMP attempt edit"}])
+        run, payload = self.dag_submit(
+            [
+                {
+                    "prompt": "ENVDUMP attempt edit",
+                    "workspace": {"policy": "shared_read_only"},
+                }
+            ]
+        )
         self.assertEqual(run.returncode, 0, run.stderr)
         record = self.await_terminal(payload["id"])
         self.assertFalse((self.workspace / "forbidden.txt").exists(), record)

@@ -22,7 +22,8 @@
 #define TNY_SWARM_MANIFEST_MAX_GROUPS       (TNY_SWARM_MANIFEST_MAX_PARTICIPANTS + 1u)
 
 typedef enum {
-    TNY_SWARM_WORKSPACE_SHARED_READ_ONLY = 0,
+    TNY_SWARM_WORKSPACE_SHARED_WRITABLE = 0,
+    TNY_SWARM_WORKSPACE_SHARED_READ_ONLY,
     TNY_SWARM_WORKSPACE_ISOLATED,
 } tny_swarm_manifest_workspace_policy;
 
@@ -82,5 +83,6 @@ int tny_swarm_manifest_parse(const char *bytes, size_t len, size_t capacity,
 int tny_swarm_manifest_parse_file(const char *path, size_t capacity, tny_swarm_manifest **out,
                                   char *err, size_t errlen);
 void tny_swarm_manifest_free(tny_swarm_manifest *manifest);
+const char *tny_swarm_manifest_workspace_name(tny_swarm_manifest_workspace_policy policy);
 
 #endif

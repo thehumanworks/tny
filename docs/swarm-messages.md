@@ -103,4 +103,4 @@ Wasm, SSH, embedded/library, ephemeral purposeful activation, and runtimes witho
 native durable jobs refuse before a message effect. See
 [durable team mailboxes](team-mailbox.md),
 [purposeful swarms](purposeful-swarms.md), and
-[ADR 0160](adr/0160-typed-swarm-messages.md).
+[ADR 0161](adr/0161-typed-swarm-messages.md).

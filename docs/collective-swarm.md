@@ -22,6 +22,10 @@ existing default is 2. Do not occupy every runnable slot waiting on queued peers
 Nested collaborators and isolated subagents cannot create extra collaborators.
 Legacy job retry is refused in mode; create new parent-owned tasks instead. Existing
 DAG dependencies, roles, workspaces and attempt outcomes remain authoritative.
+Workers default to shared writable workspaces and inherit the lead's permission
+mode (default `yolo`). Read-only work requires an explicit
+`workspace:{"policy":"shared_read_only"}` override. Use `isolated` workspaces or
+assign distinct file ownership to avoid concurrent shared-checkout edits.
 The cap protects harness launch paths; it does not sandbox arbitrary same-user code.
 
 For repeatable named membership, use a

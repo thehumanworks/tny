@@ -183,12 +183,16 @@ static int parse_contract(manifest_parser *parser, yyjson_val *value, const char
             return fail(parser, "%s workspace has missing, duplicate, or unknown fields", kind);
         yyjson_val *policy = yyjson_obj_get(workspace, "policy");
         if (!yyjson_is_str(policy) || strlen(yyjson_get_str(policy)) != yyjson_get_len(policy))
-            return fail(parser, "%s workspace policy must be shared_read_only or isolated", kind);
+            return fail(parser,
+                        "%s workspace policy must be shared_writable, shared_read_only or isolated",
+                        kind);
         const char *policy_name = yyjson_get_str(policy);
-        if (strcmp(policy_name, "shared_read_only") == 0) {
-            if (base)
-                return fail(parser, "%s shared_read_only workspace cannot declare base", kind);
-            contract->workspace_policy = TNY_SWARM_WORKSPACE_SHARED_READ_ONLY;
+        if (strcmp(policy_name, "shared_read_only") == 0 ||
+            strcmp(policy_name, "shared_writable") == 0) {
+            if (base) return fail(parser, "%s shared workspace cannot declare base", kind);
+            contract->workspace_policy = strcmp(policy_name, "shared_read_only") == 0
+                                             ? TNY_SWARM_WORKSPACE_SHARED_READ_ONLY
+                                             : TNY_SWARM_WORKSPACE_SHARED_WRITABLE;
         } else if (strcmp(policy_name, "isolated") == 0) {
             contract->workspace_policy = TNY_SWARM_WORKSPACE_ISOLATED;
             if (base) {
@@ -199,7 +203,9 @@ static int parse_contract(manifest_parser *parser, yyjson_val *value, const char
                 if (!contract->workspace_base) return fail(parser, "out of memory");
             }
         } else {
-            return fail(parser, "%s workspace policy must be shared_read_only or isolated", kind);
+            return fail(parser,
+                        "%s workspace policy must be shared_writable, shared_read_only or isolated",
+                        kind);
         }
         contract->workspace_declared = true;
     }
@@ -298,9 +304,7 @@ static void append_actor(buf_t *out, const char *name, const char *purpose,
         }
         if (contract->workspace_declared) {
             buf_appends(out, ",\"workspace\":{\"policy\":");
-            jescape(out, contract->workspace_policy == TNY_SWARM_WORKSPACE_ISOLATED
-                             ? "isolated"
-                             : "shared_read_only");
+            jescape(out, tny_swarm_manifest_workspace_name(contract->workspace_policy));
             if (contract->workspace_base) {
                 buf_appends(out, ",\"base\":");
                 jescape(out, contract->workspace_base);
@@ -577,4 +581,13 @@ int tny_swarm_manifest_parse_file(const char *path, size_t capacity, tny_swarm_m
     int rc = tny_swarm_manifest_parse(bytes, len, capacity, out, err, errlen);
     free(bytes);
     return rc;
+}
+
+const char *tny_swarm_manifest_workspace_name(tny_swarm_manifest_workspace_policy policy) {
+    switch (policy) {
+    case TNY_SWARM_WORKSPACE_SHARED_WRITABLE: return "shared_writable";
+    case TNY_SWARM_WORKSPACE_SHARED_READ_ONLY: return "shared_read_only";
+    case TNY_SWARM_WORKSPACE_ISOLATED: return "isolated";
+    }
+    return NULL;
 }

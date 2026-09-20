@@ -536,7 +536,7 @@ static bool schema_tool_hidden(const tools_env *env, const char *name) {
     if (schema_tool_disabled(env, name)) return true;
     if (!env || !env->ctx || !name) return false;
     if (!profile_allows_builtin(env, name)) return true;
-    /* Purposeful reviewers inherit read-only authority. Keep the full-profile
+    /* Explicitly read-only purposeful participants keep the full-profile
      * advertised surface aligned with it; direct calls still use the existing
      * permission engine. Shell-only profiles retain their explicit interface. */
     if (env->ctx->workspace_read_only && getenv("TNY_SWARM_NAME") &&

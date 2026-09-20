@@ -61,13 +61,13 @@ actor fields:
 | `deliverable` | Non-blank UTF-8 text, at most 4096 encoded bytes. |
 | `acceptance` | When present, 1..16 non-blank criteria; each is at most 1024 UTF-8 bytes. The criteria are declarations for reviewers, not automatically executed or proven. |
 | `depends_on` | An array of 0..15 globally unique participant names. Names identify causal prerequisites, not message routes or authority. |
-| `workspace` | A closed object with `policy` equal to `shared_read_only` or `isolated`. Optional `base` is allowed only with `isolated` and is at most 256 UTF-8 bytes. |
+| `workspace` | A closed object with `policy` equal to `shared_writable`, `shared_read_only` or `isolated`. Optional `base` is allowed only with `isolated` and is at most 256 UTF-8 bytes. |
 
 The root coordinator is the current session, not a launched worker. Its
 `deliverable` and `acceptance` are retained as the root synthesis contract, but the
 root must not declare `depends_on` or `workspace`; those fields are rejected rather
 than pretending the session is an indexed worker. An omitted worker workspace means
-`shared_read_only`. `depends_on: []` is valid and means no causal prerequisites.
+`shared_writable`, matching ADR 0159; read-only is an explicit opt-in. `depends_on: []` is valid and means no causal prerequisites.
 
 The unchanged whole-manifest limits also apply: at most 64 KiB of input, names at
 most 64 UTF-8 bytes, purposes at most 4096 UTF-8 bytes, root depth 1 through maximum
@@ -108,7 +108,8 @@ changed required evidence fails closed before the consumer provider call.
 
 ## Workspace and acceptance boundaries
 
-`shared_read_only` is the default and does not widen the caller's permissions.
+`shared_writable` is the default; explicit `shared_read_only` narrows it. Neither
+policy overrides an inherited read-only or permission ceiling.
 `isolated` explicitly asks the existing managed-task workspace service for a Git
 worktree. It inherits the caller's provider, permission, tool, sandbox, instruction,
 and step ceilings. An inherited read-only caller cannot escape by requesting an
@@ -159,7 +160,7 @@ ephemeral, and other contexts without the required native job/watch seams reject
 activation before provider effects. `isolated` additionally requires a suitable
 local Git repository and is file isolation, not an OS security sandbox.
 
-See [ADR 0159](adr/0159-swarm-contribution-contracts.md),
+See [ADR 0160](adr/0160-swarm-contribution-contracts.md),
 [team control](team-control.md), and [durable DAG ADR 0143](adr/0143-durable-dag-over-jobs.md).
 
 Purposeful job retry remains unsupported; recovery adopts or resumes the original activation without silently creating a new attempt.

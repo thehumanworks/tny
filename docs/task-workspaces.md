@@ -8,20 +8,21 @@ second scheduler. See [team control](team-control.md).
 
 ## Choose a policy explicitly
 
-DAG ask items default to **shared read-only**:
+DAG ask items default to **shared writable**, with `yolo` permissions unless
+explicitly overridden. Request read-only access explicitly:
 
 ```json
 {"role":"worker","prompt":"Review only; report evidence.","workspace":{"policy":"shared_read_only"}}
 ```
 
 The native worker tool policy enforces read-only access. Merely writing “read
-only” in a prompt is not the enforcement mechanism. For editing, opt in:
+only” in a prompt is not the enforcement mechanism. For isolated editing, use:
 
 ```json
 {"role":"worker","prompt":"Implement the assigned change, check it, and commit intended files in this worktree.","workspace":{"policy":"isolated"}}
 ```
 
-`shared_writable` is a separate explicit opt-in; concurrent edits there can race.
+`shared_writable` is the default; concurrent edits there can race.
 Prefer isolated Git editing for independent implementation tasks. An inherited
 read-only worker cannot request a writable workspace to escape its policy.
 Worktrees isolate files, **not privileges**: same-user processes can reach other

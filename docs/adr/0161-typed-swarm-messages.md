@@ -1,4 +1,4 @@
-# ADR 0160: typed named messages adapt the durable team mailbox
+# ADR 0161: typed named messages adapt the durable team mailbox
 
 - Status: accepted
 - Date: 2026-09-20

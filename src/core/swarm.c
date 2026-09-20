@@ -377,9 +377,7 @@ static char *participant_prompt(const tny_swarm_manifest *manifest, size_t index
         for (size_t i = 0; i < contract->acceptance_count; ++i)
             buf_appendf(&prompt, "\n- %s", contract->acceptance[i]);
         buf_appends(&prompt, "\nWorkspace capability: ");
-        buf_appends(&prompt, contract->workspace_policy == TNY_SWARM_WORKSPACE_ISOLATED
-                                 ? "isolated managed worktree"
-                                 : "shared_read_only");
+        buf_appends(&prompt, tny_swarm_manifest_workspace_name(contract->workspace_policy));
         if (contract->workspace_base) buf_appendf(&prompt, " (base %s)", contract->workspace_base);
         buf_appends(&prompt, "\nExplicit prerequisites:");
         if (!contract->dependency_count) buf_appends(&prompt, " none");
@@ -423,9 +421,7 @@ static bool add_index_array(yyjson_mut_doc *d, yyjson_mut_val *object, const cha
 static bool add_workspace(yyjson_mut_doc *d, yyjson_mut_val *item,
                           const tny_swarm_manifest_contract *contract) {
     yyjson_mut_val *workspace = yyjson_mut_obj(d);
-    const char *policy = contract->workspace_policy == TNY_SWARM_WORKSPACE_ISOLATED
-                             ? "isolated"
-                             : "shared_read_only";
+    const char *policy = tny_swarm_manifest_workspace_name(contract->workspace_policy);
     return workspace && yyjson_mut_obj_add_strcpy(d, workspace, "policy", policy) &&
            (!contract->workspace_base ||
             yyjson_mut_obj_add_strcpy(d, workspace, "base", contract->workspace_base)) &&
@@ -833,29 +829,22 @@ void tny_swarm_policy(const tny_ctx *ctx, buf_t *out) {
                             participant->coordinator ? "coordinator" : "agent", participant->group,
                             participant->purpose);
                 if (manifest->version == TNY_SWARM_MANIFEST_VERSION_V2) {
-                    buf_appendf(out, "; workspace=%s",
-                                participant->contract.workspace_policy ==
-                                        TNY_SWARM_WORKSPACE_ISOLATED
-                                    ? "isolated"
-                                    : "shared_read_only");
+                    buf_appendf(
+                        out, "; workspace=%s",
+                        tny_swarm_manifest_workspace_name(participant->contract.workspace_policy));
                     if (participant->contract.deliverable)
                         buf_appendf(out, "; deliverable=%s", participant->contract.deliverable);
                 }
                 buf_appends(out, "\n");
             }
-            if (manifest->version == TNY_SWARM_MANIFEST_VERSION_V1)
-                buf_appends(
-                    out,
-                    "All definition participants are shared-read-only reviewers, including "
-                    "nested coordinators. You own implementation edits and executable tests; ");
-            else
-                buf_appends(out,
-                            "Shared-read-only remains the default. Isolated participant edits stay "
-                            "in managed worktrees until a separate explicit integration decision; "
-                            "dependency success never means files were merged. ");
             buf_appends(out,
-                        "Perform requested checks and share compact results. Work while peers "
-                        "investigate. Before finalizing, collect every participant's terminal "
+                        "Participants can edit and run checks by default, subject to explicit "
+                        "permission and workspace overrides. Assign distinct file ownership to "
+                        "avoid shared-workspace write races. Isolated changes stay in managed "
+                        "worktrees until explicit integration; dependency success never means "
+                        "files were merged. Coordinate implementation and independent checks, "
+                        "sharing compact evidence while peers work. Before finalizing, collect "
+                        "every participant's terminal "
                         "outcome and reconcile evidence. A correct artifact does not erase a "
                         "failed, cancelled or missing participant; report these explicitly.\n");
             tny_swarm_manifest_free(manifest);
