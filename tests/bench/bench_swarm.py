@@ -345,10 +345,11 @@ def run_trial(
             "--no-self-improve",
             "--max-steps",
             str(args.max_steps),
-            f"--swarm={args.agents}",
         ]
         if args.swarm_file:
             command += ["--swarm-file", str(args.swarm_file)]
+        else:
+            command += [f"--swarm={args.agents}"]
         if args.activation:
             prompt += "\n" + args.activation + "\n"
         command += ["ask", "--events=jsonl", "--progress=none", prompt]
