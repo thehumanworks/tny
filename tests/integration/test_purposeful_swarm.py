@@ -2,6 +2,7 @@
 """Executable file-defined nested swarms over the real durable team runtime."""
 
 import json
+import os
 import unittest
 
 from test_jobs import JobsFixture, argv_without_runner_binary
@@ -147,6 +148,17 @@ class PurposefulSwarm(JobsFixture):
             "exact received id",
         ):
             self.assertIn(clause, mailbox["description"])
+
+    def test_validator_rejects_fifo_without_waiting_for_a_writer(self):
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("host has no FIFO support")
+        fifo = self.workspace / "not-a-definition.pipe"
+        os.mkfifo(fifo)
+        result = self.run_tny("swarm", "validate", str(fifo), check=False, timeout=3)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"regular file", result.stderr)
+        self.assertEqual(self.state["bodies"], [])
+        self.assertFalse(list((self.home / ".tny" / "jobs").glob("*/job.json")))
 
     def test_invalid_and_unsupported_inputs_have_no_execution_effects(self):
         invalid = definition()

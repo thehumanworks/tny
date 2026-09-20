@@ -2,11 +2,13 @@
 #include "json/json.h"
 #include "util/util.h"
 
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 typedef struct {
     tny_swarm_manifest *manifest;
@@ -283,22 +285,30 @@ int tny_swarm_manifest_parse_file(const char *path, size_t capacity, tny_swarm_m
         if (err && errlen) snprintf(err, errlen, "swarm file must be a readable regular file");
         return -1;
     }
-    FILE *file = fopen(path, "rb");
-    if (!file) {
+    /* Validate the descriptor without waiting for a FIFO writer. File-based
+     * configuration is bounded input, not an unbounded streaming transport. */
+    int fd = open(path, O_RDONLY | O_NONBLOCK);
+    if (fd < 0) {
         if (err && errlen) snprintf(err, errlen, "could not read swarm file");
         return -1;
     }
     struct stat st;
-    if (fstat(fileno(file), &st) != 0 || !S_ISREG(st.st_mode)) {
-        fclose(file);
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+        close(fd);
         if (err && errlen) snprintf(err, errlen, "swarm file must be a readable regular file");
         return -1;
     }
     if (st.st_size <= 0 || (uintmax_t)st.st_size > TNY_SWARM_MANIFEST_MAX_BYTES) {
-        fclose(file);
+        close(fd);
         if (err && errlen)
             snprintf(err, errlen, "swarm file must contain 1..%u bytes",
                      TNY_SWARM_MANIFEST_MAX_BYTES);
+        return -1;
+    }
+    FILE *file = fdopen(fd, "rb");
+    if (!file) {
+        close(fd);
+        if (err && errlen) snprintf(err, errlen, "could not read swarm file");
         return -1;
     }
     char *bytes = malloc(TNY_SWARM_MANIFEST_MAX_BYTES + 1u);
