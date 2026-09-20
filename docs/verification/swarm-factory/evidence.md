@@ -107,6 +107,17 @@ Linux CI identified a Clang diagnostic for copying the four-character message-ID
 prefix without its intermediate terminator. The fix explicitly copies the null
 byte too, then the digest overwrites it; the resulting 64-character IDs are
 unchanged. No warning was suppressed. Together with the observed root-address
-guidance correction, this is being checked by a new final serial gate. Superseded
-checks are retained with their nonzero exits; CI and final verification statuses
-are recorded separately rather than inferred from a started command.
+guidance correction, this passed a **new complete serial gate at `bcd8ab2`**, exit
+**0**, in **466.1 seconds**. It reran full local quality, release/main unit tests,
+all 118 focused integration cases, ownership/fault fixtures and the zero-leak
+checks. Main unit totals remain 529 tests: 528 passed, zero failed and one explicit
+Linux-only skip on Darwin, with 29,504 assertions. No source changed after this
+gate; the final documentation commit only records its evidence.
+
+The verified `src/` Git tree is `42141f31fba077312fe4c5dba6a89a38ca24b53f`.
+[Delivery check record](checks.json) records the source revision and log digest.
+Superseded checks are retained with their nonzero exits; they are not passes.
+The original PR CI had 18 successful checks, one quality diagnostic and two
+checks still in progress before these final corrections were pushed. Updated CI
+must run on the new head; a fully green final CI run is **not** claimed. This PR
+is submitted for review, not merged.
