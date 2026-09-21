@@ -57,13 +57,13 @@ typedef struct capability_copy {
 typedef struct event_copy {
     uint32_t kind, schema_version, tool_ok, permission_options, stop_reason;
     int32_t error_code;
-    uint32_t has_cost;
+    uint32_t has_cost, cost_cumulative, tokens_reported;
     uint64_t sequence;
     int64_t timestamp_ms, input_tokens, output_tokens, context_used, context_size;
     double cost;
     sdk_owned_bytes provider, session_id, turn_id, text, message_id;
     sdk_owned_bytes tool_name, tool_id, tool_detail;
-    sdk_owned_bytes permission_id, permission_summary, message_type;
+    sdk_owned_bytes permission_id, permission_summary, message_type, cost_currency;
 } event_copy;
 
 typedef struct create_options {
@@ -72,6 +72,7 @@ typedef struct create_options {
     uint64_t max_tool_result_bytes;
     sdk_owned_bytes task_name, task_instructions;
     int task_set;
+    sdk_owned_bytes acp_command;
     sdk_owned_bytes reasoning_effort; /* empty = provider default */
 } create_options;
 
@@ -97,6 +98,16 @@ typedef struct command {
     int embedded;
 } command;
 
+/* ABI 1.4 additions are optional imports, resolved from the linked libtny
+ * image. A retained handle owns their lifetime through the owner's final join. */
+typedef struct sdk_acp_symbols {
+    void *library;
+    tny_bytes (*cost_currency)(const tny_event *);
+    uint32_t (*cost_cumulative)(const tny_event *);
+    uint32_t (*tokens_reported)(const tny_event *);
+    int32_t (*set_command)(tny_runtime *, tny_bytes, tny_error **);
+} sdk_acp_symbols;
+
 typedef struct runtime_state {
     uint32_t id;
     napi_env env;
@@ -115,6 +126,7 @@ typedef struct runtime_state {
     atomic_int env_closing;
     tsfn_token *token;
     tny_runtime *runtime;
+    sdk_acp_symbols acp;
     tny_session *session;
     uint32_t session_handle;
     command cleanup_command;
@@ -129,7 +141,7 @@ void sdk_free_command(command *cmd);
 tny_bytes sdk_view_of(sdk_owned_bytes value);
 void sdk_wipe_owned_bytes(sdk_owned_bytes *value);
 char *sdk_take_error(int32_t status, tny_error *error);
-int sdk_snapshot_event(tny_event *source, event_copy **out);
+int sdk_snapshot_event(tny_event *source, const sdk_acp_symbols *acp, event_copy **out);
 int sdk_snapshot_capabilities(tny_runtime *runtime, capability_copy *copy);
 void sdk_runtime_add(runtime_state *state);
 runtime_state *sdk_runtime_acquire(uint32_t id, napi_env env);

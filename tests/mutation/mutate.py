@@ -27,6 +27,8 @@ import time
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Outside subprocess return codes; never evidence of a killed mutant.
+RUN_TIMEOUT = -1000
 
 # (file, [function names], line-must-match-regex)
 # — functions None means the whole file; regex None means every line.
@@ -35,6 +37,37 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # (path, function names or None, line regex or None[, integration test]) —
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
+    (
+        "src/backends/acp/acp_client.c",
+        None,
+        r'strcmp\(agent_version, "0.75.1"\) == 0',
+        "tests/integration/test_acp_managed.py",
+        "acp-client",
+        {"== -> !="},
+    ),
+    (
+        "src/backends/acp/acp_client.c",
+        ["ac_set_config", "ac_create_or_resume"],
+        r"strcmp\(current, wanted\) != 0|resume && !o->load_session",
+        "tests/integration/test_acp_client.py",
+        "acp-client",
+    ),
+    (
+        "src/backends/acp/acp_events.c",
+        ["ac_handle_agent_request"],
+        r"strcmp\(session, o->session_id\) != 0",
+        "tests/integration/test_acp_client.py",
+        "acp-client",
+        {"!= -> =="},
+    ),
+    (
+        "src/backends/acp/acp_client.c",
+        ["ac_config_has_value"],
+        r"strcmp\(value, wanted\) == 0",
+        "tests/integration/test_acp_client.py",
+        "acp-client",
+        {"== -> !="},
+    ),
     (
         "src/core/swarm_manifest.c",
         ["parse_group", "tny_swarm_manifest_parse"],
@@ -1018,7 +1051,7 @@ def run(cmd, timeout, cwd=ROOT):
         )
         return r.returncode, r.stdout.decode("utf-8", "replace")
     except subprocess.TimeoutExpired:
-        return -9, "(timeout after %ss)" % timeout
+        return RUN_TIMEOUT, "(timeout after %ss)" % timeout
 
 
 def write_source_and_invalidate_objects(filename, text):
@@ -1059,6 +1092,8 @@ def main():
         if args.focus and focus != args.focus:
             continue
         ms = gen_mutants(os.path.join(ROOT, path), names, line_re)
+        if len(spec) > 5:
+            ms = [mu for mu in ms if mu["op"] in spec[5]]
         for mu in ms:
             mu["itest"] = itest
         mutants += ms
@@ -1080,7 +1115,7 @@ def main():
             )
             return 2
 
-    killed_unit = killed_int = invalid = 0
+    killed_unit = killed_int = invalid = timeouts = 0
     survivors = []
     t0 = time.time()
     for i, mu in enumerate(mutants):
@@ -1089,6 +1124,10 @@ def main():
         tag = "%s:%d [%s]" % (os.path.relpath(mu["file"], ROOT), mu["line"], mu["op"])
         try:
             rc, out = run(["make", "debug"], 180)
+            if rc == RUN_TIMEOUT:
+                timeouts += 1
+                print("%3d/%d  TIMEOUT   %s" % (i + 1, len(mutants), tag))
+                continue
             if rc != 0:
                 invalid += 1
                 print("%3d/%d  invalid   %s" % (i + 1, len(mutants), tag))
@@ -1097,6 +1136,10 @@ def main():
             if args.test:
                 unit_command += ["-t", args.test]
             rc, out = run(unit_command, 60)
+            if rc == RUN_TIMEOUT:
+                timeouts += 1
+                print("%3d/%d  TIMEOUT   %s" % (i + 1, len(mutants), tag))
+                continue
             if rc != 0:
                 killed_unit += 1
                 print("%3d/%d  killed:u  %s" % (i + 1, len(mutants), tag))
@@ -1106,6 +1149,10 @@ def main():
                 print("%3d/%d  SURVIVED(unit)  %s" % (i + 1, len(mutants), tag))
                 continue
             rc, out = run(["make", "release"], 180)  # integration drives build/tny
+            if rc == RUN_TIMEOUT:
+                timeouts += 1
+                print("%3d/%d  TIMEOUT   %s" % (i + 1, len(mutants), tag))
+                continue
             if rc != 0:
                 invalid += 1
                 print("%3d/%d  invalid:r %s" % (i + 1, len(mutants), tag))
@@ -1114,6 +1161,10 @@ def main():
                 rc, out = run(["bash", mu["itest"], "./build/tny"], 420)
             else:
                 rc, out = run([sys.executable, mu["itest"], "./build/tny"], 420)
+            if rc == RUN_TIMEOUT:
+                timeouts += 1
+                print("%3d/%d  TIMEOUT   %s" % (i + 1, len(mutants), tag))
+                continue
             if rc != 0:
                 killed_int += 1
                 print("%3d/%d  killed:i  %s" % (i + 1, len(mutants), tag))
@@ -1129,12 +1180,13 @@ def main():
             print("error: restored mutation build failed\n" + output, file=sys.stderr)
             return 2
 
-    total = len(mutants) - invalid
+    total = len(mutants) - invalid - timeouts
     print("\n== mutation results (%.0fs) ==" % (time.time() - t0))
     print("valid mutants : %d (invalid/uncompilable: %d)" % (total, invalid))
     print("killed by unit: %d" % killed_unit)
     print("killed by int : %d" % killed_int)
     print("survived      : %d" % len(survivors))
+    print("timed out     : %d (incomplete verification)" % timeouts)
     for mu in survivors:
         print(
             "  %s:%d  %s   | %s"
@@ -1142,6 +1194,9 @@ def main():
         )
     if total:
         print("kill ratio    : %.1f%%" % (100.0 * (killed_unit + killed_int) / total))
+    if timeouts:
+        print("error: mutation verification timed out", file=sys.stderr)
+        return 2
     if not total:
         print("error: no valid mutants were exercised", file=sys.stderr)
         return 2

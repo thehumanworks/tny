@@ -79,7 +79,8 @@ char *tny_turn_result_json(tny_ctx *ctx, tny_engine *engine, tny_session_state *
         buf_appends(&out, "}");
     } else buf_appends(&out, "null");
     int steps = engine ? tny_engine_openai_steps(engine) : 0;
-    buf_appendf(&out, ",\"steps\":%d,\"tool_calls\":", steps);
+    if (ctx->backend == TNY_BK_ACP) buf_appends(&out, ",\"steps\":null,\"tool_calls\":");
+    else buf_appendf(&out, ",\"steps\":%d,\"tool_calls\":", steps);
     if (engine && tny_engine_backend_id(engine) == TNY_BK_OPENAI) {
         buf_appends(&out, tny_engine_openai_toolcalls_json(engine));
     } else {
@@ -220,6 +221,13 @@ static void rn_event_line(buf_t *b, const tny_backend_event *ev) {
                     (long long)ev->in_tokens, (long long)ev->out_tokens,
                     (long long)ev->context_used, (long long)ev->context_size);
         if (ev->has_cost) buf_appendf(b, ",\"cost\":%.12g", ev->cost);
+        buf_appendf(b, ",\"tokens_reported\":%s,\"cost_cumulative\":%s",
+                    ev->tokens_unreported ? "false" : "true",
+                    ev->cost_cumulative ? "true" : "false");
+        if (ev->cost_currency) {
+            buf_appends(b, ",\"cost_currency\":");
+            jescape(b, ev->cost_currency);
+        }
         break;
     case TNY_EV_TURN_END:
         buf_appends(b, ",\"stop\":");
@@ -2026,7 +2034,10 @@ static void rc_parse_line(tny_runner_client *c, const char *line, size_t len) {
         e->context_used = jget_int(root, "context_used", 0);
         e->context_size = jget_int(root, "context_size", 0);
         e->cost = jget_num(root, "cost", 0);
-        e->has_cost = jget(root, "cost") != NULL;
+        e->has_cost = yyjson_is_num(jget(root, "cost"));
+        e->cost_currency = jget_str(root, "cost_currency");
+        e->cost_cumulative = jget_bool(root, "cost_cumulative", false);
+        e->tokens_unreported = !jget_bool(root, "tokens_reported", true);
         e->error_code = rn_error_from(jget_str(root, "code"));
         if (strcmp(ev, "text_delta") == 0) e->kind = TNY_EV_TEXT_DELTA;
         else if (strcmp(ev, "thinking") == 0) e->kind = TNY_EV_THINKING;

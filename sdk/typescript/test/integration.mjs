@@ -136,6 +136,10 @@ await withMock({}, async (baseUrl) => {
     sequences.push(event.sequence);
     if (event.type === "text_delta") text += event.text;
     if (event.type === "turn_end") stop = event.stopReason;
+    if (event.type === "usage") {
+      assert.equal(event.tokensReported, true);
+      assert.equal(event.costCumulative, false);
+    }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
   }
   assert.match(text, /MOCK-OK/);
@@ -167,6 +171,51 @@ await withMock({}, async (baseUrl) => {
   assert.deepEqual(structuredClone(retained), snapshot);
   assert.equal(retained.filter((event) => event.type === "turn_end").length, 1);
 });
+
+// Both updates are cumulative session costs. SDK copies survive native event,
+// session and runtime teardown, and the final snapshot is 0.25 rather than 0.35.
+{
+  const changes = {
+    ACP_FIXTURE_STATE: join(mkdtempSync(join(tmpdir(), "tny-acp-usage-")), "state.json"),
+    ACP_FIXTURE_USAGE: JSON.stringify([
+      { used: 7, size: 100, cost: { amount: 0.1, currency: "EUR" } },
+      { used: 9, size: 100, cost: { amount: 0.25, currency: "EUR" } },
+    ]),
+    TNY_ACP_BRIDGE_EXECUTABLE: join(repoRoot, "build/tny"),
+  };
+  const previous = Object.fromEntries(Object.keys(changes).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, changes);
+  let runtime;
+  let session;
+  const usages = [];
+  try {
+    runtime = await Runtime.create({ ...fixture(), provider: "acp",
+      acpCommand: [join(repoRoot, "tests/integration/fake_acp_agent.py")] });
+    session = await runtime.createSession();
+    for (let turn = 0; turn < 2; turn++) {
+      for await (const event of session.run("usage fixture")) {
+        if (event.type === "usage") usages.push(event);
+      }
+      assert.equal(session.lastUsage.cost, 0.25);
+    }
+  } finally {
+    await session?.close();
+    await runtime?.close();
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  assert.deepEqual(usages.map((event) => event.cost), [0.1, 0.25, 0.1, 0.25]);
+  assert.deepEqual(usages.map((event) => event.contextUsed), [7n, 9n, 7n, 9n]);
+  for (const event of usages) {
+    assert.equal(event.costCurrency, "EUR");
+    assert.equal(event.costCumulative, true);
+    assert.equal(event.tokensReported, false);
+    assert.equal(event.inputTokens, 0n);
+    assert.equal(event.outputTokens, 0n);
+  }
+}
 
 await withMock({
   MOCK_EXPECT_INSTRUCTIONS: "# Task preset: release\nSDK-TASK-BODY-MARKER",

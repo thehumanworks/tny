@@ -345,7 +345,7 @@ def test_slash_palette(home, ws):
         t.expect("clear the screen", 5.0)  # palette listed commands
         t.send("prov")
         # The settings profile precedes the environment-only profile.
-        t.expect("openai|codex|grok|openrouter|", 5.0)
+        t.expect("openai|acp|codex|grok|openrouter|", 5.0)
         t.send("\x7f" * 4)  # back to a bare "/"
         t.send("help\r")
         t.expect("ctrl-o optimise", 5.0)

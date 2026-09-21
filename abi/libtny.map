@@ -82,3 +82,11 @@ LIBTNY_1.3 {
     tny_runtime_options_v3_init;
     tny_runtime_create_v3;
 } LIBTNY_1.2;
+
+LIBTNY_1.4 {
+  global:
+    tny_runtime_set_acp_command;
+    tny_event_cost_currency;
+    tny_event_cost_cumulative;
+    tny_event_tokens_reported;
+} LIBTNY_1.3;

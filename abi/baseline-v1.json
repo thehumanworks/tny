@@ -3,9 +3,9 @@
   "state": "active",
   "abi": {
     "major": 1,
-    "minor": 3,
-    "encoded": 65539,
-    "elf_version_node": "LIBTNY_1.3"
+    "minor": 4,
+    "encoded": 65540,
+    "elf_version_node": "LIBTNY_1.4"
   },
   "data_model": {
     "name": "LP64-little-endian",
@@ -22,8 +22,8 @@
   },
   "constants": {
     "TNY_ABI_MAJOR": 1,
-    "TNY_ABI_MINOR": 3,
-    "TNY_ABI_VERSION": 65539,
+    "TNY_ABI_MINOR": 4,
+    "TNY_ABI_VERSION": 65540,
     "TNY_CANCEL_CROSS_THREAD_ASYNC_WAKE": 2,
     "TNY_CANCEL_OWNER_THREAD_ASYNC": 1,
     "TNY_CAPABILITY_SCHEMA_VERSION": 1,
@@ -373,6 +373,8 @@
     "tny_error_code": "LIBTNY_1.0",
     "tny_error_free": "LIBTNY_1.0",
     "tny_error_message": "LIBTNY_1.0",
+    "tny_event_cost_cumulative": "LIBTNY_1.4",
+    "tny_event_cost_currency": "LIBTNY_1.4",
     "tny_event_error_code": "LIBTNY_1.0",
     "tny_event_free": "LIBTNY_1.0",
     "tny_event_get_kind": "LIBTNY_1.0",
@@ -385,6 +387,7 @@
     "tny_event_read": "LIBTNY_1.0",
     "tny_event_stop_reason": "LIBTNY_1.0",
     "tny_event_text": "LIBTNY_1.0",
+    "tny_event_tokens_reported": "LIBTNY_1.4",
     "tny_event_tool_detail": "LIBTNY_1.0",
     "tny_event_tool_id": "LIBTNY_1.0",
     "tny_event_tool_name": "LIBTNY_1.0",
@@ -412,6 +415,7 @@
     "tny_runtime_options_v2_init": "LIBTNY_1.1",
     "tny_runtime_options_v3_init": "LIBTNY_1.3",
     "tny_runtime_register_tool": "LIBTNY_1.0",
+    "tny_runtime_set_acp_command": "LIBTNY_1.4",
     "tny_session_cancel": "LIBTNY_1.0",
     "tny_session_create": "LIBTNY_1.0",
     "tny_session_destroy": "LIBTNY_1.0",
@@ -458,14 +462,14 @@
   },
   "signature_manifest": {
     "path": "abi/signatures-v1.json",
-    "sha256": "65fb7f90450a6eb1ba6a055af8391728a5ac4651a228a7706eaba5a63acb4849"
+    "sha256": "2eeff14bab24406958e387ba8fd0fa01bcbef6bda3c197d08acffd026075b94a"
   },
   "artifacts": {
     "linux-glibc": {
       "architectures": ["aarch64", "x86_64"],
       "soname": "libtny.so.1",
       "linker_name": "libtny.so",
-      "elf_version_nodes": ["LIBTNY_1.0", "LIBTNY_1.1", "LIBTNY_1.2", "LIBTNY_1.3"]
+      "elf_version_nodes": ["LIBTNY_1.0", "LIBTNY_1.1", "LIBTNY_1.2", "LIBTNY_1.3", "LIBTNY_1.4"]
     },
     "macos": {
       "architectures": ["arm64"],

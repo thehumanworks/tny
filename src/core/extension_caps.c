@@ -49,6 +49,12 @@ static const tny_extension_capability_state OPENAI_CAPS[TNY_EXT_CAP_COUNT] = {
     S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, S, U, U,
 };
 
+/* Tool controls apply to the tny MCP bridge; external agent tools remain
+ * provider-owned and only expose ACP permission requests/observations. */
+static const tny_extension_capability_state ACP_CAPS[TNY_EXT_CAP_COUNT] = {
+    S, S, S, S, S, S, X, S, X, S, S, S, S, S, S, S, S, S, S, S, S, S, S, X, X, S, S, U, U,
+};
+
 #undef S
 #undef X
 #undef U
@@ -56,6 +62,7 @@ static const tny_extension_capability_state OPENAI_CAPS[TNY_EXT_CAP_COUNT] = {
 static const tny_extension_capability_state *provider_caps(tny_backend_id provider) {
     switch (provider) {
     case TNY_BK_OPENAI: return OPENAI_CAPS;
+    case TNY_BK_ACP: return ACP_CAPS;
     default: return NULL;
     }
 }
@@ -86,7 +93,11 @@ const char *tny_extension_capability_reason(tny_backend_id provider,
     if (!provider_caps(provider) || id < 0 || id >= TNY_EXT_CAP_COUNT)
         return "unknown_provider_or_capability";
     switch (tny_extension_capability_get(provider, id)) {
-    case TNY_EXT_CAP_SUPPORTED: return "implemented";
+    case TNY_EXT_CAP_SUPPORTED:
+        if (provider == TNY_BK_ACP && id >= TNY_EXT_CAP_TOOL_PRE_OBSERVE &&
+            id <= TNY_EXT_CAP_TOOL_BATCH_OBSERVE)
+            return "tny_mcp_bridge_only";
+        return "implemented";
     case TNY_EXT_CAP_UNAVAILABLE: return "contracted_not_implemented";
     case TNY_EXT_CAP_UNSUPPORTED: return "provider_owned";
     }

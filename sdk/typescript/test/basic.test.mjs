@@ -77,8 +77,17 @@ test("known and unknown native events match the canonical schema", () => {
   });
 });
 
+test("ACP configuration is lazy and reports available capabilities", async () => {
+  const runtime = await Runtime.create({
+    ...paths(), provider: "acp", acpCommand: ["/missing/acp-fixture", "", "literal argument"],
+  });
+  assert.equal(runtime.capabilities.providerSelected, 4);
+  assert.equal(runtime.capabilities.providerAvailableMask & 8n, 8n);
+  await runtime.close();
+});
+
 test("rejects removed providers and reports native HTTP capabilities", async () => {
-  for (const provider of ["cursor", "acp", "claude"]) {
+  for (const provider of ["cursor", "claude"]) {
     await assert.rejects(Runtime.create({ ...paths(), provider }), UnsupportedFeatureError);
   }
   await assert.rejects(

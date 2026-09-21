@@ -187,6 +187,9 @@ napi_value sdk_event_to_js(napi_env env, const event_copy *event) {
         set_named(env, object, "contextUsed", js_big_int(env, event->context_used));
         set_named(env, object, "contextSize", js_big_int(env, event->context_size));
         set_named(env, object, "hasCost", js_bool(env, event->has_cost));
+        set_named(env, object, "costCurrency", js_owned(env, event->cost_currency));
+        set_named(env, object, "costCumulative", js_bool(env, event->cost_cumulative));
+        set_named(env, object, "tokensReported", js_bool(env, event->tokens_reported));
         if (event->has_cost) { set_named(env, object, "cost", js_double(env, event->cost)); }
         break;
     case TNY_EVENT_TURN_END:

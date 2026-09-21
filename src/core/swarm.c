@@ -543,7 +543,7 @@ static int activate_run(tny_session_state *session, const tny_swarm_manifest *ma
              "the root coordinator %s. Use bounded team/mailbox operations; progress and "
              "convergence are not guaranteed.",
              run, manifest->participant_count, manifest->groups[0].coordinator_name);
-    session_add_text(session, "user", context);
+    if (session_add_runtime_context(session, context) != 0) return -1;
     return set_activation(session, "active", activation_id, run);
 }
 

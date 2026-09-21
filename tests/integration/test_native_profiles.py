@@ -107,15 +107,27 @@ def main():
         }
         result = run("status", "--json", extra=ignored)
         assert json.loads(result.stdout)["backend"] == "openai"
-        for provider in ("cursor", "acp", "acp@fixture", "acp:fixture", "claude"):
+        for provider in ("cursor", "claude"):
             result = run("--provider", provider, "ask", "hello", ok=False)
             assert "removed" in result.stderr
-        for flag in ("--agent", "--bridge-bin"):
-            assert "removed" in run(flag, "fixture", "ask", "hello", ok=False).stderr
+        for flag in ("--bridge-bin",):
+            assert (
+                "unknown flag" in run(flag, "fixture", "ask", "hello", ok=False).stderr
+            )
+        # Optional ACP requires explicit command/profile; no ambient discovery.
+        for provider in ("acp", "acp@fixture", "acp:fixture"):
+            result = run("--provider", provider, "ask", "hello", ok=False)
+            assert "removed" not in result.stderr
+            if provider == "acp":
+                assert "no ACP agent configured" in result.stderr, result.stderr
+            else:
+                assert f"ACP provider '{provider}' is not defined" in result.stderr, (
+                    result.stderr
+                )
+                assert "settings.json acp.fixture" in result.stderr, result.stderr
         for command in ("acp", "cursor"):
             assert "removed" in run(command, ok=False).stderr
         for config in (
-            {"acp": {}},
             {"cursor": {}},
             {"last_provider": "cursor"},
             {"last_provider": "claude"},

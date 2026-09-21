@@ -67,8 +67,10 @@ PARSED_WITHOUT_HELP = {
         "--resume-*",
         "--runner-restart",
         "--child-context",
-        "--agent",
-        "--bridge-bin",
+        # Private ACP stdio MCP relay, launched only with runtime-owned IPC.
+        "--acp-mcp-bridge",
+        # Private lossless argv grammar for owned child launch snapshots.
+        "--acp-agent-argv",
     },
     "image": {"--job-no-replace"},
     "provider": {"--api-key"},

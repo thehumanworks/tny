@@ -82,6 +82,9 @@ typedef struct {
     int64_t context_used, context_size;
     double cost;
     bool has_cost;
+    const char *cost_currency; /* reported ISO currency, NULL when unknown */
+    bool cost_cumulative;      /* session total, never sum repeated observations */
+    bool tokens_unreported;    /* zero ABI counts are placeholders, not measurements */
     /* TURN_END */
     tny_stop_reason stop;
     /* ERROR: stable internal category mapped by the public ABI. */

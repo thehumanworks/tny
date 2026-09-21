@@ -112,6 +112,7 @@ void sdk_runtime_abandon(runtime_state *state) {
     pthread_mutex_destroy(&state->mutex);
     pthread_mutex_destroy(&state->session_mutex);
     pthread_cond_destroy(&state->cond);
+    if (state->acp.library) dlclose(state->acp.library);
     free(state);
 }
 
@@ -129,6 +130,7 @@ void sdk_runtime_destroy(runtime_state *state) {
     pthread_mutex_destroy(&state->mutex);
     pthread_mutex_destroy(&state->session_mutex);
     pthread_cond_destroy(&state->cond);
+    if (state->acp.library) dlclose(state->acp.library);
     free(state);
 }
 
@@ -290,6 +292,46 @@ static void *open_effort_runtime_symbols(runtime_options_v3_init_fn *init_v3,
     return library;
 }
 
+/* dlsym(handle) can also find a dependency's exports. Require each additive
+ * symbol to belong to the same image as the ABI-1.0 version function, not an
+ * unrelated libtny loaded into this Node process. */
+static void *same_image_symbol(void *library, const Dl_info *image, const char *name) {
+    void *symbol = dlsym(library, name);
+    Dl_info origin;
+    return symbol && dladdr(symbol, &origin) != 0 && origin.dli_fbase == image->dli_fbase ? symbol
+                                                                                          : NULL;
+}
+
+static int open_acp_symbols(sdk_acp_symbols *symbols) {
+    Dl_info image;
+    void *address = NULL;
+    uint32_t (*version)(void) = tny_abi_version;
+    if (sizeof address != sizeof version) return -1;
+    memcpy(&address, &version, sizeof address);
+    if (!address || dladdr(address, &image) == 0 || !image.dli_fname || !*image.dli_fname)
+        return -1;
+    void *library = dlopen(image.dli_fname, RTLD_NOW | RTLD_LOCAL);
+    if (!library) return -1;
+    sdk_acp_symbols resolved = {0};
+#define LOAD_ACP_SYMBOL(field, name)                                      \
+    do {                                                                  \
+        void *symbol = same_image_symbol(library, &image, name);          \
+        if (!symbol || sizeof resolved.field != sizeof symbol) goto fail; \
+        memcpy(&resolved.field, &symbol, sizeof resolved.field);          \
+    } while (0)
+    LOAD_ACP_SYMBOL(cost_currency, "tny_event_cost_currency");
+    LOAD_ACP_SYMBOL(cost_cumulative, "tny_event_cost_cumulative");
+    LOAD_ACP_SYMBOL(tokens_reported, "tny_event_tokens_reported");
+    LOAD_ACP_SYMBOL(set_command, "tny_runtime_set_acp_command");
+#undef LOAD_ACP_SYMBOL
+    resolved.library = library;
+    *symbols = resolved;
+    return 0;
+fail:
+    dlclose(library);
+    return -1;
+}
+
 static void reject_queued(runtime_state *state) {
     command *cmd;
     for (;;) {
@@ -341,6 +383,18 @@ static void execute_create(runtime_state *state, command *cmd) {
             "incompatible libtny ABI %u.%u; this SDK requires ABI %u.%u or newer within major %u",
             major, minor, SDK_ABI_MAJOR, SDK_ABI_MINOR, SDK_ABI_MAJOR);
         fail_text(cmd, TNY_STATUS_UNSUPPORTED, message);
+        cmd->destroy_owner = 1;
+        state->closing = 1;
+        return;
+    }
+    if ((minor >= 4u && open_acp_symbols(&state->acp) != 0) ||
+        (minor < 4u && cmd->create.acp_command.ptr)) {
+        sdk_wipe_owned_bytes(&cmd->create.api_key);
+        fail_text(cmd, TNY_STATUS_UNSUPPORTED,
+                  minor < 4u
+                      ? "acpCommand requires libtny ABI 1.4 or newer"
+                      : "libtny ABI 1.4 is missing ACP command or usage metadata exports from its "
+                        "own library image; reinstall a complete matching libtny");
         cmd->destroy_owner = 1;
         state->closing = 1;
         return;
@@ -434,6 +488,17 @@ static void execute_create(runtime_state *state, command *cmd) {
         cmd->destroy_owner = 1;
         state->closing = 1;
         return;
+    }
+    if (cmd->create.acp_command.ptr) {
+        cmd->status =
+            state->acp.set_command(state->runtime, sdk_view_of(cmd->create.acp_command), &error);
+        if (cmd->status != TNY_STATUS_OK) {
+            (void)tny_runtime_destroy(&state->runtime);
+            fail(cmd, cmd->status, error);
+            cmd->destroy_owner = 1;
+            state->closing = 1;
+            return;
+        }
     }
     version = tny_library_version();
     cmd->abi_version = abi;
@@ -544,7 +609,7 @@ static int execute_command(runtime_state *state, command *cmd) {
             fail(cmd, status, error);
             break;
         }
-        status = sdk_snapshot_event(event, &cmd->event);
+        status = sdk_snapshot_event(event, &state->acp, &cmd->event);
         tny_event_free(event);
         if (status != TNY_STATUS_OK) {
             fail_text(cmd, status, "failed to copy libtny event");

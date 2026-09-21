@@ -195,7 +195,13 @@ def main() -> int:
         for key, entry in provider["entries"].items():
             assert entry["state"] in {"supported", "unsupported", "unavailable"}
             if entry["state"] == "supported":
-                assert entry["reason"] == "implemented"
+                bridge_only = name == "acp" and (
+                    key.startswith("extensions.tool.")
+                    or key.startswith("extensions.permission.")
+                )
+                assert entry["reason"] == (
+                    "tny_mcp_bridge_only" if bridge_only else "implemented"
+                )
             elif entry["state"] == "unavailable":
                 assert entry["reason"] == "contracted_not_implemented"
             elif name == "cursor" and key.startswith("extensions.permission."):

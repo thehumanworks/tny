@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "verified_at_utc": "2026-09-21T12:21:38.503029+00:00",
+  "base_revision": "ee4aa6c9a81395c8260f7b9c1536aeba16027fd9",
+  "branch": "feat/restore-acp-client",
+  "native_binary": {
+    "sha256": "3e118dff52b10cd75d9882dd3577076544ba822305f10579eb9cb856af753fdd",
+    "stripped_bytes": 1269824,
+    "baseline_stripped_bytes": 1203504
+  },
+  "shared_library": {
+    "sha256": "a752642c12c12337a3809fc8c6059fd671124458b45b3f0591d28b0d8beb7257",
+    "bytes": 1118720,
+    "abi": "1.4"
+  },
+  "delivery_gates": {
+    "delivery-quality": {
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "make",
+        "quality",
+        "BUILD=build/acp-quality-delivery"
+      ],
+      "exit_code": 0,
+      "seconds": 242.57,
+      "input_fingerprint": "061c61c7c7b5277b5a267e86835ec8c936aac79209c406c4c08f6fa0745ce72f"
+    },
+    "delivery-tests": {
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "python3",
+        "/Users/tomas/.cache/tny-acp-20260921/delivery-tests.py"
+      ],
+      "exit_code": 0,
+      "seconds": 206.9,
+      "input_fingerprint": "061c61c7c7b5277b5a267e86835ec8c936aac79209c406c4c08f6fa0745ce72f"
+    },
+    "delivery-leaks": {
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "make",
+        "leaks"
+      ],
+      "exit_code": 0,
+      "seconds": 64.54,
+      "input_fingerprint": "061c61c7c7b5277b5a267e86835ec8c936aac79209c406c4c08f6fa0745ce72f"
+    }
+  },
+  "delivery_test_groups": [
+    {
+      "name": "unit",
+      "command": [
+        "make",
+        "-j8",
+        "test-unit"
+      ],
+      "exit": 0,
+      "seconds": 67.72
+    },
+    {
+      "name": "protocol",
+      "command": [
+        "python3",
+        "tests/integration/test_acp_client.py"
+      ],
+      "exit": 0,
+      "seconds": 8.15
+    },
+    {
+      "name": "managed",
+      "command": [
+        "python3",
+        "tests/integration/test_acp_managed.py"
+      ],
+      "exit": 0,
+      "seconds": 21.36
+    },
+    {
+      "name": "embedding",
+      "command": [
+        "python3",
+        "tests/integration/test_libtny_acp.py"
+      ],
+      "exit": 0,
+      "seconds": 1.83
+    },
+    {
+      "name": "native-usage",
+      "command": [
+        "python3",
+        "tests/integration/test_jobs.py",
+        "JobsEnrollment.test_unknown_usage_and_retry_totals_exclude_carried_successes",
+        "JobsEnrollment.test_exhaustion_does_not_count_claims_as_token_budget",
+        "JobsSoftBudget.test_unknown_usage_default_stops_and_explicit_continue_is_inspectable",
+        "JobsSoftBudget.test_already_admitted_work_can_overshoot_soft_budget",
+        "JobsSoftBudget.test_retry_budget_accounting_does_not_count_carried_a_twice"
+      ],
+      "exit": 0,
+      "seconds": 20.51
+    },
+    {
+      "name": "sdk-abi",
+      "command": [
+        "make",
+        "test-sdks",
+        "test-abi"
+      ],
+      "exit": 0,
+      "seconds": 87.03
+    }
+  ],
+  "counts": {
+    "main_unit": {
+      "total": 535,
+      "passed": 534,
+      "skipped": 1
+    },
+    "acp_protocol": 28,
+    "acp_managed": 19,
+    "native_usage_budget": 5,
+    "python_sdk": {
+      "total": 107,
+      "optional_wheel_skipped": 1
+    },
+    "typescript_sdk": {
+      "total": 60,
+      "passed": 59,
+      "optional_legacy_library_skipped": 1
+    },
+    "abi": 43
+  },
+  "independent_older_library_evidence": {
+    "gate": "final-ts-legacy",
+    "exit_code": 0,
+    "detail": "Current addon against untouched baseline ABI 1.3; separately completed before the job-only token-accounting correction."
+  },
+  "fault_and_mutation_evidence": {
+    "sanitizer_gate": "final-acp-sanitize3",
+    "sanitizer_exit": 0,
+    "mutation_gate": "final-mutation2",
+    "mutation_exit": 0,
+    "valid_mutants_killed": 7,
+    "survivors": 0,
+    "scope": "Completed ACP transport/bridge evidence prior to the isolated final job-usage correction; new correction has a demonstrated failing/passing managed regression."
+  },
+  "live_proof": "live-observation.json",
+  "full_suite": {
+    "gate": "final-test3",
+    "exit": 2,
+    "post_palette_tui_rerun_exit": 1,
+    "baseline_full_suite_exit": 2,
+    "known_baseline_failures": [
+      "test_background_agents.locked_saved_inspection_retry: waits for Saved read-only",
+      "test_tui.test_menu_overlay_transient: transcript was wiped"
+    ],
+    "final_delta_verification": "The full suite was not rerun after the isolated job token-marker correction. Full units, protocol, managed, embedding, native usage/budget, SDK/ABI, quality and leaks were rerun successfully."
+  },
+  "platform_limits": [
+    "Actual emcc/browser wasm not run; host-linked unsupported-process seam was tested.",
+    "Linux GCC analyzer/Valgrind, Windows and hermetic Nix verification are not claimed.",
+    "macOS leaks uses the existing exclusions for process-spawning suites."
+  ],
+  "private_raw_evidence_directory": "/Users/tomas/.cache/tny-acp-20260921/"
+}

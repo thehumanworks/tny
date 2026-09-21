@@ -426,6 +426,62 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
 
 
 class WorkflowUsageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cumulative_cost_and_missing_tokens_remain_unknown(self) -> None:
+        from dataclasses import replace
+
+        usage = tny.UsageEvent(
+            kind=6,
+            schema_version=1,
+            sequence=1,
+            timestamp_ms=0,
+            provider=b"acp",
+            session_id=b"same-session",
+            turn_id=b"turn",
+            type="usage",
+            input_tokens=0,
+            output_tokens=0,
+            context_used=9,
+            context_size=100,
+            cost=0.25,
+            cost_currency=b"EUR",
+            cost_cumulative=True,
+            tokens_reported=False,
+        )
+
+        async def runner(task, prompt):
+            return tny.WorkflowTaskExecution(b"ok", usage=usage)
+
+        result = await (
+            tny.Workflow(runner=runner)
+            .task("first", "p")
+            .task("second", "p")
+            .run_async()
+        )
+        self.assertEqual(result["first"].usage.cost, 0.25)
+        self.assertEqual(result.usage["known_tasks"], 2)
+        self.assertIsNone(result.usage["cost"])
+        self.assertIsNone(result.usage["input_tokens"])
+        self.assertIsNone(result.usage["output_tokens"])
+
+        async def mixed_currency(task, prompt):
+            return tny.WorkflowTaskExecution(
+                b"ok",
+                usage=replace(
+                    usage,
+                    cost_cumulative=False,
+                    tokens_reported=True,
+                    cost_currency=b"EUR" if task.name == "first" else b"USD",
+                ),
+            )
+
+        mixed = await (
+            tny.Workflow(runner=mixed_currency)
+            .task("first", "p")
+            .task("second", "p")
+            .run_async()
+        )
+        self.assertIsNone(mixed.usage["cost"])
+
     async def test_native_usage_last_snapshot_retained_and_aggregated_once(
         self,
     ) -> None:

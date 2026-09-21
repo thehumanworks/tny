@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 #define TNY_ABI_MAJOR   1u
-#define TNY_ABI_MINOR   3u
+#define TNY_ABI_MINOR   4u
 #define TNY_ABI_VERSION ((TNY_ABI_MAJOR << 16) | TNY_ABI_MINOR)
 
 /* Non-error outcomes. */
@@ -332,7 +332,7 @@ typedef struct {
     uint64_t max_tool_result_bytes;
     tny_bytes workspace; /* required existing directory */
     tny_bytes state_dir; /* required for persistence=1 */
-    tny_bytes provider;  /* empty/"openai"; native HTTP */
+    tny_bytes provider;  /* empty/"openai" native HTTP, or "acp" with explicit command */
     tny_bytes model;     /* optional provider default */
     tny_bytes base_url;  /* OpenAI-compatible provider only */
     tny_bytes api_key;   /* copied in memory and never persisted */
@@ -398,8 +398,8 @@ typedef struct {
     uint64_t reserved[8];
 } tny_runtime_options_v3;
 
-/* Public runtimes support native OpenAI-compatible HTTP conversations.
- * Legacy provider constants are reserved and unavailable.
+/* Public runtimes support native OpenAI-compatible HTTP and optional ACP clients.
+ * Cursor and Codex provider constants remain reserved (Codex uses HTTP).
  * Public runtimes use a fixed 15-second native
  * connection deadline. Destruction closes the active provider transport
  * without waiting for provider completion. Process-spawning tools are
@@ -442,6 +442,12 @@ TNY_API int32_t TNY_CALL tny_capabilities_v1_init(tny_capabilities_v1 *capabilit
 TNY_API int32_t TNY_CALL tny_runtime_create(const tny_runtime_options_v0 *options,
                                             uint64_t capacity, tny_runtime **out_runtime,
                                             tny_error **out_error);
+/* ABI 1.4 optional ACP client: literal JSON argv, copied before session creation.
+ * No shell expansion. Credentials belong in the agent environment, never argv.
+ * libtny needs TNY_ACP_BRIDGE_EXECUTABLE pointing to an absolute tny executable. */
+TNY_API int32_t TNY_CALL tny_runtime_set_acp_command(tny_runtime *runtime, tny_bytes command_json,
+                                                     tny_error **error);
+
 TNY_API int32_t TNY_CALL tny_runtime_create_v1(const tny_runtime_options_v1 *options,
                                                uint64_t capacity, tny_runtime **out_runtime,
                                                tny_error **out_error);
@@ -534,6 +540,12 @@ TNY_API tny_bytes TNY_CALL tny_event_message_type(const tny_event *event);
 TNY_API uint32_t TNY_CALL tny_event_permission_options(const tny_event *event);
 TNY_API int64_t TNY_CALL tny_event_input_tokens(const tny_event *event);
 TNY_API int64_t TNY_CALL tny_event_output_tokens(const tny_event *event);
+/* ABI 1.4 usage metadata; frozen event-view layout is unchanged. Cumulative
+ * cost is a session total, not a per-event delta. Missing currency is empty.
+ * When tokens_reported is false, view input/output zeroes are placeholders. */
+TNY_API tny_bytes TNY_CALL tny_event_cost_currency(const tny_event *event);
+TNY_API uint32_t TNY_CALL tny_event_cost_cumulative(const tny_event *event);
+TNY_API uint32_t TNY_CALL tny_event_tokens_reported(const tny_event *event);
 TNY_API uint32_t TNY_CALL tny_event_stop_reason(const tny_event *event);
 TNY_API int32_t TNY_CALL tny_event_error_code(const tny_event *event);
 TNY_API void TNY_CALL tny_event_free(tny_event *event);

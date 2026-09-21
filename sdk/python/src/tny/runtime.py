@@ -77,7 +77,7 @@ class PermissionDecision(IntEnum):
     DENY = 2
 
 
-ProviderName = Literal["openai"]
+ProviderName = Literal["openai", "acp"]
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -118,6 +118,7 @@ class RuntimeConfig:
     #: ``light``, ``medium``, ``high``, ``xhigh`` and ``max``; any other token
     #: is a provider-advertised value sent verbatim. Requires libtny ABI 1.3.
     reasoning_effort: str | bytes = b""
+    acp_command: tuple[str, ...] | list[str] | None = None
 
     def __repr__(self) -> str:
         # base_url and api_key may contain credentials and are intentionally
@@ -271,6 +272,8 @@ class Runtime:
         self._session: Session | None = None
         self._registrations: list[ToolRegistration] = []
         self._host_binding: Any | None = None
+        if config.acp_command is not None and self.library.abi_minor < 4:
+            raise UnsupportedError(-9, b"ACP commands require libtny ABI 1.4 or newer")
         opts = ffi.new("tny_runtime_options_v0 *")
         opts_size = ffi.sizeof("tny_runtime_options_v0")
         init_status = native.tny_runtime_options_init(opts, opts_size)
@@ -391,6 +394,32 @@ class Runtime:
         if status != STATUS_OK:
             self.library.raise_status(status, error[0])
         self._handle = out[0]
+        if config.acp_command is not None:
+            import json
+
+            if (
+                not isinstance(config.acp_command, (list, tuple))
+                or not config.acp_command
+                or not config.acp_command[0]
+                or not all(
+                    isinstance(arg, str) and "\0" not in arg
+                    for arg in config.acp_command
+                )
+            ):
+                self.close()
+                raise ValueError(
+                    "acp_command requires literal argv strings and a nonempty executable"
+                )
+            command_buffer, command_view = borrowed(ffi, json.dumps(config.acp_command))
+            try:
+                status = native.tny_runtime_set_acp_command(
+                    self._handle, command_view[0], error
+                )
+                if status != STATUS_OK:
+                    self.library.raise_status(status, error[0])
+            except BaseException:
+                self.close()
+                raise
         self.capabilities = self.library.read_capabilities(self._handle, extended=True)
 
     def _enter_callback(self) -> None:
@@ -878,6 +907,23 @@ class Session:
                 context_used=int(view.context_used),
                 context_size=int(view.context_size),
                 cost=float(view.cost) if view.has_cost else None,
+                cost_currency=(
+                    copy_bytes(
+                        library.ffi, library.native.tny_event_cost_currency(handle)
+                    )
+                    if library.abi_minor >= 4
+                    else b""
+                ),
+                cost_cumulative=(
+                    bool(library.native.tny_event_cost_cumulative(handle))
+                    if library.abi_minor >= 4
+                    else False
+                ),
+                tokens_reported=(
+                    bool(library.native.tny_event_tokens_reported(handle))
+                    if library.abi_minor >= 4
+                    else True
+                ),
                 **common,
             ),
             7: lambda: TurnEndEvent(

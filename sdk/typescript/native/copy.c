@@ -40,6 +40,7 @@ static void free_event_copy(event_copy *event) {
     free(event->permission_id.ptr);
     free(event->permission_summary.ptr);
     free(event->message_type.ptr);
+    free(event->cost_currency.ptr);
     free(event);
 }
 
@@ -61,6 +62,7 @@ static void free_create_options(create_options *options) {
     free(options->base_url.ptr);
     sdk_wipe_owned_bytes(&options->api_key);
     free(options->wire_api.ptr);
+    free(options->acp_command.ptr);
     free(options->task_name.ptr);
     free(options->task_instructions.ptr);
     free(options->reasoning_effort.ptr);
@@ -117,7 +119,7 @@ char *sdk_take_error(int32_t status, tny_error *error) {
     return sdk_copy_cstr(category);
 }
 
-int sdk_snapshot_event(tny_event *source, event_copy **out) {
+int sdk_snapshot_event(tny_event *source, const sdk_acp_symbols *acp, event_copy **out) {
     tny_event_view_v0 view;
     event_copy *event;
     int32_t status;
@@ -141,6 +143,13 @@ int sdk_snapshot_event(tny_event *source, event_copy **out) {
     event->context_used = view.context_used;
     event->context_size = view.context_size;
     event->cost = view.cost;
+    /* ABI 1.0-1.3 native usage reports token counts, with no currency or
+     * cumulative-cost metadata. Do not add hard imports for ABI 1.4 getters. */
+    event->cost_cumulative = acp->cost_cumulative ? acp->cost_cumulative(source) : 0u;
+    event->tokens_reported = acp->tokens_reported ? acp->tokens_reported(source) : 1u;
+    tny_bytes currency = acp->cost_currency ? acp->cost_currency(source) : (tny_bytes){0};
+    event->cost_currency = sdk_copy_owned(currency);
+    if (!event->cost_currency.ptr) goto oom;
 #define COPY_VIEW_FIELD(name)                    \
     do {                                         \
         event->name = sdk_copy_owned(view.name); \

@@ -145,6 +145,7 @@ int32_t tny_capabilities_init(tny_capabilities_v0 *, uint64_t);
 int32_t tny_capabilities_v1_init(tny_capabilities_v1 *, uint64_t);
 int32_t tny_runtime_create(const tny_runtime_options_v0 *, uint64_t,
                            tny_runtime **, tny_error **);
+int32_t tny_runtime_set_acp_command(tny_runtime *, tny_bytes, tny_error **);
 int32_t tny_runtime_create_v1(const tny_runtime_options_v1 *, uint64_t,
                               tny_runtime **, tny_error **);
 int32_t tny_runtime_create_v3(const tny_runtime_options_v3 *, uint64_t,
@@ -182,6 +183,9 @@ void tny_session_free(tny_session *);
 int32_t tny_session_destroy(tny_session **);
 int32_t tny_event_view_init(tny_event_view_v0 *, uint64_t);
 int32_t tny_event_read(const tny_event *, tny_event_view_v0 *, uint64_t);
+tny_bytes tny_event_cost_currency(const tny_event *event);
+uint32_t tny_event_cost_cumulative(const tny_event *event);
+uint32_t tny_event_tokens_reported(const tny_event *event);
 void tny_event_free(tny_event *);
 int32_t tny_error_code(const tny_error *);
 tny_bytes tny_error_message(const tny_error *);

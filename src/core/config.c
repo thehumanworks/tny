@@ -83,7 +83,7 @@ bool tny_tier_is_fast(const char *tier) {
 
 bool tny_wire_is_chat(const char *wire_api) { return wire_api && strcmp(wire_api, "chat") == 0; }
 
-static const char *bk_names[TNY_BK_COUNT] = {"openai"};
+static const char *bk_names[TNY_BK_COUNT] = {"openai", "acp"};
 
 const char *tny_tool_profile_name(tny_tool_profile profile) {
     if (profile == TNY_TOOLS_TERMINAL_EDIT) return "terminal+edit";
@@ -165,17 +165,14 @@ const char *tny_provider_name(const tny_ctx *ctx) {
     return ctx->provider_name ? ctx->provider_name : tny_backend_name((tny_backend_id)ctx->backend);
 }
 
-static bool removed_provider(const char *name) {
-    return name && (strcmp(name, "cursor") == 0 || strcmp(name, "acp") == 0 ||
-                    str_starts(name, "acp@") || str_starts(name, "acp:"));
-}
+static bool removed_provider(const char *name) { return name && strcmp(name, "cursor") == 0; }
 
 static int validate_provider_settings(tny_ctx *ctx) {
     yyjson_val *root = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
     yyjson_val *repo = ctx->repo_cfg ? yyjson_doc_get_root(ctx->repo_cfg) : NULL;
-    if (jget(root, "acp") || jget(root, "cursor") || jget(repo, "acp") || jget(repo, "cursor") ||
-        jget(root, "agent") || jget(root, "bridge_bin")) {
-        fputs("tny: ACP/Cursor settings were removed; remove them and configure an "
+    if (jget(root, "cursor") || jget(repo, "cursor") || jget(root, "agent") ||
+        jget(root, "bridge_bin")) {
+        fputs("tny: Cursor settings were removed; remove them and configure an "
               "OpenAI-compatible HTTP profile\n",
               stderr);
         return -1;
@@ -205,6 +202,201 @@ static yyjson_val *custom_provider_obj(tny_ctx *ctx, const char *name) {
     if (!yyjson_is_obj(o)) return NULL;
     const char *bu = jget_str(o, "base_url");
     return bu && *bu ? o : NULL;
+}
+
+/* Named ACP agents live in a namespace separate from OpenAI-compatible
+ * profiles. The canonical settings shape is `acp.NAME`; the earlier
+ * `acp.agents.NAME` nesting remains readable for compatibility. Selectors use
+ * `acp@NAME` (preferred) or the legacy `acp:NAME` spelling. */
+static const char *acp_provider_name(const char *provider) {
+    if (!provider) return NULL;
+    if (str_starts(provider, "acp@") || str_starts(provider, "acp:"))
+        return provider[4] ? provider + 4 : NULL;
+    return NULL;
+}
+
+static yyjson_val *acp_profiles_obj(tny_ctx *ctx) {
+    if (!ctx || !ctx->settings) return NULL;
+    yyjson_val *acp = jget(yyjson_doc_get_root(ctx->settings), "acp");
+    if (!yyjson_is_obj(acp)) return NULL;
+    yyjson_val *legacy = jget(acp, "agents");
+    return yyjson_is_obj(legacy) ? legacy : acp;
+}
+
+static yyjson_val *acp_profile_obj(tny_ctx *ctx, const char *provider) {
+    const char *name = acp_provider_name(provider);
+    if (!name) return NULL;
+    yyjson_val *profile = jget(acp_profiles_obj(ctx), name);
+    return yyjson_is_obj(profile) ? profile : NULL;
+}
+
+bool tny_acp_profile_exists(tny_ctx *ctx, const char *provider) {
+    return acp_profile_obj(ctx, provider) != NULL;
+}
+
+static bool acp_profile_name_valid(const char *name) {
+    if (!name || !*name || strlen(name) > 252) return false;
+    for (const char *p = name; *p; p++) {
+        char c = *p;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+              c == '-' || c == '_'))
+            return false;
+    }
+    return true;
+}
+
+static void clear_profile_agent(tny_ctx *ctx) {
+    if (!ctx->agent_from_profile) return;
+    for (char **p = ctx->agent_argv; p && *p; p++) free(*p);
+    free(ctx->agent_argv);
+    ctx->agent_argv = NULL;
+    ctx->agent_from_profile = false;
+}
+
+/* Validate only when selected, then copy every argv string out of yyjson's
+ * document storage. Returns -1 with a user-facing diagnostic on bad config. */
+static int apply_acp_profile(tny_ctx *ctx, const char *provider) {
+    const char *name = acp_provider_name(provider);
+    if (!acp_profile_name_valid(name)) {
+        fprintf(stderr,
+                "tny: invalid ACP provider '%s': names use letters, "
+                "digits, - and _\n",
+                provider);
+        return -1;
+    }
+    /* An owned launch carries the resolved argv separately from its selector.
+     * This freezes command configuration across delayed launch/retry without
+     * claiming anything about adapter identity or mutable executable bytes. */
+    const char *frozen = getenv("TNY_ACP_FROZEN_COMMAND");
+    if (ctx->agent_argv && !ctx->agent_from_profile && frozen && strcmp(frozen, "1") == 0) {
+        buf_t selector;
+        buf_init(&selector);
+        buf_appendf(&selector, "acp@%s", name);
+        char *owned = buf_detach(&selector);
+        if (!owned) return -1;
+        free(ctx->provider_name);
+        ctx->provider_name = owned;
+        return 0;
+    }
+    yyjson_val *profile = acp_profile_obj(ctx, provider);
+    if (!profile) {
+        fprintf(stderr,
+                "tny: ACP provider '%s' is not defined under "
+                "settings.json acp.%s\n",
+                provider, name);
+        return -1;
+    }
+    yyjson_val *command_val = jget(profile, "command");
+    yyjson_val *args = jget(profile, "args");
+    bool legacy_command = yyjson_is_arr(command_val);
+    const char *command = yyjson_is_str(command_val) ? yyjson_get_str(command_val) : NULL;
+    if ((!command || !*command || strlen(command) != yyjson_get_len(command_val) ||
+         strlen(command) > 65536) &&
+        !legacy_command) {
+        fprintf(stderr,
+                "tny: settings.json acp.%s.command must be a "
+                "nonempty string\n",
+                name);
+        return -1;
+    }
+    if (legacy_command && args) {
+        fprintf(stderr,
+                "tny: settings.json acp.%s cannot combine legacy "
+                "command array with args\n",
+                name);
+        return -1;
+    }
+    if (args && !yyjson_is_arr(args)) {
+        fprintf(stderr,
+                "tny: settings.json acp.%s.args must be a string "
+                "array when present\n",
+                name);
+        return -1;
+    }
+    yyjson_val *parts = legacy_command ? command_val : args;
+    size_t nparts = yyjson_is_arr(parts) ? yyjson_arr_size(parts) : 0;
+    size_t argc = legacy_command ? nparts : nparts + 1;
+    if (argc == 0 || argc > 128) {
+        fprintf(stderr, "tny: settings.json acp.%s.command must not be empty\n", name);
+        return -1;
+    }
+    char **argv = calloc(argc + 1, sizeof *argv);
+    if (!argv) return -1; /* OOM: no observable profile state changed */
+    size_t out = 0, idx, max;
+    yyjson_val *v;
+    if (!legacy_command) argv[out++] = xstrdup(command);
+    if ((!legacy_command && !argv[0])) {
+        free(argv);
+        return -1;
+    }
+    if (yyjson_is_arr(parts)) yyjson_arr_foreach(parts, idx, max, v) {
+            const char *arg = yyjson_is_str(v) ? yyjson_get_str(v) : NULL;
+            if (!arg || (out == 0 && !*arg) || strlen(arg) != yyjson_get_len(v) ||
+                strlen(arg) > 65536) {
+                fprintf(stderr,
+                        "tny: settings.json acp.%s.%s[%zu] must be a "
+                        "nonempty string\n",
+                        name, legacy_command ? "command" : "args", idx);
+                for (size_t i = 0; i < out; i++) free(argv[i]);
+                free(argv);
+                return -1;
+            }
+            argv[out] = xstrdup(arg);
+            if (!argv[out]) {
+                for (size_t i = 0; i < out; i++) free(argv[i]);
+                free(argv);
+                return -1; /* OOM: allocator fault injection is out of scope */
+            }
+            out++;
+        }
+    if ((str_starts(argv[0], "ws://") || str_starts(argv[0], "wss://")) && argc != 1) {
+        fprintf(stderr,
+                "tny: settings.json acp.%s.args must be empty for a "
+                "remote WebSocket agent\n",
+                name);
+        for (size_t i = 0; i < argc; i++) free(argv[i]);
+        free(argv);
+        return -1;
+    }
+    yyjson_val *model_val = jget(profile, "model");
+    const char *model = NULL;
+    if (model_val) {
+        model = yyjson_is_str(model_val) ? yyjson_get_str(model_val) : NULL;
+        if (!model || !*model) {
+            fprintf(stderr,
+                    "tny: settings.json acp.%s.model must be a "
+                    "nonempty string when present\n",
+                    name);
+            for (size_t i = 0; i < argc; i++) free(argv[i]);
+            free(argv);
+            return -1;
+        }
+    }
+    if (ctx->agent_argv && !ctx->agent_from_profile) {
+        fprintf(stderr,
+                "tny: --agent cannot be combined with named ACP "
+                "provider '%s'; use --provider acp for an ad-hoc "
+                "command\n",
+                provider);
+        for (size_t i = 0; i < argc; i++) free(argv[i]);
+        free(argv);
+        return -1;
+    }
+    clear_profile_agent(ctx);
+    ctx->agent_argv = argv;
+    ctx->agent_from_profile = true;
+    free(ctx->provider_name);
+    buf_t selector;
+    buf_init(&selector);
+    buf_appendf(&selector, "acp@%s", name);
+    ctx->provider_name = buf_detach(&selector);
+    if (!ctx->provider_name) return -1;
+    if (!ctx->model_from_flag) {
+        free(ctx->model);
+        ctx->model = model ? xstrdup(model) : NULL;
+    }
+    if (model && !ctx->model) return -1;
+    return 0;
 }
 
 /* NAME + suffix as an env-var name: "openrouter" + "_API_KEY" ->
@@ -455,6 +647,17 @@ static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
     ctx->max_steps = 0; /* unlimited; .tny.json "steps" or --max-steps cap it */
     const char *read_only = getenv("TNY_TEAM_READ_ONLY");
     ctx->workspace_read_only = read_only && strcmp(read_only, "1") == 0;
+    const char *tools_authority = getenv("TNY_ACP_REQUIRE_TOOLS_AUTHORITY");
+    ctx->acp_require_tools_authority = tools_authority && strcmp(tools_authority, "1") == 0;
+    const char *cleanup_file = getenv("TNY_ACP_CLEANUP_FILE");
+    if (cleanup_file) {
+        ctx->acp_cleanup_file = xstrdup(cleanup_file);
+        unsetenv("TNY_ACP_CLEANUP_FILE");
+        if (!ctx->acp_cleanup_file || ctx->acp_cleanup_file[0] != '/') {
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+    }
     ctx->extensions_enabled = true;
     ctx->max_extension_iterations = 0; /* unlimited by default */
     ctx->extension_timeout_ms = 5000;
@@ -637,9 +840,17 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     return ctx;
 }
 
+static const char *provider_map_string(yyjson_val *map, const char *provider) {
+    const char *value = jget_str(map, provider);
+    if (value || !provider || !str_starts(provider, "acp@") || strlen(provider) > 256) return value;
+    char alias[257];
+    snprintf(alias, sizeof alias, "acp:%s", provider + 4);
+    return jget_str(map, alias);
+}
+
 const char *tny_settings_provider_model(tny_ctx *ctx, const char *provider) {
     if (!ctx->settings) return NULL;
-    return jget_str(jget(yyjson_doc_get_root(ctx->settings), "models"), provider);
+    return provider_map_string(jget(yyjson_doc_get_root(ctx->settings), "models"), provider);
 }
 
 /* A scalar applies globally. An object applies per provider. Empty/default
@@ -648,7 +859,7 @@ static const char *provider_setting(tny_ctx *ctx, const char *key) {
     if (!ctx->settings) return NULL;
     yyjson_val *v = jget(yyjson_doc_get_root(ctx->settings), key);
     if (yyjson_is_str(v)) return yyjson_get_str(v);
-    if (yyjson_is_obj(v)) return jget_str(v, tny_provider_name(ctx));
+    if (yyjson_is_obj(v)) return provider_map_string(v, tny_provider_name(ctx));
     return NULL;
 }
 
@@ -660,6 +871,8 @@ static void apply_provider_model(tny_ctx *ctx, int id) {
     const char *name = tny_provider_name(ctx);
     const char *m = provider_setting(ctx, "model");
     if (!m) m = tny_settings_provider_model(ctx, name);
+    if (!m && id == TNY_BK_ACP && ctx->provider_name)
+        m = jget_str(acp_profile_obj(ctx, ctx->provider_name), "model");
     if (!m && id == TNY_BK_OPENAI && ctx->settings)
         m = jget_str(jget(yyjson_doc_get_root(ctx->settings), name), "model");
     if ((!m || !*m || strcmp(m, "default") == 0) && !ctx->model)
@@ -700,7 +913,7 @@ const char *tny_image_input_label(const tny_ctx *ctx) {
  * instead of silently truncating the key. */
 static bool image_input_key_valid(const char *key, size_t len) {
     if (!key || len == 0 || len > TNY_IMAGE_INPUT_KEY_MAX || strlen(key) != len) return false;
-    const char *name = key;
+    const char *name = str_starts(key, "acp@") ? key + 4 : key;
     if (!*name) return false;
     for (const char *p = name; *p; p++) {
         char c = *p;
@@ -851,15 +1064,17 @@ static int resolve_provider(tny_ctx *ctx, const char *flag_value) {
         else flag_value = "openai";
     }
     if (removed_provider(flag_value)) {
-        fputs("tny: ACP and Cursor providers were removed; configure an OpenAI-compatible HTTP "
+        fputs("tny: Cursor providers were removed; configure an OpenAI-compatible HTTP "
               "profile\n",
               stderr);
         free(env_pick);
         return -1;
     }
+    bool acp = strcmp(flag_value, "acp") == 0 || str_starts(flag_value, "acp@") ||
+               str_starts(flag_value, "acp:");
     bool custom = tny_custom_provider_exists(ctx, flag_value);
     bool builtin = tny_builtin_profile_exists(flag_value);
-    if (!custom && !builtin && strcmp(flag_value, "openai") != 0) {
+    if (!acp && !custom && !builtin && strcmp(flag_value, "openai") != 0) {
         fprintf(stderr,
                 "tny: unknown or removed provider '%s'; configure base_url and api_key_env for an "
                 "OpenAI-compatible gateway\n",
@@ -873,13 +1088,29 @@ static int resolve_provider(tny_ctx *ctx, const char *flag_value) {
         free(env_pick);
         return -1;
     }
-    int id = TNY_BK_OPENAI;
+    int id = acp ? TNY_BK_ACP : TNY_BK_OPENAI;
     ctx->backend = id;
     if (!ctx->model_from_flag) {
         free(ctx->model);
         ctx->model = NULL;
     }
-    if (custom) apply_custom_provider(ctx, selected);
+    if (acp) {
+        if (strcmp(selected, "acp") != 0) {
+            if (apply_acp_profile(ctx, selected) != 0) {
+                free(selected);
+                free(env_pick);
+                return -1;
+            }
+        } else {
+            clear_profile_agent(ctx);
+            free(ctx->provider_name);
+            ctx->provider_name = provider_strdup(ctx, "acp");
+        }
+    } else {
+        clear_profile_agent(ctx);
+    }
+    if (acp) { /* External agent credentials remain owned by its executable. */
+    } else if (custom) apply_custom_provider(ctx, selected);
     else if (builtin) {
         if (tny_apply_builtin_profile(ctx, selected) != 0) {
             free(selected);
@@ -904,7 +1135,7 @@ static int resolve_provider(tny_ctx *ctx, const char *flag_value) {
         free(env_pick);
         return -1;
     }
-    tny_finish_builtin_profile(ctx);
+    if (id == TNY_BK_OPENAI) tny_finish_builtin_profile(ctx);
     free(env_pick);
     return ctx->backend;
 }
@@ -912,6 +1143,8 @@ static int resolve_provider(tny_ctx *ctx, const char *flag_value) {
 /* The stage borrows non-provider state. Never pass it to tny_ctx_free:
  * settings, extension manager and workspace ownership stay with the live ctx. */
 static void provider_fields_free(tny_ctx *ctx) {
+    for (char **p = ctx->agent_argv; p && *p; ++p) secure_free(*p);
+    free(ctx->agent_argv);
     secure_free(ctx->provider_name);
     secure_free(ctx->model);
     secure_free(ctx->base_url);
@@ -928,6 +1161,7 @@ static void provider_fields_free(tny_ctx *ctx) {
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     tny_ctx stage = *ctx;
     stage.provider_resolution_failed = false;
+    stage.agent_argv = NULL;
     stage.provider_name = NULL;
     stage.model = NULL;
     stage.base_url = NULL;
@@ -939,6 +1173,16 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     stage.reasoning_effort = NULL;
     stage.service_tier = NULL;
     stage.extra_headers = NULL;
+    if (ctx->agent_argv) {
+        size_t n = 0;
+        while (ctx->agent_argv[n]) ++n;
+        stage.agent_argv = calloc(n + 1, sizeof(char *));
+        if (!stage.agent_argv) goto fail;
+        for (size_t i = 0; i < n; ++i) {
+            stage.agent_argv[i] = xstrdup(ctx->agent_argv[i]);
+            if (!stage.agent_argv[i]) goto fail;
+        }
+    }
     if (ctx->provider_name && !(stage.provider_name = xstrdup(ctx->provider_name))) goto fail;
     if (ctx->model && !(stage.model = xstrdup(ctx->model))) goto fail;
     if (ctx->base_url && !(stage.base_url = xstrdup(ctx->base_url))) goto fail;
@@ -966,6 +1210,8 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     int rc = resolve_provider(&stage, flag_value);
     if (rc < 0 || stage.provider_resolution_failed) goto fail;
     provider_fields_free(ctx);
+    ctx->agent_argv = stage.agent_argv;
+    ctx->agent_from_profile = stage.agent_from_profile;
     ctx->provider_name = stage.provider_name;
     ctx->model = stage.model;
     ctx->base_url = stage.base_url;
@@ -1277,7 +1523,10 @@ void tny_ctx_free(tny_ctx *ctx) {
     for (int i = 0; i < ctx->n_extra_dirs; i++) free(ctx->extra_dirs[i]);
     free(ctx->extra_dirs);
     free(ctx->provider_name);
+    for (char **p = ctx->agent_argv; p && *p; ++p) secure_free(*p);
+    free(ctx->agent_argv);
     free(ctx->model);
+    free(ctx->acp_cleanup_file);
     free(ctx->base_url);
     secure_free(ctx->api_key);
     free(ctx->auth_header_name);
@@ -1329,6 +1578,11 @@ char *tny_provider_names_joined(tny_ctx *ctx) {
             const char *bu = jget_str(v, "base_url");
             if (!bu || !*bu || !tny_custom_provider_exists(ctx, name)) continue;
             buf_appendf(&b, "|%s", name);
+        }
+    yyjson_val *agents = acp_profiles_obj(ctx);
+    if (yyjson_is_obj(agents)) yyjson_obj_foreach(agents, idx, max, k, v) {
+            const char *name = yyjson_get_str(k);
+            if (acp_profile_name_valid(name) && yyjson_is_obj(v)) buf_appendf(&b, "|acp@%s", name);
         }
     int n_env = 0;
     char **env = tny_env_provider_names(&n_env);

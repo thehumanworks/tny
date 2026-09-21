@@ -1384,9 +1384,21 @@ static bool dag_validate(yyjson_val *args, char *err, size_t errlen) {
 static char *jobs_item_launch_snapshot(tny_ctx *, yyjson_val *, char *, size_t);
 static char *jobs_execution_scope(tny_ctx *);
 
-/* Resolve no credentials until ALL selectors and portable ceilings pass. The
- * general resolver may refresh builtin login stores, so this slice admits only
- * native custom/openai profiles and environment-backed builtin Codex. */
+/* ACP selectors have their own grammar; admission aliases intentionally do not
+ * allow ':' or '@'. Canonical selector identity remains acp@NAME. */
+static const char *jobs_acp_profile_name(const char *selector) {
+    return selector && (str_starts(selector, "acp@") || str_starts(selector, "acp:")) ? selector + 4
+                                                                                      : NULL;
+}
+
+static bool jobs_same_provider(const char *left, const char *right) {
+    const char *a = jobs_acp_profile_name(left), *b = jobs_acp_profile_name(right);
+    return left && right && strcmp(a && b ? a : left, a && b ? b : right) == 0;
+}
+
+/* Resolve no credentials until ALL selectors and portable ceilings pass.
+ * ACP resolves only a local command profile; its owned child must independently
+ * verify tools authority before creating or loading an external session. */
 static bool jobs_item_provider_supported(tny_ctx *ctx, yyjson_val *item, bool admission, char *err,
                                          size_t errlen) {
     yyjson_val *value = jget(item, "provider");
@@ -1394,12 +1406,15 @@ static bool jobs_item_provider_supported(tny_ctx *ctx, yyjson_val *item, bool ad
     const char *name = yyjson_get_str(value);
     bool custom = name && tny_backend_from_name(name) < 0 && tny_custom_provider_exists(ctx, name);
     bool codex = name && strcmp(name, "codex") == 0;
-    if (!admission_alias(value) || (!custom && strcmp(name, "openai") != 0 && !codex) ||
-        (codex &&
-         (custom || !getenv("CHATGPT_ACCESS_TOKEN") || !*getenv("CHATGPT_ACCESS_TOKEN")))) {
-        safe_err(err, errlen,
-                 "unsupported item.provider: use a native named/openai profile or "
-                 "environment-backed Codex subscription");
+    const char *acp_name = jobs_acp_profile_name(name);
+    bool acp = acp_name && *acp_name && tny_acp_profile_exists(ctx, name);
+    if (!acp && (!admission_alias(value) || (!custom && strcmp(name, "openai") != 0 && !codex) ||
+                 (codex && (custom || !getenv("CHATGPT_ACCESS_TOKEN") ||
+                            !*getenv("CHATGPT_ACCESS_TOKEN"))))) {
+        safe_err(
+            err, errlen,
+            "unsupported item.provider: use a named ACP profile, native named/openai profile or "
+            "environment-backed Codex subscription");
         return false;
     }
     yyjson_val *settings = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
@@ -1409,7 +1424,7 @@ static bool jobs_item_provider_supported(tny_ctx *ctx, yyjson_val *item, bool ad
                  "cannot survive private child environment filtering");
         return false;
     }
-    if (admission && strcmp(name, tny_provider_name(ctx)) != 0) {
+    if (admission && !jobs_same_provider(name, tny_provider_name(ctx))) {
         safe_err(
             err, errlen,
             "shared admission cannot enroll mixed provider selectors; use separate scoped jobs");
@@ -1551,11 +1566,12 @@ static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r,
     if ((r->admission && (!admission_public_config(ctx, r->admission) || r->image)) ||
         (jget(args, "peer_messages") &&
          (!r->dag || !yyjson_is_bool(jget(args, "peer_messages")))) ||
-        ((r->dag || r->admission) && ctx->backend != TNY_BK_OPENAI) ||
-        (getenv("TNY_TEAM_READ_ONLY") && (r->image || ctx->backend != TNY_BK_OPENAI))) {
+        ((r->dag || r->admission) && ctx->backend != TNY_BK_OPENAI && ctx->backend != TNY_BK_ACP) ||
+        (getenv("TNY_TEAM_READ_ONLY") &&
+         (r->image || (ctx->backend != TNY_BK_OPENAI && ctx->backend != TNY_BK_ACP)))) {
         safe_err(err, errlen,
-                 "DAG workspace policies and admission require a native provider and valid "
-                 "explicit configuration");
+                 "DAG workspace policies and admission require a native or verified ACP provider "
+                 "and valid explicit configuration");
         return -1;
     }
     if (r->dag && r->image) {
@@ -1585,7 +1601,7 @@ static int jobs_request_parse(tny_ctx *ctx, yyjson_val *args, jobs_request *r,
                 return -1;
             }
             const char *provider = jget_str(item, "provider");
-            if (!r->dag && provider && strcmp(provider, tny_provider_name(ctx)) != 0) {
+            if (!r->dag && provider && !jobs_same_provider(provider, tny_provider_name(ctx))) {
                 safe_err(err, errlen,
                          "DAG worker provider must match the resolved job provider; submit a "
                          "separate job for another provider");
@@ -1653,7 +1669,7 @@ static int jobs_request_parse_retry(tny_ctx *ctx, yyjson_val *args, jobs_request
     if (ctx->max_steps > 0 && (!r->max_steps || ctx->max_steps < r->max_steps))
         r->max_steps = ctx->max_steps;
     if (getenv("TNY_ADMISSION_ENROLLED") || ctx->ssh_host || ctx->library_mode ||
-        ((r->dag || r->admission) && ctx->backend != TNY_BK_OPENAI) ||
+        ((r->dag || r->admission) && ctx->backend != TNY_BK_OPENAI && ctx->backend != TNY_BK_ACP) ||
         (r->admission && !admission_public_config(ctx, r->admission))) {
         safe_err(err, errlen, "retry enrollment is unsupported or its configuration is invalid");
         return -1;
@@ -2596,11 +2612,37 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
      * happens to back both, so that gating one never disarms the other. */
     bool chat_is_codex = tny_provider_name(ctx) && strcmp(tny_provider_name(ctx), "codex") == 0;
     yyjson_mut_val *chat = yyjson_mut_obj(doc);
-    jm_set_str(doc, chat, "api_key", ctx->api_key);
+    if (ctx->backend == TNY_BK_ACP && ctx->agent_argv) {
+        yyjson_mut_val *command = yyjson_mut_arr(doc);
+        if (!command) {
+            yyjson_mut_doc_free(doc);
+            return NULL;
+        }
+        for (size_t i = 0; ctx->agent_argv[i]; ++i)
+            if (!yyjson_mut_arr_add_strcpy(doc, command, ctx->agent_argv[i])) {
+                yyjson_mut_doc_free(doc);
+                return NULL;
+            }
+        if (!yyjson_mut_obj_add_val(doc, chat, "agent_argv", command)) {
+            yyjson_mut_doc_free(doc);
+            return NULL;
+        }
+    }
+    bool chat_is_acp = ctx->backend == TNY_BK_ACP;
+    /* Every managed ACP child must verify tools authority, including ordinary
+     * jobs without DAG/admission metadata. Parsing never performs the probe. */
+    bool require_authority = chat_is_acp;
+    if (!yyjson_mut_obj_add_bool(doc, chat, "acp_require_tools_authority", require_authority)) {
+        yyjson_mut_doc_free(doc);
+        return NULL;
+    }
+    jm_set_str(doc, chat, "api_key", chat_is_acp ? NULL : ctx->api_key);
     jm_set_str(doc, chat, "codex_url", chat_is_codex ? getenv("TNY_CODEX_BASE_URL") : NULL);
-    jm_set_str(doc, chat, "base_url", ctx->base_url);
+    jm_set_str(doc, chat, "base_url", chat_is_acp ? NULL : ctx->base_url);
     jm_set_str(doc, chat, "wire_api",
-               ctx->wire_api ? (tny_wire_is_chat(ctx->wire_api) ? "chat" : "responses") : NULL);
+               !chat_is_acp && ctx->wire_api
+                   ? (tny_wire_is_chat(ctx->wire_api) ? "chat" : "responses")
+                   : NULL);
     jm_set_str(doc, chat, "model", ctx->model);
     jm_set_str(doc, chat, "effort", ctx->reasoning_effort);
     /* The selected conversation provider IS the ChatGPT account here, so the
@@ -2629,6 +2671,18 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
                             blocked_values)) {
         yyjson_mut_doc_free(doc);
         return NULL;
+    }
+    if (chat_is_acp) {
+        const char *foreign[] = {ctx->api_key, ctx->base_url};
+        for (size_t k = 0; k < sizeof foreign / sizeof foreign[0]; ++k) {
+            if (!foreign[k] || !*foreign[k]) continue;
+            tny::c_string hash(sha256_hex_of(foreign[k], strlen(foreign[k])));
+            if (!hash ||
+                !yyjson_mut_arr_append(blocked_values, yyjson_mut_strcpy(doc, hash.get()))) {
+                yyjson_mut_doc_free(doc);
+                return NULL;
+            }
+        }
     }
     /* Carried siblings remain foreign to the relaunched child's environment. */
     for (int i = 0; i < request->n_items; i++) {
@@ -2744,7 +2798,8 @@ static void execution_scope_part(buf_t *b, const char *text) {
 static char *jobs_execution_scope(tny_ctx *ctx) {
     buf_t b;
     buf_init(&b);
-    bool codex = strcmp(tny_provider_name(ctx), "codex") == 0;
+    bool acp = ctx->backend == TNY_BK_ACP;
+    bool codex = !acp && strcmp(tny_provider_name(ctx), "codex") == 0;
     tny_codex_creds credentials{};
     if (codex && tny_codex_credentials(ctx, &credentials) != 0) return NULL;
     const char *identity = codex && credentials.account_id && *credentials.account_id
@@ -2752,16 +2807,17 @@ static char *jobs_execution_scope(tny_ctx *ctx) {
                                : ctx->api_key;
     const char *strings[] = {"jobs-execution-scope-v1",
                              tny_provider_name(ctx),
-                             ctx->base_url,
-                             ctx->wire_api,
-                             ctx->auth_header_name,
-                             ctx->auth_header_prefix,
-                             ctx->max_tokens_field,
-                             ctx->output_schema,
+                             acp ? NULL : ctx->base_url,
+                             acp ? NULL : ctx->wire_api,
+                             acp ? NULL : ctx->auth_header_name,
+                             acp ? NULL : ctx->auth_header_prefix,
+                             acp ? NULL : ctx->max_tokens_field,
+                             acp ? NULL : ctx->output_schema,
                              ctx->sandbox_mode,
-                             identity,
-                             codex ? tny_codex_cred_source_name(credentials.source)
-                                   : "resolved-credential",
+                             acp ? NULL : identity,
+                             acp     ? "external-agent-login-not-frozen"
+                             : codex ? tny_codex_cred_source_name(credentials.source)
+                                     : "resolved-credential",
                              codex ? getenv("TNY_CODEX_BASE_URL") : NULL};
     for (size_t i = 0; i < sizeof strings / sizeof strings[0]; i++)
         execution_scope_part(&b, strings[i]);
@@ -2769,7 +2825,7 @@ static char *jobs_execution_scope(tny_ctx *ctx) {
         execution_scope_part(&b, credentials.access_token);
     }
     int n_headers = 0;
-    while (ctx->extra_headers && ctx->extra_headers[n_headers]) n_headers++;
+    while (!acp && ctx->extra_headers && ctx->extra_headers[n_headers]) n_headers++;
     buf_appendf(&b, "headers:%d;", n_headers);
     for (int i = 0; i < n_headers; i++) execution_scope_part(&b, ctx->extra_headers[i]);
     buf_appendf(&b, "dirs:%d;", ctx->n_extra_dirs);
@@ -2780,6 +2836,20 @@ static char *jobs_execution_scope(tny_ctx *ctx) {
                 ctx->max_tool_result_bytes);
     buf_appendf(&b, "learning:%d;", !ctx->no_self_improve);
     yyjson_val *settings = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
+    if (acp) {
+        size_t argc = 0;
+        while (ctx->agent_argv && ctx->agent_argv[argc]) ++argc;
+        buf_appendf(&b, "acp-command:%zu;", argc);
+        for (size_t k = 0; k < argc; ++k) execution_scope_part(&b, ctx->agent_argv[k]);
+        yyjson_val *profiles = jget(settings, "acp");
+        if (yyjson_is_obj(jget(profiles, "agents"))) profiles = jget(profiles, "agents");
+        const char *name = jobs_acp_profile_name(tny_provider_name(ctx));
+        yyjson_val *profile = name ? jget(profiles, name) : NULL;
+        char *json = profile ? jwrite_val(profile) : NULL;
+        if (profile && !json) b.oom = true;
+        execution_scope_part(&b, json);
+        secure_free(json);
+    }
     yyjson_val *workspace = jget(jget(settings, "workspaces"), ctx->cwd);
     yyjson_val *policy[] = {jget(settings, "permission"),
                             jget(workspace, "permission"),
@@ -2852,18 +2922,21 @@ static char *jobs_item_launch_snapshot(tny_ctx *parent, yyjson_val *item, char *
          * the parent's retained command-line effort. */
         const char *env_effort = getenv("TNY_REASONING_EFFORT");
         if (env_effort && *env_effort) ctx->reasoning_effort = xstrdup(env_effort);
-        if (tny_resolve_backend(ctx, selector) != TNY_BK_OPENAI ||
-            strcmp(tny_provider_name(ctx), selector) != 0) {
-            safe_err(err, errlen, "item.provider did not resolve to a supported native profile");
+        bool acp = jobs_acp_profile_name(selector) != NULL;
+        int backend = tny_resolve_backend(ctx, selector);
+        if (backend != (acp ? TNY_BK_ACP : TNY_BK_OPENAI) ||
+            !jobs_same_provider(tny_provider_name(ctx), selector)) {
+            safe_err(err, errlen, "item.provider did not resolve to its supported profile");
             return NULL;
         }
         bool codex = strcmp(selector, "codex") == 0;
-        if (!ctx->api_key || !*ctx->api_key || !ctx->base_url || !*ctx->base_url ||
-            !ctx->auth_header_name || strcmp(ctx->auth_header_name, "Authorization") != 0 ||
-            !ctx->auth_header_prefix || strcmp(ctx->auth_header_prefix, "Bearer ") != 0 ||
-            ctx->max_tokens_field || ctx->output_schema ||
-            (ctx->service_tier && strcmp(ctx->service_tier, "default") != 0) ||
-            (!codex && ctx->extra_headers && ctx->extra_headers[0])) {
+        if (!acp &&
+            (!ctx->api_key || !*ctx->api_key || !ctx->base_url || !*ctx->base_url ||
+             !ctx->auth_header_name || strcmp(ctx->auth_header_name, "Authorization") != 0 ||
+             !ctx->auth_header_prefix || strcmp(ctx->auth_header_prefix, "Bearer ") != 0 ||
+             ctx->max_tokens_field || ctx->output_schema ||
+             (ctx->service_tier && strcmp(ctx->service_tier, "default") != 0) ||
+             (!codex && ctx->extra_headers && ctx->extra_headers[0]))) {
             safe_err(err, errlen,
                      "explicit item.provider needs its own credential and standard Bearer routing; "
                      "custom routing/tier overrides cannot be frozen by this child CLI");
@@ -2874,7 +2947,7 @@ static char *jobs_item_launch_snapshot(tny_ctx *parent, yyjson_val *item, char *
     if (!model) model = ctx->model;
     const char *effort = jget_str(item, "effort");
     if (!effort) effort = ctx->reasoning_effort;
-    if (selector && (!model || !*model)) {
+    if (selector && ctx->backend != TNY_BK_ACP && (!model || !*model)) {
         safe_err(err, errlen, "explicit item.provider needs a resolved model or item.model");
         return NULL;
     }
@@ -2882,12 +2955,26 @@ static char *jobs_item_launch_snapshot(tny_ctx *parent, yyjson_val *item, char *
     yyjson_mut_val *root = doc ? yyjson_mut_obj(doc.get()) : NULL;
     if (!root) return NULL;
     yyjson_mut_doc_set_root(doc.get(), root);
+    if (ctx->backend == TNY_BK_ACP && ctx->agent_argv) {
+        yyjson_mut_val *command = yyjson_mut_arr(doc.get());
+        if (!command) return NULL;
+        for (size_t i = 0; ctx->agent_argv[i]; ++i)
+            if (!yyjson_mut_arr_add_strcpy(doc.get(), command, ctx->agent_argv[i])) return NULL;
+        if (!yyjson_mut_obj_add_val(doc.get(), root, "agent_argv", command)) return NULL;
+    }
     jm_set_str(doc.get(), root, "provider", tny_provider_name(ctx));
     jm_set_str(doc.get(), root, "model", model);
     jm_set_str(doc.get(), root, "effort", effort ? effort : "default");
-    jm_set_str(doc.get(), root, "api_key", ctx->api_key);
-    jm_set_str(doc.get(), root, "base_url", ctx->base_url);
-    jm_set_str(doc.get(), root, "wire_api", tny_wire_is_chat(ctx->wire_api) ? "chat" : "responses");
+    bool acp = ctx->backend == TNY_BK_ACP;
+    if (acp && (!ctx->agent_argv || !ctx->agent_argv[0])) {
+        safe_err(err, errlen, "managed ACP requires a resolved local command");
+        return NULL;
+    }
+    jm_set_bool(doc.get(), root, "acp_require_tools_authority", acp);
+    jm_set_str(doc.get(), root, "api_key", acp ? NULL : ctx->api_key);
+    jm_set_str(doc.get(), root, "base_url", acp ? NULL : ctx->base_url);
+    const char *wire = acp ? NULL : (tny_wire_is_chat(ctx->wire_api) ? "chat" : "responses");
+    jm_set_str(doc.get(), root, "wire_api", wire);
     bool codex = strcmp(tny_provider_name(ctx), "codex") == 0;
     jm_set_bool(doc.get(), root, "codex", codex);
     if (codex) {
@@ -2913,21 +3000,24 @@ static char *jobs_item_launch_snapshot(tny_ctx *parent, yyjson_val *item, char *
     execution_scope_part(&input, scope.get());
     execution_scope_part(&input, model);
     execution_scope_part(&input, effort);
+    if (acp) execution_scope_part(&input, "required-tools-authority-v1");
     char *digest = buf_oom(&input) ? NULL : sha256_hex_of(input.data, input.len);
     buf_free(&input);
     if (!digest) return NULL;
     jm_set_str(doc.get(), root, "provider_scope_sha256", scope.get());
     jm_set_str(doc.get(), root, "scope_sha256", digest);
-    bool complete = jobs_snapshot_matches(root, "provider", tny_provider_name(ctx)) &&
-                    jobs_snapshot_matches(root, "model", model) &&
-                    jobs_snapshot_matches(root, "effort", effort ? effort : "default") &&
-                    jobs_snapshot_matches(root, "api_key", ctx->api_key) &&
-                    jobs_snapshot_matches(root, "base_url", ctx->base_url) &&
-                    jobs_snapshot_matches(root, "wire_api",
-                                          tny_wire_is_chat(ctx->wire_api) ? "chat" : "responses") &&
-                    jobs_snapshot_matches(root, "provider_scope_sha256", scope.get()) &&
-                    jobs_snapshot_matches(root, "scope_sha256", digest) &&
-                    yyjson_mut_is_bool(yyjson_mut_obj_get(root, "codex"));
+    bool complete =
+        jobs_snapshot_matches(root, "provider", tny_provider_name(ctx)) &&
+        jobs_snapshot_matches(root, "model", model) &&
+        jobs_snapshot_matches(root, "effort", effort ? effort : "default") &&
+        jobs_snapshot_matches(root, "api_key", acp ? NULL : ctx->api_key) &&
+        jobs_snapshot_matches(root, "base_url", acp ? NULL : ctx->base_url) &&
+        jobs_snapshot_matches(root, "wire_api", wire) &&
+        yyjson_mut_is_bool(yyjson_mut_obj_get(root, "acp_require_tools_authority")) &&
+        yyjson_mut_get_bool(yyjson_mut_obj_get(root, "acp_require_tools_authority")) == acp &&
+        jobs_snapshot_matches(root, "provider_scope_sha256", scope.get()) &&
+        jobs_snapshot_matches(root, "scope_sha256", digest) &&
+        yyjson_mut_is_bool(yyjson_mut_obj_get(root, "codex"));
     free(digest);
     return complete ? jwrite(doc.get()) : NULL;
 }
@@ -3188,6 +3278,12 @@ static yyjson_mut_doc *record_new(tny_ctx *ctx, const jobs_request *request, con
             jm_set_str(doc, item, "provider", jget_str(launch, "provider"));
             jm_set_str(doc, item, "model", jget_str(launch, "model"));
             jm_set_str(doc, item, "effort", jget_str(launch, "effort"));
+            if (jget_bool(launch, "acp_require_tools_authority", false) &&
+                !yyjson_mut_obj_add_bool(doc, item, "acp_require_tools_authority", true)) {
+                free(now);
+                yyjson_mut_doc_free(doc);
+                return NULL;
+            }
             jm_set_str(doc, item, "execution_scope_sha256", jget_str(launch, "scope_sha256"));
             jm_set_str(doc, item, "workspace_policy", workspace_policy(request->items[i]));
             jm_set_str(doc, item, "workspace_preparation", "not_started");
@@ -4809,9 +4905,10 @@ static int jobs_retry(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, siz
                     jobs_request_free(&request);
                     yyjson_doc_free(parsed);
                     free(owner_path);
-                    safe_err(err, errlen,
-                             "item_execution_scope_changed: worker "
-                             "provider/account/endpoint/model/effort changed; no work started");
+                    safe_err(
+                        err, errlen,
+                        "item_execution_scope_changed: worker "
+                        "provider/account/endpoint/command/model/effort changed; no work started");
                     goto invalid;
                 }
             }
@@ -5239,7 +5336,8 @@ typedef struct {
     int64_t cancel_deadline, drain_deadline;
     char *prompt; /* private: never written to the job directory */
     char *log_path;
-    char *output_path; /* image items only */
+    char *acp_cleanup_path; /* private, fresh per-attempt teardown receipt */
+    char *output_path;      /* image items only */
     bool image;
     tny::process_scope scope;
     bool launch_pending, launch_failed, admission_ready, released;
@@ -5614,6 +5712,8 @@ static bool slot_free(job_slot *s) {
     task_workspace_close(s->workspace); /* close never removes editing work */
     s->workspace = NULL;
     free(s->log_path);
+    free(s->acp_cleanup_path);
+    s->acp_cleanup_path = NULL;
     free(s->output_path);
     s->prompt = s->log_path = s->output_path = NULL;
 
@@ -5767,6 +5867,12 @@ static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *
         buf_appendf(&entry, "TNY_CODEX_BASE_URL=%s", codex_url);
         owned[n++] = buf_detach(&entry);
     }
+    if (!image && yyjson_arr_size(jget(chat, "agent_argv")))
+        owned[n++] = xstrdup("TNY_ACP_FROZEN_COMMAND=1");
+    if (!image && jget_bool(chat, "acp_require_tools_authority", false))
+        owned[n++] = xstrdup("TNY_ACP_REQUIRE_TOOLS_AUTHORITY=1");
+    if (slot->acp_cleanup_path)
+        owned[n++] = worker_env_pair("TNY_ACP_CLEANUP_FILE", slot->acp_cleanup_path);
     if (jget(payload, "admission")) owned[n++] = xstrdup("TNY_ADMISSION_ENROLLED=1");
     const char *scope_label = jget_str(jget(payload, "admission"), "label");
     if (scope_label && str_starts(scope_label, "swarm_"))
@@ -5813,7 +5919,7 @@ static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *
         yyjson_val *key, *value;
         yyjson_obj_foreach(declared, i, max, key, value) {
             if (!yyjson_is_str(value) || jobs_private_field(yyjson_get_str(key)) ||
-                (jget(item, "chat") &&
+                ((jget(item, "chat") || yyjson_arr_size(jget(chat, "agent_argv"))) &&
                  jobs_private_payload_value(payload, yyjson_get_str(value))) ||
                 tny_process_scope_env_reserved(yyjson_get_str(key)))
                 continue;
@@ -5853,7 +5959,8 @@ static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *
                                  jget_str(image_creds, "codex_url")};
         for (size_t k = 0; value && k < sizeof secrets / sizeof secrets[0]; k++)
             if (secrets[k] && *secrets[k] && strcmp(value + 1, secrets[k]) == 0) skip = true;
-        if (value && jget(item, "chat") && jobs_private_payload_value(payload, value + 1))
+        if (value && (jget(item, "chat") || yyjson_arr_size(jget(chat, "agent_argv"))) &&
+            jobs_private_payload_value(payload, value + 1))
             skip = true;
         /* A carrier this item legitimately uses is still replaced by the
          * resolved value, never shadowed by the caller's ambient one. */
@@ -5882,7 +5989,7 @@ static void worker_env_free(char **envp, char **owned, int n_owned) {
  * ask/image CLI this build already ships, never a credential, instruction body
  * or prompt. */
 static int worker_build_argv(yyjson_val *payload, yyjson_val *item, const char *prepared_cwd,
-                             bool image, char **argv, int cap) {
+                             bool image, char **argv, int cap, char agent_argc[16]) {
     int n = 0;
     const char *self = jget_str(payload, "self");
     const char *cwd = prepared_cwd ? prepared_cwd : jget_str(payload, "cwd");
@@ -5934,6 +6041,22 @@ static int worker_build_argv(yyjson_val *payload, yyjson_val *item, const char *
         argv[n++] = (char *)"--provider";
         argv[n++] = (char *)provider;
     }
+    yyjson_val *command = jget(chat, "agent_argv");
+    size_t command_n = yyjson_arr_size(command);
+    if (provider && (strcmp(provider, "acp") == 0 || jobs_acp_profile_name(provider)) &&
+        command_n) {
+        if (command_n > 128 || n + (int)command_n + 28 >= cap) return -1;
+        /* Counted internal argv preserves literal '--' and option-looking
+         * adapter arguments without letting them become child CLI flags. */
+        snprintf(agent_argc, 16, "%zu", command_n);
+        argv[n++] = (char *)"--acp-agent-argv";
+        argv[n++] = agent_argc;
+        for (size_t i = 0; i < command_n; ++i) {
+            const char *value = yyjson_get_str(yyjson_arr_get(command, i));
+            if (!value || (i == 0 && !*value)) return -1;
+            argv[n++] = (char *)value;
+        }
+    }
     if (jget_str(chat, "api_key")) {
         argv[n++] = (char *)"--api-key-env";
         argv[n++] = (char *)JOBS_ENV_API_KEY;
@@ -5947,12 +6070,16 @@ static int worker_build_argv(yyjson_val *payload, yyjson_val *item, const char *
         argv[n++] = (char *)jget_str(chat, "wire_api");
     }
     const char *model = jget_str(item, "model") ? jget_str(item, "model") : jget_str(chat, "model");
+    /* Freeze an unset ACP selection too: profile settings can change while a
+     * queued worker waits. Empty --model means keep the agent's own default. */
+    if (!model && command_n) model = "";
     if (model) {
         argv[n++] = (char *)"--model";
         argv[n++] = (char *)model;
     }
     const char *effort =
         jget_str(item, "effort") ? jget_str(item, "effort") : jget_str(chat, "effort");
+    if (!effort && command_n) effort = "default";
     if (effort) {
         argv[n++] = (char *)"--effort";
         argv[n++] = (char *)effort;
@@ -5980,12 +6107,10 @@ static int worker_build_argv(yyjson_val *payload, yyjson_val *item, const char *
 static int worker_spawn_item(yyjson_val *payload, yyjson_val *item, bool image, job_slot *slot,
                              char *err, size_t errlen) {
     slot->image = image;
-    yyjson_val *chat = jget(payload, "chat");
+    yyjson_val *chat = jget(item, "chat") ? jget(item, "chat") : jget(payload, "chat");
     const char *provider = jget_str(chat, "provider");
     if (!provider) provider = jget_str(payload, "provider");
-    if (!image && provider &&
-        (strcmp(provider, "cursor") == 0 || strcmp(provider, "acp") == 0 ||
-         strncmp(provider, "acp@", 4) == 0 || strncmp(provider, "acp:", 4) == 0)) {
+    if (!image && provider && strcmp(provider, "cursor") == 0) {
         safe_err(err, errlen, "job uses a removed provider; submit a native HTTP job");
         return -1;
     }
@@ -5996,6 +6121,17 @@ static int worker_spawn_item(yyjson_val *payload, yyjson_val *item, bool image, 
         free(canonical);
         if (valid || !same) {
             if (!valid) safe_err(err, errlen, "output identity changed before item launch");
+            return -1;
+        }
+    }
+    if (!image && jget_bool(chat, "acp_require_tools_authority", false)) {
+        buf_t path;
+        buf_init(&path);
+        buf_appendf(&path, "%s.acp-cleanup", slot->log_path);
+        slot->acp_cleanup_path = buf_detach(&path);
+        struct stat st;
+        if (!slot->acp_cleanup_path || lstat(slot->acp_cleanup_path, &st) == 0 || errno != ENOENT) {
+            safe_err(err, errlen, "cannot reserve a fresh ACP cleanup receipt for this attempt");
             return -1;
         }
     }
@@ -6014,12 +6150,13 @@ static int worker_spawn_item(yyjson_val *payload, yyjson_val *item, bool image, 
     }
     slot->log_fd.adopt(
         open(slot->log_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600));
-    char *argv[40];
+    char *argv[172];
+    char agent_argc[16];
     char **owned = NULL;
     int n_owned = 0;
     char **envp = worker_child_env(payload, item, slot, image, &owned, &n_owned);
     int rc = slot->log_fd.borrow() < 0 || !envp ||
-                     worker_build_argv(payload, item, slot->cwd, image, argv, 40) != 0
+                     worker_build_argv(payload, item, slot->cwd, image, argv, 172, agent_argc) != 0
                  ? EINVAL
                  : 0;
     pid_t pid = -1;
@@ -6057,6 +6194,24 @@ static int worker_spawn_item(yyjson_val *payload, yyjson_val *item, bool image, 
     slot->written = 0;
     slot->log_bytes = 0;
     return 0;
+}
+
+/* A zero child exit does not establish that an external adapter and its
+ * relay descendants stopped. Only the owning backend writes this fixed receipt
+ * after generation-safe tree cleanup. The supervisor's own proven kill also
+ * suffices; uncertain cleanup always retains the existing admission hold. */
+static bool worker_acp_cleanup_complete(const job_slot *slot) {
+    if (!slot->acp_cleanup_path || (slot->killed && !slot->cleanup_unknown)) return true;
+    tny::descriptor fd;
+    fd.adopt(open(slot->acp_cleanup_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+    struct stat st;
+    if (fd.borrow() < 0 || fstat(fd.borrow(), &st) != 0 || !S_ISREG(st.st_mode) ||
+        st.st_uid != getuid() || (st.st_mode & 077) != 0 || st.st_nlink != 1 || st.st_size != 9)
+        return false;
+    char receipt[10];
+    ssize_t got;
+    do { got = read(fd.borrow(), receipt, sizeof receipt); } while (got < 0 && errno == EINTR);
+    return got == 9 && memcmp(receipt, "complete\n", 9) == 0;
 }
 
 /* One poll round over every live item: feed the private prompt, drain the
@@ -6273,7 +6428,11 @@ static void worker_record_usage(yyjson_mut_doc *doc, yyjson_mut_val *item, job_s
             const char *type = jget_str(event, "type");
             int64_t input = jget_int(event, "input_tokens", -1),
                     output = jget_int(event, "output_tokens", -1);
-            if (type && strcmp(type, "usage") == 0 && input >= 0 && output >= 0) {
+            /* ACP context/cost updates carry zero storage placeholders, not
+             * measured token totals. Older native logs omit tokens_reported. */
+            bool reported =
+                !jget(event, "tokens_reported") || jget_bool(event, "tokens_reported", false);
+            if (type && strcmp(type, "usage") == 0 && reported && input >= 0 && output >= 0) {
                 jm_set_bool(doc, item, "usage_known", true);
                 jm_set_int(doc, item, "usage_input_tokens", input);
                 jm_set_int(doc, item, "usage_output_tokens", output);
@@ -6321,11 +6480,14 @@ static void worker_record_result(tny_ctx *ctx, yyjson_mut_doc *doc, job_slot *sl
     if (slot->admission_failed || slot->residual_stopped || slot->cleanup_unknown) {
         jm_set_str(doc, item, "state", "failed");
         jm_set_str(doc, item, "error_code", TNY_JOBS_CODE_IO);
-        jm_set_str(doc, item, "error",
-                   slot->admission_failed ? "the private item admission did not complete"
-                   : slot->residual_stopped
-                       ? "the item left running descendants that required cleanup"
-                       : "the owned scope cleanup could not be verified");
+        jm_set_str(
+            doc, item, "error",
+            slot->admission_failed   ? "the private item admission did not complete"
+            : slot->residual_stopped ? "the item left running descendants that required cleanup"
+            : slot->acp_cleanup_path
+                ? "ACP_CLEANUP_UNKNOWN: adapter descendant cleanup receipt was not verified; "
+                  "admission/workspace claims remain held"
+                : "the owned scope cleanup could not be verified");
         return;
     }
     bool ok = false;
@@ -6490,7 +6652,8 @@ static int worker_supervise(tny_ctx *ctx, const char *dir, const char *id, yyjso
             if (!slots[i].eof && monotonic_ms() < slots[i].drain_deadline) continue;
             yyjson_mut_val *item = jm_item(doc, i);
             bool cancelled = job_cancel || jm_bool(item, "cancel_requested", false);
-            if (!slots[i].eof || slots[i].reap_error) slots[i].cleanup_unknown = true;
+            if (!slots[i].eof || slots[i].reap_error || !worker_acp_cleanup_complete(&slots[i]))
+                slots[i].cleanup_unknown = true;
             /* Retirement is fallible and precedes terminal persistence. A
              * refused scope stays owned; unknown proof must hold reservations. */
             if (slots[i].scope.borrow() &&

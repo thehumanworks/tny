@@ -245,6 +245,7 @@ int sdk_parse_create_options(napi_env env, napi_value object, create_options *op
         !get_string(env, object, "baseUrl", 0, &options->base_url) ||
         !get_string(env, object, "apiKey", 0, &options->api_key) ||
         !get_string(env, object, "wireApi", 0, &options->wire_api) ||
+        !get_string(env, object, "acpCommandJson", 0, &options->acp_command) ||
         !get_uint32(env, object, "permissionMode", TNY_PERMISSION_ASK, &options->permission_mode) ||
         !get_bool(env, object, "persistence", 0, &persistence) ||
         !get_uint32(env, object, "maxSteps", 0u, &options->max_steps) ||

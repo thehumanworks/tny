@@ -50,6 +50,7 @@ typedef struct {
     const char *xai_api_key;        /* --xai-api-key: dictation only */
     const char *chatgpt_token;      /* --chatgpt-token (docs/adr/0066) */
     const char *chatgpt_account_id; /* --chatgpt-account-id */
+    const char **agent_argv;        /* --agent CMD -- arg... --, never evaluated by a shell */
     const char *base_url;
     const char *base_url_env; /* --base-url-env NAME: URL kept off argv */
     const char *api_key_env;

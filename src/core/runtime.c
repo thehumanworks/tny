@@ -1,4 +1,6 @@
 #include "core/runtime.h"
+#include "core/acp_bridge.h"
+#include "backends/acp/acp_client.h"
 #include "core/skills.h"
 #include "core/tasks.h"
 
@@ -17,10 +19,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ENGINE_EVENT_MAX       256u
-#define ENGINE_EVENT_BYTES_MAX (1024u * 1024u)
-#define ENGINE_RESERVED_EVENTS 2u
-#define ENGINE_RESERVED_BYTES  1024u
+#define ENGINE_EVENT_MAX         256u
+#define ENGINE_EVENT_BYTES_MAX   (1024u * 1024u)
+#define ENGINE_RESERVED_EVENTS   2u
+#define ENGINE_RESERVED_BYTES    1024u
+#define ACP_TRANSCRIPT_BYTES_MAX (8u * 1024u * 1024u)
 
 struct tny_engine {
     tny_ctx *ctx;
@@ -62,6 +65,8 @@ struct tny_engine {
     int extension_continuations;
     tny_owned_event *pending_terminal;
     buf_t turn_text;
+    buf_t acp_text; /* durable external-agent answer, independent of extension observers */
+    bool acp_iteration_pending;
     buf_t message_text;
     char *current_message_id;
     bool message_started;
@@ -213,6 +218,24 @@ static void backend_event(const tny_backend_event *ev, void *ud) {
     if (ev->kind == TNY_EV_STEER_REJECTED && ev->text) {
         free(e->prepared_requeue_text);
         e->prepared_requeue_text = dup_bytes(ev->text, ev->text_len);
+    }
+    if (e->bk && e->bk->id == TNY_BK_ACP && ev->kind == TNY_EV_TEXT_DELTA && ev->text) {
+        if (ev->text_len > ACP_TRANSCRIPT_BYTES_MAX - e->acp_text.len) {
+            const char *message = "ACP transcript exceeds the 8 MiB limit";
+            tny_backend_event failure = {.kind = TNY_EV_ERROR,
+                                         .text = message,
+                                         .text_len = strlen(message),
+                                         .error_code = TNY_EVENT_ERROR_BACKPRESSURE};
+            e->forcing_error = true;
+            e->overflow_pending = true;
+            queue_event(e, &failure);
+            return;
+        }
+        buf_append(&e->acp_text, ev->text, ev->text_len);
+        if (buf_oom(&e->acp_text)) {
+            e->oom_pending = true;
+            return;
+        }
     }
     tny_owned_event *before = e->tail;
     queue_event(e, ev);
@@ -373,6 +396,13 @@ static char *backend_event_json(tny_engine *e, const tny_backend_event *ev) {
                     (long long)ev->in_tokens, (long long)ev->out_tokens,
                     (long long)ev->context_used, (long long)ev->context_size);
         if (ev->has_cost) buf_appendf(&b, ",\"cost\":%.12g", ev->cost);
+        buf_appendf(&b, ",\"tokens_reported\":%s,\"cost_cumulative\":%s",
+                    ev->tokens_unreported ? "false" : "true",
+                    ev->cost_cumulative ? "true" : "false");
+        if (ev->cost_currency) {
+            buf_appends(&b, ",\"cost_currency\":");
+            jescape(&b, ev->cost_currency);
+        }
         break;
     case TNY_EV_TURN_END:
         buf_appends(&b, "\"stop\":{\"reason\":");
@@ -785,6 +815,20 @@ static extension_fold prepare_user_prompt(tny_engine *e, const char *prompt, con
     return fold;
 }
 
+/* ACP owns its remote conversation, while tny still needs a durable local
+ * answer for job results, dependency hashes, inspection and ordinary resume.
+ * Only normalized assistant text is stored; no native model-call usage is inferred. */
+static int persist_acp_iteration(tny_engine *e) {
+    if (!e->acp_iteration_pending || !e->bk || e->bk->id != TNY_BK_ACP) return 0;
+    if (tny_alloc_scope_failed()) return -1;
+    session_add_assistant(e->session, e->acp_text.data ? e->acp_text.data : "", NULL);
+    if (tny_alloc_scope_failed()) return -1;
+    session_bump_turns(e->session);
+    if (tny_alloc_scope_failed()) return -1;
+    e->acp_iteration_pending = false;
+    return session_save(e->session);
+}
+
 static int start_backend_iteration(tny_engine *e, const char *prompt, const char **images,
                                    const char *source, char *err, size_t errlen) {
     extensions_session_start(e);
@@ -834,6 +878,20 @@ static int start_backend_iteration(tny_engine *e, const char *prompt, const char
 
     e->active = true;
     e->turn_started = true;
+    if (e->bk->id == TNY_BK_ACP) {
+        buf_clear(&e->acp_text);
+        session_add_text(e->session, "user", effective.data ? effective.data : "");
+        e->acp_iteration_pending = true;
+        if (tny_alloc_scope_failed() || session_save(e->session) != 0) {
+            e->forcing_error = true;
+            if (!tny_alloc_scope_failed()) {
+                synth_error(e, TNY_EVENT_ERROR_IO, "could not persist ACP prompt");
+                synth_terminal(e, TNY_STOP_ERROR);
+            }
+            buf_free(&effective);
+            return 0;
+        }
+    }
     int rc = e->bk->send(e->bk, effective.data, images, backend_event, e, err, errlen);
     buf_free(&effective);
     if (rc != 0) {
@@ -1259,6 +1317,11 @@ static void commit_pending_terminal(tny_engine *e) {
  * pass through after_backend before settlement. */
 static bool resolve_pending_terminal(tny_engine *e) {
     if (!e->pending_terminal) return false;
+    if (persist_acp_iteration(e) != 0 && !tny_alloc_scope_failed()) {
+        e->forcing_error = true;
+        e->pending_terminal->ev.stop = TNY_STOP_ERROR;
+        synth_error(e, TNY_EVENT_ERROR_IO, "could not persist ACP answer");
+    }
     if (!e->extensions) {
         commit_pending_terminal(e);
         return false;
@@ -1389,6 +1452,7 @@ tny_engine *tny_engine_new(tny_ctx *ctx, tny_session_state *session, perm_engine
     atomic_init(&e->cancel_requested, false);
     atomic_init(&e->cancel_armed, false);
     buf_init(&e->turn_text);
+    buf_init(&e->acp_text);
     buf_init(&e->message_text);
     buf_init(&e->extension_followup);
     if (!ensure_oom_reserves(e)) {
@@ -1435,6 +1499,22 @@ int tny_engine_prepare(tny_engine *e, tny_backend *prepared, tny_engine_prepare_
                                 e->ask_user_ud, e->control_pump, e->control_pump_ud,
                                 e->session_sock, e->session_id, native_openai_control, e);
     if (bk->id == TNY_BK_OPENAI) tny_backend_openai_set_tool_cancel(bk, native_tool_cancelled, e);
+    if (bk->id == TNY_BK_ACP) {
+        tools_env env = {.ctx = e->ctx,
+                         .session = e->session,
+                         .perm = e->perm,
+                         .prompt = e->prompt,
+                         .prompt_ud = e->prompt_ud,
+                         .ask_user = e->ask_user,
+                         .ask_user_ud = e->ask_user_ud,
+                         .control_pump = e->control_pump,
+                         .control_pump_ud = e->control_pump_ud,
+                         .session_sock = e->session_sock,
+                         .session_id = e->session_id,
+                         .cancelled = native_tool_cancelled,
+                         .cancelled_ud = e};
+        tny_acp_bridge_bind(tny_backend_acp_bridge(bk), &env, native_openai_control, e);
+    }
     if (state != TNY_ENGINE_PREPARE_RESUMED && bk->create_or_resume) {
         const char *ptr = session_host_pointer(e->session);
         const char *owner = session_backend(e->session);
@@ -1601,7 +1681,8 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
     int skill_message_index = session_message_count(e->session);
     if (!e->ctx->prompt_optimisation) {
         char *with_skills = skills_inject(e->ctx, e->session, effective.data ? effective.data : "",
-                                          e->bk->id == TNY_BK_OPENAI, &skill_names, &n_skill_names);
+                                          (e->bk->id == TNY_BK_OPENAI || e->bk->id == TNY_BK_ACP),
+                                          &skill_names, &n_skill_names);
         if (with_skills) {
             buf_clear(&effective);
             buf_appends(&effective, with_skills);
@@ -1835,8 +1916,9 @@ const char *tny_engine_openai_toolcalls_json(tny_engine *e) {
 }
 
 char *tny_engine_openai_usage_json(tny_engine *e) {
-    return tny_engine_backend_id(e) == TNY_BK_OPENAI ? tny_backend_openai_usage_json(e->bk)
-                                                     : xstrdup("null");
+    if (!e || !e->bk) return NULL;
+    if (e->bk->id == TNY_BK_ACP) return tny_backend_acp_usage_json(e->bk);
+    return e->bk->id == TNY_BK_OPENAI ? tny_backend_openai_usage_json(e->bk) : NULL;
 }
 
 void tny_engine_preserve_session_on_free(tny_engine *e) {
@@ -1943,6 +2025,7 @@ void tny_engine_free(tny_engine *e) {
     tny_owned_event_free(e->oom_error_reserve);
     tny_owned_event_free(e->oom_terminal_reserve);
     buf_free(&e->turn_text);
+    buf_free(&e->acp_text);
     buf_free(&e->message_text);
     buf_free(&e->extension_followup);
     free(e->prompt_text);

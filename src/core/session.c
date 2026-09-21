@@ -483,6 +483,37 @@ void session_add_text(tny_session_state *s, const char *role, const char *conten
     yyjson_mut_arr_add_val(session_messages(s), m);
 }
 
+int session_add_runtime_context(tny_session_state *s, const char *content) {
+    if (!s || !content || tny_alloc_scope_failed()) return -1;
+    yyjson_mut_val *pending = NULL;
+    if (s->ctx->backend == TNY_BK_ACP) {
+        pending = yyjson_mut_obj_get(root_of(s), "acp_pending_context");
+        size_t bytes = strlen(content), i, count;
+        yyjson_mut_val *value;
+        if (pending && !yyjson_mut_is_arr(pending)) return -1;
+        if (yyjson_mut_arr_size(pending) >= 256 || bytes > 1024u * 1024u) return -1;
+        yyjson_mut_arr_foreach(pending, i, count, value) {
+            if (!yyjson_mut_is_str(value) || yyjson_mut_get_len(value) > 1024u * 1024u - bytes)
+                return -1;
+            bytes += yyjson_mut_get_len(value);
+        }
+        if (!pending) {
+            pending = yyjson_mut_arr(s->doc);
+            if (!pending ||
+                !yyjson_mut_obj_add_val(s->doc, root_of(s), "acp_pending_context", pending))
+                return -1;
+        }
+        if (!yyjson_mut_arr_add_strcpy(s->doc, pending, content)) return -1;
+    }
+    size_t before = yyjson_mut_arr_size(session_messages(s));
+    session_add_text(s, "user", content);
+    if (tny_alloc_scope_failed() || yyjson_mut_arr_size(session_messages(s)) != before + 1) {
+        if (pending) yyjson_mut_arr_remove_last(pending);
+        return -1;
+    }
+    return 0;
+}
+
 void session_add_assistant_ex(tny_session_state *s, const char *content, const char *tc_json,
                               const char *extras_json) {
     if (tny_alloc_scope_failed()) return;

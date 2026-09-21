@@ -158,7 +158,14 @@ static void complete_schema(tny_ctx *c) {
     yyjson_val *r = yyjson_doc_get_root(d);
     /* Legacy contexts omit the two nullable definition strings but retain the
      * explicit empty digest and zero participant count. */
-    REQUIRE(yyjson_obj_size(r) == 69);
+    REQUIRE(yyjson_obj_size(r) == 72);
+    REQUIRE(yyjson_is_arr(jget(r, "agent_argv")) && yyjson_arr_size(jget(r, "agent_argv")) == 0);
+    REQUIRE(yyjson_is_bool(jget(r, "agent_from_profile")) &&
+            yyjson_get_bool(jget(r, "agent_from_profile")) == c->agent_from_profile);
+    REQUIRE(!jget(r, "acp_cleanup_file")); /* unset private receipt is omitted */
+    REQUIRE(yyjson_is_bool(jget(r, "acp_require_tools_authority")) &&
+            yyjson_get_bool(jget(r, "acp_require_tools_authority")) ==
+                c->acp_require_tools_authority);
     REQUIRE(yyjson_is_bool(jget(r, "swarm_explicit")) &&
             yyjson_get_bool(jget(r, "swarm_explicit")) == c->swarm_explicit);
     REQUIRE(yyjson_is_int(jget(r, "swarm_cap")) &&
@@ -293,7 +300,8 @@ static void complete_schema(tny_ctx *c) {
                 c->mcp_import_order[i]);
     yyjson_doc_free(d);
     d = snapshot(c, true);
-    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 61);
+    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 63);
+    REQUIRE(!jget(yyjson_doc_get_root(d), "acp_cleanup_file"));
     REQUIRE(yyjson_is_null(jget(yyjson_doc_get_root(d), "swarm_definition")));
     REQUIRE(yyjson_is_null(jget(yyjson_doc_get_root(d), "swarm_source")));
     yyjson_doc_free(d);
@@ -757,7 +765,7 @@ static void swarm_metadata_ownership(void) {
     for (int public_only = 0; public_only <= 1; public_only++) {
         yyjson_doc *d = snapshot(c, public_only != 0);
         yyjson_val *r = yyjson_doc_get_root(d);
-        REQUIRE(yyjson_obj_size(r) == (public_only ? 61u : 71u));
+        REQUIRE(yyjson_obj_size(r) == (public_only ? 63u : 74u));
         REQUIRE(jget_str(r, "swarm_definition") &&
                 !strcmp(jget_str(r, "swarm_definition"), c->swarm_definition));
         REQUIRE(jget_str(r, "swarm_source") &&
@@ -784,6 +792,45 @@ static void swarm_metadata_ownership(void) {
         "purposeful swarm checkpoint metadata: schema, roundtrip, invalid state and faults passed");
 }
 
+static void acp_context_ownership(void) {
+    tny_ctx *c = fixture(false);
+    c->backend = TNY_BK_ACP;
+    set_string(&c->provider_name, "acp");
+    set_string(&c->model, "selected-model");
+    c->agent_argv = array("/fixture/agent", "", "literal ; $(not-a-shell)");
+    c->agent_from_profile = false;
+    c->acp_require_tools_authority = true;
+    set_string(&c->acp_cleanup_file, "/private/fixture-cleanup-receipt");
+    yyjson_doc *d = snapshot(c, false);
+    yyjson_val *args = jget(yyjson_doc_get_root(d), "agent_argv");
+    REQUIRE(yyjson_arr_size(args) == 3);
+    REQUIRE(!strcmp(yyjson_get_str(yyjson_arr_get(args, 1)), ""));
+    tny_ctx *copy = tny_checkpoint_context_restore(yyjson_doc_get_root(d));
+    REQUIRE(copy && copy->backend == TNY_BK_ACP && !copy->agent_from_profile);
+    REQUIRE(copy->acp_require_tools_authority);
+    REQUIRE(copy->acp_cleanup_file &&
+            !strcmp(copy->acp_cleanup_file, "/private/fixture-cleanup-receipt"));
+    yyjson_doc *public_doc = snapshot(c, true);
+    REQUIRE(!jget(yyjson_doc_get_root(public_doc), "acp_cleanup_file"));
+    REQUIRE(!jget(yyjson_doc_get_root(public_doc), "agent_argv"));
+    REQUIRE(jget_bool(yyjson_doc_get_root(public_doc), "acp_require_tools_authority", false));
+    yyjson_doc_free(public_doc);
+    REQUIRE(copy->agent_argv != c->agent_argv && copy->agent_argv[2] != c->agent_argv[2]);
+    yyjson_doc_free(d);
+    c->agent_argv[2][0] = 'X';
+    REQUIRE(!strcmp(copy->agent_argv[2], "literal ; $(not-a-shell)"));
+    REQUIRE(!strcmp(copy->model, "selected-model"));
+    tny_ctx_free(copy);
+    roundtrip(c);
+    sweep(c, 0);
+    sweep(c, 1);
+    c->agent_from_profile = true;
+    set_string(&c->provider_name, "acp@fixture");
+    roundtrip(c);
+    tny_ctx_free(c);
+    puts("ACP checkpoint argv/model ownership and allocation failures passed");
+}
+
 int main(int argc, char **argv) {
     setup();
     fault_at(0);
@@ -795,6 +842,7 @@ int main(int argc, char **argv) {
     tny_ctx *full = fixture(true), *empty = fixture(false);
     checkpoint_retry_after_settlement();
     complete_schema(full);
+    acp_context_ownership();
     swarm_metadata_ownership();
     backend_bounds(full);
     encoder_lifetime();

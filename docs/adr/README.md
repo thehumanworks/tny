@@ -168,3 +168,5 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0161: Typed swarm messages](0161-typed-swarm-messages.md) — named recipients and approval-bound durable sends.
 - [0162: Durable swarm review continuity](0162-durable-swarm-review-continuity.md) — immutable review packets, explicit follow-up work, capacity visibility and profile-aligned guidance.
 - [0163: Explicit reasoning effort for embedded runtimes](0163-sdk-reasoning-effort.md) — ABI 1.3 `tny_runtime_options_v3`, `reasoning_effort` / `reasoningEffort` in both SDKs.
+
+- [0164: Optional ACP clients with an owning-runtime MCP bridge](0164-optional-acp-clients.md)

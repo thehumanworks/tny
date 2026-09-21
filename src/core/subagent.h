@@ -19,6 +19,8 @@ char *tny_subagent_prepare_error(const tools_env *env, yyjson_val *args);
 
 /* Execute create|message|inspect|lifecycle. malloc'd tool result. */
 char *tny_subagent_execute(tools_env *env, yyjson_val *args);
+/* ACP's acp:NAME and acp@NAME spellings identify the same resolved profile. */
+bool tny_subagent_provider_is_parent(const tny_ctx *ctx, const char *provider);
 
 /* Private C facade. Zero-initialize; do not copy an owning plan. argv/envp
  * are borrowed views into one C++ owner, valid until free or successful

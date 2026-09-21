@@ -310,11 +310,15 @@ class ImageInputTests(unittest.TestCase):
                 self.assertIn(expected, r.stderr)
                 self.assertEqual(self.state["chat"], [])
 
-    def test_removed_acp_selectors_fail(self):
+    def test_unconfigured_acp_selectors_fail_without_native_inference(self):
         for selector in ("acp", "acp@agent", "acp:agent"):
             r = self.run_tny("--provider", selector, "ask", "hello")
             self.assertNotEqual(r.returncode, 0)
-            self.assertIn("removed", r.stderr)
+            self.assertNotIn("removed", r.stderr)
+            self.assertTrue(
+                "agent" in r.stderr.lower() or "profile" in r.stderr.lower()
+            )
+            self.assertEqual(self.state["chat"], [])
 
     def test_switching_providers_recomputes_the_capability(self):
         self.settings(

@@ -3,8 +3,9 @@
 This package is the Node.js/TypeScript binding for stable **libtny ABI 1**.
 Task presets require ABI 1.1; ABI 1.0 remains usable when no task is requested.
 It embeds the native OpenAI-compatible HTTP conversation runtime
-through a small C Node-API addon. It does not spawn `tny` and contains no
-provider-wire or agent loop implementation in JavaScript.
+through a small C Node-API addon. HTTP mode does not spawn `tny`; optional
+ACP mode starts an external adapter and a matching tny MCP relay. JavaScript
+contains no provider-wire or agent-loop implementation.
 
 The package is intentionally marked `UNLICENSED` until the repository adopts
 project licensing.
@@ -221,3 +222,20 @@ Every call accepts an `AbortSignal` and joins native work on cancellation.
 Relative paths resolve against the captured workspace. See the
 [toolkit contract](../../docs/sdk-toolkit.md) for options, providers, limits,
 and explicit credentials. This feature does not change the agent runtime API.
+
+## Optional ACP clients
+
+Use `Runtime.create({workspace: process.cwd(), provider: "acp",
+acpCommand: ["claude-agent-acp"], model: "sonnet"})` and set
+`TNY_ACP_BRIDGE_EXECUTABLE` to the absolute path of the matching `tny` binary.
+The command array is copied literally without shell expansion. Adapter account
+authentication remains outside the SDK; keep credentials out of command args.
+Registered tools, including asynchronous handlers, are exposed by the owning
+runtime's MCP bridge. ACP model and effort controls are capability-negotiated;
+fast tier and native mid-turn restart are unavailable. See the
+[ACP contract](../../docs/backends/acp.md).
+
+ACP commands require libtny ABI 1.4. Native HTTP use remains compatible with
+earlier ABI 1.x libraries. ACP usage distinguishes reported currency and
+cumulative session cost from per-turn accounting; unavailable token counts
+are explicitly marked unreported.

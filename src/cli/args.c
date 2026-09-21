@@ -145,6 +145,23 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     /* Mark an explicit speed choice before provider resolution so a settings
      * default cannot run first. Capability validation stays after resolve. */
     if (g->fast) ctx->service_tier_explicit = true;
+    if (g->agent_argv) {
+        int n = 0;
+        while (g->agent_argv[n]) n++;
+        ctx->agent_argv = calloc((size_t)n + 1, sizeof(char *));
+        if (!ctx->agent_argv) {
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        for (int k = 0; k < n; k++) {
+            ctx->agent_argv[k] = xstrdup(g->agent_argv[k]);
+            if (!ctx->agent_argv[k]) {
+                tny_ctx_free(ctx);
+                return NULL;
+            }
+        }
+        ctx->agent_argv[n] = NULL;
+    }
     /* process-only extra dirs */
     for (int k = 0; k < g->n_add_dirs; k++) {
         char *abs = path_abs(g->add_dirs[k]);
@@ -178,7 +195,7 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         return ctx;
     }
 
-    if (tny_resolve_backend(ctx, g->backend) < 0) {
+    if (tny_resolve_backend(ctx, g->backend ? g->backend : (g->agent_argv ? "acp" : NULL)) < 0) {
         tny_ctx_free(ctx);
         return NULL;
     }
@@ -263,7 +280,7 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
  * (docs/adr/0022). Host backends own their own tool loops and cannot be
  * redirected, so they are refused rather than silently running locally. */
 int cli_ssh_attach(tny_ctx *ctx, const char *target, const char *remote_cwd) {
-    if (ctx->backend != TNY_BK_OPENAI) {
+    if (ctx->backend != TNY_BK_OPENAI && ctx->backend != TNY_BK_ACP) {
         fprintf(stderr,
                 "tny: --ssh runs tools through tny's native loop; provider '%s' "
                 "executes its own tools on this machine.\n"

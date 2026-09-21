@@ -156,10 +156,18 @@ passed unchanged to `ExtensionAPI.capabilities`:
 
 | Provider | `supported` keys | `unsupported` keys | Every other key |
 | --- | --- | --- | --- |
-| Native OpenAI | every key through provider response plus agent continue/cancel | none | project-local discover/trust pending #59 |
-| Codex | prompt transform/block; session/turn/message; model/effort/instructions/workspace; permission observe; tool-post observe; agent continue/cancel | tool-pre rewrite/deny; tool-post annotate/replace | provider compaction/subagent/tool/batch/wire and permission decisions pending #56; project trust #59 |
+| Native HTTP (OpenAI-compatible, Codex/Grok profiles) | every key through provider response plus agent continue/cancel | none | project-local discover/trust pending #59 |
+| Optional ACP client | prompt/session/turn/message/model/instructions/workspace; bridge subagent and tool pre/permission/post/batch controls; agent continue/cancel | native compaction/effort lifecycle, provider request/response observation | project-local discover/trust pending #59 |
 
-All supported profiles use the native tool and permission gates. Removed host adapters are superseded by [ADR 0151](../adr/0152-native-http-only-providers.md). Historical hook comparisons above describe the pinned external behavior, not runtime dependencies.
+ACP tool capability reasons explicitly say `tny_mcp_bridge_only`. Shared native
+controls apply to calls through tny's MCP registry; external agent built-ins are
+not covered by those guarantees. Effort selection may be negotiated through ACP
+config options without promising observation of the external agent's internal
+effort changes. The tools-only Claude specialization, SSH version gate and
+remaining differences are in [ACP verification](../verification/acp-client/README.md).
+[ADR 0164](../adr/0164-optional-acp-clients.md) supersedes the client exclusion in
+[ADR 0152](../adr/0152-native-http-only-providers.md). Historical hook comparisons
+above describe pinned external behavior, not runtime dependencies.
 
 ## Completion rule
 

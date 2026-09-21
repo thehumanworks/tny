@@ -1146,7 +1146,7 @@ static int receive_text(tools_env *env, const char *key, const char *text) {
     if (receipt_has(env->session, key)) return 0;
     yyjson_mut_val *receipts = session_array(env->session, "team_receipts");
     if (!receipts || yyjson_mut_arr_size(receipts) >= TEAM_RECEIPTS_MAX) return -1;
-    session_add_text(env->session, "user", text);
+    if (session_add_runtime_context(env->session, text) != 0) return -1;
     if (!yyjson_mut_arr_add_strcpy(env->session->doc, receipts, key)) return -1;
     if (session_save(env->session) != 0) return -1;
     if (env->ev_cb) {

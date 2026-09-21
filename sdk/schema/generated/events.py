@@ -23,7 +23,7 @@ EVENT_FIELDS = {
     'tool_end': ('tool_name', 'tool_id', 'tool_detail', 'tool_ok'),
     'permission_request': ('permission_id', 'permission_summary', 'permission_options'),
     'plan': ('text', 'message_id'),
-    'usage': ('input_tokens', 'output_tokens', 'context_used', 'context_size', 'cost', 'has_cost'),
+    'usage': ('input_tokens', 'output_tokens', 'context_used', 'context_size', 'cost', 'has_cost', 'cost_currency', 'cost_cumulative', 'tokens_reported'),
     'turn_end': ('stop_reason',),
     'error': ('text', 'error_code'),
     'status': ('text', 'message_id'),

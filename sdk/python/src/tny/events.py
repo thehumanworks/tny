@@ -83,6 +83,9 @@ class UsageEvent(Event):
     context_used: int
     context_size: int
     cost: float | None
+    cost_currency: bytes = b""
+    cost_cumulative: bool = False
+    tokens_reported: bool = True
 
 
 @dataclass(frozen=True, slots=True, repr=False)
