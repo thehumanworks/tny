@@ -285,6 +285,7 @@ jobs:
           python3 -m unittest tests.integration.test_cpp_build.CppBuild.test_wasm_exception_catching
           node --version
           make -j"$(getconf _NPROCESSORS_ONLN)" wasm wasm-web wasm-dictation-fixture
+          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 python3 tests/integration/test_acp_client.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_openai.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_codex_chatgpt.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_prompt_cache.py
@@ -366,7 +367,9 @@ jobs:
   fuzz:
     name: linux-x86_64-fuzz
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    # Instrumented builds and all ownership mutation suites exceed 12 minutes
+    # on hosted runners; retain their full coverage and per-fuzzer time bounds.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 

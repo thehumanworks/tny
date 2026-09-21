@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
+#include <errno.h>
 
 /* ---- shared JS registry ----
  * Module.__tny = { fds: Map(fd -> entry), next, wakers, wake() }
@@ -155,6 +156,11 @@ int tcp_connect(const char *host, int port, int timeout_ms) {
 }
 int unix_connect(const char *path) { (void)path; return -1; }
 int unix_listen(const char *path) { (void)path; return -1; }
+ssize_t socket_write(int fd, const void *data, size_t len) {
+  (void)fd; (void)data; (void)len;
+  errno = ENOTSUP;
+  return -1;
+}
 
 /* ---- HTTP over fetch ---- */
 

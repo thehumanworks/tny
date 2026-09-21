@@ -55,7 +55,8 @@ static int ac_set_legacy_model(ac_impl *o, yyjson_val *models, const char *sid, 
     bool found = false;
     size_t i, n;
     yyjson_val *model;
-    yyjson_arr_foreach(jget(models, "availableModels"), i, n, model) {
+    yyjson_val *available = jget(models, "availableModels");
+    yyjson_arr_foreach(available, i, n, model) {
         const char *id = jget_str(model, "modelId");
         if (id && strcmp(id, wanted) == 0) found = true;
     }
@@ -118,15 +119,18 @@ static void ac_remember_models(ac_impl *o, yyjson_val *result) {
     size_t i, n;
     yyjson_val *item;
     if (config) {
-        yyjson_arr_foreach(jget(config, "options"), i, n, item) {
+        yyjson_val *options = jget(config, "options");
+        yyjson_arr_foreach(options, i, n, item) {
             ac_append_model(&out, jget_str(item, "value"), jget_str(item, "name"));
             size_t gi, gn;
             yyjson_val *entry;
-            yyjson_arr_foreach(jget(item, "options"), gi, gn, entry)
+            yyjson_val *group = jget(item, "options");
+            yyjson_arr_foreach(group, gi, gn, entry)
                 ac_append_model(&out, jget_str(entry, "value"), jget_str(entry, "name"));
         }
     } else {
-        yyjson_arr_foreach(jget(jget(result, "models"), "availableModels"), i, n, item)
+        yyjson_val *models = jget(jget(result, "models"), "availableModels");
+        yyjson_arr_foreach(models, i, n, item)
             ac_append_model(&out, jget_str(item, "modelId"), jget_str(item, "name"));
     }
     buf_appends(&out, "]");

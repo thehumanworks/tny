@@ -350,9 +350,18 @@ class AcpClientTest(unittest.TestCase):
         self.assertEqual(self.state_json()["load_requested"], "fixture-session-1")
 
     def test_ssh_fails_before_any_local_execution(self):
-        result = self.ask("--ssh", "fixture.invalid", mode="normal", success=False)
-        self.assertIn("ssh", result.stderr.lower())
-        self.assertIn("acp", result.stderr.lower())
+        remote = self.root / "remote"
+        remote.mkdir()
+        bins = self.fake_ssh(remote)
+        result = self.ask(
+            "--ssh",
+            "fixture@example.test",
+            "--ssh-cwd",
+            str(remote),
+            env={"PATH": str(bins) + os.pathsep + self.env["PATH"]},
+            success=False,
+        )
+        self.assertIn("acp: --ssh requires verified Claude ACP", result.stderr)
         self.assertFalse(self.state_json().get("prompted"))
         self.assertNotIn("new_cwd", self.state_json())
 
@@ -630,11 +639,7 @@ class AcpClientTest(unittest.TestCase):
                 self.assertEqual(failure.returncode, 2, failure.stderr)
                 self.assertFalse((self.workspace / "denied.txt").exists())
 
-    def test_claude_ssh_workspace_tools_and_remote_context(self):
-        remote = self.root / "remote"
-        remote.mkdir()
-        (remote / "AGENTS.md").write_text("ACP-REMOTE-ONLY-RULES")
-        (self.workspace / "AGENTS.md").write_text("ACP-LOCAL-EXCLUDED-RULES")
+    def fake_ssh(self, remote):
         bins = self.root / "bin"
         bins.mkdir()
         ssh = bins / "ssh"
@@ -642,6 +647,14 @@ class AcpClientTest(unittest.TestCase):
             f"#!{os.path.realpath(sys.executable)}\nimport os,subprocess,sys\nargs=sys.argv[1:]\nif args[-1] == 'true' or 'exit' in args: sys.exit(0)\nos.environ['HOME']={str(remote)!r}\nsys.exit(subprocess.call(['sh','-c',args[-1]]))\n"
         )
         ssh.chmod(0o755)
+        return bins
+
+    def test_claude_ssh_workspace_tools_and_remote_context(self):
+        remote = self.root / "remote"
+        remote.mkdir()
+        (remote / "AGENTS.md").write_text("ACP-REMOTE-ONLY-RULES")
+        (self.workspace / "AGENTS.md").write_text("ACP-LOCAL-EXCLUDED-RULES")
+        bins = self.fake_ssh(remote)
         calls = [
             {
                 "name": "write_file",
@@ -847,19 +860,35 @@ def setup(api):
 
 
 if __name__ == "__main__":
-    if "/wasm/" in str(TNY):
-        result = subprocess.run(
-            [str(TNY), "--provider", "acp", "--agent", "fixture", "ask", "hello"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        assert (
-            result.returncode != 0 and "wasm" in (result.stdout + result.stderr).lower()
-        ), result
+    # run.sh may pass the binary positionally; unittest otherwise treats it as a test name.
+    if len(sys.argv) == 2 and Path(sys.argv[1]).is_file():
+        TNY = Path(sys.argv.pop()).resolve()
+    if os.environ.get("TNY_TEST_EXPECT_WASM") == "1" or "/wasm/" in str(TNY):
+        with tempfile.TemporaryDirectory(prefix="tny-acp-wasm-") as temporary:
+            home = Path(temporary)
+            env = clean_env(home)
+            env["ACP_FIXTURE_STATE"] = str(home / "state.json")
+            result = subprocess.run(
+                [
+                    str(TNY),
+                    "--ephemeral",
+                    "--provider",
+                    "acp",
+                    "--agent",
+                    str(AGENT),
+                    "ask",
+                    "hello",
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            assert result.returncode != 0, result
+            assert "external agent processes are unsupported on WebAssembly" in (
+                result.stdout + result.stderr
+            ), result
+            assert not (home / "state.json").exists(), "wasm spawned the agent"
         print("PASS ACP wasm clean unsupported diagnostic")
     else:
-        # run.sh may pass the binary positionally; unittest otherwise treats it as a test name.
-        if len(sys.argv) == 2 and Path(sys.argv[1]).is_file():
-            TNY = Path(sys.argv.pop()).resolve()
         unittest.main()

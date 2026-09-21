@@ -32,6 +32,12 @@ platform.
 The queue fixture is bound to its three exact assertion IDs and does not invent
 an error/terminal transcript that the fixture did not emit.
 
+Run `make test-sdks` for both SDK suites and their conformance adapters. These
+targets also build the `build/tny` executable used by the offline ACP fixtures
+as their MCP bridge. When running the Python tests or Node integration adapter
+directly, run `make release lib-shared` first; the shared library alone does not
+provide that executable.
+
 Release policy
 --------------
 

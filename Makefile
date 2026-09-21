@@ -612,7 +612,8 @@ test-abi: lib-shared
 
 # SDK tests intentionally stay outside `make test`: normal CLI/libtny builds
 # require neither cffi nor Node.js. The dedicated SDK workflow installs them.
-test-sdk-python: lib-shared
+# ACP fixtures also need the executable that hosts the owning-runtime bridge.
+test-sdk-python: lib-shared release
 	PYTHONPATH=$(CURDIR)/sdk/python/src \
 	TNY_TEST_LIBRARY=$(LIB_REAL) \
 	python3 -m unittest discover -s sdk/python/tests -p 'test_*.py' -v
@@ -623,7 +624,7 @@ test-sdk-python: lib-shared
 		--report $(BUILD)/conformance/python.json -- \
 		python3 sdk/python/conformance_adapter.py
 
-test-sdk-typescript: lib-shared
+test-sdk-typescript: lib-shared release
 	npm --prefix sdk/typescript run build
 	npm --prefix sdk/typescript test
 	mkdir -p $(BUILD)/conformance

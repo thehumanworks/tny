@@ -704,6 +704,8 @@ def snapshot_state(home):
 
 
 def saved_fixture(home, ws, backend="fixture", checkpoint=False):
+    # Match the physical cwd used by tny, including macOS /var -> /private/var.
+    ws = ws.resolve()
     value = 0xCBF29CE484222325
     for byte in str(ws).encode():
         value = ((value ^ byte) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF

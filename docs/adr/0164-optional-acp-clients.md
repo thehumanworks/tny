@@ -18,8 +18,10 @@ another session or independently dispatch tools. Tool execution stays on the
 runtime's event loop and uses its borrowed context, session, permissions,
 frontend controls, custom-tool registry and extension control callback.
 The relay uses the existing host process and Unix socket seams; wasm rejects
-ACP before starting a process. No additional OS abstraction or public struct
-layout is introduced. Native embedders explicitly supply the tny relay path
+ACP before starting a process. Its net seam keeps the shared bridge linkable,
+with native socket writes returning `-1` and `ENOTSUP`. No additional OS
+abstraction or public struct layout is introduced. Native embedders explicitly
+supply the tny relay path
 with `TNY_ACP_BRIDGE_EXECUTABLE`; the embedder executable is never mistaken for tny.
 
 The command setter and three additive usage getters ship in ABI 1.4's

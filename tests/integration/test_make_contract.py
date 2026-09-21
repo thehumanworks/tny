@@ -2,6 +2,7 @@
 """Exercise make's integration-runner and cleanup contracts in temporary trees."""
 
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,60 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class MakeTestContract(unittest.TestCase):
+    def test_sdk_tests_build_acp_bridge_before_running(self):
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in {"MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEFILES"}
+        }
+        for target in ("test-sdk-python", "test-sdk-typescript"):
+            with (
+                self.subTest(target=target),
+                tempfile.TemporaryDirectory(prefix="tny-sdk-prerequisites-") as temp,
+            ):
+                binary = str(Path(temp) / "tny")
+                # A fresh output tree exposes prerequisites hidden by local
+                # builds. Skip the shared-library subtree: its frozen ABI0
+                # recursive make executes even during a dry run.
+                result = subprocess.run(
+                    [
+                        "make",
+                        "--no-print-directory",
+                        "-n",
+                        "-o",
+                        "lib-shared",
+                        "TNY_VERSION=1.0.0",
+                        "LIBTNY_MACH_CURRENT_VERSION=1.0.0",
+                        "EXE=",
+                        f"BUILD={temp}",
+                        target,
+                    ],
+                    cwd=ROOT,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                commands = result.stdout.splitlines()
+                bridge_builds = []
+                for index, command in enumerate(commands):
+                    words = shlex.split(command.rstrip("\\"))
+                    if any(
+                        words[i : i + 2] == ["-o", binary]
+                        for i in range(len(words) - 1)
+                    ):
+                        bridge_builds.append(index)
+                self.assertTrue(
+                    bridge_builds, "SDK tests must build the executable ACP MCP bridge"
+                )
+                sdk_commands = [
+                    i for i, command in enumerate(commands) if "sdk/" in command
+                ]
+                self.assertTrue(sdk_commands)
+                self.assertLess(bridge_builds[-1], sdk_commands[0])
+
     def test_runner_must_exist_and_be_executable(self):
         lines = (ROOT / "Makefile").read_text().splitlines(keepends=True)
         start = next(i for i, line in enumerate(lines) if line.startswith("test:"))
