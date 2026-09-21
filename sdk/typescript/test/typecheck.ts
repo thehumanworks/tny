@@ -116,7 +116,8 @@ void toolkitMethods;
 const accountingWorkflow = new Workflow({ runner: async (_task, _prompt, context) => {
   const usage = { type: "usage" as const, kind: 6 as const, schemaVersion: 1,
     sequence: 1n, timestampMs: 0n, provider: "fixture", sessionId: "s", turnId: "t", inputTokens: 7n,
-    outputTokens: 2n, contextUsed: 10n, contextSize: 100n, cost: 0.25, hasCost: true };
+    outputTokens: 2n, contextUsed: 10n, contextSize: 100n, cost: 0.25, hasCost: true,
+    costCurrency: "USD", costCumulative: false, tokensReported: true };
   context.reportUsage(usage);
   return { output: "ok", usage };
 } });
