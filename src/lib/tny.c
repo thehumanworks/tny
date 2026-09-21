@@ -502,7 +502,7 @@ static int32_t runtime_create_full(const tny_runtime_options_v0 *o, tny_runtime 
 
     const char *selected = provider ? provider : "openai";
     int backend = tny_backend_from_name(selected);
-    if (backend != TNY_BK_OPENAI) {
+    if (backend != TNY_BK_OPENAI && backend != TNY_BK_ACP) {
         bool reserved = strcmp(selected, "cursor") == 0 || strcmp(selected, "acp") == 0 ||
                         strncmp(selected, "acp@", 4) == 0 || strncmp(selected, "acp:", 4) == 0;
         rc = failf(error,
@@ -576,6 +576,65 @@ fail:
     secure_free(api_key);
     free(wire);
     return scoped_status(rc, error);
+}
+
+/* Configure the external agent without adding fields to frozen option records. */
+static int32_t runtime_set_acp_command(tny_runtime *runtime, tny_bytes command_json,
+                                       tny_error **error) {
+    if (error) *error = NULL;
+    if (!runtime || !on_owner(runtime) || runtime->session)
+        return failf(error, TNY_STATUS_BAD_STATE,
+                     "ACP command requires an idle owner runtime before session creation");
+    if (runtime->ctx->backend != TNY_BK_ACP)
+        return failf(error, TNY_STATUS_UNSUPPORTED, "ACP command requires provider acp");
+    if (!command_json.ptr || !command_json.len || command_json.len > 65536)
+        return failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                     "ACP command must be a JSON argv array of at most 65536 bytes");
+    yyjson_doc *doc = jparse((const char *)command_json.ptr, (size_t)command_json.len);
+    yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+    size_t n = yyjson_arr_size(root);
+    if (!yyjson_is_arr(root) || !n || n > 128) {
+        yyjson_doc_free(doc);
+        return failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                     "ACP command requires 1..128 literal argv strings");
+    }
+    char **argv = calloc(n + 1, sizeof(char *));
+    if (!argv) {
+        yyjson_doc_free(doc);
+        return failf(error, TNY_STATUS_OOM, "out of memory");
+    }
+    int32_t rc = TNY_STATUS_OK;
+    for (size_t i = 0; i < n; ++i) {
+        yyjson_val *v = yyjson_arr_get(root, i);
+        const char *s = yyjson_get_str(v);
+        if (!s || (i == 0 && !*s) || strlen(s) != yyjson_get_len(v)) {
+            rc = TNY_STATUS_INVALID_ARGUMENT;
+            break;
+        }
+        argv[i] = xstrdup(s);
+        if (!argv[i]) {
+            rc = TNY_STATUS_OOM;
+            break;
+        }
+    }
+    yyjson_doc_free(doc);
+    if (tny_alloc_scope_failed()) rc = TNY_STATUS_OOM;
+    if (rc != TNY_STATUS_OK) {
+        for (size_t i = 0; i < n; ++i) secure_free(argv[i]);
+        free(argv);
+        return failf(error, rc, "invalid ACP command or allocation failure");
+    }
+    for (char **p = runtime->ctx->agent_argv; p && *p; ++p) secure_free(*p);
+    free(runtime->ctx->agent_argv);
+    runtime->ctx->agent_argv = argv;
+    runtime->ctx->agent_from_profile = false;
+    return TNY_STATUS_OK;
+}
+
+int32_t tny_runtime_set_acp_command(tny_runtime *runtime, tny_bytes command_json,
+                                    tny_error **error) {
+    tny_alloc_scope_begin("runtime_set_acp_command");
+    return scoped_status(runtime_set_acp_command(runtime, command_json, error), error);
 }
 
 static int32_t runtime_create_v1_full(const tny_runtime_options_v1 *o, tny_runtime **out,
@@ -931,13 +990,15 @@ static int32_t runtime_get_capabilities_full(const tny_runtime *runtime,
     capabilities_init_full(&full);
     full.schema_version = TNY_CAPABILITY_SCHEMA_VERSION;
     full.abi_version = TNY_ABI_VERSION;
-    full.provider_selected = TNY_PROVIDER_OPENAI;
+    full.provider_selected =
+        runtime->ctx->backend == TNY_BK_ACP ? TNY_PROVIDER_ACP : TNY_PROVIDER_OPENAI;
     full.provider_initialized =
         runtime->session && tny_engine_ready(runtime->session->engine) ? 1u : 0u;
     full.endpoint_reachability = runtime->endpoint_reachability;
     full.threading_model = TNY_THREADING_OWNER_THREAD;
     full.cancel_model = TNY_CANCEL_CROSS_THREAD_ASYNC_WAKE;
     full.provider_available_mask = TNY_PROVIDER_MASK_OPENAI;
+    if (tny_backend_acp_available()) full.provider_available_mask |= TNY_PROVIDER_MASK_ACP;
     full.feature_available_mask = TNY_CAP_FEATURE_PERSISTENCE |
                                   TNY_CAP_FEATURE_CROSS_THREAD_CANCEL |
                                   TNY_CAP_FEATURE_HOST_SERVICES | TNY_CAP_FEATURE_CUSTOM_TOOLS |
@@ -969,7 +1030,8 @@ static int32_t runtime_get_capabilities_full(const tny_runtime *runtime,
     full.library_version = tny_library_version();
     full.platform_family = cstr_bytes(cap_platform());
     full.architecture = cstr_bytes(cap_architecture());
-    full.transport = cstr_bytes("native-http1");
+    full.transport = cstr_bytes(runtime->ctx->backend == TNY_BK_ACP ? "acp-stdio" : "native-http1");
+
     full.tls_implementation = cstr_bytes(cap_tls());
 #ifdef TNY_SHARED_LIBRARY_BUILD
     full.linkage = cstr_bytes("shared");
@@ -1625,6 +1687,19 @@ int32_t tny_event_error_code(const tny_event *e) { return public_error_code(even
 void tny_event_free(tny_event *event) { tny_owned_event_free(event_owned(event)); }
 
 int32_t tny_error_code(const tny_error *error) { return error ? error->code : TNY_STATUS_OK; }
+tny_bytes tny_event_cost_currency(const tny_event *event) {
+    return event ? cstr_bytes(event_owned(event)->ev.cost_currency) : bytes_of(NULL, 0);
+}
+uint32_t tny_event_cost_cumulative(const tny_event *event) {
+    return event && event_owned(event)->ev.cost_cumulative ? 1u : 0u;
+}
+uint32_t tny_event_tokens_reported(const tny_event *event) {
+    return event && event_owned(event)->ev.kind == TNY_EV_USAGE &&
+                   !event_owned(event)->ev.tokens_unreported
+               ? 1u
+               : 0u;
+}
+
 tny_bytes tny_error_message(const tny_error *error) {
     return error ? cstr_bytes(error->message) : bytes_of(NULL, 0);
 }

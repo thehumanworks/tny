@@ -180,3 +180,37 @@ tny --provider aiproxy ask "hello"
 ```
 
 The example URL is a placeholder, not a built-in service endpoint.
+
+## Optional ACP client profiles
+
+External agents use their own installed executable and account authentication.
+Configure a literal executable plus argument array; tny never passes this command
+through a shell and never stores the agent's account tokens:
+
+```json
+{
+  "acp": {
+    "claude": {"command": "claude-agent-acp", "model": "sonnet"},
+    "pi": {"command": "pi-acp"}
+  }
+}
+```
+
+Use `tny --provider acp@claude ask "hello"` or `/provider acp@claude` in the TUI.
+The pi example assumes an installed ACP adapter exposing that executable; the
+ordinary pi CLI is not automatically an ACP endpoint. Legacy `acp.agents.NAME`,
+command arrays, and `acp:NAME` selectors remain readable. New settings should use
+`acp.NAME` and `acp@NAME`. `--model` wins over saved per-provider models and the
+profile default. ACP rejects unavailable models and unsupported `--fast` settings before prompting. Requested `--effort` values
+must match an advertised thought-level configuration option; otherwise setup
+fails before prompting. Use `--effort default` to leave the agent default. `/model` applies on the next turn; `/models` explicitly starts
+the adapter to discover its advertised catalog.
+
+For an ad-hoc command, use `tny --agent /path/to/adapter -- arg1 arg2 -- ask "hello"`.
+The first `--` starts literal adapter arguments; the second returns to tny flags
+and commands. Commands are bounded to 128 arguments. Credentials belong in the
+agent's environment or account store, never these arguments. Help/version and
+provider selection do not spawn the adapter. The restored transport is stdio;
+WebSocket URLs and browser/wasm process execution fail clearly. SSH is supported
+only for adapters whose local tools and settings can be disabled safely.
+See [ACP client](backends/acp.md) for protocol capabilities and differences.

@@ -1,6 +1,9 @@
 # Implementation plan
 
-The original implementation phases are historical. Current provider scope is
+The original implementation phases are historical. Optional ACP client support
+is restored by [ADR 0164](adr/0164-optional-acp-clients.md), with acceptance tracked
+in [ACP verification](verification/acp-client/README.md). The following native
+HTTP migration steps remain historical and do not prohibit optional ACP clients. Current provider scope is
 [ADR 0152](adr/0152-native-http-only-providers.md): one native HTTP backend,
 Responses and Chat Completions, environment-key gateways, Codex subscription
 OAuth, and Grok public/subscription HTTP. No agent executable or ACP server.

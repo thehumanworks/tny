@@ -17,7 +17,7 @@
     "provider": {
       "type": "string",
       "minLength": 1,
-      "description": "Native HTTP profile: openai, codex, grok, or a configured OpenAI-compatible gateway."
+      "description": "Provider: openai, codex, grok, a configured HTTP gateway, acp or acp@NAME external agent."
     },
     "model": {
       "$ref": "#/$defs/providerStringDefault",
@@ -66,7 +66,7 @@
       "type": "object",
       "description": "Conversation image input per provider: true means configured, unverified (tny never checks a live entitlement); false refuses --image, read_image and attachments for that provider. Absent providers stay unknown and keep their existing explicit image behavior. Keys are canonical provider selectors. Image generation is independent and never gated by this map.",
       "propertyNames": {
-        "pattern": "^[A-Za-z0-9_-]+$",
+        "pattern": "^(acp@)?[A-Za-z0-9_-]+$",
         "maxLength": 256
       },
       "maxProperties": 1024,
@@ -181,6 +181,16 @@
         }
       },
       "additionalProperties": false
+    },
+    "acp": {
+      "type": "object",
+      "description": "Named ACP agents. Select one with --provider acp@NAME.",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9_-]+$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/acpAgent"
+      }
     }
   },
   "patternProperties": {
@@ -288,6 +298,32 @@
         "permission": {
           "type": "object",
           "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "acpAgent": {
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Executable name or path. Stdio only; never evaluated by a shell."
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "maxItems": 127
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "additionalProperties": false

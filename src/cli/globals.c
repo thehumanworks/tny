@@ -164,12 +164,49 @@ static int parse_globals(int argc, char **argv, cli_globals *g, bool diagnostics
         } else if (strcmp(a, "--wire-api") == 0) {
             if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
             g->wire_api = v;
-        } else if (strcmp(a, "--agent") == 0 || strcmp(a, "--bridge-bin") == 0) {
-            if (diagnostics)
-                fputs("tny: --agent and --bridge-bin were removed; use an OpenAI-compatible HTTP "
-                      "provider\n",
-                      stderr);
-            return -1;
+        } else if (strcmp(a, "--acp-agent-argv") == 0) {
+            /* Private counted snapshot grammar preserves literal delimiter arguments. */
+            if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
+            unsigned n = 0;
+            bool valid = *v != '\0';
+            for (const char *p = v; *p && valid; ++p) {
+                if (*p < '0' || *p > '9') valid = false;
+                else {
+                    n = n * 10u + (unsigned)(*p - '0');
+                    if (n > 128) valid = false;
+                }
+            }
+            if (!valid || !n || n > (unsigned)(argc - i - 1) || !*argv[i + 1]) {
+                if (diagnostics)
+                    fputs("tny: invalid counted ACP command (1..128 arguments required)\n", stderr);
+                return -1;
+            }
+            const char **command = calloc((size_t)n + 1, sizeof *command);
+            if (!command) return -1;
+            for (unsigned k = 0; k < n; ++k) command[k] = argv[++i];
+            free(g->agent_argv);
+            g->agent_argv = command;
+        } else if (strcmp(a, "--agent") == 0) {
+            if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
+            /* collect: CMD plus everything after `--` */
+            int n = 0;
+            free(g->agent_argv);
+            g->agent_argv = malloc(sizeof(char *) * (size_t)(argc - i + 2));
+            if (!g->agent_argv) return -1;
+            g->agent_argv[n++] = v;
+            if (i + 1 < argc && strcmp(argv[i + 1], "--") == 0) {
+                i += 2;
+                /* agent args run until a terminating bare `--` or end of argv:
+                 *   tny --agent gemini -- acp -- ask "hi" */
+                while (i < argc && strcmp(argv[i], "--") != 0) g->agent_argv[n++] = argv[i++];
+                if (i >= argc) i--; /* loop increment lands past the end */
+                /* else: leave i on the terminating "--"; increment skips it */
+            }
+            g->agent_argv[n] = NULL;
+            if (n > 128) {
+                if (diagnostics) fputs("tny: ACP command exceeds 128 arguments\n", stderr);
+                return -1;
+            }
         } else {
             if (diagnostics)
                 fprintf(stderr,
@@ -190,6 +227,7 @@ int cli_command_index(int argc, char **argv) {
     cli_globals parsed = {0};
     int index = parse_globals(argc, argv, &parsed, false);
     free(parsed.add_dirs);
+    free(parsed.agent_argv);
     free(parsed.swarm_definition);
     free(parsed.swarm_source);
     return index;

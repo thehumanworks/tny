@@ -20,3 +20,7 @@ Both HTTP wires work on wasm through fetch subject to endpoint CORS. Codex's
 browser callback listener is native-only; device login and explicit token
 intake support wasm. Local process tools/MCP require native builds; remote MCP
 uses HTTP on wasm. SDKs inject credentials in memory through the C ABI.
+
+Optional [ACP clients](acp.md) restore external Claude/pi-compatible agents through
+the same native tool runtime over MCP. See ADR 0164; HTTP still requires no
+vendor binary. ACP server and deleted vendor backends remain absent.

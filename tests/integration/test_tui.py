@@ -51,7 +51,7 @@ BANNER = f"tny {VERSION}"
 # plus tny's own status and composer rows, plus the banner and hint lines it
 # asserts survive. Adding a /command grows the menu by a row; when this stops
 # leaving headroom, raise ROWS rather than trimming the menu.
-ROWS, COLS = 45, 100
+ROWS, COLS = 50, 100
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][B0]|\r")
 
@@ -345,7 +345,7 @@ def test_slash_palette(home, ws):
         t.expect("clear the screen", 5.0)  # palette listed commands
         t.send("prov")
         # The settings profile precedes the environment-only profile.
-        t.expect("openai|codex|grok|openrouter|", 5.0)
+        t.expect("openai|acp|codex|grok|openrouter|", 5.0)
         t.send("\x7f" * 4)  # back to a bare "/"
         t.send("help\r")
         t.expect("ctrl-o optimise", 5.0)

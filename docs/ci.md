@@ -77,6 +77,14 @@ installs, and native dependency inspection. Its aggregate `sdk` job fails
 unless the packaging contract and every Python and Node matrix entry succeed;
 use that single terminal status for branch protection.
 
+SDK fixture builds include both `lib-shared` and `release`: ACP usage tests
+launch the `tny` executable as their owning-runtime MCP bridge. The
+`test-sdk-python` and `test-sdk-typescript` targets build both prerequisites.
+The wasm lane also checks that ACP clients return an explicit unsupported
+platform error. The fuzz/mutation lane has a 20-minute job budget for its
+instrumented builds and complete mutation suites; individual fuzz runs retain
+their existing time and iteration bounds.
+
 Tagged release jobs also package those supported shared-library installs as
 `libtny-<os>-<arch>.tar.gz`. Each archive contains the public header,
 versioned library and linker name, pkg-config metadata, exact export manifests,

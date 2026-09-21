@@ -34,6 +34,13 @@ def until(predicate, term=None, seconds=15):
     )
 
 
+def saved_turn_complete(session, turns):
+    # The backend saves its incremented turn count before runtime finalization
+    # restores the named provider and the runner publishes the completed status.
+    state = json.loads(session.read_text())
+    return state.get("turns") == turns and state.get("status") == "done"
+
+
 class Provider:
     def __init__(
         self, ws, no_tools=False, steer=False, images=False, transformed=False
@@ -591,9 +598,7 @@ def run_case(
                     assert events.count("session_start") == 2, events
                 attached.send("FOLLOWUP-AFTER-DONE\r")
                 attached.expect("LIVE-FOLLOWUP-OK")
-                until(
-                    lambda: json.loads(session.read_text()).get("turns") == 2, attached
-                )
+                until(lambda: saved_turn_complete(session, 2), attached)
                 final = json.loads(session.read_text())
                 attached.send("\x04")
                 assert attached.wait() == 0
@@ -704,6 +709,8 @@ def snapshot_state(home):
 
 
 def saved_fixture(home, ws, backend="fixture", checkpoint=False):
+    # Match the physical cwd used by tny, including macOS /var -> /private/var.
+    ws = ws.resolve()
     value = 0xCBF29CE484222325
     for byte in str(ws).encode():
         value = ((value ^ byte) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
@@ -852,7 +859,7 @@ def completed_session_continuation():
             assert len(provider.requests) == 1
             term.send("SECOND\r")
             term.expect("SAVED-TURN-2")
-            until(lambda: json.loads(session.read_text()).get("turns") == 2, term)
+            until(lambda: saved_turn_complete(session, 2), term)
             final = json.loads(session.read_text())
             assert final["id"] == initial["id"]
             assert final["messages"][: len(initial["messages"])] == initial["messages"]
@@ -955,7 +962,7 @@ def locked_saved_inspection_retry():
             until(lambda: not writer_live(session), term)
             term.send("AFTER-RELEASE\r")
             term.expect("SAVED-TURN-1")
-            until(lambda: json.loads(session.read_text()).get("turns") == 3, term)
+            until(lambda: saved_turn_complete(session, 3), term)
             final = json.loads(session.read_text())
             assert final["id"] == latest["id"]
             assert final["messages"][:4] == latest["messages"]
@@ -1019,7 +1026,7 @@ def dashboard_cancels_provider_wizard():
             assert not provider.requests
             term.send("AFTER-WIZARD\r")
             term.expect("SAVED-TURN-1")
-            until(lambda: json.loads(session.read_text()).get("turns") == 2, term)
+            until(lambda: saved_turn_complete(session, 2), term)
             final = json.loads(session.read_text())
             assert final["id"] == session.parent.name
             assert final["backend"] == "fixture" and final["model"] == "saved-model", (
@@ -1057,7 +1064,7 @@ def killed_idle_runner_continuation(stale_client=False):
             term.expect("Saved read-only")
             term.send("BEFORE-RUNNER-DEATH\r")
             term.expect("SAVED-TURN-1")
-            until(lambda: json.loads(session.read_text()).get("turns") == 2, term)
+            until(lambda: saved_turn_complete(session, 2), term)
             term.expect_gone_from_screen("working")
             initial = json.loads(session.read_text())
             assert initial["status"] == "done", initial

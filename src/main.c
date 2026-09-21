@@ -8,10 +8,13 @@
 #include "cli/cmd_control.h"
 #include "core/backend.h"
 #include "core/runner.h"
+#include "core/acp_bridge.h"
 #include "util/process.h"
 
 int main(int argc, char **argv) {
     if (tny_process_scope_admit() != 0) return 1;
+    if (argc == 3 && strcmp(argv[1], "--acp-mcp-bridge") == 0)
+        return tny_acp_bridge_relay_main(argv[2]);
     if (argc == 2 && strcmp(argv[1], "--runner-restart") == 0) return tny_runner_restart_main();
     /* fast paths: no allocation, no config */
     if (argc >= 2) {
@@ -41,11 +44,13 @@ int main(int argc, char **argv) {
     if (cmd && (strcmp(cmd, "help") == 0 || strcmp(cmd, "--help") == 0 || strcmp(cmd, "-h") == 0)) {
         help_root();
         free(g.add_dirs);
+        free(g.agent_argv);
         return 0;
     }
     if (cmd && (strcmp(cmd, "--version") == 0 || strcmp(cmd, "-v") == 0)) {
         fputs(TNY_VERSION "\n", stdout);
         free(g.add_dirs);
+        free(g.agent_argv);
         return 0;
     }
     int rc = 1;
@@ -197,6 +202,7 @@ done:
     tny_ctx_free(ctx);
     worktree_close(g.active_worktree);
     free(g.add_dirs);
+    free(g.agent_argv);
     free(g.swarm_definition);
     free(g.swarm_source);
 #ifdef __EMSCRIPTEN__

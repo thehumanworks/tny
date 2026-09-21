@@ -166,16 +166,16 @@ CPP_SRC := $(wildcard src/util/*.cpp src/json/*.cpp src/net/*.cpp \
 SRC_PUBLIC_API := $(wildcard src/lib/*.c)
 C_SRC_ALL := $(wildcard src/*.c src/util/*.c src/json/*.c src/core/*.c src/cli/*.c \
         src/net/*.c src/mcp/*.c src/tui/*.c \
-        src/backends/openai/*.c) src/lib/host_services.c
+        src/backends/openai/*.c src/backends/acp/*.c) src/lib/host_services.c
 SRC_ALL := $(C_SRC_ALL) $(CPP_SRC)
 
 # Per-platform source lists (docs/adr/0017). Native transports (sockets, TLS,
 # hand-rolled HTTP/1.1) and the poll(2) wrapper are excluded
 # from the wasm build wholesale rather than #ifdef-riddled; src/net/net_wasm.c
 # replaces the whole seam there (fetch, browser WebSocket, pseudo-fd registry).
-SRC_NATIVE := src/net/tcp.c src/net/stream.c src/net/http1.c src/net/http_server.c \
+SRC_NATIVE := src/backends/acp/acp_proc.c src/net/tcp.c src/net/stream.c src/net/http1.c src/net/http_server.c \
               src/util/tny_poll.c
-SRC_WASM_ONLY := src/net/net_wasm.c
+SRC_WASM_ONLY := src/net/net_wasm.c src/backends/acp/acp_proc_wasm.c
 SRC_SHARED := $(filter-out $(SRC_NATIVE) $(SRC_WASM_ONLY),$(SRC_ALL))
 SRC := $(SRC_SHARED) $(SRC_NATIVE)
 
@@ -344,6 +344,45 @@ $(BIN): $(REL_OBJS)
 	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(REL_LDFLAGS)
 	strip $@ 2>/dev/null || strip -x $@
 	@wc -c $@
+
+# Host-linked test of the actual wasm ACP process seam. This proves the clean
+# unsupported path without emcc; it is explicitly not a WebAssembly build.
+ACP_WASM_SEAM_FIXTURE = $(BUILD)/tny-acp-wasm-seam$(EXE)
+ACP_WASM_SEAM_OBJ = $(BUILD)/acp-wasm-seam/acp_proc_wasm.o
+# Keep alternative platform objects out of the production-object tree: core
+# integration drivers link that tree to replace main with their test entry.
+$(ACP_WASM_SEAM_OBJ): src/backends/acp/acp_proc_wasm.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(REL_CFLAGS) -fPIC -MMD -MP -c -o $@ $<
+-include $(ACP_WASM_SEAM_OBJ:.o=.d)
+$(ACP_WASM_SEAM_FIXTURE): $(filter-out $(OBJ_REL)/src/backends/acp/acp_proc.o,$(REL_OBJS)) $(ACP_WASM_SEAM_OBJ)
+	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(REL_LDFLAGS)
+
+ACP_PLATFORM_CAPS_OBJ = $(OBJ_REL)/tests/fixtures/acp_platform_capabilities.o
+ACP_NATIVE_CAPS_FIXTURE = $(BUILD)/acp-native-capabilities$(EXE)
+ACP_WASM_CAPS_FIXTURE = $(BUILD)/acp-wasm-capabilities$(EXE)
+$(ACP_NATIVE_CAPS_FIXTURE): $(ACP_PLATFORM_CAPS_OBJ) $(LIB_PIC_OBJS)
+	$(CXX) $(REL_CXXFLAGS) -o $@ $^ $(REL_LDFLAGS)
+$(ACP_WASM_CAPS_FIXTURE): $(ACP_PLATFORM_CAPS_OBJ) $(filter-out $(OBJ_PIC)/src/backends/acp/acp_proc.o,$(LIB_PIC_OBJS)) $(ACP_WASM_SEAM_OBJ)
+	$(CXX) $(REL_CXXFLAGS) -o $@ $^ $(REL_LDFLAGS)
+
+.PHONY: acp-wasm-seam-fixture test-acp-wasm-seam
+acp-wasm-seam-fixture: $(ACP_WASM_SEAM_FIXTURE) $(ACP_NATIVE_CAPS_FIXTURE) $(ACP_WASM_CAPS_FIXTURE)
+test-acp-wasm-seam: acp-wasm-seam-fixture
+	TNY_ACP_WASM_SEAM_BIN=$(abspath $(ACP_WASM_SEAM_FIXTURE)) python3 tests/integration/test_acp_wasm_seam.py
+
+# Real ACP bridge with a fixture-only clock and controllable async execution.
+# Human permission waits are tested without shortening production deadlines.
+ACP_DEADLINE_FIXTURE = $(BUILD)/acp-bridge-deadline$(EXE)
+ACP_DEADLINE_OBJ = $(OBJ_REL)/tests/fixtures/acp_bridge_deadline.o
+$(ACP_DEADLINE_OBJ): src/core/acp_bridge.c
+$(ACP_DEADLINE_FIXTURE): $(filter-out $(OBJ_REL)/src/main.o $(OBJ_REL)/src/core/acp_bridge.o,$(REL_OBJS)) $(ACP_DEADLINE_OBJ)
+	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(REL_LDFLAGS)
+
+.PHONY: acp-bridge-deadline-fixture test-acp-bridge-deadline
+acp-bridge-deadline-fixture: $(ACP_DEADLINE_FIXTURE)
+test-acp-bridge-deadline: $(ACP_DEADLINE_FIXTURE)
+	TNY_ACP_DEADLINE_BIN=$(abspath $(ACP_DEADLINE_FIXTURE)) python3 tests/integration/test_acp_bridge_deadline.py
 
 # A separate, never-installed binary redirects only xAI STT to fake loopback
 # fixtures. The shipped adapter is always pinned to https://api.x.ai/v1/stt.
@@ -573,7 +612,8 @@ test-abi: lib-shared
 
 # SDK tests intentionally stay outside `make test`: normal CLI/libtny builds
 # require neither cffi nor Node.js. The dedicated SDK workflow installs them.
-test-sdk-python: lib-shared
+# ACP fixtures also need the executable that hosts the owning-runtime bridge.
+test-sdk-python: lib-shared release
 	PYTHONPATH=$(CURDIR)/sdk/python/src \
 	TNY_TEST_LIBRARY=$(LIB_REAL) \
 	python3 -m unittest discover -s sdk/python/tests -p 'test_*.py' -v
@@ -584,7 +624,7 @@ test-sdk-python: lib-shared
 		--report $(BUILD)/conformance/python.json -- \
 		python3 sdk/python/conformance_adapter.py
 
-test-sdk-typescript: lib-shared
+test-sdk-typescript: lib-shared release
 	npm --prefix sdk/typescript run build
 	npm --prefix sdk/typescript test
 	mkdir -p $(BUILD)/conformance

@@ -693,7 +693,8 @@ void tui_command(tui *t, const char *line) {
         }
         if (arg && *arg) {
             bool known = tny_backend_from_name(arg) >= 0 || tny_builtin_profile_exists(arg) ||
-                         tny_custom_provider_exists(t->ctx, arg);
+                         tny_custom_provider_exists(t->ctx, arg) ||
+                         tny_acp_profile_exists(t->ctx, arg);
             if (!known)
                 tui_err(t, "unknown or removed provider (openai|codex|"
                            "grok, a settings.json profile, or "
@@ -1069,7 +1070,7 @@ void tui_wizard_feed(tui *t, const char *line) {
             return;
         }
         if (strcmp(line, "cursor") == 0 || strcmp(line, "acp") == 0) {
-            tui_err(t, "ACP/Cursor providers were removed; "
+            tui_err(t, "Use ACP profiles in settings.json; Cursor was removed. "
                        "pick another name");
             wiz_prompt(t);
             return;

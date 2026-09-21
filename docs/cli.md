@@ -280,10 +280,19 @@ export the key, set `api_key_env`, and delete the stored key. Generic auth heade
 and wire options remain available. `/provider setup [NAME]` is the TUI flow.
 The browser may still accept a key into the tab's ephemeral environment.
 
-ACP client/server, named ACP agents, Cursor bridge, `tny acp`, `tny cursor`,
-`--agent` and `--bridge-bin` are removed. Use the C/Python/Node SDKs for embedding.
-The built-in Claude subscription login is removed; access Claude models through
-an explicitly configured compatible HTTP gateway.
+Optional ACP clients use `tny --agent claude-agent-acp --model sonnet ask "hello"`
+or named `--provider acp@NAME` profiles (see [settings](settings.md#optional-acp-client-profiles)).
+For literal adapter arguments, use `--agent executable -- arg1 arg2 -- ask "hello"`.
+There is no shell evaluation. Adapter subprocesses start on explicit model
+catalog discovery or a turn, never help/version or provider selection. The
+external adapter owns account authentication, so Claude account access uses
+`claude-agent-acp` with its existing Claude login. Native HTTP remains usable
+without any vendor executable.
+
+ACP server mode (`tny acp`), Cursor bridge (`tny cursor`, `--bridge-bin`), and
+the built-in Claude HTTP subscription profile remain removed. See the
+[ACP client capability matrix](backends/acp.md) for negotiated model/effort,
+MCP tool access, resumption, and adapter-specific SSH support.
 
 ## `tny login`
 

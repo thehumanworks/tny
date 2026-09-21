@@ -84,6 +84,9 @@ export interface UsageEvent extends TnyEventEnvelope {
   contextSize: bigint;
   cost?: number;
   hasCost: boolean;
+  costCurrency: string;
+  costCumulative: boolean;
+  tokensReported: boolean;
 }
 
 export interface TurnEndEvent extends TnyEventEnvelope {

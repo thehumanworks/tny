@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import fcntl
+import hashlib
 import json
 import os
 import signal
@@ -33,6 +34,7 @@ import threading
 import time
 import unittest
 import zlib
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -735,6 +737,90 @@ class JobsFixture(unittest.TestCase):
         return str(path)
 
 
+class JobsStartupMailbox(JobsFixture):
+    @contextmanager
+    def startup_member(self):
+        # Start from a real, completed DAG record, then hold its owner lock as
+        # the test supervisor. The member capability and state are fixture-owned.
+        _, payload = self.submit(
+            "batch",
+            stdin=json.dumps(
+                dict(kind="ask", dag=True, items=[{"prompt": "startup setup"}])
+            ).encode(),
+        )
+        record = self.await_terminal(payload["id"])
+        self.assertEqual(record["state"], "succeeded", record)
+        path = Path(record["metadata_path"])
+        original = path.read_bytes()
+        with self.lock_held(path.parent / "owner.lock"):
+            stored = json.loads(original)
+            token = "a" * 64
+            stored["state"] = "running"
+            stored["items"][0]["state"] = "running"
+            stored["items"][0]["mailbox_capability_sha256"] = hashlib.sha256(
+                token.encode()
+            ).hexdigest()
+            path.write_text(json.dumps(stored))
+            env = dict(
+                self.env,
+                TNY_TEAM_RUN=payload["id"],
+                TNY_TEAM_TASK="0",
+                TNY_TEAM_ATTEMPT=str(stored["attempt"]),
+                TNY_TEAM_CAPABILITY=token,
+                TNY_ISOLATE="0",
+            )
+            try:
+                yield path.parent, env
+            finally:
+                path.write_bytes(original)
+
+    def test_startup_retries_transient_mailbox_lock_before_provider_request(self):
+        with self.startup_member() as (directory, env):
+            requests = len(self.ask_requests())
+            with self.lock_held(directory / "state.lock") as lock:
+                with self.spawn_tny(
+                    "ask", "--json", "startup contention", env=env
+                ) as child:
+                    # This real lock outlives the public mailbox's 250ms retry
+                    # budget. Startup must wait without sending a provider POST.
+                    with self.assertRaises(subprocess.TimeoutExpired):
+                        child.wait(timeout=0.6)
+                    self.assertEqual(len(self.ask_requests()), requests)
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+                    stdout, stderr = child.communicate(timeout=10)
+                    self.assertEqual(child.returncode, 0, stderr)
+                    self.assertEqual(json.loads(stdout)["exit_code"], 0)
+                    self.assertEqual(len(self.ask_requests()), requests + 1)
+
+    def test_startup_persistent_mailbox_lock_still_fails_without_provider_request(self):
+        with self.startup_member() as (directory, env):
+            requests = len(self.ask_requests())
+            with self.lock_held(directory / "state.lock"):
+                with self.spawn_tny(
+                    "ask", "--json", "startup blocked", env=env
+                ) as child:
+                    stdout, stderr = child.communicate(timeout=5)
+                    self.assertNotEqual(child.returncode, 0)
+                    self.assertEqual(
+                        json.loads(stdout)["error"], "MAILBOX_BUSY", stderr
+                    )
+            self.assertEqual(len(self.ask_requests()), requests)
+
+    def test_startup_mailbox_lock_retry_observes_cancellation(self):
+        with self.startup_member() as (directory, env):
+            requests = len(self.ask_requests())
+            with self.lock_held(directory / "state.lock"):
+                with self.spawn_tny(
+                    "ask", "--json", "startup cancelled", env=env
+                ) as child:
+                    with self.assertRaises(subprocess.TimeoutExpired):
+                        child.wait(timeout=0.6)
+                    child.send_signal(signal.SIGINT)
+                    child.communicate(timeout=1)
+                    self.assertNotEqual(child.returncode, 0)
+            self.assertEqual(len(self.ask_requests()), requests)
+
+
 class JobsSubmitAndStatus(JobsFixture):
     def test_submit_returns_a_durable_id_and_paths_before_the_item_finishes(self):
         started = time.time()
@@ -1293,7 +1379,9 @@ class JobsDAG(JobsFixture):
             ]
         )
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertTrue(self.state["dag_entered"].wait(30))
+        if not self.state["dag_entered"].wait(30):
+            record = self.status(payload["id"])
+            self.fail((record, self.startup_diagnostics(record)))
         record = self.status(payload["id"])
         Path(record["items"][0]["log_path"]).write_bytes(b"corrupt dependency")
         self.state["dag_release"].set()
@@ -2086,7 +2174,11 @@ class JobsSoftBudget(JobsDAG):
         self.assertEqual(run.returncode, 0, run.stderr)
         record = self.await_terminal(payload["id"])
         self.assertEqual(record["budget"], {"soft_tokens": 4, "unknown_usage": "stop"})
-        self.assertEqual(record["budget_observed_tokens"], 4)
+        self.assertEqual(
+            record["budget_observed_tokens"],
+            4,
+            (record, self.startup_diagnostics(record)),
+        )
         self.assertEqual(record["budget_state"], "tokens_exhausted")
         self.assertEqual(record["items"][1]["state"], "cancelled")
         self.assertEqual(record["items"][1]["admission_reason"], "canceled")
@@ -2615,7 +2707,9 @@ class JobsProviderSelection(JobsDAG):
             stdin=json.dumps(request).encode(),
         )
         job_id = json.loads(run.stdout)["id"]
-        self.assertTrue(self.secondary.state["dag_entered"].wait(30))
+        if not self.secondary.state["dag_entered"].wait(30):
+            record = self.status(job_id)
+            self.fail((record, self.startup_diagnostics(record)))
         record = self.status(job_id)
         self.assertEqual(
             (record["permission_ceiling"], record["tool_ceiling"], record["max_steps"]),

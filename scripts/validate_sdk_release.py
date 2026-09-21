@@ -233,9 +233,9 @@ def require_active_abi_baseline(repo: Path) -> None:
     abi = baseline.get("abi")
     expected_abi = {
         "major": 1,
-        "minor": 3,
-        "encoded": 65539,
-        "elf_version_node": "LIBTNY_1.3",
+        "minor": 4,
+        "encoded": 65540,
+        "elf_version_node": "LIBTNY_1.4",
     }
     if baseline.get("schema_version") != 1 or abi != expected_abi:
         raise SystemExit(

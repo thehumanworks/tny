@@ -15,6 +15,7 @@ import warnings
 import weakref
 from dataclasses import fields
 from pathlib import Path
+from unittest.mock import patch
 
 import tny
 
@@ -89,7 +90,7 @@ class SDKTests(unittest.TestCase):
         )
 
     def test_removed_providers_are_rejected_without_connecting(self) -> None:
-        for provider in ("cursor", "acp", "claude"):
+        for provider in ("cursor", "claude"):
             with (
                 self.subTest(provider=provider),
                 self.assertRaises(
@@ -102,6 +103,51 @@ class SDKTests(unittest.TestCase):
                     tny.RuntimeConfig(workspace=self.workspace, provider=provider),
                     library=self.library,
                 )
+
+    def test_acp_configuration_is_lazy_and_capability_is_available(self) -> None:
+        with tny.Runtime(
+            tny.RuntimeConfig(
+                workspace=self.workspace,
+                provider="acp",
+                acp_command=["/missing/acp-fixture", "", "literal argument"],
+            ),
+            library=self.library,
+        ) as runtime:
+            self.assertEqual(runtime.capabilities.provider_selected, 4)
+            self.assertTrue(runtime.capabilities.provider_available_mask & 8)
+
+    def test_acp_cumulative_usage_is_owned_with_unreported_tokens(self) -> None:
+        updates = [
+            {"used": 7, "size": 100, "cost": {"amount": 0.1, "currency": "EUR"}},
+            {"used": 9, "size": 100, "cost": {"amount": 0.25, "currency": "EUR"}},
+        ]
+        with patch.dict(
+            os.environ,
+            {
+                "ACP_FIXTURE_USAGE": json.dumps(updates),
+                "ACP_FIXTURE_STATE": str(Path(self.temp.name) / "acp-state.json"),
+                "TNY_ACP_BRIDGE_EXECUTABLE": str(ROOT / "build/tny"),
+            },
+        ):
+            with tny.Runtime(
+                tny.RuntimeConfig(
+                    workspace=self.workspace,
+                    provider="acp",
+                    acp_command=[str(ROOT / "tests/integration/fake_acp_agent.py")],
+                ),
+                library=self.library,
+            ) as runtime:
+                with runtime.create_session() as session:
+                    events = list(session.run("usage fixture"))
+                    events.extend(session.run("second usage fixture"))
+        usages = [event for event in events if isinstance(event, tny.UsageEvent)]
+        self.assertEqual([event.cost for event in usages], [0.1, 0.25, 0.1, 0.25])
+        self.assertEqual([event.context_used for event in usages], [7, 9, 7, 9])
+        for usage in usages:
+            self.assertEqual(usage.cost_currency, b"EUR")
+            self.assertTrue(usage.cost_cumulative)
+            self.assertFalse(usage.tokens_reported)
+            self.assertEqual((usage.input_tokens, usage.output_tokens), (0, 0))
 
     def test_metadata_capabilities_and_secret_safe_repr(self) -> None:
         self.assertEqual(self.library.abi_major, 1)
@@ -182,6 +228,53 @@ class SDKTests(unittest.TestCase):
         finally:
             self.library.native = actual_native
             self.library.abi_minor = actual_minor
+
+    def test_abi_1_3_usage_never_resolves_1_4_symbols(self) -> None:
+        class OldAbiNative:
+            def __init__(self, native: object) -> None:
+                self._native = native
+
+            def __getattr__(self, name: str) -> object:
+                if name in {
+                    "tny_runtime_set_acp_command",
+                    "tny_event_cost_currency",
+                    "tny_event_cost_cumulative",
+                    "tny_event_tokens_reported",
+                }:
+                    raise AssertionError("ABI 1.4 symbol resolved against ABI 1.3")
+                return getattr(self._native, name)
+
+        actual_minor, actual_native = self.library.abi_minor, self.library.native
+        self.library.abi_minor = 3
+        self.library.native = OldAbiNative(actual_native)  # type: ignore[assignment]
+        mock = Mock()
+        try:
+            with (
+                tny.Runtime(self.config(mock.url), library=self.library) as runtime,
+                runtime.create_session() as session,
+            ):
+                usages = [
+                    event
+                    for event in session.run("native usage")
+                    if isinstance(event, tny.UsageEvent)
+                ]
+                self.assertTrue(usages)
+                for usage in usages:
+                    self.assertEqual(usage.cost_currency, b"")
+                    self.assertFalse(usage.cost_cumulative)
+                    self.assertTrue(usage.tokens_reported)
+            with self.assertRaises(tny.UnsupportedError):
+                tny.Runtime(
+                    tny.RuntimeConfig(
+                        workspace=self.workspace,
+                        provider="acp",
+                        acp_command=["/missing/acp"],
+                    ),
+                    library=self.library,
+                )
+        finally:
+            mock.close()
+            self.library.abi_minor, self.library.native = actual_minor, actual_native
 
     def test_task_validation_matches_native_grammar_and_byte_limit(self) -> None:
         invalid = (
@@ -441,6 +534,10 @@ class SDKTests(unittest.TestCase):
                 terminals = [e for e in events if isinstance(e, tny.TurnEndEvent)]
                 self.assertEqual(len(terminals), 2)
                 self.assertTrue(all(e.stop_reason == 0 for e in terminals))
+                usages = [e for e in events if isinstance(e, tny.UsageEvent)]
+                self.assertTrue(usages)
+                self.assertTrue(all(e.tokens_reported for e in usages))
+                self.assertTrue(all(not e.cost_cumulative for e in usages))
                 self.assertTrue(all(isinstance(e.provider, bytes) for e in events))
                 sequences = [e.sequence for e in events]
                 self.assertEqual(sequences, sorted(set(sequences)))

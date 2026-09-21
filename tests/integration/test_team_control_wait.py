@@ -37,7 +37,7 @@ static void wait_test_touch(const char *path) {
     if (!path || !*path) return;
     int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (fd >= 0) {
-        (void)write(fd, "1", 1);
+        if (write(fd, "1", 1) != 1) abort();
         close(fd);
     }
 }
@@ -46,7 +46,7 @@ static void wait_test_trace(char event) {
     if (!path) return;
     int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0600);
     if (fd >= 0) {
-        (void)write(fd, &event, 1);
+        if (write(fd, &event, 1) != 1) abort();
         close(fd);
     }
 }
@@ -125,7 +125,16 @@ int tny_wait_test_watch_next(tny_jobs_watch *watch, int timeout_ms,
 
 
 def build_wait_driver(directory: Path) -> str:
-    subprocess.run(["make", "release"], cwd=ROOT, check=True, capture_output=True)
+    def run_build(command):
+        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+        if result.returncode:
+            raise RuntimeError(
+                f"{shlex.join(command)} failed ({result.returncode}):\n"
+                f"{result.stdout}{result.stderr}"
+            )
+        return result
+
+    run_build(["make", "release"])
     plan = subprocess.run(
         ["make", "-n", "-B", "release"],
         cwd=ROOT,
@@ -166,7 +175,7 @@ def build_wait_driver(directory: Path) -> str:
     driver_object = directory / "driver.o"
     main_compile[main_compile.index("-o") + 1] = str(driver_object)
     main_compile[main_compile.index("src/main.c")] = str(driver_source)
-    subprocess.run(main_compile, cwd=ROOT, check=True, capture_output=True)
+    run_build(main_compile)
 
     wait_object = directory / "team_control.o"
     wait_compile[wait_compile.index("-o") + 1] = str(wait_object)
@@ -179,13 +188,13 @@ def build_wait_driver(directory: Path) -> str:
             "-Dtny_jobs_host_watch_next=tny_wait_test_watch_next",
         ]
     )
-    subprocess.run(wait_compile, cwd=ROOT, check=True, capture_output=True)
+    run_build(wait_compile)
 
     binary = directory / "tny"
     link[link.index("-o") + 1] = str(binary)
     link[link.index("build/rel/src/main.o")] = str(driver_object)
     link[link.index("build/rel/src/core/team_control.o")] = str(wait_object)
-    subprocess.run(link, cwd=ROOT, check=True, capture_output=True)
+    run_build(link)
     return str(binary)
 
 

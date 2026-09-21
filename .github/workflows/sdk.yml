@@ -65,7 +65,7 @@ jobs:
           set -eu
           if [ "$(uname -s)" = Linux ]; then export CC=gcc CXX=g++; fi
           if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
-          make lib-shared
+          make lib-shared release
           python scripts/check_native_compat.py \
             "$PWD/build/lib/${{ runner.os == 'macOS' && 'libtny.1.dylib' || 'libtny.so.1' }}"
           python -m pip install --disable-pip-version-check \
@@ -222,7 +222,7 @@ jobs:
           set -eu
           if [ "$(uname -s)" = Linux ]; then export CC=gcc CXX=g++; fi
           if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
-          make lib-shared
+          make lib-shared release
           npm --prefix sdk/typescript run build
       - name: Test, typecheck and run conformance
         run: |

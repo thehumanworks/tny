@@ -101,6 +101,8 @@ int main(void) {
         ambient,
         "CHATGPT_ACCESS_TOKEN=SECRET-ambient-token",
         "CHATGPT_ACCOUNT_ID=ambient-account",
+        "OPENAI_API_KEY=SECRET-native-ambient",
+        "CUSTOM_HTTP_KEY=native-key-must-not-propagate",
         TNY_SUBAGENT_KEY_ENV "=SECRET-stale-key",
         TNY_SUBAGENT_KEY_ENV "=SECRET-duplicate",
         TNY_SUBAGENT_URL_ENV "=SECRET-stale-url",
@@ -236,8 +238,14 @@ int main(void) {
             REQUIRE(!option(&selected, "--base-url-env"));
             REQUIRE(!value(selected.envp, TNY_SUBAGENT_KEY_ENV));
             REQUIRE(!value(selected.envp, TNY_SUBAGENT_URL_ENV));
-            equal(value(selected.envp, "CHATGPT_ACCESS_TOKEN"), "SECRET-ambient-token");
-            equal(value(selected.envp, "CHATGPT_ACCOUNT_ID"), "ambient-account");
+            if (pick && str_starts(pick, "acp@")) {
+                REQUIRE(!value(selected.envp, "CHATGPT_ACCESS_TOKEN"));
+                REQUIRE(!value(selected.envp, "CHATGPT_ACCOUNT_ID"));
+                REQUIRE(!value(selected.envp, "OPENAI_API_KEY"));
+            } else {
+                equal(value(selected.envp, "CHATGPT_ACCESS_TOKEN"), "SECRET-ambient-token");
+                equal(value(selected.envp, "CHATGPT_ACCOUNT_ID"), "ambient-account");
+            }
         }
         // Mutating and freeing the tool JSON cannot change the launch snapshot.
         bool model_override = picked_model != NULL, effort_override = picked_effort != NULL;
@@ -344,6 +352,60 @@ int main(void) {
         release(&p);
         environ = environment;
     }
+    // ACP launch snapshots own literal argv, including empty arguments, and
+    // never leak native HTTP selectors into the external-agent child.
+    ctx.backend = TNY_BK_ACP;
+    ctx.provider_name = "acp";
+    ctx.model = "selected-model";
+    ctx.api_key = "native-key-must-not-propagate";
+    ctx.base_url = "https://native.invalid/v1";
+    char acp_argument[] = "literal ; $(not-a-shell)";
+    char *acp_argv[] = {"/fixture/agent", acp_argument, "", "--", NULL};
+    ctx.agent_argv = acp_argv;
+    ctx.agent_from_profile = false;
+    fault_at(0);
+    REQUIRE(tny_subagent_plan_build(&env, NULL, &p) == 0);
+    equal(option(&p, "--acp-agent-argv"), "4");
+    equal(p.argv[7], "/fixture/agent");
+    equal(p.argv[8], acp_argument);
+    equal(p.argv[9], "");
+    equal(p.argv[10], "--");
+    acp_argument[0] = 'X';
+    equal(p.argv[8], "literal ; $(not-a-shell)");
+    equal(option(&p, "--model"), "selected-model");
+    REQUIRE(!option(&p, "--wire-api") && !option(&p, "--api-key-env") &&
+            !option(&p, "--base-url-env"));
+    REQUIRE(!value(p.envp, TNY_SUBAGENT_KEY_ENV) && !value(p.envp, TNY_SUBAGENT_URL_ENV));
+    REQUIRE(!value(p.envp, "CUSTOM_HTTP_KEY") && !value(p.envp, "OPENAI_API_KEY") &&
+            !value(p.envp, "CHATGPT_ACCESS_TOKEN") && !value(p.envp, "CHATGPT_ACCOUNT_ID"));
+    release(&p);
+    ctx.agent_from_profile = true;
+    ctx.provider_name = "acp@fixture";
+    ctx.acp_require_tools_authority = true;
+    ctx.workspace_read_only = true;
+    REQUIRE(tny_subagent_plan_build(&env, NULL, &p) == 0);
+    equal(option(&p, "--provider"), "acp@fixture");
+    equal(option(&p, "--acp-agent-argv"), "4"); // command is frozen even for named profiles
+    equal(p.argv[7], "/fixture/agent");
+    equal(value(p.envp, "TNY_ACP_FROZEN_COMMAND"), "1");
+    equal(value(p.envp, "TNY_ACP_REQUIRE_TOOLS_AUTHORITY"), "1");
+    equal(value(p.envp, "TNY_TEAM_READ_ONLY"), "1");
+    release(&p);
+    const char *alias_json = "{\"provider\":\"acp:fixture\"}";
+    yyjson_doc *alias = jparse(alias_json, strlen(alias_json));
+    REQUIRE(alias);
+    ctx.reasoning_effort = "high";
+    REQUIRE(tny_subagent_plan_build_selected(&env, NULL, yyjson_doc_get_root(alias), &p) == 0);
+    equal(option(&p, "--provider"), "acp@fixture");
+    equal(option(&p, "--acp-agent-argv"), "4");
+    equal(p.argv[7], "/fixture/agent");
+    equal(option(&p, "--model"), "selected-model");
+    equal(option(&p, "--effort"), "high");
+    equal(value(p.envp, "TNY_ACP_FROZEN_COMMAND"), "1");
+    equal(value(p.envp, "TNY_ACP_REQUIRE_TOOLS_AUTHORITY"), "1");
+    equal(value(p.envp, "TNY_TEAM_READ_ONLY"), "1");
+    release(&p);
+    yyjson_doc_free(alias);
     REQUIRE(tny_alloc_test_owned_live() == live);
     tny_subagent_plan_free(NULL);
     environ = saved_environment;

@@ -1175,7 +1175,7 @@ def main():
             out6 = json.loads(r6.stdout)
             assert "tier=priority" in out6["output"], out6
 
-            # Removed providers fail before any native feature can run
+            # Optional ACP cannot silently apply a provider-specific fast tier
             r7 = subprocess.run(
                 [TNY, "--cwd", ws, "--provider", "acp", "--fast", "ask", "hi"],
                 env=env,
@@ -1183,7 +1183,7 @@ def main():
                 timeout=15,
             )
             assert r7.returncode == 1, f"exit {r7.returncode}: {r7.stderr.decode()}"
-            assert b"were removed" in r7.stderr, r7.stderr
+            assert b"fast" in r7.stderr or b"agent" in r7.stderr, r7.stderr
 
             # step limit (docs/adr/0024): unlimited by default (the 2-step
             # runs above pass with no cap configured); --max-steps 1 stops

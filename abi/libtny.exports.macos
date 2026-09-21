@@ -65,3 +65,7 @@ _tny_toolkit_job_run
 _tny_toolkit_job_cancel
 _tny_toolkit_job_result
 _tny_toolkit_job_destroy
+_tny_runtime_set_acp_command
+_tny_event_cost_currency
+_tny_event_cost_cumulative
+_tny_event_tokens_reported

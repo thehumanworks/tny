@@ -25,11 +25,16 @@ CLI / TUI / C ABI / Python / Node SDKs
 The event vocabulary remains `text_delta`, `thinking`, `tool_start`, `tool_end`,
 `permission_request`, `plan`, `usage`, `turn_end`, `error`, `status`, and
 `steer_rejected`. Public event layouts and reserved capability constants remain
-ABI-compatible; removed provider capability bits are unavailable.
+ABI-compatible; the reserved ACP capability is available again for optional client sessions.
 
 Extensions run at quiescent native boundaries: pre-tool, unresolved permission,
 post-tool, batch and allowlisted provider request/response edges. Callbacks do
 not re-enter the backend. Extension-free turns do not start Python.
+
+Optional ACP clients ([ADR 0164](adr/0164-optional-acp-clients.md)) run an external
+agent over stdio. Its session receives a stdio MCP bridge into this same runtime
+and tool registry. External built-in tools remain agent-owned. See the
+[capability matrix](verification/acp-client/README.md).
 
 ## Embedding boundary
 

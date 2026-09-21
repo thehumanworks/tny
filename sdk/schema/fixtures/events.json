@@ -62,7 +62,10 @@
         "context_used",
         "context_size",
         "cost",
-        "has_cost"
+        "has_cost",
+        "cost_currency",
+        "cost_cumulative",
+        "tokens_reported"
       ]
     },
     {

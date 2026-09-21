@@ -169,6 +169,10 @@ void tny_event_jsonl_append(buf_t *out, const tny_owned_event *event) {
         if (ev->has_cost) buf_appendf(out, "%.12g", ev->cost);
         else buf_appends(out, "null");
         buf_appendf(out, ",\"has_cost\":%s", ev->has_cost ? "true" : "false");
+        buf_appendf(out, ",\"tokens_reported\":%s,\"cost_cumulative\":%s",
+                    ev->tokens_unreported ? "false" : "true",
+                    ev->cost_cumulative ? "true" : "false");
+        field_str(out, "cost_currency", ev->cost_currency);
         break;
     case TNY_EV_TURN_END: buf_appendf(out, ",\"stop_reason\":%u", (unsigned)ev->stop); break;
     case TNY_EV_ERROR:

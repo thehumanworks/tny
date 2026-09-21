@@ -1,0 +1,88 @@
+{
+  "schema_version": 2,
+  "observed_at_utc": "2026-09-21T12:19:29.856154+00:00",
+  "adapter": {
+    "name": "@agentclientprotocol/claude-agent-acp",
+    "version": "0.75.1"
+  },
+  "authentication": "Existing Claude account; API-key and cloud-provider overrides removed from test subprocess environment",
+  "model_selector": "sonnet",
+  "resolved_primary_model": "claude-sonnet-5",
+  "reasoning_effort": "low",
+  "observer": "Metadata-only ACP relay adds emitRawSDKMessages; it does not add strictMcpConfig or change tools, mode, model or workspace configuration",
+  "binary_sha256": "3e118dff52b10cd75d9882dd3577076544ba822305f10579eb9cb856af753fdd",
+  "real_ssh_roundtrip": {
+    "exit": 0,
+    "checks": {
+      "exit_zero": true,
+      "remote_proof": true,
+      "local_untouched": true,
+      "effective_sonnet": true,
+      "only_tny_tools": true,
+      "authoritative_tool_count": true,
+      "production_strict_mcp": true
+    },
+    "actual_tools": [
+      "read_file",
+      "write_file",
+      "terminal"
+    ],
+    "remote_transport": "Real loopback SSH with private test-only host/client keys and pinned host verification; separate local and remote workspace paths"
+  },
+  "managed_writer_reviewer_dag": {
+    "checks": {
+      "succeeded": true,
+      "two_successful_items": true,
+      "proof_exact": true,
+      "primary_sonnet_both": true,
+      "only_tny_tools": true,
+      "strict_mcp_and_turn_limit": true,
+      "cleanup_complete": true,
+      "admission_released": true,
+      "writer_and_reviewer_answers": true,
+      "unreported_tokens_remain_unknown": true
+    },
+    "primary_models": [
+      "claude-sonnet-5",
+      "claude-sonnet-5"
+    ],
+    "state": "succeeded",
+    "cleanup": "complete",
+    "admission_cap": 1,
+    "items": 2,
+    "reviewer_workspace_policy": "shared_read_only",
+    "max_turns_per_agent": 4
+  },
+  "resume_across_processes_over_ssh": {
+    "checks": {
+      "both_prompts_succeeded": true,
+      "previous_context_retained": true,
+      "real_load_used": true,
+      "strict_tools_preserved": true,
+      "main_sonnet": true
+    },
+    "turns": 2,
+    "same_session_id": true
+  },
+  "earlier_local_permission_probe": {
+    "binary_sha256": "4210318cedd38d7847db28faae5919a879e4f50b00d71eb96e7f9343a4a8a534",
+    "expected_exit": 2,
+    "exit": 2,
+    "checks": {
+      "blocked_exit": true,
+      "no_write_in_probe_workspaces": true,
+      "read_completed": true,
+      "effective_sonnet": true,
+      "tny_sole_policy": true,
+      "only_tny_tools": true
+    },
+    "result": "Read succeeds; write denied by tny; denied file absent"
+  },
+  "boundaries": [
+    "Only primary Sonnet inference was requested; the adapter also reported internal Haiku sidechain usage.",
+    "SSH validation uses real authenticated loopback SSH with distinct workspace directories, not a separate physical machine.",
+    "The local permission probe above retains its earlier binary identity; deterministic permission regressions passed on the delivery build.",
+    "The first managed report searched raw JSONL for an answer split across text_delta frames; the corrected checker assembles text and checks the exact answers.",
+    "An overlong private test HOME initially exceeded the OpenSSH ControlPath limit before any inference; using a short test HOME allowed real load/resume validation."
+  ]
+}

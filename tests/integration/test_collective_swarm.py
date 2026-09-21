@@ -21,7 +21,25 @@ from test_subagent import chat_frames, tool_outputs, user_texts
 
 
 def payload(text):
-    return json.JSONDecoder().raw_decode(text[text.index("{") :])[0]
+    start = text.find("{")
+    if start < 0:
+        raise AssertionError(f"expected JSON tool result, got {text[:512]!r}")
+    return json.JSONDecoder().raw_decode(text[start:])[0]
+
+
+def mailbox_busy(text):
+    if text.strip() == "error: MAILBOX_BUSY":
+        return True
+    try:
+        result = payload(text)
+    except (AssertionError, ValueError):
+        return False
+    return (
+        isinstance(result, dict)
+        and result.get("kind") == "team_mailbox"
+        and result.get("ok") is False
+        and result.get("error") == "MAILBOX_BUSY"
+    )
 
 
 class CollectiveHandler(Handler):
@@ -33,18 +51,61 @@ class CollectiveHandler(Handler):
         with f.lock:
             f.requests.setdefault(tag, []).append(body)
         self.enter(tag)
+        outputs = tool_outputs(body, "chat")
         try:
-            call, answer = f.respond(tag, texts, tool_outputs(body, "chat"))
+            call, answer = f.provider_response(tag, texts, outputs)
             self.reply(
                 200,
                 "text/event-stream",
                 chat_frames(call=call) if call else chat_frames(text=answer),
             )
         except Exception as error:
-            f.errors.append(repr(error))
+            last = outputs[-1][-512:] if outputs else ""
+            f.errors.append(
+                f"peer={tag} step={len(outputs)}: {repr(error)[:512]}; last={last!r}"
+            )
             self.reply(500, "application/json", b'{"error":{"message":"fixture"}}')
         finally:
             self.leave()
+
+
+class PayloadDiagnostic(unittest.TestCase):
+    def test_terminal_prefix_keeps_structured_result(self):
+        self.assertEqual(payload('exit_code: 0\n{"ok":true}\n'), {"ok": True})
+
+    def test_plain_tool_error_fails_with_bounded_original_diagnostic(self):
+        with self.assertRaises(AssertionError) as caught:
+            payload("error: MAILBOX_BUSY " + "x" * 16000)
+        self.assertIn("MAILBOX_BUSY", str(caught.exception))
+        self.assertLess(len(str(caught.exception)), 600)
+
+    def test_only_explicit_mailbox_busy_is_retryable(self):
+        self.assertTrue(mailbox_busy("error: MAILBOX_BUSY"))
+        self.assertTrue(
+            mailbox_busy(
+                'exit: 1\n{"kind":"team_mailbox","ok":false,"error":"MAILBOX_BUSY"}'
+            )
+        )
+        for text in (
+            "error: MAILBOX_DENIED",
+            "error: MAILBOX_IO",
+            '{"kind":"team_mailbox","ok":true,"text":"MAILBOX_BUSY"}',
+            '{"kind":"team_mailbox","ok":false,"error":"MAILBOX_DEADLINE"}',
+        ):
+            self.assertFalse(mailbox_busy(text), text)
+
+    def test_busy_retries_keep_the_message_and_have_a_finite_budget(self):
+        fixture = CollectiveFlow("test_typed_peer_challenge_convergence")
+        args = json.dumps({"action": "send", "id": "challenge", "text": "evidence"})
+        fixture.last_calls = {"1": ("challenge", "team_mailbox", args)}
+        fixture.busy_retries, fixture.busy_since = {}, {}
+        fixture.contention_observed = threading.Event()
+        for attempt in range(1, 9):
+            call, answer = fixture.provider_response("1", [], ["error: MAILBOX_BUSY"])
+            self.assertEqual(call, (f"challenge-retry-{attempt}", "team_mailbox", args))
+            self.assertIsNone(answer)
+        with self.assertRaisesRegex(AssertionError, "retry budget exhausted"):
+            fixture.provider_response("1", [], ["error: MAILBOX_BUSY"])
 
 
 class ModeAcceptance(JobsFixture):
@@ -253,6 +314,10 @@ class CollectiveFlow(JobsFixture):
         self.worker_started = threading.Event()
         self.profile = "all"
         self.scenario = "peers"
+        self.last_calls, self.busy_retries = {}, {}
+        self.busy_since = {}
+        self.contend_challenge = False
+        self.contention_observed = threading.Event()
         self.env["PATH"] = (
             str(
                 Path(
@@ -267,7 +332,34 @@ class CollectiveFlow(JobsFixture):
 
     def tearDown(self):
         self.release.set()
+        self.contention_observed.set()
         super().tearDown()
+
+    def provider_response(self, tag, texts, outputs):
+        # A real agent can retry a public mailbox operation after bounded lock
+        # contention. Keep the logical message ID and body unchanged; BUSY is
+        # not a completed script step and all other errors still fail below.
+        if outputs and mailbox_busy(outputs[-1]):
+            if tag == "1":
+                self.contention_observed.set()
+            retries = self.busy_retries.get(tag, 0) + 1
+            since = self.busy_since.setdefault(tag, time.monotonic())
+            assert retries <= 8 and time.monotonic() - since < 3, (
+                "MAILBOX_BUSY retry budget exhausted"
+            )
+            self.busy_retries[tag] = retries
+            name, tool, args = self.last_calls[tag]
+            assert tool == "team_mailbox" or (
+                tool == "terminal"
+                and shlex.split(json.loads(args)["command"])[:2] == ["tny", "mailbox"]
+            ), "only mailbox operations may retry MAILBOX_BUSY"
+            return (f"{name}-retry-{retries}", tool, args), None
+        self.busy_since.pop(tag, None)
+        outputs = [output for output in outputs if not mailbox_busy(output)]
+        call, answer = self.respond(tag, texts, outputs)
+        if call:
+            self.last_calls[tag] = call
+        return call, answer
 
     def call(self, name, tool, args):
         return (name, tool, json.dumps(args)), None
@@ -372,6 +464,10 @@ class CollectiveFlow(JobsFixture):
             if step == 1:
                 assert len(outputs[0]) < 1024, "publication echoed fanout bodies"
                 assert all("text" not in m for m in payload(outputs[0])["messages"])
+                if self.contend_challenge:
+                    assert self.contention_observed.wait(10), (
+                        "challenge never returned MAILBOX_BUSY"
+                    )
                 return self.mail("challenge-wait", "wait", timeout_ms=10000)
             if step == 2:
                 assert "peer-counterexample" in outputs[-1], outputs
@@ -437,7 +533,10 @@ class CollectiveFlow(JobsFixture):
                 self.assertIn("not a recursive orchestrator", systems[0])
         if scenario == "peers":
             self.assertEqual(
-                {tag: len(v) for tag, v in self.requests.items()},
+                {
+                    tag: len(v) - self.busy_retries.get(tag, 0)
+                    for tag, v in self.requests.items()
+                },
                 {"lead": 4, "0": 5, "1": 6},
             )
             mailbox = json.loads(
@@ -487,6 +586,65 @@ class CollectiveFlow(JobsFixture):
 
     def test_typed_peer_challenge_convergence(self):
         self.exercise("peers")
+
+    def test_typed_peer_context_survives_short_lock_contention(self):
+        # Public send first exhausts its 250ms budget. The independently timed
+        # release then crosses the old 250ms automatic-delivery budget, while
+        # staying inside the current 2s budget. No provider response releases it.
+        self.install_mailbox_contention(release_delay=0.35)
+        self.exercise("peers")
+        self.assertGreater(self.busy_retries.get("1", 0), 0)
+
+    def install_mailbox_contention(self, release_delay):
+        self.contend_challenge = True
+        extensions = self.home / ".tny/extensions"
+        extensions.mkdir(parents=True)
+        source = """import fcntl
+import os
+import threading
+import time
+from pathlib import Path
+from tny_ext import PreToolUseEvent, PostToolUseEvent, PostToolFailureEvent
+
+def setup(api):
+    held = None
+
+    @api.on(PreToolUseEvent)
+    def before(event):
+        nonlocal held
+        if event.tool_name == "team_mailbox" and event.tool_id == "challenge":
+            path = Path(os.environ["HOME"]) / ".tny/jobs" / os.environ["TNY_TEAM_RUN"] / "state.lock"
+            held = path.open("r+")
+            fcntl.flock(held, fcntl.LOCK_EX)
+
+    def after(event):
+        nonlocal held
+        if held is not None:
+            lock = held
+            held = None
+            def release():
+                try:
+                    time.sleep(RELEASE_DELAY)
+                finally:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                    lock.close()
+            if RELEASE_DELAY:
+                threading.Thread(target=release).start()
+            else:
+                release()
+
+    api.on(PostToolUseEvent, after)
+    api.on(PostToolFailureEvent, after)
+"""
+        (extensions / "mailbox_lock.py").write_text(
+            source.replace("RELEASE_DELAY", repr(release_delay))
+        )
+
+    def test_typed_peer_challenge_converges_after_real_lock_contention(self):
+        self.install_mailbox_contention(release_delay=0)
+        self.exercise("peers")
+        self.assertTrue(self.contention_observed.is_set())
+        self.assertGreater(self.busy_retries.get("1", 0), 0)
 
     def test_terminal_peer_challenge_convergence(self):
         self.exercise("peers", "terminal")

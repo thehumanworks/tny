@@ -40,13 +40,12 @@ class SettingsSchemaTests(unittest.TestCase):
         names = self.image_input["propertyNames"]
         self.assertEqual(names["maxLength"], 256)
         pattern = re.compile(names["pattern"])
-        for key in ("codex", "claude", "my-gateway"):
+        for key in ("codex", "claude", "my-gateway", "acp@agent"):
             self.assertTrue(pattern.fullmatch(key), key)
         for key in (
             "",
             "open ai",
             "acp:agent",
-            "acp@agent",
             "acp@",
             "acp@bad name",
             "gate/way",
@@ -74,6 +73,7 @@ class SettingsSchemaTests(unittest.TestCase):
             {"image_input": {}},
             {"image_input": {"codex": True, "claude": False}},
             {"image_input": {"my-gateway": True}, "provider": "my-gateway"},
+            {"image_input": {"acp@agent": True}},
         ]
         invalid = [
             {"image_input": []},

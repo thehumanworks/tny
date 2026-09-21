@@ -170,8 +170,15 @@ export class Runtime {
     if (options.persistence && typeof options.stateDir !== "string") {
       throw new TypeError("stateDir is required when persistence is true");
     }
-    if (options.provider !== undefined && !["openai"].includes(options.provider)) {
+    if (options.provider !== undefined && !["openai", "acp"].includes(options.provider)) {
       throw new UnsupportedFeatureError(`provider ${String(options.provider)}`);
+    }
+    if (options.acpCommand !== undefined) {
+      if (!Array.isArray(options.acpCommand) || !options.acpCommand.length || !options.acpCommand[0] ||
+          options.acpCommand.some(arg => typeof arg !== "string" || arg.includes("\0"))) {
+        throw new TypeError("acpCommand must be a nonempty array of literal argv strings");
+      }
+      options = { ...options, acpCommandJson: JSON.stringify(options.acpCommand) };
     }
     if (options.taskPreset !== undefined) {
       options = { ...options, taskPreset: taskPresetOption(options.taskPreset) };
@@ -858,9 +865,9 @@ export class WorkflowResult {
     const unknownTasks = attempted.length - known.length;
     return Object.freeze({
       knownTasks: known.length, unknownTasks,
-      inputTokens: unknownTasks ? undefined : known.reduce((sum, result) => sum + result.usage.inputTokens, 0n),
-      outputTokens: unknownTasks ? undefined : known.reduce((sum, result) => sum + result.usage.outputTokens, 0n),
-      cost: unknownTasks || known.some((result) => result.usage.cost === undefined || !result.usage.hasCost)
+      inputTokens: unknownTasks || known.some((result) => result.usage.tokensReported === false) ? undefined : known.reduce((sum, result) => sum + result.usage.inputTokens, 0n),
+      outputTokens: unknownTasks || known.some((result) => result.usage.tokensReported === false) ? undefined : known.reduce((sum, result) => sum + result.usage.outputTokens, 0n),
+      cost: unknownTasks || known.some((result) => result.usage.cost === undefined || !result.usage.hasCost || result.usage.costCumulative) || new Set(known.map((result) => result.usage.costCurrency ?? "")).size > 1
         ? undefined : known.reduce((sum, result) => sum + result.usage.cost, 0),
     });
   }

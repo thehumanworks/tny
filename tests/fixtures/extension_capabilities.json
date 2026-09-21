@@ -72,12 +72,12 @@
       "runtime": "host",
       "states": [
         "supported", "supported", "supported", "supported",
-        "supported", "supported", "unavailable", "supported",
-        "supported", "supported", "supported", "unavailable",
-        "unavailable", "unsupported", "unsupported", "supported",
-        "unavailable", "unavailable", "unavailable", "supported",
-        "unsupported", "unsupported", "unavailable", "unavailable",
-        "unavailable", "supported", "supported", "unavailable", "unavailable"
+        "supported", "supported", "unsupported", "supported",
+        "unsupported", "supported", "supported", "supported",
+        "supported", "supported", "supported", "supported",
+        "supported", "supported", "supported", "supported",
+        "supported", "supported", "supported", "unsupported",
+        "unsupported", "supported", "supported", "unavailable", "unavailable"
       ]
     }
   }

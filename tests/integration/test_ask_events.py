@@ -55,6 +55,9 @@ PAYLOAD = {
         "context_size",
         "cost",
         "has_cost",
+        "cost_currency",
+        "cost_cumulative",
+        "tokens_reported",
     ],
     "turn_end": ["stop_reason"],
     "error": ["text", "error_code"],
@@ -342,6 +345,9 @@ def case_stream_shape(ws):
     usage = [e for e in events if e["type"] == "usage"][0]
     check(usage["input_tokens"] == 11 and usage["output_tokens"] == 2, usage)
     check(usage["cost"] is None and usage["has_cost"] is False, usage)
+    check(usage["cost_currency"] == "", usage)
+    check(usage["cost_cumulative"] is False, usage)
+    check(usage["tokens_reported"] is True, usage)
     # ephemeral turns keep the envelope keys even where a value is empty
     check(all(e["turn_id"] for e in events), "ephemeral turn_id vanished")
     deltas = [e for e in events if e["type"] == "text_delta"]

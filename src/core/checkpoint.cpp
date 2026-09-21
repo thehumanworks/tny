@@ -54,6 +54,7 @@ constexpr string_field strings[] = {
     {"chatgpt_token", &tny_ctx::chatgpt_token, true},
     {"chatgpt_account_id", &tny_ctx::chatgpt_account_id, true},
     {"codex_base_url", &tny_ctx::codex_base_url, true},
+    {"acp_cleanup_file", &tny_ctx::acp_cleanup_file, true},
     {"ssh_host", &tny_ctx::ssh_host, false},
     {"ssh_cwd", &tny_ctx::ssh_cwd, false},
     {"ssh_control", &tny_ctx::ssh_control, false},
@@ -82,6 +83,8 @@ constexpr bool_field bools[] = {
     {"no_color", &tny_ctx::no_color},
     {"force_color", &tny_ctx::force_color},
     {"library_mode", &tny_ctx::library_mode},
+    {"agent_from_profile", &tny_ctx::agent_from_profile},
+    {"acp_require_tools_authority", &tny_ctx::acp_require_tools_authority},
     {"prompt_optimisation", &tny_ctx::prompt_optimisation},
     {"extensions_enabled", &tny_ctx::extensions_enabled},
     {"service_tier_explicit", &tny_ctx::service_tier_explicit},
@@ -216,7 +219,13 @@ yyjson_mut_val *encode(yyjson_mut_doc *d, const tny_ctx *c, bool public_only) {
     check(yyjson_mut_obj_add_uint(d, r, "mcp_import_mask", c->mcp_import_mask));
     encode_array(d, r, "extra_dirs", c->extra_dirs, c->n_extra_dirs);
     encode_array(d, r, "instruction_paths", c->instruction_paths, c->n_instruction_paths);
-    if (!public_only) encode_array(d, r, "extra_headers", c->extra_headers, header_count(c));
+    if (!public_only) {
+        encode_array(d, r, "extra_headers", c->extra_headers, header_count(c));
+        int argc = 0;
+        while (c->agent_argv && c->agent_argv[argc]) ++argc;
+        check(argc <= 128);
+        encode_array(d, r, "agent_argv", c->agent_argv, argc);
+    }
     check(c->n_mcp_import_sources >= 0 && c->n_mcp_import_sources <= 4);
     auto *order = tny::required(yyjson_mut_arr(d));
     for (int i = 0; i < c->n_mcp_import_sources; ++i)
@@ -297,6 +306,9 @@ context restore(yyjson_val *r) {
     restore_number(c->mcp_import_mask, jget(r, "mcp_import_mask"));
     restore_array(c->extra_dirs, c->n_extra_dirs, jget(r, "extra_dirs"));
     restore_array(c->instruction_paths, c->n_instruction_paths, jget(r, "instruction_paths"));
+    int argc = 0;
+    check(array_size(jget(r, "agent_argv")) <= 128);
+    if (jget(r, "agent_argv")) restore_array(c->agent_argv, argc, jget(r, "agent_argv"));
     int headers = header_count(c.get());
     restore_array(c->extra_headers, headers, jget(r, "extra_headers"));
     auto *order = jget(r, "mcp_import_order");

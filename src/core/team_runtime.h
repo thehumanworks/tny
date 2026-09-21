@@ -48,7 +48,7 @@ void tny_team_startup_end(tny_ctx *ctx, bool failed);
 const char *tny_team_startup_diagnostic_read(tny_ctx *ctx, const char *run, int task, int attempt);
 /* Persist subscribed job IDs in the caller session; metadata is not membership. */
 int tny_team_register_run(tools_env *env, const char *run_id);
-/* Called only at a quiescent native model-call boundary. No provider reentry. */
+/* Called at a quiescent native model-call or ACP prompt boundary. No provider reentry. */
 int tny_team_deliver(tools_env *env, char *err, size_t errlen);
 #ifdef __cplusplus
 }

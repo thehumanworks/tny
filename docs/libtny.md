@@ -355,3 +355,36 @@ Private implementation ownership is described by
 to survive session/runtime teardown until `tny_event_free`. The provider's
 pending-tool handle is independent of the host's async-release handle; no
 new public concurrency or release obligation is introduced.
+
+### Optional ACP client
+
+ABI 1.4 adds `tny_runtime_set_acp_command` and the usage getters
+`tny_event_cost_currency`, `tny_event_cost_cumulative`, and
+`tny_event_tokens_reported`. Their ELF symbols enter `LIBTNY_1.4`; all prior
+symbols retain their nodes and signatures. Frozen option/event layouts and
+the major-1 library identity remain unchanged.
+
+Select `provider = "acp"`, then call
+`tny_runtime_set_acp_command(runtime, json_argv, &error)` before creating a session.
+The additive setter copies a JSON array of 1–128 literal argv strings with a nonempty executable
+(up to 65,536 encoded bytes); it never invokes a shell. Existing option records,
+provider numeric constants and C ABI layouts remain unchanged. ACP availability
+uses the existing `TNY_PROVIDER_MASK_ACP` bit; transport is `acp-stdio`.
+
+Python accepts `RuntimeConfig(provider="acp", acp_command=["claude-agent-acp"],
+model="sonnet", ...)`; TypeScript accepts
+`Runtime.create({provider: "acp", acpCommand: ["claude-agent-acp"],
+model: "sonnet", ...})`. Set `TNY_ACP_BRIDGE_EXECUTABLE` to the absolute
+path of the matching `tny` binary so the external agent can connect to the owning
+runtime's MCP tools. The bridge carries registered SDK tools including async
+completion through the same runtime dispatch. Credentials remain owned by the
+external executable. ACP reasoning effort requires a matching advertised thought-level option;
+native HTTP fast-tier controls are unavailable. Session resumption depends on the adapter's advertised load
+capability; native mid-turn checkpoint restart is unavailable.
+
+For usage events, an empty currency means unreported. A cumulative cost is the
+latest session total and must replace the previous total rather than be added
+to it. When `tny_event_tokens_reported` is false, the frozen integer fields are
+not reported token counts. Resolve these additive functions only on ABI 1.4
+or newer. The SDKs retain native HTTP compatibility with earlier ABI 1.x
+libraries and reject ACP commands there with an explicit unsupported error.

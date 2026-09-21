@@ -45,6 +45,7 @@ extern "C" tny_owned_event *tny_owned_event_copy(const tny_backend_event *event,
             text(event->perm_id, &owned->ev.perm_id),
             text(event->perm_summary, &owned->ev.perm_summary),
             text(event->message_type, &owned->ev.message_type),
+            text(event->cost_currency, &owned->ev.cost_currency),
         };
         size_t total = 0;
         for (auto &f : fields) {

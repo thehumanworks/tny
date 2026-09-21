@@ -153,6 +153,13 @@ typedef struct tny_ctx {
     bool effort_from_settings; /* current value came from settings.json, so
                                 * switching provider recomputes it instead
                                 * of leaking one provider's default */
+    /* Optional external ACP client command, owned and never shell-evaluated. */
+    char **agent_argv;
+    bool agent_from_profile;
+    /* A required constraint, never a claim that the child has been verified. */
+    bool acp_require_tools_authority;
+    char *acp_cleanup_file; /* private per-attempt receipt, never inherited */
+
     /* repo limits (.tny.json — never authority, only limits) */
     bool workspace_read_only;     /* inherited team policy, before rules/yolo */
     int max_steps;                /* 0 = unlimited (default); a cap comes
@@ -313,6 +320,7 @@ void tny_tool_profile_ignore(tny_ctx *ctx, const char *surface);
 /* True when `name` is a user-named OpenAI-compatible provider: a top-level
  * settings.json object with a base_url, or NAME_BASE_URL set in the
  * environment. The default openai profile and removed protocol names are never custom. */
+bool tny_acp_profile_exists(tny_ctx *ctx, const char *provider);
 bool tny_custom_provider_exists(tny_ctx *ctx, const char *name);
 /* malloc'd env-var name holding the profile's API key: its api_key_env,
  * or NAME_API_KEY derived from the profile name. NULL if no such profile. */

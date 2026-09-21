@@ -1,3 +1,8 @@
+# test-acp-wasm-seam links the existing native graph with acp_proc_wasm.c;
+# its Python stdlib fixture needs no emsdk and does not claim a wasm build.
+# Its C ABI capability probes use the existing host compiler, not emsdk.
+# ACP client mocks and test-acp-bridge-deadline use the existing Python stdlib,
+# compiler, and native source/test filesets; no clock or adapter dependency.
 # Collective swarm tests reuse the existing stdlib/PTY/compiler closure;
 # test_collective_{swarm,cap}.py and mailbox helpers are included under tests.
 # `make test` as a derivation: the greatest unit suite under ASan/UBSan, the

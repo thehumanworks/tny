@@ -193,6 +193,24 @@ test("native workflow retains reported usage; aggregation does not count depende
   assert.equal(unknown.require("blocked").usage, undefined);
 });
 
+test("session cumulative cost and missing token totals stay unknown", async () => {
+  const usage = { type: "usage", kind: 6, inputTokens: 0n, outputTokens: 0n,
+    contextUsed: 9n, contextSize: 100n, cost: 0.25, hasCost: true,
+    costCurrency: "EUR", costCumulative: true, tokensReported: false };
+  const result = await new Workflow({ runner: async () => ({ output: "ok", usage }) })
+    .task("first", "p").task("second", "p").run();
+  assert.equal(result.require("first").usage.cost, 0.25);
+  assert.equal(result.usage.knownTasks, 2);
+  assert.equal(result.usage.cost, undefined);
+  assert.equal(result.usage.inputTokens, undefined);
+  assert.equal(result.usage.outputTokens, undefined);
+  const mixed = await new Workflow({ runner: async (task) => ({ output: "ok",
+    usage: { ...usage, costCumulative: false, tokensReported: true,
+      costCurrency: task.name === "first" ? "EUR" : "USD" },
+  }) }).task("first", "p").task("second", "p").run();
+  assert.equal(mixed.usage.cost, undefined);
+});
+
 test("aborted queued tasks never compose", async () => {
   const original = WorkflowTask.prototype._prompt;
   const rendered = [];

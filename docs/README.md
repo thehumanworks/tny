@@ -78,3 +78,5 @@ Primary URLs and version pins: [sources.md](sources.md).
 | --- | --- |
 | [tnytty/docs](../tnytty/docs/README.md) | tnytty implementation contract (VT core, CLI, HTTP API, platforms) |
 | [Public tnytty pages](https://thehumanworks.github.io/tny/docs/tnytty.html) | User-facing tnytty docs on GitHub Pages |
+
+- [Optional ACP client agents](backends/acp.md) and [verification matrix](verification/acp-client/README.md)

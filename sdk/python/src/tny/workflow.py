@@ -295,13 +295,15 @@ class WorkflowResult(Mapping[str, WorkflowTaskResult]):
                 "known_tasks": len(known),
                 "unknown_tasks": unknown,
                 "input_tokens": None
-                if unknown
+                if unknown or any(not item.tokens_reported for item in known)
                 else sum(item.input_tokens for item in known),
                 "output_tokens": None
-                if unknown
+                if unknown or any(not item.tokens_reported for item in known)
                 else sum(item.output_tokens for item in known),
                 "cost": None
-                if unknown or any(item.cost is None for item in known)
+                if unknown
+                or any(item.cost is None or item.cost_cumulative for item in known)
+                or len({item.cost_currency for item in known}) > 1
                 else sum(item.cost for item in known if item.cost is not None),
             }
         )

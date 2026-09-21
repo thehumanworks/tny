@@ -84,7 +84,7 @@ static char *sa_context_error(const tools_env *env) {
         return tool_err("SUBAGENT_UNSUPPORTED_CONTEXT: subagent is unavailable with --ssh because "
                         "a child would run its tools on this machine, not the remote host; do "
                         "the work in this session");
-    if (ctx->backend != TNY_BK_OPENAI)
+    if (ctx->backend != TNY_BK_OPENAI && ctx->backend != TNY_BK_ACP)
         return tool_err("SUBAGENT_UNSUPPORTED_CONTEXT: subagent needs tny's native "
                         "OpenAI-compatible loop");
     return NULL;
@@ -443,6 +443,15 @@ static char *sa_describe(tools_env *env, sa_action action, tny_session_state *s)
 
 /* ---- entry ---- */
 
+bool tny_subagent_provider_is_parent(const tny_ctx *ctx, const char *provider) {
+    const char *current = tny_provider_name(ctx);
+    if (!provider || strcmp(provider, current) == 0) return true;
+    return ctx->backend == TNY_BK_ACP &&
+           (str_starts(current, "acp@") || str_starts(current, "acp:")) &&
+           (str_starts(provider, "acp@") || str_starts(provider, "acp:")) &&
+           strcmp(current + 4, provider + 4) == 0;
+}
+
 char *tny_subagent_execute(tools_env *env, yyjson_val *args) {
     char *err = tny_subagent_prepare_error(env, args);
     if (err) return err;
@@ -474,8 +483,8 @@ char *tny_subagent_execute(tools_env *env, yyjson_val *args) {
                             id);
     }
     const char *provider = jget_str(args, "provider");
-    bool parent_provider = !provider || strcmp(provider, tny_provider_name(ctx)) == 0;
-    if (parent_provider && !(ctx->api_key && *ctx->api_key) &&
+    bool parent_provider = tny_subagent_provider_is_parent(ctx, provider);
+    if (parent_provider && ctx->backend == TNY_BK_OPENAI && !(ctx->api_key && *ctx->api_key) &&
         !str_starts(ctx->base_url ? ctx->base_url : "", "http://"))
         return tool_err("SUBAGENT_AUTH_UNAVAILABLE: the parent provider has no resolved "
                         "credential to hand a child; configure its key (for example "

@@ -20,7 +20,8 @@ their own Makefile, sources, tests, and docs contract:
 
 tny is a **C11 + private C++20 ownership** TUI + CLI coding-agent harness (ADR 0114): **a harness for agents, built by agents, focused on the agent**. User constraints and tasks are the goal. Keep it fast, portable and small without a fixed binary-size ceiling or competitor target. It uses one native OpenAI-compatible HTTP backend with Responses and Chat
 Completions, named environment-key profiles, Codex ChatGPT OAuth and Grok
-public/subscription HTTP. No vendor agent executable is required (ADR 0152).
+public/subscription HTTP. Optional stdio ACP clients use the owning-runtime MCP
+bridge (ADR 0164); native HTTP needs no vendor executable (ADR 0152).
 
 The product source is live under `src/` with unit, integration, mutation, and latency-benchmark suites under `tests/`. [docs/](docs/README.md) is the contract; read it before writing C, and update it when behavior changes.
 
@@ -37,8 +38,11 @@ The product source is live under `src/` with unit, integration, mutation, and la
 - Footprint (ADR 0150): keep shipped artifacts small and measure their size and runtime dependencies. There is no fixed binary-size ceiling. Favor maintainability, reliability, portability and measured speed over byte minimization; no vendor agent binary is required.
 - Startup: no provider I/O before a turn; help/version stay fast. Native session runners start lazily.
 - Isolation: on native builds every turn — interactive and one-shot — executes in a detached, forked **session runner** that survives caller crashes and finalizes into the session; the caller renders its NDJSON stream from `<session>/sock` (`docs/adr/0053`). No tmux. wasm, `--ephemeral`, and `TNY_ISOLATE=0` are the only in-process turns.
-- One event loop; normalize HTTP streams to the shared event schema.
-- Native loop owns tools/MCP/skills/permissions for every provider.
+- One event loop; normalize HTTP and ACP streams to the shared event schema.
+- Native tools/MCP/skills/permissions remain shared. ACP agents own their inference
+  loop; the MCP bridge executes tny tools in the owning runtime. Verified Claude
+  uses strict tny-only tooling. Unverified external built-ins are outside these
+  guarantees; managed ACP and SSH require the verified adapter (ADR 0164).
 - Permission mode defaults to **yolo** for every provider and agent (`docs/adr/0001`, `docs/adr/0159`). Teams and swarms default to shared writable workspaces. Read-only workspace policies and `ask`/`auto` modes require explicit overrides; never introduce a read-only agent default.
 - Decisions are recorded in `docs/adr/`; add a new ADR when you change one.
 - CLI is noninteractive-first: flags, stdin, `--json`, layered `--help` with examples (`docs/cli.md`).
@@ -49,7 +53,7 @@ The product source is live under `src/` with unit, integration, mutation, and la
 ```text
 src/main.c
 src/cli/ src/tui/ src/core/ src/util/ src/json/
-src/backends/openai/
+src/backends/openai/ src/backends/acp/
 src/net/ src/mcp/
 third_party/   # yyjson, picohttpparser, greatest — pinned VERSION files
 tests/         # unit (test_*.c), integration/ fixtures+mocks, mutation/, bench/

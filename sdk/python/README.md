@@ -203,7 +203,15 @@ Future is not treated as handler termination: close waits for the coroutine's
 actual `finally` acknowledgement and the completion callback's pending-empty
 acknowledgement before dropping Python references.
 
-Runtime configuration accepts only `openai` (or the default). Both Responses and Chat Completions are supported. SDK credentials are explicit in-memory inputs. Legacy provider constants retain their ABI values but report no availability. MCP ownership and image inputs remain outside this library contract.
+Runtime configuration accepts `openai` (the default) and optional `acp` clients.
+HTTP credentials remain explicit in-memory inputs. For ACP, pass
+`RuntimeConfig(provider="acp", acp_command=["claude-agent-acp"], model="sonnet", ...)`
+and set `TNY_ACP_BRIDGE_EXECUTABLE` to the absolute path of the matching `tny`
+binary. ACP argv is copied literally without a shell; empty arguments are valid
+except for the executable. The adapter owns account authentication and receives
+tny's runtime-owned tools through the MCP bridge, including registered SDK tools.
+The existing ACP provider availability bit is now set; Cursor remains reserved.
+See [libtny ACP](../../docs/libtny.md#optional-acp-client) for bounds and differences.
 
 ## Shared conformance adapter
 
@@ -258,3 +266,8 @@ Use the same methods on `AsyncToolkit` with `await`. Every call accepts a
 work. Relative paths resolve against the captured workspace. See the
 [toolkit contract](../../docs/sdk-toolkit.md) for options, providers, limits,
 and explicit credentials. This feature does not change the agent runtime API.
+
+ACP commands require libtny ABI 1.4. Native HTTP use remains compatible with
+earlier ABI 1.x libraries. ACP usage distinguishes reported currency and
+cumulative session cost from per-turn accounting; unavailable token counts
+are explicitly marked unreported.

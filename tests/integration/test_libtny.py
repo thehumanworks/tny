@@ -252,7 +252,7 @@ def run_ctypes(
     lib.tny_error_free(invalid_error)
 
     unsupported = RuntimeOptions.from_buffer_copy(opts)
-    acp_raw = b"acp"  # reserved legacy provider: unsupported, no host startup
+    acp_raw = b"cursor"  # removed provider remains unsupported, no host startup
     unsupported.provider = TnyBytes(acp_raw, len(acp_raw))
     unsupported_runtime = ctypes.c_void_p()
     unsupported_error = ctypes.c_void_p()
@@ -341,11 +341,11 @@ def run_ctypes(
     assert prefix_caps.schema_version == 1 and prefix_caps.provider_selected == 1
 
     caps = capabilities()
-    assert caps.schema_version == 1 and caps.abi_version == ((1 << 16) | 3)
+    assert caps.schema_version == 1 and caps.abi_version == ((1 << 16) | 4)
     assert caps.provider_selected == 1 and caps.provider_initialized == 0
     assert caps.endpoint_reachability == 0
     assert caps.threading_model == 1 and caps.cancel_model == 2
-    assert caps.provider_available_mask == 1
+    assert caps.provider_available_mask == 9
     # ABI 1.1 advertises the task-preset capability (bit 12) and ABI 1.3 the
     # reasoning-effort capability (bit 13) in addition to the frozen 1.0 set.
     # Neither is enabled: this runtime selects no preset and no effort.

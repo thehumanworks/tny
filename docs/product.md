@@ -26,7 +26,9 @@ One native HTTP backend supports Responses and Chat Completions. Named
 profiles cover environment-key gateways (OpenRouter, explicitly configured
 AIProxy and others), Codex's ChatGPT Responses subscription, and Grok's public
 API or compatible subscription proxy. No external agent binary is required.
-See [ADR 0152](adr/0152-native-http-only-providers.md).
+See [ADR 0152](adr/0152-native-http-only-providers.md). Optional external ACP
+clients connect through the owning-runtime MCP bridge ([ADR 0164](adr/0164-optional-acp-clients.md));
+HTTP operation still needs no external agent executable.
 
 tny uses **C11 with scoped private C++20 ownership modules** (ADR 0114, ADR 0126
 and ADR 0133). Prioritize fast startup, extensibility and reliability. Measure
@@ -51,7 +53,8 @@ Keep the *user-visible harness*, not another vendor's branding:
 
 ## What tny adds
 
-tny owns tools, permissions, context and the agent loop for every provider.
+tny owns tools, permissions and context. HTTP uses the native agent loop;
+optional ACP agents own their loop and reach tny tools through MCP.
 BYOK keys come from environment variables; OAuth subscription login and
 refresh are native. Claude models work through configured compatible gateways.
 

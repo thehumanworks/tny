@@ -47,6 +47,8 @@ void session_close(tny_session_state *s);
 
 /* Transcript (OpenAI shape). */
 void session_add_text(tny_session_state *s, const char *role, const char *content);
+/* Runtime-injected context; ACP retains a bounded durable forwarding queue. */
+int session_add_runtime_context(tny_session_state *s, const char *content);
 /* assistant msg with tool_calls; tc_json is the serialized array or NULL */
 void session_add_assistant(tny_session_state *s, const char *content, const char *tc_json);
 /* Same, plus the members of extras_json (a JSON object, or NULL) merged

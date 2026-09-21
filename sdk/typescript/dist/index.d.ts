@@ -36,7 +36,7 @@ export interface ToolStartEvent extends TnyEventEnvelope { type: "tool_start"; k
 export interface ToolEndEvent extends TnyEventEnvelope { type: "tool_end"; kind: 3; toolName: string; toolId: string; toolDetail: string; toolOk: boolean }
 export interface PermissionRequestEvent extends TnyEventEnvelope { type: "permission_request"; kind: 4; permissionId: string; permissionSummary: string; permissionOptions: number }
 export interface PlanEvent extends TnyEventEnvelope { type: "plan"; kind: 5; text: string; messageId?: string }
-export interface UsageEvent extends TnyEventEnvelope { type: "usage"; kind: 6; inputTokens: bigint; outputTokens: bigint; contextUsed: bigint; contextSize: bigint; cost?: number; hasCost: boolean }
+export interface UsageEvent extends TnyEventEnvelope { type: "usage"; kind: 6; inputTokens: bigint; outputTokens: bigint; contextUsed: bigint; contextSize: bigint; cost?: number; hasCost: boolean; costCurrency: string; costCumulative: boolean; tokensReported: boolean }
 export interface TurnEndEvent extends TnyEventEnvelope { type: "turn_end"; kind: 7; stopReason: TnyStopReason }
 export interface ErrorEvent extends TnyEventEnvelope { type: "error"; kind: 8; text: string; errorCode: number }
 export interface StatusEvent extends TnyEventEnvelope { type: "status"; kind: 9; text: string; messageId?: string }
@@ -89,7 +89,9 @@ export interface RuntimeOptions {
   workspace: string;
   /** Required iff persistence is true. */
   stateDir?: string;
-  provider?: "openai";
+  provider?: "openai" | "acp";
+  /** Literal external ACP command argv; no shell expansion. */
+  acpCommand?: readonly string[];
   model?: string;
   baseUrl?: string;
   apiKey?: string;
