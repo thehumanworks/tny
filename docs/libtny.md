@@ -156,6 +156,22 @@ which keeps embedded runtimes deterministic. The body is copied and is not
 included in ordinary status or diagnostic output. Existing v0/v1 callers and
 symbols are unchanged.
 
+### Explicit reasoning effort
+
+ABI 1.3 embedders select reasoning effort with the additive `v3` record
+([ADR 0163](adr/0163-sdk-reasoning-effort.md)): initialize
+`tny_runtime_options_v3` with `tny_runtime_options_v3_init`, fill
+`base.base.runtime` (and optionally `base.task`), set
+`inference.reasoning_effort`, and call `tny_runtime_create_v3`. Unlike v2, an
+empty task name is valid and selects no preset. An empty effort omits the
+field on the wire. Otherwise it is one token of 1–32 bytes from
+`[A-Za-z0-9_.-]`: `off`, `light`, `medium`, `high`, `xhigh` and `max` map to
+the provider's wire word, and any other token is a provider-advertised value
+sent verbatim. `TNY_REASONING_EFFORT` and settings defaults are CLI-only and
+are never read here. `TNY_CAP_FEATURE_REASONING_EFFORT` is enabled only for a
+runtime created with an effort. The effort is fixed for the runtime's
+lifetime, like the model.
+
 Credentials are copied, never persisted by libtny, omitted from errors/events,
 and wiped from library-owned long-lived storage at teardown. Every allocation
 path reachable through the public runtime is contained by the ABI fault scope:

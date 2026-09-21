@@ -16,6 +16,31 @@ int main(int argc, char **argv) {
             return 11;
         free(exact);
     }
+    static const size_t v3_capacities[] = {504, 568};
+    for (size_t i = 0; i < sizeof v3_capacities / sizeof v3_capacities[0]; i++) {
+        void *exact = malloc(v3_capacities[i]);
+        if (!exact || tny_runtime_options_v3_init(exact, v3_capacities[i]) != TNY_STATUS_OK)
+            return 12;
+        free(exact);
+    }
+    /* Effort is copied, adopted by the runtime and released with it. */
+    tny_runtime_options_v3 effort_options;
+    if (tny_runtime_options_v3_init(&effort_options, sizeof effort_options) != TNY_STATUS_OK)
+        return 13;
+    effort_options.base.base.runtime.workspace = view(argv[1]);
+    effort_options.base.base.runtime.base_url = view(argv[2]);
+    effort_options.base.base.runtime.api_key = view("sanitizer-host-not-real");
+    effort_options.base.task.name = view("review");
+    effort_options.inference.reasoning_effort = view("high");
+    tny_runtime *effort_runtime = NULL;
+    if (tny_runtime_create_v3(&effort_options, sizeof effort_options, &effort_runtime, NULL) !=
+            TNY_STATUS_OK ||
+        tny_runtime_destroy(&effort_runtime) != TNY_STATUS_OK)
+        return 14;
+    effort_options.inference.reasoning_effort = view("not valid");
+    if (tny_runtime_create_v3(&effort_options, sizeof effort_options, &effort_runtime, NULL) !=
+        TNY_STATUS_INVALID_ARGUMENT)
+        return 15;
     for (int cycle = 0; cycle < 100; cycle++) {
         tny_runtime_options_v0 options;
         if (tny_runtime_options_init(&options, sizeof options) != TNY_STATUS_OK) return 10;

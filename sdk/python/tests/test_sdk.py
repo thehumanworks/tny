@@ -44,7 +44,7 @@ class Mock:
         self.port = free_port()
         self.process = subprocess.Popen(
             [sys.executable, os.fspath(MOCK), str(self.port)],
-            env=dict(os.environ, MOCK_EXPECT_WIRE="responses", **environment),
+            env={**os.environ, "MOCK_EXPECT_WIRE": "responses", **environment},
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -358,6 +358,64 @@ class SDKTests(unittest.TestCase):
             self.skipTest("explicit ABI0 compatibility artifact is not staged")
         with self.assertRaises(tny.UnsupportedError):
             tny.Library(legacy)
+
+    def test_reasoning_effort_reaches_the_provider_request(self) -> None:
+        # The mock 400s unless every request carries exactly this wire word,
+        # so a dropped or unmapped effort cannot finish the turn. "light" is a
+        # canonical level whose OpenAI wire word is "low".
+        for wire_api, preset in (("responses", None), ("chat", "review")):
+            mock = Mock(MOCK_EXPECT_EFFORT="low", MOCK_EXPECT_WIRE=wire_api)
+            try:
+                config = self.config(
+                    mock.url,
+                    wire_api=wire_api,
+                    reasoning_effort="light",
+                    task_preset=tny.TaskPreset(preset) if preset else None,
+                )
+                self.assertIn("reasoning_effort='light'", repr(config))
+                with tny.Runtime(config, library=self.library) as runtime:
+                    self.assertTrue(runtime.capabilities.reasoning_effort)
+                    self.assertEqual(runtime.capabilities.task_presets, bool(preset))
+                    with runtime.create_session() as session:
+                        events = list(session.run("list files in ."))
+                self.assertFalse(any(isinstance(e, tny.ErrorEvent) for e in events))
+                terminals = [e for e in events if isinstance(e, tny.TurnEndEvent)]
+                self.assertEqual([e.stop_reason for e in terminals], [0])
+            finally:
+                mock.close()
+
+    def test_omitted_reasoning_effort_sends_no_effort(self) -> None:
+        # Without MOCK_EXPECT_EFFORT the mock rejects any request that carries
+        # one; an ambient TNY_REASONING_EFFORT must not leak into an embedder.
+        mock = Mock()
+        previous = os.environ.get("TNY_REASONING_EFFORT")
+        os.environ["TNY_REASONING_EFFORT"] = "high"
+        try:
+            with tny.Runtime(self.config(mock.url), library=self.library) as runtime:
+                self.assertFalse(runtime.capabilities.reasoning_effort)
+                with runtime.create_session() as session:
+                    events = list(session.run("list files in ."))
+            self.assertFalse(any(isinstance(e, tny.ErrorEvent) for e in events))
+        finally:
+            if previous is None:
+                del os.environ["TNY_REASONING_EFFORT"]
+            else:
+                os.environ["TNY_REASONING_EFFORT"] = previous
+            mock.close()
+
+    def test_invalid_reasoning_effort_is_rejected_before_native_creation(self) -> None:
+        for effort in ("hi gh", "high\n", "a/b", "x" * 33, "h\u00e9", b"\xff", 3):
+            with (
+                self.subTest(effort=effort),
+                self.assertRaises(tny.InvalidArgumentError),
+            ):
+                tny.Runtime(
+                    self.config(
+                        "https://api.example.invalid/v1",
+                        reasoning_effort=effort,  # type: ignore[arg-type]
+                    ),
+                    library=self.library,
+                )
 
     def test_sync_full_turn_events_are_python_owned_bytes(self) -> None:
         """Conformance: success_two_turns and slow_consumer_backpressure basics."""

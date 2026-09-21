@@ -254,6 +254,7 @@ class AbiArtifactTests(unittest.TestCase):
             cpp_binary = BUILD / "abi" / "current-consumer-cpp"
             boundary_binary = BUILD / "abi" / "capacity-boundaries"
             v2_binary = BUILD / "abi" / "current-v2-consumer"
+            v3_binary = BUILD / "abi" / "current-v3-consumer"
             link(
                 self.cc,
                 ROOT / "tests/abi/current_consumer.c",
@@ -282,10 +283,18 @@ class AbiArtifactTests(unittest.TestCase):
                 ROOT / "include",
                 PRIMARY,
             )
+            link(
+                self.cc,
+                ROOT / "tests/abi/current_v3_consumer.c",
+                v3_binary,
+                ROOT / "include",
+                PRIMARY,
+            )
             run([str(c_binary), workspace, "http://127.0.0.1:1/v1"])
             run([str(cpp_binary)])
             run([str(boundary_binary)])
             run([str(v2_binary), workspace, "http://127.0.0.1:1/v1"])
+            run([str(v3_binary), workspace, "http://127.0.0.1:1/v1"])
 
     def test_minimum_and_current_header_source_cross_matrix(self) -> None:
         minimum = ROOT / "tests/abi/fixtures/abi1-min"

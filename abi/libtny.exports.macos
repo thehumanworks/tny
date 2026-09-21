@@ -4,6 +4,8 @@ _tny_runtime_options_init
 _tny_runtime_options_v1_init
 _tny_task_options_v1_init
 _tny_runtime_options_v2_init
+_tny_inference_options_v1_init
+_tny_runtime_options_v3_init
 _tny_host_services_v1_init
 _tny_tool_spec_v1_init
 _tny_tool_result_v1_init
@@ -12,6 +14,7 @@ _tny_capabilities_v1_init
 _tny_runtime_create
 _tny_runtime_create_v1
 _tny_runtime_create_v2
+_tny_runtime_create_v3
 _tny_runtime_get_capabilities
 _tny_runtime_get_capabilities_v1
 _tny_runtime_register_tool

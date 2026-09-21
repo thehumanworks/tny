@@ -231,6 +231,9 @@ static void fail_text(command *cmd, int32_t status, const char *message) {
     cmd->error_message = sdk_copy_cstr(message);
 }
 
+typedef int32_t (*runtime_options_v3_init_fn)(tny_runtime_options_v3 *, uint64_t);
+typedef int32_t (*runtime_create_v3_fn)(const tny_runtime_options_v3 *, uint64_t, tny_runtime **,
+                                        tny_error **);
 typedef int32_t (*task_options_v2_init_fn)(tny_runtime_options_v2 *, uint64_t);
 typedef int32_t (*runtime_create_v2_fn)(const tny_runtime_options_v2 *, uint64_t, tny_runtime **,
                                         tny_error **);
@@ -259,6 +262,31 @@ static void *open_task_runtime_symbols(task_options_v2_init_fn *init_v2,
     }
     memcpy(init_v2, &init_symbol, sizeof *init_v2);
     memcpy(create_v2, &create_symbol, sizeof *create_v2);
+    return library;
+}
+
+/* ABI 1.3 counterpart of open_task_runtime_symbols, with the same image and
+ * lifetime rules. */
+static void *open_effort_runtime_symbols(runtime_options_v3_init_fn *init_v3,
+                                         runtime_create_v3_fn *create_v3) {
+    Dl_info info;
+    void *abi_address = NULL;
+    uint32_t (*abi_version_fn)(void) = tny_abi_version;
+    if (!init_v3 || !create_v3 || sizeof abi_address != sizeof abi_version_fn) return NULL;
+    memcpy(&abi_address, &abi_version_fn, sizeof abi_address);
+    if (!abi_address || dladdr(abi_address, &info) == 0 || !info.dli_fname || !*info.dli_fname)
+        return NULL;
+    void *library = dlopen(info.dli_fname, RTLD_NOW | RTLD_LOCAL);
+    if (!library) return NULL;
+    void *init_symbol = dlsym(library, "tny_runtime_options_v3_init");
+    void *create_symbol = dlsym(library, "tny_runtime_create_v3");
+    if (!init_symbol || !create_symbol || sizeof *init_v3 != sizeof init_symbol ||
+        sizeof *create_v3 != sizeof create_symbol) {
+        dlclose(library);
+        return NULL;
+    }
+    memcpy(init_v3, &init_symbol, sizeof *init_v3);
+    memcpy(create_v3, &create_symbol, sizeof *create_v3);
     return library;
 }
 
@@ -334,7 +362,36 @@ static void execute_create(runtime_state *state, command *cmd) {
     options.base_url = sdk_view_of(cmd->create.base_url);
     options.api_key = sdk_view_of(cmd->create.api_key);
     options.wire_api = sdk_view_of(cmd->create.wire_api);
-    if (cmd->create.task_set) {
+    if (cmd->create.reasoning_effort.ptr) {
+        tny_runtime_options_v3 options_v3;
+        runtime_options_v3_init_fn init_v3 = NULL;
+        runtime_create_v3_fn create_v3 = NULL;
+        void *library = minor >= 3u ? open_effort_runtime_symbols(&init_v3, &create_v3) : NULL;
+        if (!library) {
+            sdk_wipe_owned_bytes(&cmd->create.api_key);
+            fail_text(cmd, TNY_STATUS_UNSUPPORTED,
+                      "reasoningEffort requires libtny ABI 1.3 or newer");
+            cmd->destroy_owner = 1;
+            state->closing = 1;
+            return;
+        }
+        if (init_v3(&options_v3, sizeof options_v3) != TNY_STATUS_OK) {
+            dlclose(library);
+            sdk_wipe_owned_bytes(&cmd->create.api_key);
+            fail_text(cmd, TNY_STATUS_INTERNAL, "failed to initialize effort runtime options");
+            cmd->destroy_owner = 1;
+            state->closing = 1;
+            return;
+        }
+        options_v3.base.base.runtime = options;
+        options_v3.inference.reasoning_effort = sdk_view_of(cmd->create.reasoning_effort);
+        if (cmd->create.task_set) { /* v3 accepts an empty task record */
+            options_v3.base.task.name = sdk_view_of(cmd->create.task_name);
+            options_v3.base.task.instructions = sdk_view_of(cmd->create.task_instructions);
+        }
+        cmd->status = create_v3(&options_v3, sizeof options_v3, &state->runtime, &error);
+        dlclose(library);
+    } else if (cmd->create.task_set) {
         tny_runtime_options_v2 options_v2;
         task_options_v2_init_fn init_v2 = NULL;
         runtime_create_v2_fn create_v2 = NULL;

@@ -75,3 +75,10 @@ LIBTNY_1.2 {
     tny_toolkit_job_result;
     tny_toolkit_job_destroy;
 } LIBTNY_1.1;
+
+LIBTNY_1.3 {
+  global:
+    tny_inference_options_v1_init;
+    tny_runtime_options_v3_init;
+    tny_runtime_create_v3;
+} LIBTNY_1.2;

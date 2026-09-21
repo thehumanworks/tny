@@ -100,6 +100,7 @@ function normalizeCapabilities(capabilities) {
     abiMajor: capabilities.abiVersion >>> 16,
     abiMinor: capabilities.abiVersion & 0xffff,
     taskPresets: Boolean(capabilities.featureEnabledMask & (1n << 12n)),
+    reasoningEffort: Boolean(capabilities.featureEnabledMask & (1n << 13n)),
     experimental: false,
   });
 }
@@ -175,6 +176,16 @@ export class Runtime {
     if (options.taskPreset !== undefined) {
       options = { ...options, taskPreset: taskPresetOption(options.taskPreset) };
     }
+    if (options.reasoningEffort !== undefined &&
+        (typeof options.reasoningEffort !== "string" ||
+         !/^[A-Za-z0-9_.-]{0,32}$/.test(options.reasoningEffort))) {
+      throw new TypeError("reasoningEffort must be 1-32 characters of [A-Za-z0-9_.-]");
+    }
+    if (!options.reasoningEffort) {
+      // Undefined or empty means the provider default, as in the Python SDK.
+      const { reasoningEffort: _omitted, ...rest } = options;
+      options = rest;
+    }
     let nativeInfo;
     try {
       nativeInfo = await invoke(
@@ -185,6 +196,9 @@ export class Runtime {
         }),
       );
     } catch (error) {
+      if (error?.status === -9 && /reasoningEffort/.test(String(error?.message))) {
+        throw new UnsupportedFeatureError("reasoningEffort");
+      }
       if (options.taskPreset !== undefined && error?.status === -9) {
         throw new UnsupportedFeatureError("taskPreset");
       }

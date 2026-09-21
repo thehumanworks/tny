@@ -18,6 +18,8 @@ for (const options of [
   { taskPreset: { name: "review", instructions: "bad\0body" } },
   { taskPreset: { name: "review", instructions: "\ud800" } },
   { taskPreset: { name: "review", instructions: "x".repeat(262145) } },
+  { reasoningEffort: "hi gh" }, { reasoningEffort: "high\n" }, { reasoningEffort: "a/b" },
+  { reasoningEffort: "x".repeat(33) }, { reasoningEffort: "h\u00e9" }, { reasoningEffort: 3 },
 ]) {
   await assert.rejects(Runtime.create({ ...base, ...options }));
 }

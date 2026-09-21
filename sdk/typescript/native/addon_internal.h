@@ -72,6 +72,7 @@ typedef struct create_options {
     uint64_t max_tool_result_bytes;
     sdk_owned_bytes task_name, task_instructions;
     int task_set;
+    sdk_owned_bytes reasoning_effort; /* empty = provider default */
 } create_options;
 
 struct runtime_state;

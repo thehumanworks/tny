@@ -81,6 +81,8 @@ export interface RuntimeCapabilities {
   readonly abiMinor: number;
   /** True only when this runtime selected an ABI 1.1 task preset. */
   readonly taskPresets: boolean;
+  /** True only when this runtime was created with an explicit reasoning effort. */
+  readonly reasoningEffort: boolean;
   readonly experimental: false;
 }
 export interface RuntimeOptions {
@@ -100,7 +102,17 @@ export interface RuntimeOptions {
   /** Explicit deterministic task preset. A name selects a built-in; the
    * object form supplies a rebuild-free custom instruction body. */
   taskPreset?: string | TaskPreset;
+  /**
+   * Reasoning effort sent with every provider request (libtny ABI 1.3+).
+   * Canonical levels are mapped to the provider's wire word; any other token
+   * of [A-Za-z0-9_.-]{1,32} is a provider-advertised value sent verbatim.
+   * Omitted or empty leaves the provider default.
+   */
+  reasoningEffort?: ReasoningEffort;
 }
+export type ReasoningEffort =
+  | "off" | "light" | "medium" | "high" | "xhigh" | "max"
+  | (string & {});
 export interface TaskPreset {
   readonly name: string;
   readonly instructions?: string;

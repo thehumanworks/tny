@@ -47,6 +47,7 @@ native_config = tny.RuntimeConfig(
 )
 
 TASK_CONFIG = tny.RuntimeConfig(workspace=".", task_preset=tny.TaskPreset("review"))
+EFFORT_CONFIG = tny.RuntimeConfig(workspace=".", model="m", reasoning_effort="high")
 
 
 def host_clock() -> int:

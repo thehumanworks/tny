@@ -25,6 +25,13 @@ with Runtime(config) as runtime:
 See `examples/` for complete sync, asyncio, permission, cancellation, and
 resume flows.
 
+`RuntimeConfig(model=..., reasoning_effort=...)` selects the model and its
+reasoning effort for that runtime. Effort is `off`, `light`, `medium`, `high`,
+`xhigh`, `max`, or a provider-advertised token; empty leaves the provider
+default. It requires libtny ABI 1.3 and raises `UnsupportedError` against an
+older library. `runtime.capabilities.reasoning_effort` reports whether one is
+in force. `TNY_REASONING_EFFORT` is a CLI setting and is ignored here.
+
 The SDK embeds the native OpenAI-compatible HTTP loop. Pass credentials in memory; the library never persists them.
 
 This package is currently **UNLICENSED**: distribution by the repository owner

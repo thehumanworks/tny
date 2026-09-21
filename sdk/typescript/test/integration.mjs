@@ -187,6 +187,42 @@ await withMock({
   await runtime.close();
 });
 
+// The mock 400s unless every request carries exactly this wire word, so a
+// dropped or unmapped effort cannot finish the turn ("light" maps to "low").
+for (const taskPreset of [undefined, "review"]) {
+  await withMock({ MOCK_EXPECT_EFFORT: "low" }, async (baseUrl) => {
+    const runtime = await create(baseUrl, {
+      reasoningEffort: "light",
+      ...(taskPreset === undefined ? {} : { taskPreset }),
+    });
+    assert.ok(runtime.capabilities.abiMinor >= 3);
+    assert.equal(runtime.capabilities.reasoningEffort, true);
+    assert.equal(runtime.capabilities.taskPresets, taskPreset !== undefined);
+    const session = await runtime.createSession();
+    const answer = await session.ask("exercise native ABI 1.3 effort creation");
+    assert.match(answer.text, /MOCK-OK/);
+    assert.equal(answer.stopReason, "done");
+    await session.close();
+    await runtime.close();
+  });
+}
+
+// Omitted or empty effort sends none; the mock rejects an unexpected one, and
+// an ambient TNY_REASONING_EFFORT must not leak into an embedder.
+process.env.TNY_REASONING_EFFORT = "high";
+for (const reasoningEffort of [undefined, ""]) {
+  await withMock({}, async (baseUrl) => {
+    const runtime = await create(baseUrl, { reasoningEffort });
+    assert.equal(runtime.capabilities.reasoningEffort, false);
+    const session = await runtime.createSession();
+    const answer = await session.ask("no effort");
+    assert.equal(answer.stopReason, "done");
+    await session.close();
+    await runtime.close();
+  });
+}
+delete process.env.TNY_REASONING_EFFORT;
+
 await withMock({ MOCK_EXPECT_INSTRUCTIONS: "WORKFLOW-DEFAULT-TASK" }, async (baseUrl) => {
   const workflow = new Workflow({
     runtime: {

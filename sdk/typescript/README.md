@@ -67,6 +67,13 @@ await runtime.close();
 
 The SDK embeds the native OpenAI-compatible HTTP loop. Pass credentials in memory; the library never persists them.
 
+`model` and `reasoningEffort` select the model and its reasoning effort for
+that runtime. Effort is `off`, `light`, `medium`, `high`, `xhigh`, `max`, or a
+provider-advertised token; omitted or empty leaves the provider default. It
+requires libtny ABI 1.3 and rejects with `UnsupportedFeatureError` against an
+older library. `runtime.capabilities.reasoningEffort` reports whether one is
+in force. `TNY_REASONING_EFFORT` is a CLI setting and is ignored here.
+
 Task selection is runtime configuration shared by every session. Use
 `taskPreset: "review"` for a built-in, or `taskPreset: { name: "release", instructions:
 "..." }` for an explicit custom body. The native runtime never reads task

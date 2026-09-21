@@ -223,6 +223,17 @@ static int task_name_valid(const sdk_owned_bytes *name) {
     return 1;
 }
 
+static int effort_token_valid(const sdk_owned_bytes *effort) {
+    if (!effort->ptr || effort->len == 0u || effort->len > 32u) return 0;
+    for (uint64_t i = 0u; i < effort->len; i++) {
+        unsigned char c = (unsigned char)effort->ptr[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+              c == '_' || c == '-' || c == '.'))
+            return 0;
+    }
+    return 1;
+}
+
 int sdk_parse_create_options(napi_env env, napi_value object, create_options *options) {
     int persistence;
     napi_value task;
@@ -280,6 +291,15 @@ int sdk_parse_create_options(napi_env env, napi_value object, create_options *op
             return 0;
         }
         options->task_set = 1;
+    }
+    if (!get_string_limited(env, object, "reasoningEffort", 0, 32u,
+                            "reasoningEffort must be 1-32 characters of [A-Za-z0-9_.-]",
+                            &options->reasoning_effort))
+        return 0;
+    if (options->reasoning_effort.ptr && !effort_token_valid(&options->reasoning_effort)) {
+        (void)napi_throw_type_error(env, NULL,
+                                    "reasoningEffort must be 1-32 characters of [A-Za-z0-9_.-]");
+        return 0;
     }
     return 1;
 }

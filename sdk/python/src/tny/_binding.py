@@ -32,6 +32,7 @@ FEATURE_CROSS_THREAD_CANCEL = 1 << 7
 FEATURE_WINDOWS = 1 << 8
 FEATURE_HOST_SERVICES = 1 << 11
 FEATURE_TASK_PRESETS = 1 << 12
+FEATURE_REASONING_EFFORT = 1 << 13
 
 CDEF = r"""
 typedef unsigned int uint32_t;
@@ -79,6 +80,14 @@ typedef struct {
     uint32_t abi_version; uint32_t struct_size;
     tny_runtime_options_v1 base; tny_task_options_v1 task; uint64_t reserved[8];
 } tny_runtime_options_v2;
+typedef struct {
+    uint32_t abi_version; uint32_t struct_size;
+    tny_bytes reasoning_effort; uint64_t reserved[6];
+} tny_inference_options_v1;
+typedef struct {
+    uint32_t abi_version; uint32_t struct_size;
+    tny_runtime_options_v2 base; tny_inference_options_v1 inference; uint64_t reserved[8];
+} tny_runtime_options_v3;
 typedef struct {
     uint32_t abi_version; uint32_t struct_size; tny_bytes data;
     uint32_t is_error; uint32_t reserved_scalar; uint64_t reserved[4];
@@ -128,6 +137,7 @@ int32_t tny_runtime_options_init(tny_runtime_options_v0 *, uint64_t);
 int32_t tny_runtime_options_v1_init(tny_runtime_options_v1 *, uint64_t);
 int32_t tny_task_options_v1_init(tny_task_options_v1 *, uint64_t);
 int32_t tny_runtime_options_v2_init(tny_runtime_options_v2 *, uint64_t);
+int32_t tny_runtime_options_v3_init(tny_runtime_options_v3 *, uint64_t);
 int32_t tny_host_services_v1_init(tny_host_services_v1 *, uint64_t);
 int32_t tny_tool_spec_v1_init(tny_tool_spec_v1 *, uint64_t);
 int32_t tny_tool_result_v1_init(tny_tool_result_v1 *, uint64_t);
@@ -136,6 +146,8 @@ int32_t tny_capabilities_v1_init(tny_capabilities_v1 *, uint64_t);
 int32_t tny_runtime_create(const tny_runtime_options_v0 *, uint64_t,
                            tny_runtime **, tny_error **);
 int32_t tny_runtime_create_v1(const tny_runtime_options_v1 *, uint64_t,
+                              tny_runtime **, tny_error **);
+int32_t tny_runtime_create_v3(const tny_runtime_options_v3 *, uint64_t,
                               tny_runtime **, tny_error **);
 int32_t tny_runtime_create_v2(const tny_runtime_options_v2 *, uint64_t,
                               tny_runtime **, tny_error **);
@@ -230,6 +242,11 @@ class Capabilities:
     def task_presets(self) -> bool:
         """Whether this runtime selected and enabled task-preset support."""
         return bool(self.feature_enabled_mask & FEATURE_TASK_PRESETS)
+
+    @property
+    def reasoning_effort(self) -> bool:
+        """Whether this runtime was created with an explicit reasoning effort."""
+        return bool(self.feature_enabled_mask & FEATURE_REASONING_EFFORT)
 
     @property
     def provider(self) -> str:

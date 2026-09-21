@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 #define TNY_ABI_MAJOR   1u
-#define TNY_ABI_MINOR   2u
+#define TNY_ABI_MINOR   3u
 #define TNY_ABI_VERSION ((TNY_ABI_MAJOR << 16) | TNY_ABI_MINOR)
 
 /* Non-error outcomes. */
@@ -118,13 +118,14 @@ TNY_API int32_t TNY_CALL tny_toolkit_job_destroy(tny_toolkit_job **job);
 #define TNY_CALLBACK_NOEXCEPT
 #endif
 
-#define TNY_HOST_SERVICES_ABI_VERSION   1u
-#define TNY_RUNTIME_OPTIONS_ABI_VERSION 1u
-#define TNY_TASK_OPTIONS_ABI_VERSION    1u
-#define TNY_DIAGNOSTIC_DEBUG            0u
-#define TNY_DIAGNOSTIC_INFO             1u
-#define TNY_DIAGNOSTIC_WARN             2u
-#define TNY_DIAGNOSTIC_ERROR            3u
+#define TNY_HOST_SERVICES_ABI_VERSION     1u
+#define TNY_RUNTIME_OPTIONS_ABI_VERSION   1u
+#define TNY_TASK_OPTIONS_ABI_VERSION      1u
+#define TNY_INFERENCE_OPTIONS_ABI_VERSION 1u
+#define TNY_DIAGNOSTIC_DEBUG              0u
+#define TNY_DIAGNOSTIC_INFO               1u
+#define TNY_DIAGNOSTIC_WARN               2u
+#define TNY_DIAGNOSTIC_ERROR              3u
 
 typedef int32_t(TNY_CALL *tny_host_diagnostic_fn)(void *user_data, uint32_t level,
                                                   tny_bytes component,
@@ -270,6 +271,7 @@ typedef struct {
 #define TNY_CAP_FEATURE_FULLY_STATIC_TLS    (UINT64_C(1) << 10)
 #define TNY_CAP_FEATURE_HOST_SERVICES       (UINT64_C(1) << 11)
 #define TNY_CAP_FEATURE_TASK_PRESETS        (UINT64_C(1) << 12)
+#define TNY_CAP_FEATURE_REASONING_EFFORT    (UINT64_C(1) << 13)
 
 #define TNY_ENDPOINT_REACHABILITY_UNKNOWN     0u
 #define TNY_ENDPOINT_REACHABILITY_REACHABLE   1u
@@ -372,6 +374,30 @@ typedef struct {
     uint64_t reserved[8];
 } tny_runtime_options_v2;
 
+/* Explicit provider request tuning for deterministic embedders (ABI 1.3).  An
+ * empty reasoning_effort omits the field on the wire, leaving the provider
+ * default.  Otherwise it is one token of 1-32 bytes from [A-Za-z0-9_.-]:
+ * a canonical level (off, light, medium, high, xhigh, max) is mapped to the
+ * provider's wire word; any other token is a provider-advertised value passed
+ * through verbatim.  No environment variable or settings file is consulted. */
+typedef struct {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    tny_bytes reasoning_effort;
+    uint64_t reserved[6];
+} tny_inference_options_v1;
+
+/* v3 extends v2 without changing any frozen prefix.  Unlike
+ * tny_runtime_create_v2, an empty base.task.name is valid here and selects no
+ * task preset, so one record serves every embedder. */
+typedef struct {
+    uint32_t abi_version;
+    uint32_t struct_size;
+    tny_runtime_options_v2 base;
+    tny_inference_options_v1 inference;
+    uint64_t reserved[8];
+} tny_runtime_options_v3;
+
 /* Public runtimes support native OpenAI-compatible HTTP conversations.
  * Legacy provider constants are reserved and unavailable.
  * Public runtimes use a fixed 15-second native
@@ -392,6 +418,10 @@ TNY_API int32_t TNY_CALL tny_runtime_options_v1_init(tny_runtime_options_v1 *opt
                                                      uint64_t capacity);
 TNY_API int32_t TNY_CALL tny_task_options_v1_init(tny_task_options_v1 *options, uint64_t capacity);
 TNY_API int32_t TNY_CALL tny_runtime_options_v2_init(tny_runtime_options_v2 *options,
+                                                     uint64_t capacity);
+TNY_API int32_t TNY_CALL tny_inference_options_v1_init(tny_inference_options_v1 *options,
+                                                       uint64_t capacity);
+TNY_API int32_t TNY_CALL tny_runtime_options_v3_init(tny_runtime_options_v3 *options,
                                                      uint64_t capacity);
 TNY_API int32_t TNY_CALL tny_host_services_v1_init(tny_host_services_v1 *services,
                                                    uint64_t capacity);
@@ -416,6 +446,9 @@ TNY_API int32_t TNY_CALL tny_runtime_create_v1(const tny_runtime_options_v1 *opt
                                                uint64_t capacity, tny_runtime **out_runtime,
                                                tny_error **out_error);
 TNY_API int32_t TNY_CALL tny_runtime_create_v2(const tny_runtime_options_v2 *options,
+                                               uint64_t capacity, tny_runtime **out_runtime,
+                                               tny_error **out_error);
+TNY_API int32_t TNY_CALL tny_runtime_create_v3(const tny_runtime_options_v3 *options,
                                                uint64_t capacity, tny_runtime **out_runtime,
                                                tny_error **out_error);
 TNY_API void TNY_CALL tny_runtime_free(tny_runtime *runtime);

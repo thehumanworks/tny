@@ -3,9 +3,9 @@
   "state": "active",
   "abi": {
     "major": 1,
-    "minor": 2,
-    "encoded": 65538,
-    "elf_version_node": "LIBTNY_1.2"
+    "minor": 3,
+    "encoded": 65539,
+    "elf_version_node": "LIBTNY_1.3"
   },
   "data_model": {
     "name": "LP64-little-endian",
@@ -22,8 +22,8 @@
   },
   "constants": {
     "TNY_ABI_MAJOR": 1,
-    "TNY_ABI_MINOR": 2,
-    "TNY_ABI_VERSION": 65538,
+    "TNY_ABI_MINOR": 3,
+    "TNY_ABI_VERSION": 65539,
     "TNY_CANCEL_CROSS_THREAD_ASYNC_WAKE": 2,
     "TNY_CANCEL_OWNER_THREAD_ASYNC": 1,
     "TNY_CAPABILITY_SCHEMA_VERSION": 1,
@@ -32,6 +32,7 @@
     "TNY_CAP_FEATURE_FULLY_STATIC_TLS": 1024,
     "TNY_CAP_FEATURE_HOST_SERVICES": 2048,
     "TNY_CAP_FEATURE_TASK_PRESETS": 4096,
+    "TNY_CAP_FEATURE_REASONING_EFFORT": 8192,
     "TNY_CAP_FEATURE_MCP": 16,
     "TNY_CAP_FEATURE_PERSISTENCE": 2,
     "TNY_CAP_FEATURE_SHARED_LIBRARY": 4,
@@ -89,6 +90,7 @@
     "TNY_PROVIDER_OPENAI": 1,
     "TNY_RUNTIME_OPTIONS_ABI_VERSION": 1,
     "TNY_TASK_OPTIONS_ABI_VERSION": 1,
+    "TNY_INFERENCE_OPTIONS_ABI_VERSION": 1,
     "TNY_STATUS_AUTH": -6,
     "TNY_STATUS_BACKPRESSURE": -11,
     "TNY_STATUS_BAD_STATE": -2,
@@ -300,6 +302,33 @@
         {"name": "reserved", "offset": 360, "size": 64}
       ]
     },
+    "tny_inference_options_v1": {
+      "size": 72,
+      "alignment": 8,
+      "minimum_size": 24,
+      "extensibility": "sized_tail",
+      "append_from": 72,
+      "fields": [
+        {"name": "abi_version", "offset": 0, "size": 4},
+        {"name": "struct_size", "offset": 4, "size": 4},
+        {"name": "reasoning_effort", "offset": 8, "size": 16},
+        {"name": "reserved", "offset": 24, "size": 48}
+      ]
+    },
+    "tny_runtime_options_v3": {
+      "size": 568,
+      "alignment": 8,
+      "minimum_size": 504,
+      "extensibility": "sized_tail",
+      "append_from": 568,
+      "fields": [
+        {"name": "abi_version", "offset": 0, "size": 4},
+        {"name": "struct_size", "offset": 4, "size": 4},
+        {"name": "base", "offset": 8, "size": 424},
+        {"name": "inference", "offset": 432, "size": 72},
+        {"name": "reserved", "offset": 504, "size": 64}
+      ]
+    },
     "tny_tool_result_v1": {
       "size": 64,
       "alignment": 8,
@@ -362,10 +391,12 @@
     "tny_event_tool_ok": "LIBTNY_1.0",
     "tny_event_view_init": "LIBTNY_1.0",
     "tny_host_services_v1_init": "LIBTNY_1.0",
+    "tny_inference_options_v1_init": "LIBTNY_1.3",
     "tny_library_version": "LIBTNY_1.0",
     "tny_runtime_create": "LIBTNY_1.0",
     "tny_runtime_create_v1": "LIBTNY_1.0",
     "tny_runtime_create_v2": "LIBTNY_1.1",
+    "tny_runtime_create_v3": "LIBTNY_1.3",
     "tny_runtime_destroy": "LIBTNY_1.0",
     "tny_runtime_free": "LIBTNY_1.0",
     "tny_runtime_get_capabilities": "LIBTNY_1.0",
@@ -379,6 +410,7 @@
     "tny_runtime_options_init": "LIBTNY_1.0",
     "tny_runtime_options_v1_init": "LIBTNY_1.0",
     "tny_runtime_options_v2_init": "LIBTNY_1.1",
+    "tny_runtime_options_v3_init": "LIBTNY_1.3",
     "tny_runtime_register_tool": "LIBTNY_1.0",
     "tny_session_cancel": "LIBTNY_1.0",
     "tny_session_create": "LIBTNY_1.0",
@@ -409,28 +441,31 @@
     "tny_event_read": "int32_t(const tny_event*,tny_event_view_v0*,uint64_t)",
     "tny_event_view_init": "int32_t(tny_event_view_v0*,uint64_t)",
     "tny_host_services_v1_init": "int32_t(tny_host_services_v1*,uint64_t)",
+    "tny_inference_options_v1_init": "int32_t(tny_inference_options_v1*,uint64_t)",
     "tny_runtime_create": "int32_t(const tny_runtime_options_v0*,uint64_t,tny_runtime**,tny_error**)",
     "tny_runtime_create_v1": "int32_t(const tny_runtime_options_v1*,uint64_t,tny_runtime**,tny_error**)",
     "tny_runtime_create_v2": "int32_t(const tny_runtime_options_v2*,uint64_t,tny_runtime**,tny_error**)",
+    "tny_runtime_create_v3": "int32_t(const tny_runtime_options_v3*,uint64_t,tny_runtime**,tny_error**)",
     "tny_runtime_get_capabilities": "int32_t(const tny_runtime*,tny_capabilities_v0*,uint64_t)",
     "tny_runtime_get_capabilities_v1": "int32_t(const tny_runtime*,tny_capabilities_v1*,uint64_t)",
     "tny_runtime_options_init": "int32_t(tny_runtime_options_v0*,uint64_t)",
     "tny_runtime_options_v1_init": "int32_t(tny_runtime_options_v1*,uint64_t)",
     "tny_runtime_options_v2_init": "int32_t(tny_runtime_options_v2*,uint64_t)",
+    "tny_runtime_options_v3_init": "int32_t(tny_runtime_options_v3*,uint64_t)",
     "tny_task_options_v1_init": "int32_t(tny_task_options_v1*,uint64_t)",
     "tny_tool_result_v1_init": "int32_t(tny_tool_result_v1*,uint64_t)",
     "tny_tool_spec_v1_init": "int32_t(tny_tool_spec_v1*,uint64_t)"
   },
   "signature_manifest": {
     "path": "abi/signatures-v1.json",
-    "sha256": "db8eec29a93f7c67b39dbbdbea3af10c3a676699781e449c658ebfdb881f385e"
+    "sha256": "65fb7f90450a6eb1ba6a055af8391728a5ac4651a228a7706eaba5a63acb4849"
   },
   "artifacts": {
     "linux-glibc": {
       "architectures": ["aarch64", "x86_64"],
       "soname": "libtny.so.1",
       "linker_name": "libtny.so",
-      "elf_version_nodes": ["LIBTNY_1.0", "LIBTNY_1.1", "LIBTNY_1.2"]
+      "elf_version_nodes": ["LIBTNY_1.0", "LIBTNY_1.1", "LIBTNY_1.2", "LIBTNY_1.3"]
     },
     "macos": {
       "architectures": ["arm64"],

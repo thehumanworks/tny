@@ -28,6 +28,18 @@ Task creation requires ABI minor 1; against an ABI 1.0 library both SDKs keep
 using the v1 creation path when no task is requested and raise an explicit
 unsupported-feature error when one is.
 
+Model and reasoning effort are per-runtime configuration too. Python uses
+`RuntimeConfig(model="...", reasoning_effort="high")`; TypeScript accepts
+`Runtime.create({ workspace, model: "...", reasoningEffort: "high" })`. The
+canonical levels `off`, `light`, `medium`, `high`, `xhigh` and `max` map to the
+provider's wire word; any other `[A-Za-z0-9_.-]{1,32}` token is sent verbatim,
+and omitting it leaves the provider default. The CLI's
+`TNY_REASONING_EFFORT` and settings defaults are never read. Effort requires
+ABI minor 3 ([ADR 0163](adr/0163-sdk-reasoning-effort.md)); without one, both
+SDKs keep their earlier creation paths, so older libraries still load. Because
+every workflow task may carry its own runtime configuration, a graph can mix
+models and efforts per role — see `examples/sdk/models.json`.
+
 ## Python
 
 The Python package provides context-managed `Runtime` and `Session` objects,
@@ -90,6 +102,9 @@ aggregate errors. Both SDKs expose a custom runner seam for adapters and tests.
 
 See [workflows.md](workflows.md) for complete examples, status semantics,
 context bounds, cancellation, and the shell equivalent.
+
+For worked, runnable workflows in both languages — an auto-research loop and a
+code generation pipeline — see [`examples/sdk/`](../examples/sdk/README.md).
 
 ## Platforms and authority
 

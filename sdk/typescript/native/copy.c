@@ -63,6 +63,7 @@ static void free_create_options(create_options *options) {
     free(options->wire_api.ptr);
     free(options->task_name.ptr);
     free(options->task_instructions.ptr);
+    free(options->reasoning_effort.ptr);
     memset(options, 0, sizeof(*options));
 }
 

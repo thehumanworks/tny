@@ -43,6 +43,8 @@ int main(void) {
     static const uint32_t options1[] = {208, 216, 280};
     static const uint32_t task1[] = {40, 72};
     static const uint32_t options2[] = {360, 424};
+    static const uint32_t inference1[] = {24, 72};
+    static const uint32_t options3[] = {504, 568};
     static const uint32_t host1[] = {16, 24, 32, 40, 48, 56, 64, 72, 136};
     static const uint32_t spec1[] = {96, 160};
     static const uint32_t result1[] = {32, 64};
@@ -55,6 +57,8 @@ int main(void) {
     CHECK(tny_runtime_options_v1, tny_runtime_options_v1_init, 280, 4, options1);
     CHECK(tny_task_options_v1, tny_task_options_v1_init, 72, 4, task1);
     CHECK(tny_runtime_options_v2, tny_runtime_options_v2_init, 424, 4, options2);
+    CHECK(tny_inference_options_v1, tny_inference_options_v1_init, 72, 4, inference1);
+    CHECK(tny_runtime_options_v3, tny_runtime_options_v3_init, 568, 4, options3);
     CHECK(tny_host_services_v1, tny_host_services_v1_init, 136, 4, host1);
     CHECK(tny_tool_spec_v1, tny_tool_spec_v1_init, 160, 4, spec1);
     CHECK(tny_tool_result_v1, tny_tool_result_v1_init, 64, 4, result1);
@@ -67,6 +71,17 @@ int main(void) {
     for (size_t i = 0; i < sizeof options2 / sizeof options2[0]; i++) {
         void *exact = malloc(options2[i]);
         if (!exact || tny_runtime_options_v2_init(exact, options2[i]) != TNY_STATUS_OK) return 1;
+        free(exact);
+    }
+    for (size_t i = 0; i < sizeof options3 / sizeof options3[0]; i++) {
+        void *exact = malloc(options3[i]);
+        if (!exact || tny_runtime_options_v3_init(exact, options3[i]) != TNY_STATUS_OK) return 1;
+        free(exact);
+    }
+    for (size_t i = 0; i < sizeof inference1 / sizeof inference1[0]; i++) {
+        void *exact = malloc(inference1[i]);
+        if (!exact || tny_inference_options_v1_init(exact, inference1[i]) != TNY_STATUS_OK)
+            return 1;
         free(exact);
     }
     for (size_t i = 0; i < sizeof task1 / sizeof task1[0]; i++) {

@@ -21,27 +21,31 @@
 #include <string.h>
 #include <unistd.h>
 
-#define TNY_RUNTIME_OPTIONS_V0_FROZEN_SIZE UINT32_C(200)
-#define TNY_RUNTIME_OPTIONS_V1_FROZEN_SIZE UINT32_C(280)
-#define TNY_TASK_OPTIONS_V1_FROZEN_SIZE    UINT32_C(72)
-#define TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE UINT32_C(424)
-#define TNY_HOST_SERVICES_V1_FROZEN_SIZE   UINT32_C(136)
-#define TNY_TOOL_SPEC_V1_FROZEN_SIZE       UINT32_C(160)
-#define TNY_TOOL_RESULT_V1_FROZEN_SIZE     UINT32_C(64)
-#define TNY_CAPABILITIES_V0_FROZEN_SIZE    UINT32_C(240)
-#define TNY_CAPABILITIES_V1_FROZEN_SIZE    UINT32_C(344)
-#define TNY_EVENT_VIEW_V0_FROZEN_SIZE      UINT32_C(328)
+#define TNY_RUNTIME_OPTIONS_V0_FROZEN_SIZE   UINT32_C(200)
+#define TNY_RUNTIME_OPTIONS_V1_FROZEN_SIZE   UINT32_C(280)
+#define TNY_TASK_OPTIONS_V1_FROZEN_SIZE      UINT32_C(72)
+#define TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE   UINT32_C(424)
+#define TNY_INFERENCE_OPTIONS_V1_FROZEN_SIZE UINT32_C(72)
+#define TNY_RUNTIME_OPTIONS_V3_FROZEN_SIZE   UINT32_C(568)
+#define TNY_HOST_SERVICES_V1_FROZEN_SIZE     UINT32_C(136)
+#define TNY_TOOL_SPEC_V1_FROZEN_SIZE         UINT32_C(160)
+#define TNY_TOOL_RESULT_V1_FROZEN_SIZE       UINT32_C(64)
+#define TNY_CAPABILITIES_V0_FROZEN_SIZE      UINT32_C(240)
+#define TNY_CAPABILITIES_V1_FROZEN_SIZE      UINT32_C(344)
+#define TNY_EVENT_VIEW_V0_FROZEN_SIZE        UINT32_C(328)
 
-#define TNY_RUNTIME_OPTIONS_V0_MIN_SIZE UINT32_C(40)
-#define TNY_RUNTIME_OPTIONS_V1_MIN_SIZE UINT32_C(208)
-#define TNY_TASK_OPTIONS_V1_MIN_SIZE    UINT32_C(40)
-#define TNY_RUNTIME_OPTIONS_V2_MIN_SIZE UINT32_C(360)
-#define TNY_HOST_SERVICES_V1_MIN_SIZE   UINT32_C(16)
-#define TNY_TOOL_SPEC_V1_MIN_SIZE       UINT32_C(96)
-#define TNY_TOOL_RESULT_V1_MIN_SIZE     UINT32_C(32)
-#define TNY_CAPABILITIES_V0_MIN_SIZE    UINT32_C(32)
-#define TNY_CAPABILITIES_V1_MIN_SIZE    UINT32_C(248)
-#define TNY_EVENT_VIEW_V0_MIN_SIZE      UINT32_C(32)
+#define TNY_RUNTIME_OPTIONS_V0_MIN_SIZE   UINT32_C(40)
+#define TNY_RUNTIME_OPTIONS_V1_MIN_SIZE   UINT32_C(208)
+#define TNY_TASK_OPTIONS_V1_MIN_SIZE      UINT32_C(40)
+#define TNY_RUNTIME_OPTIONS_V2_MIN_SIZE   UINT32_C(360)
+#define TNY_INFERENCE_OPTIONS_V1_MIN_SIZE UINT32_C(24)
+#define TNY_RUNTIME_OPTIONS_V3_MIN_SIZE   UINT32_C(504)
+#define TNY_HOST_SERVICES_V1_MIN_SIZE     UINT32_C(16)
+#define TNY_TOOL_SPEC_V1_MIN_SIZE         UINT32_C(96)
+#define TNY_TOOL_RESULT_V1_MIN_SIZE       UINT32_C(32)
+#define TNY_CAPABILITIES_V0_MIN_SIZE      UINT32_C(32)
+#define TNY_CAPABILITIES_V1_MIN_SIZE      UINT32_C(248)
+#define TNY_EVENT_VIEW_V0_MIN_SIZE        UINT32_C(32)
 
 _Static_assert(sizeof(tny_runtime_options_v0) == TNY_RUNTIME_OPTIONS_V0_FROZEN_SIZE,
                "ABI 1 runtime-options-v0 size drift");
@@ -51,6 +55,10 @@ _Static_assert(sizeof(tny_task_options_v1) == TNY_TASK_OPTIONS_V1_FROZEN_SIZE,
                "ABI 1 task-options-v1 size drift");
 _Static_assert(sizeof(tny_runtime_options_v2) == TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE,
                "ABI 1 runtime-options-v2 size drift");
+_Static_assert(sizeof(tny_inference_options_v1) == TNY_INFERENCE_OPTIONS_V1_FROZEN_SIZE,
+               "ABI 1 inference-options-v1 size drift");
+_Static_assert(sizeof(tny_runtime_options_v3) == TNY_RUNTIME_OPTIONS_V3_FROZEN_SIZE,
+               "ABI 1 runtime-options-v3 size drift");
 _Static_assert(sizeof(tny_host_services_v1) == TNY_HOST_SERVICES_V1_FROZEN_SIZE,
                "ABI 1 host-services-v1 size drift");
 _Static_assert(sizeof(tny_tool_spec_v1) == TNY_TOOL_SPEC_V1_FROZEN_SIZE,
@@ -70,6 +78,8 @@ static const uint32_t OPTIONS1_BOUNDARIES[] = {208, 216, 280};
  * record are accepted as caller capacities. */
 static const uint32_t TASK1_BOUNDARIES[] = {40, 72};
 static const uint32_t OPTIONS2_BOUNDARIES[] = {360, 424};
+static const uint32_t INFERENCE1_BOUNDARIES[] = {24, 72};
+static const uint32_t OPTIONS3_BOUNDARIES[] = {504, 568};
 static const uint32_t HOST1_BOUNDARIES[] = {16, 24, 32, 40, 48, 56, 64, 72, 136};
 static const uint32_t TOOL_SPEC1_BOUNDARIES[] = {96, 160};
 static const uint32_t TOOL_RESULT1_BOUNDARIES[] = {32, 64};
@@ -296,6 +306,22 @@ static void runtime_options_v2_init_full(tny_runtime_options_v2 *o) {
     task_options_v1_init_full(&o->task);
 }
 
+static void inference_options_v1_init_full(tny_inference_options_v1 *o) {
+    if (!o) return;
+    memset(o, 0, TNY_INFERENCE_OPTIONS_V1_FROZEN_SIZE);
+    o->abi_version = TNY_INFERENCE_OPTIONS_ABI_VERSION;
+    o->struct_size = TNY_INFERENCE_OPTIONS_V1_FROZEN_SIZE;
+}
+
+static void runtime_options_v3_init_full(tny_runtime_options_v3 *o) {
+    if (!o) return;
+    memset(o, 0, TNY_RUNTIME_OPTIONS_V3_FROZEN_SIZE);
+    o->abi_version = TNY_RUNTIME_OPTIONS_ABI_VERSION;
+    o->struct_size = TNY_RUNTIME_OPTIONS_V3_FROZEN_SIZE;
+    runtime_options_v2_init_full(&o->base);
+    inference_options_v1_init_full(&o->inference);
+}
+
 static void capabilities_init_full(tny_capabilities_v0 *capabilities) {
     if (!capabilities) return;
     memset(capabilities, 0, TNY_CAPABILITIES_V0_FROZEN_SIZE);
@@ -351,6 +377,35 @@ int32_t tny_runtime_options_v2_init(tny_runtime_options_v2 *o, uint64_t capacity
     runtime_options_defaults(&o->base.runtime, TNY_RUNTIME_OPTIONS_V0_FROZEN_SIZE);
     o->task.abi_version = TNY_TASK_OPTIONS_ABI_VERSION;
     o->task.struct_size = TNY_TASK_OPTIONS_V1_FROZEN_SIZE;
+    return TNY_STATUS_OK;
+}
+
+int32_t tny_inference_options_v1_init(tny_inference_options_v1 *o, uint64_t capacity) {
+    int32_t status = init_sized_prefix(
+        o, capacity, TNY_INFERENCE_OPTIONS_V1_MIN_SIZE, TNY_INFERENCE_OPTIONS_V1_FROZEN_SIZE,
+        INFERENCE1_BOUNDARIES, ARRAY_COUNT(INFERENCE1_BOUNDARIES), o ? &o->struct_size : NULL);
+    if (status == TNY_STATUS_OK) o->abi_version = TNY_INFERENCE_OPTIONS_ABI_VERSION;
+    return status;
+}
+
+int32_t tny_runtime_options_v3_init(tny_runtime_options_v3 *o, uint64_t capacity) {
+    int32_t status = init_sized_prefix(
+        o, capacity, TNY_RUNTIME_OPTIONS_V3_MIN_SIZE, TNY_RUNTIME_OPTIONS_V3_FROZEN_SIZE,
+        OPTIONS3_BOUNDARIES, ARRAY_COUNT(OPTIONS3_BOUNDARIES), o ? &o->struct_size : NULL);
+    if (status != TNY_STATUS_OK) return status;
+    /* As for v2: the minimum prefix ends after the inference record, so only
+     * fields inside it are initialized and the caller's reserved tail is
+     * never touched. */
+    o->abi_version = TNY_RUNTIME_OPTIONS_ABI_VERSION;
+    o->base.abi_version = TNY_RUNTIME_OPTIONS_ABI_VERSION;
+    o->base.struct_size = TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE;
+    o->base.base.abi_version = TNY_RUNTIME_OPTIONS_ABI_VERSION;
+    o->base.base.struct_size = TNY_RUNTIME_OPTIONS_V1_FROZEN_SIZE;
+    runtime_options_defaults(&o->base.base.runtime, TNY_RUNTIME_OPTIONS_V0_FROZEN_SIZE);
+    o->base.task.abi_version = TNY_TASK_OPTIONS_ABI_VERSION;
+    o->base.task.struct_size = TNY_TASK_OPTIONS_V1_FROZEN_SIZE;
+    o->inference.abi_version = TNY_INFERENCE_OPTIONS_ABI_VERSION;
+    o->inference.struct_size = TNY_INFERENCE_OPTIONS_V1_FROZEN_SIZE;
     return TNY_STATUS_OK;
 }
 
@@ -629,52 +684,48 @@ int32_t tny_runtime_create_v1(const tny_runtime_options_v1 *o, uint64_t capacity
     return runtime_create_v1_full(&normalized, out, error);
 }
 
-int32_t tny_runtime_create_v2(const tny_runtime_options_v2 *o, uint64_t capacity, tny_runtime **out,
-                              tny_error **error) {
-    tny_alloc_scope_begin("runtime_create_v2");
-    if (!out)
-        return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT, "out_runtime is required"),
-                             error);
-    *out = NULL;
-    if (error) *error = NULL;
-    if (!prefix_capacity_valid(o, capacity, TNY_RUNTIME_OPTIONS_V2_MIN_SIZE,
-                               TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE, OPTIONS2_BOUNDARIES,
-                               ARRAY_COUNT(OPTIONS2_BOUNDARIES)))
-        return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
-                                   "runtime v2 options capacity or declared size is invalid"),
-                             error);
-    uint32_t declared = o->struct_size;
-    int32_t status = input_prefix_size(
-        o, capacity, declared, TNY_RUNTIME_OPTIONS_V2_MIN_SIZE, TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE,
-        OPTIONS2_BOUNDARIES, ARRAY_COUNT(OPTIONS2_BOUNDARIES), "runtime v2 options", error);
-    if (status != TNY_STATUS_OK) return scoped_status(status, error);
-    tny_runtime_options_v2 normalized;
-    runtime_options_v2_init_full(&normalized);
-    size_t readable = declared < offsetof(tny_runtime_options_v2, reserved)
-                          ? declared
-                          : offsetof(tny_runtime_options_v2, reserved);
-    memcpy(&normalized, o, readable);
-    normalized.struct_size = TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE;
-    uint32_t task_declared = normalized.task.struct_size;
+/* Moves a validated effort token into a freshly created runtime.  *effort is
+ * cleared on adoption so the caller's cleanup frees it only on failure. */
+static void runtime_adopt_effort(tny_runtime *runtime, char **effort) {
+    if (!effort || !*effort) return;
+    free(runtime->ctx->reasoning_effort);
+    runtime->ctx->reasoning_effort = *effort;
+    runtime->ctx->effort_explicit = true;
+    *effort = NULL;
+}
+
+/* Shared by v2 (task required) and v3 (task optional, effort optional). The
+ * record is already normalized to its full frozen size. */
+static int32_t runtime_create_v2_full(const tny_runtime_options_v2 *o, bool task_required,
+                                      char **effort, tny_runtime **out, tny_error **error) {
+    uint32_t task_declared = o->task.struct_size;
     if (task_declared < TNY_TASK_OPTIONS_V1_MIN_SIZE ||
         task_declared > TNY_TASK_OPTIONS_V1_FROZEN_SIZE ||
         !record_size_boundary(task_declared, TNY_TASK_OPTIONS_V1_FROZEN_SIZE, TASK1_BOUNDARIES,
                               ARRAY_COUNT(TASK1_BOUNDARIES)))
-        return scoped_status(
-            failf(error, TNY_STATUS_INVALID_ARGUMENT, "task options record is too small"), error);
-    if (normalized.abi_version != TNY_RUNTIME_OPTIONS_ABI_VERSION ||
-        normalized.base.abi_version != TNY_RUNTIME_OPTIONS_ABI_VERSION ||
-        normalized.task.abi_version != TNY_TASK_OPTIONS_ABI_VERSION)
-        return scoped_status(
-            failf(error, TNY_STATUS_UNSUPPORTED, "runtime v2 or task options ABI is unsupported"),
-            error);
+        return failf(error, TNY_STATUS_INVALID_ARGUMENT, "task options record is too small");
+    if (o->abi_version != TNY_RUNTIME_OPTIONS_ABI_VERSION ||
+        o->base.abi_version != TNY_RUNTIME_OPTIONS_ABI_VERSION ||
+        o->task.abi_version != TNY_TASK_OPTIONS_ABI_VERSION)
+        return failf(error, TNY_STATUS_UNSUPPORTED,
+                     "runtime v2 or task options ABI is unsupported");
+
+    /* v3 callers may leave the task empty; v2 keeps its required name. */
+    if (!task_required && o->task.name.len == 0) {
+        if (o->task.instructions.len != 0)
+            return failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                         "task instructions require a task name");
+        int32_t created = runtime_create_v1_full(&o->base, out, error);
+        if (created == TNY_STATUS_OK && *out) runtime_adopt_effort(*out, effort);
+        return created;
+    }
 
     /* The task record is deliberately resolved only from its explicit views:
      * this keeps deterministic embedding free of ambient user/project files. */
     char *name = NULL;
     char *instructions = NULL;
     bool builtin_selected = false;
-    status = copy_bytes(normalized.task.name, true, "task name", &name, error);
+    int32_t status = copy_bytes(o->task.name, true, "task name", &name, error);
     if (status != TNY_STATUS_OK) goto task_fail;
     if (!tny_task_name_valid(name)) {
         status = failf(
@@ -682,13 +733,12 @@ int32_t tny_runtime_create_v2(const tny_runtime_options_v2 *o, uint64_t capacity
             "task name must match [A-Za-z0-9_.-]{1,63} and may not start with '.' or contain '..'");
         goto task_fail;
     }
-    if (normalized.task.instructions.len > TNY_TASK_BODY_MAX) {
+    if (o->task.instructions.len > TNY_TASK_BODY_MAX) {
         status = failf(error, TNY_STATUS_INVALID_ARGUMENT,
                        "task instructions exceed the 262144-byte limit");
         goto task_fail;
     }
-    status =
-        copy_bytes(normalized.task.instructions, false, "task instructions", &instructions, error);
+    status = copy_bytes(o->task.instructions, false, "task instructions", &instructions, error);
     if (status != TNY_STATUS_OK) goto task_fail;
     if (!instructions) {
         const char *builtin = tny_task_builtin_body(name);
@@ -716,7 +766,7 @@ int32_t tny_runtime_create_v2(const tny_runtime_options_v2 *o, uint64_t capacity
                                               : "task instructions must be non-empty valid UTF-8");
         goto task_fail;
     }
-    status = runtime_create_v1_full(&normalized.base, out, error);
+    status = runtime_create_v1_full(&o->base, out, error);
     if (status == TNY_STATUS_OK && *out) {
         free((*out)->ctx->task_name);
         free((*out)->ctx->task_source);
@@ -729,6 +779,7 @@ int32_t tny_runtime_create_v2(const tny_runtime_options_v2 *o, uint64_t capacity
         staged.task_name = NULL;
         staged.task_source = NULL;
         staged.task_instructions = NULL;
+        runtime_adopt_effort(*out, effort);
     }
     free(staged.task_name);
     free(staged.task_source);
@@ -736,6 +787,106 @@ int32_t tny_runtime_create_v2(const tny_runtime_options_v2 *o, uint64_t capacity
 task_fail:
     free(name);
     free(instructions);
+    return status;
+}
+
+int32_t tny_runtime_create_v2(const tny_runtime_options_v2 *o, uint64_t capacity, tny_runtime **out,
+                              tny_error **error) {
+    tny_alloc_scope_begin("runtime_create_v2");
+    if (!out)
+        return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT, "out_runtime is required"),
+                             error);
+    *out = NULL;
+    if (error) *error = NULL;
+    if (!prefix_capacity_valid(o, capacity, TNY_RUNTIME_OPTIONS_V2_MIN_SIZE,
+                               TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE, OPTIONS2_BOUNDARIES,
+                               ARRAY_COUNT(OPTIONS2_BOUNDARIES)))
+        return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                   "runtime v2 options capacity or declared size is invalid"),
+                             error);
+    uint32_t declared = o->struct_size;
+    int32_t status = input_prefix_size(
+        o, capacity, declared, TNY_RUNTIME_OPTIONS_V2_MIN_SIZE, TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE,
+        OPTIONS2_BOUNDARIES, ARRAY_COUNT(OPTIONS2_BOUNDARIES), "runtime v2 options", error);
+    if (status != TNY_STATUS_OK) return scoped_status(status, error);
+    tny_runtime_options_v2 normalized;
+    runtime_options_v2_init_full(&normalized);
+    size_t readable = declared < offsetof(tny_runtime_options_v2, reserved)
+                          ? declared
+                          : offsetof(tny_runtime_options_v2, reserved);
+    memcpy(&normalized, o, readable);
+    normalized.struct_size = TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE;
+    return scoped_status(runtime_create_v2_full(&normalized, true, NULL, out, error), error);
+}
+/* One provider-advertised or canonical token; the wire mapping happens per
+ * request in the backend (tny_effort_wire). */
+static bool effort_token_valid(const char *token) {
+    size_t length = strlen(token);
+    if (length == 0 || length > 32) return false;
+    for (const char *c = token; *c; c++)
+        if (!((*c >= 'A' && *c <= 'Z') || (*c >= 'a' && *c <= 'z') || (*c >= '0' && *c <= '9') ||
+              *c == '_' || *c == '.' || *c == '-'))
+            return false;
+    return true;
+}
+
+int32_t tny_runtime_create_v3(const tny_runtime_options_v3 *o, uint64_t capacity, tny_runtime **out,
+                              tny_error **error) {
+    tny_alloc_scope_begin("runtime_create_v3");
+    if (!out)
+        return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT, "out_runtime is required"),
+                             error);
+    *out = NULL;
+    if (error) *error = NULL;
+    if (!prefix_capacity_valid(o, capacity, TNY_RUNTIME_OPTIONS_V3_MIN_SIZE,
+                               TNY_RUNTIME_OPTIONS_V3_FROZEN_SIZE, OPTIONS3_BOUNDARIES,
+                               ARRAY_COUNT(OPTIONS3_BOUNDARIES)))
+        return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                   "runtime v3 options capacity or declared size is invalid"),
+                             error);
+    uint32_t declared = o->struct_size;
+    int32_t status = input_prefix_size(
+        o, capacity, declared, TNY_RUNTIME_OPTIONS_V3_MIN_SIZE, TNY_RUNTIME_OPTIONS_V3_FROZEN_SIZE,
+        OPTIONS3_BOUNDARIES, ARRAY_COUNT(OPTIONS3_BOUNDARIES), "runtime v3 options", error);
+    if (status != TNY_STATUS_OK) return scoped_status(status, error);
+    tny_runtime_options_v3 normalized;
+    runtime_options_v3_init_full(&normalized);
+    size_t readable = declared < offsetof(tny_runtime_options_v3, reserved)
+                          ? declared
+                          : offsetof(tny_runtime_options_v3, reserved);
+    memcpy(&normalized, o, readable);
+    normalized.struct_size = TNY_RUNTIME_OPTIONS_V3_FROZEN_SIZE;
+
+    uint32_t base_declared = normalized.base.struct_size;
+    uint32_t inference_declared = normalized.inference.struct_size;
+    if (base_declared < TNY_RUNTIME_OPTIONS_V2_MIN_SIZE ||
+        base_declared > TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE ||
+        !record_size_boundary(base_declared, TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE,
+                              OPTIONS2_BOUNDARIES, ARRAY_COUNT(OPTIONS2_BOUNDARIES)) ||
+        inference_declared < TNY_INFERENCE_OPTIONS_V1_MIN_SIZE ||
+        inference_declared > TNY_INFERENCE_OPTIONS_V1_FROZEN_SIZE ||
+        !record_size_boundary(inference_declared, TNY_INFERENCE_OPTIONS_V1_FROZEN_SIZE,
+                              INFERENCE1_BOUNDARIES, ARRAY_COUNT(INFERENCE1_BOUNDARIES)))
+        return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                   "runtime v2 or inference options record size is invalid"),
+                             error);
+    if (normalized.abi_version != TNY_RUNTIME_OPTIONS_ABI_VERSION ||
+        normalized.inference.abi_version != TNY_INFERENCE_OPTIONS_ABI_VERSION)
+        return scoped_status(failf(error, TNY_STATUS_UNSUPPORTED,
+                                   "runtime v3 or inference options ABI is unsupported"),
+                             error);
+    normalized.base.struct_size = TNY_RUNTIME_OPTIONS_V2_FROZEN_SIZE;
+
+    /* Validate the token before any runtime state exists. */
+    char *effort = NULL;
+    status = copy_bytes(normalized.inference.reasoning_effort, false, "reasoning effort", &effort,
+                        error);
+    if (status == TNY_STATUS_OK && effort && !effort_token_valid(effort))
+        status = failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                       "reasoning effort must be 1-32 bytes of [A-Za-z0-9_.-]");
+    if (status == TNY_STATUS_OK)
+        status = runtime_create_v2_full(&normalized.base, false, &effort, out, error);
+    free(effort);
     return scoped_status(status, error);
 }
 
@@ -787,9 +938,10 @@ static int32_t runtime_get_capabilities_full(const tny_runtime *runtime,
     full.threading_model = TNY_THREADING_OWNER_THREAD;
     full.cancel_model = TNY_CANCEL_CROSS_THREAD_ASYNC_WAKE;
     full.provider_available_mask = TNY_PROVIDER_MASK_OPENAI;
-    full.feature_available_mask =
-        TNY_CAP_FEATURE_PERSISTENCE | TNY_CAP_FEATURE_CROSS_THREAD_CANCEL |
-        TNY_CAP_FEATURE_HOST_SERVICES | TNY_CAP_FEATURE_CUSTOM_TOOLS | TNY_CAP_FEATURE_TASK_PRESETS;
+    full.feature_available_mask = TNY_CAP_FEATURE_PERSISTENCE |
+                                  TNY_CAP_FEATURE_CROSS_THREAD_CANCEL |
+                                  TNY_CAP_FEATURE_HOST_SERVICES | TNY_CAP_FEATURE_CUSTOM_TOOLS |
+                                  TNY_CAP_FEATURE_TASK_PRESETS | TNY_CAP_FEATURE_REASONING_EFFORT;
     full.feature_enabled_mask = TNY_CAP_FEATURE_CROSS_THREAD_CANCEL;
 #ifdef TNY_SHARED_LIBRARY_BUILD
     full.feature_available_mask |= TNY_CAP_FEATURE_SHARED_LIBRARY;
@@ -804,6 +956,8 @@ static int32_t runtime_get_capabilities_full(const tny_runtime *runtime,
     if (!runtime->ctx->no_save) full.feature_enabled_mask |= TNY_CAP_FEATURE_PERSISTENCE;
     if (runtime->host_services) full.feature_enabled_mask |= TNY_CAP_FEATURE_HOST_SERVICES;
     if (runtime->ctx->task_name) full.feature_enabled_mask |= TNY_CAP_FEATURE_TASK_PRESETS;
+    if (runtime->ctx->reasoning_effort)
+        full.feature_enabled_mask |= TNY_CAP_FEATURE_REASONING_EFFORT;
     if (custom_tools_active_count(runtime->custom_tools))
         full.feature_enabled_mask |= TNY_CAP_FEATURE_CUSTOM_TOOLS;
     /* Keep synchronized with the private queue budgets in core/runtime.c.

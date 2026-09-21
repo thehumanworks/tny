@@ -114,6 +114,10 @@ class RuntimeConfig:
     max_steps: int = 0
     max_tool_result_bytes: int = 0
     task_preset: TaskPreset | None = None
+    #: Empty leaves the provider default. Canonical levels are ``off``,
+    #: ``light``, ``medium``, ``high``, ``xhigh`` and ``max``; any other token
+    #: is a provider-advertised value sent verbatim. Requires libtny ABI 1.3.
+    reasoning_effort: str | bytes = b""
 
     def __repr__(self) -> str:
         # base_url and api_key may contain credentials and are intentionally
@@ -127,7 +131,8 @@ class RuntimeConfig:
             f"permission_mode={self.permission_mode!r}, "
             f"persistence={self.persistence!r}, max_steps={self.max_steps!r}, "
             f"max_tool_result_bytes={self.max_tool_result_bytes!r}, "
-            f"task_preset={self.task_preset!r})"
+            f"task_preset={self.task_preset!r}, "
+            f"reasoning_effort={self.reasoning_effort!r})"
         )
 
 
@@ -164,6 +169,11 @@ class CancellationToken:
         return self._requested.is_set()
 
 
+_EFFORT_TOKEN_BYTES = frozenset(
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-"
+)
+
+
 def _validate_config(config: RuntimeConfig) -> None:
     if not 0 <= int(config.max_steps) <= 0x7FFFFFFF:
         raise InvalidArgumentError(-1)
@@ -171,6 +181,19 @@ def _validate_config(config: RuntimeConfig) -> None:
         raise InvalidArgumentError(-1)
     if config.persistence and config.state_dir is None:
         raise InvalidArgumentError(-1)
+    if not isinstance(config.reasoning_effort, (str, bytes)):
+        raise InvalidArgumentError(-1)
+    if config.reasoning_effort:
+        try:
+            effort = (
+                config.reasoning_effort.encode("ascii", "strict")
+                if isinstance(config.reasoning_effort, str)
+                else config.reasoning_effort
+            )
+        except UnicodeError:
+            raise InvalidArgumentError(-1) from None
+        if len(effort) > 32 or any(byte not in _EFFORT_TOKEN_BYTES for byte in effort):
+            raise InvalidArgumentError(-1)
     if config.task_preset is not None:
         if (
             not isinstance(config.task_preset, TaskPreset)
@@ -292,7 +315,34 @@ class Runtime:
                 task_views[name] = view[0]
             out = self._handle_slot
             error = ffi.new("tny_error **")
-            if config.task_preset is None and host_services is None:
+            if config.reasoning_effort:
+                if self.library.abi_minor < 3:
+                    raise UnsupportedError(
+                        -9, b"reasoning effort requires libtny ABI 1.3 or newer"
+                    )
+                from .callbacks import _HostBinding
+
+                effort_buffer, effort_view = borrowed(ffi, config.reasoning_effort)
+                task_buffers.extend((effort_buffer, effort_view))
+                options_v3 = ffi.new("tny_runtime_options_v3 *")
+                options_v3_size = ffi.sizeof("tny_runtime_options_v3")
+                init_status = native.tny_runtime_options_v3_init(
+                    options_v3, options_v3_size
+                )
+                if init_status != STATUS_OK:
+                    self.library.raise_status(init_status, ffi.NULL)
+                options_v3.base.base.runtime = opts[0]
+                options_v3.inference.reasoning_effort = effort_view[0]
+                if task_views:  # v3 accepts an empty task record
+                    options_v3.base.task.name = task_views["name"]
+                    options_v3.base.task.instructions = task_views["instructions"]
+                if host_services is not None:
+                    self._host_binding = _HostBinding(self, host_services)
+                    options_v3.base.base.host_services = self._host_binding.table
+                status = native.tny_runtime_create_v3(
+                    options_v3, options_v3_size, out, error
+                )
+            elif config.task_preset is None and host_services is None:
                 status = native.tny_runtime_create(opts, opts_size, out, error)
             elif config.task_preset is None:
                 from .callbacks import _HostBinding
