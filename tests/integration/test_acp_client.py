@@ -233,12 +233,16 @@ class AcpClientTest(unittest.TestCase):
         for mode, expected in (
             ("auth", "authenticate"),
             ("unsupported-new", "-32601"),
-            ("init-timeout", "tim"),
+            ("init-timeout", "agent did not answer initialize in time"),
         ):
             with self.subTest(mode=mode):
                 start = time.monotonic()
                 result = self.ask(
-                    mode=mode, success=False, env={"TNY_ACP_RPC_TIMEOUT_MS": "100"}
+                    mode=mode,
+                    success=False,
+                    env={"TNY_ACP_RPC_TIMEOUT_MS": "100"}
+                    if mode == "init-timeout"
+                    else None,
                 )
                 self.assertIn(expected, result.stderr.lower())
                 self.assertLess(time.monotonic() - start, 5)

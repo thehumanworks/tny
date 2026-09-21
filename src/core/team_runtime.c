@@ -8,10 +8,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define TEAM_RUNS_MAX           32u
-#define TEAM_RECEIPTS_MAX       2048u
-#define TEAM_LOCK_WAIT_MS       250
-#define SWARM_MESSAGE_TOPIC_MAX 256u
+#define TEAM_RUNS_MAX              32u
+#define TEAM_RECEIPTS_MAX          2048u
+#define TEAM_LOCK_WAIT_MS          250
+#define TEAM_DELIVERY_LOCK_WAIT_MS 2000
+#define SWARM_MESSAGE_TOPIC_MAX    256u
 
 typedef struct {
     tools_env *env;
@@ -1231,7 +1232,10 @@ static int deliver_run(tools_env *env, const char *id, bool member, char *err, s
     tny_mailbox_message *messages = calloc(TNY_MAILBOX_BATCH_MAX, sizeof *messages);
     size_t count = 0;
     tny_mailbox_rc rc = TNY_MAILBOX_IO;
-    int64_t deadline = monotonic_ms() + TEAM_LOCK_WAIT_MS;
+    /* Automatic delivery is a prerequisite for provider I/O, including after
+     * tools. Match the supervisor's two-second state acquisition budget here;
+     * an ordinary public mailbox operation keeps its shorter retry bound. */
+    int64_t deadline = monotonic_ms() + TEAM_DELIVERY_LOCK_WAIT_MS;
     if (messages) {
         do {
             rc = tny_team_mailbox_inbox(&caller.service, &caller.identity, cursor, messages,
@@ -1270,7 +1274,7 @@ static int deliver_run(tools_env *env, const char *id, bool member, char *err, s
         if (buf_oom(&text) || receive_text(env, key, text.data) != 0) result = -1;
         buf_free(&text);
         if (result) goto done;
-        deadline = monotonic_ms() + TEAM_LOCK_WAIT_MS;
+        deadline = monotonic_ms() + TEAM_DELIVERY_LOCK_WAIT_MS;
         do {
             rc = tny_team_mailbox_mark_delivered(&caller.service, &caller.identity, messages[i].id);
         } while (rc == TNY_MAILBOX_BUSY && delivery_retry(env, deadline));

@@ -70,6 +70,13 @@ queue capacity. An ack of a queued, never-delivered message refuses. Repeated ac
 is idempotent. Underlying C read/inbox snapshots alone do not mark delivery; the
 public adapter performs that step.
 
+Automatic delivery at each model-call boundary retries a busy job state lock
+for at most two seconds per transaction, matching the supervisor's transaction
+acquisition budget. It observes cancellation and sends no provider request
+until delivery succeeds. Persistent contention still fails with `MAILBOX_BUSY`;
+invalid or unauthorized state still fails immediately. Public mailbox commands
+retain their 250ms contention bound.
+
 On uncertain send/I/O or client loss, retry the **same ID and content**. Exact
 duplicates return the original receipt. Reusing an ID for different content or
 endpoints returns `MAILBOX_CONFLICT`. Do not turn a timeout into a new logical
