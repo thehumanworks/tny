@@ -352,7 +352,8 @@ static int list_tools(tny_acp_bridge *b, bridge_client *c, const char *id) {
     buf_appends(&body, "{\"tools\":[");
     size_t idx, max;
     yyjson_val *item;
-    yyjson_arr_foreach(yyjson_doc_get_root(doc), idx, max, item) {
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    yyjson_arr_foreach(root, idx, max, item) {
         yyjson_val *fn = jget(item, "function");
         if (idx) buf_appends(&body, ",");
         buf_appends(&body, "{\"name\":");
@@ -640,8 +641,9 @@ int tny_acp_bridge_dispatch(tny_acp_bridge *b) {
         tny_acp_bridge_abort(b);
         return -1;
     }
-    for (int attempt = 0; attempt < BRIDGE_CLIENTS; attempt++) {
-        int fd = accept(b->listener, NULL, NULL);
+    int listener = b->listener;
+    for (int attempt = 0; listener >= 0 && attempt < BRIDGE_CLIENTS; attempt++) {
+        int fd = accept(listener, NULL, NULL);
         if (fd < 0) break;
         if (set_nonblock(fd, true) != 0 || fcntl(fd, F_SETFD, FD_CLOEXEC) != 0) {
             close(fd);

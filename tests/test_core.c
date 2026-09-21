@@ -21,6 +21,8 @@
 #include "core/speech.h"
 #include "lib/custom_tools.h"
 #include "backends/openai/openai.h"
+#include "backends/acp/acp_client.h"
+#include "net/net.h"
 #include "cli/cli.h"
 #include "util/util.h"
 #include "tny/tny.h"
@@ -4939,6 +4941,50 @@ TEST wire_api_resolution(void) {
     PASS();
 }
 
+/* The pipe's read end reuses fd 0; child cleanup must retain that endpoint. */
+TEST acp_spawn_preserves_reused_stdin(void) {
+    pid_t probe = fork();
+    ASSERT(probe >= 0);
+    if (probe == 0) {
+        signal(SIGALRM, SIG_DFL);
+        signal(SIGPIPE, SIG_IGN);
+        alarm(5);
+        close(STDIN_FILENO);
+        char *argv[] = {(char *)TNY_SHELL_PATH, (char *)"-c",
+                        (char *)"IFS= read -r value || exit 13; printf '%s' \"$value\"; "
+                                "printf diagnostic >&2",
+                        NULL};
+        tny_ctx ctx = {.cwd = (char *)".", .agent_argv = argv};
+        ac_impl agent = {.ctx = &ctx, .in_fd = -1, .out_fd = -1, .err_fd = -1};
+        char error[256];
+        if (ac_spawn_agent(&agent, error, sizeof error) != 0) _exit(1);
+        bool sent = write(agent.in_fd, "payload\n", 8) == 8;
+        close(agent.in_fd);
+        (void)set_nonblock(agent.out_fd, false);
+        (void)set_nonblock(agent.err_fd, false);
+        char output[32] = {0}, diagnostic[32] = {0};
+        ssize_t out_len = read(agent.out_fd, output, sizeof output - 1);
+        ssize_t err_len = read(agent.err_fd, diagnostic, sizeof diagnostic - 1);
+        close(agent.out_fd);
+        close(agent.err_fd);
+        int status = 0;
+        pid_t reaped;
+        do { reaped = waitpid(agent.pid, &status, 0); } while (reaped < 0 && errno == EINTR);
+        _exit(sent && out_len == 7 && strcmp(output, "payload") == 0 && err_len == 10 &&
+                      strcmp(diagnostic, "diagnostic") == 0 && reaped == agent.pid &&
+                      WIFEXITED(status) && WEXITSTATUS(status) == 0
+                  ? 0
+                  : 2);
+    }
+    int status = 0;
+    pid_t reaped;
+    do { reaped = waitpid(probe, &status, 0); } while (reaped < 0 && errno == EINTR);
+    ASSERT_EQ(probe, reaped);
+    ASSERT(WIFEXITED(status));
+    ASSERT_EQ(0, WEXITSTATUS(status));
+    PASS();
+}
+
 /* --wire-api: chat and responses parse; anything else is a startup error. */
 TEST acp_counted_command_is_lossless(void) {
     char *argv[] = {"tny", "--acp-agent-argv", "4", "python3", "--", "adapter.py", "", "ask", "hi"};
@@ -6004,6 +6050,7 @@ SUITE(core_suite) {
     RUN_TEST(provider_last_used_and_scoped_models);
     RUN_TEST(custom_named_provider_profiles);
     RUN_TEST(acp_counted_command_is_lossless);
+    RUN_TEST(acp_spawn_preserves_reused_stdin);
     RUN_TEST(acp_named_provider_profiles);
     RUN_TEST(acp_profile_model_precedence);
     RUN_TEST(acp_profiles_validate_when_selected);

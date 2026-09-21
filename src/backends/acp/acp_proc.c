@@ -167,13 +167,19 @@ int ac_spawn_agent(ac_impl *o, char *errbuf, size_t errlen) {
     if (pid == 0) {
         unsetenv("TNY_ACP_CLEANUP_FILE"); /* never lend the parent's proof channel */
         setpgid(0, 0);                    /* own group so wrapper-forked descendants die with it */
-        if (dup2(inp[0], 0) < 0 || dup2(outp[1], 1) < 0 || dup2(errp[1], 2) < 0) _exit(127);
-        close(inp[0]);
-        close(inp[1]);
-        close(outp[0]);
-        close(outp[1]);
-        close(errp[0]);
-        close(errp[1]);
+        int stdin_fd = dup2(inp[0], STDIN_FILENO);
+        if (stdin_fd < 0) _exit(127);
+        int stdout_fd = dup2(outp[1], STDOUT_FILENO);
+        if (stdout_fd < 0) _exit(127);
+        int stderr_fd = dup2(errp[1], STDERR_FILENO);
+        if (stderr_fd < 0) _exit(127);
+        /* A pipe may have reused closed stdio; retain the redirected endpoints. */
+        if (inp[0] > STDERR_FILENO) close(inp[0]);
+        if (inp[1] > STDERR_FILENO) close(inp[1]);
+        if (outp[0] > STDERR_FILENO) close(outp[0]);
+        if (outp[1] > STDERR_FILENO) close(outp[1]);
+        if (errp[0] > STDERR_FILENO) close(errp[0]);
+        if (errp[1] > STDERR_FILENO) close(errp[1]);
         if (chdir(ac_agent_cwd(o)) != 0) _exit(127);
         execvp(argv[0], argv);
         _exit(127);

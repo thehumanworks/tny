@@ -163,6 +163,20 @@ class AcpClientTest(unittest.TestCase):
         )
         self.assertFalse(marker.exists(), "agent arguments were evaluated by a shell")
 
+    def test_turn_with_closed_stdin(self):
+        result = subprocess.run(
+            self.command("--ephemeral"),
+            env=self.env,
+            cwd=self.workspace,
+            preexec_fn=lambda: os.close(0),
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("ACP-OK café 🐕", json.loads(result.stdout)["output"])
+        self.assertTrue(self.state_json().get("prompted"))
+
     def test_json_runner_model_and_resume(self):
         first = self.ask("--model", "selected-model")
         self.assertEqual(first["provider"], "acp")

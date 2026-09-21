@@ -69,13 +69,13 @@ MUTANTS = (
     (
         "missing-key",
         SOURCE,
-        "const bool key = parent && ctx.api_key && *ctx.api_key;",
+        "const bool key = parent && ctx.backend == TNY_BK_OPENAI && ctx.api_key && *ctx.api_key;",
         "const bool key = false;",
     ),
     (
         "cross-provider-inherits-parent",
         SOURCE,
-        "!provider || std::strcmp(provider, tny_provider_name(&ctx)) == 0",
+        "tny_subagent_provider_is_parent(&ctx, provider)",
         "true",
     ),
     (
