@@ -1,0 +1,22 @@
+{
+  "name": "tny-sdk-examples",
+  "private": true,
+  "type": "module",
+  "description": "Example workflows for the tny Node.js SDK; links the SDK from this checkout",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "auto-research": "node auto_research.ts",
+    "codegen": "node codegen.ts"
+  },
+  "dependencies": {
+    "@thehumanworks/tny": "file:../../../sdk/typescript"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "license": "UNLICENSED"
+}

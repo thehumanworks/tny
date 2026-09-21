@@ -419,6 +419,22 @@ among the included outputs.
   live in `examples/scripting/task-types/*.md`. Worktrees are created under
   `.worktrees/run-<timestamp>/` and removed on success.
 
+`examples/sdk/` holds the SDK equivalents, each written in both Python and
+TypeScript over shared role prompts and a shared lessons file
+([README](../examples/sdk/README.md)):
+
+- `auto_research` — plan → parallel investigators → synthesise → critique,
+  looping on the critic's gaps, then a retro that records process lessons the
+  next run's planner recalls.
+- `codegen` — decompose → architecture → a generation DAG built at run time
+  from the decomposition → review → a host-run `--verify` command with a
+  bounded fix loop → retro lessons.
+
+`make test-sdk-examples` runs all four end to end on the native runtime against
+`examples/sdk/offline_provider.py`, a scripted stand-in for the model. It sits
+outside `make test-sdks` because the TypeScript half runs `.ts` files directly
+and needs Node 24+.
+
 ## Dependency context and trust
 
 Only outputs of **direct, successful edges with output enabled** are appended.

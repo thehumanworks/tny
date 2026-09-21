@@ -1,0 +1,4 @@
+# Default outputs of the example workflows when run from here.
+.tny-lessons/
+codegen-out/
+__pycache__/

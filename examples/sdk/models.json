@@ -1,0 +1,20 @@
+{
+  "tiers": {
+    "fast": { "model": "gpt-5.6-Luna", "effort": "light" },
+    "balanced": { "model": "gpt-5.6-sol", "effort": "medium" },
+    "critical": { "model": "gpt-6-Astra", "effort": "high" }
+  },
+  "roles": {
+    "research-planner": "balanced",
+    "research-investigator": "fast",
+    "research-synthesiser": "balanced",
+    "research-critic": "critical",
+    "research-retro": "fast",
+    "codegen-decomposer": "balanced",
+    "codegen-architect": "critical",
+    "codegen-generator": "balanced",
+    "review": "critical",
+    "codegen-fixer": "balanced",
+    "codegen-retro": "fast"
+  }
+}

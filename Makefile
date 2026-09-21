@@ -324,7 +324,7 @@ endif
 
 # Measure shipped artifacts without a fixed product size ceiling.
 
-.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
+.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-sdk-examples test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
 all: release
 
@@ -594,6 +594,12 @@ test-sdk-typescript: lib-shared
 		node sdk/typescript/test/conformance-adapter.mjs
 
 test-sdks: test-sdk-python test-sdk-typescript
+
+# Runs examples/sdk end to end (native runtime, scripted offline provider).
+# Outside test-sdks: the TypeScript half runs .ts directly and needs Node 24+.
+test-sdk-examples: lib-shared
+	npm --prefix sdk/typescript run build
+	TNY_TEST_LIBRARY=$(LIB_REAL) python3 examples/sdk/test_examples.py
 
 test-libtny-fault: lib-shared-fault
 	python3 tests/integration/test_net_host_safety.py
