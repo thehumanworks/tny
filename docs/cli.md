@@ -19,12 +19,18 @@ Design the CLI so humans and coding agents can run it without menus. Every input
 
 Binary name: `tny`.
 
+`score` and `choose` use the independent [tnyjev decision module](tnyjev.md).
+They require `TYPESAFE_API_KEY`, accept explicit or piped state, and return
+plain values or `--json`. They do not start a chat session or execute routes.
+
 ## Command tree
 
 ```text
 tny                         # interactive TUI, fresh session
 tny ask [prompt]            # one turn, then exit
 tny speak                   # speak stdin aloud; --output-file exports MP3
+tny score QUESTION          # Jev P(yes), 0..1; explicit state or stdin
+tny choose --choices JSON   # Jev route key for state; no route execution
 tny edit FILE               # exact-match replacement from stdin
 tny ask-user QUESTION       # ask the owning runner frontend (inside terminal)
 tny image generate          # prompt on stdin; --output-file required

@@ -5,6 +5,8 @@
 # compiler, and native source/test filesets; the deadline fixture controls time.
 # Collective swarm tests reuse the existing stdlib/PTY/compiler closure;
 # test_collective_{swarm,cap}.py and mailbox helpers are included under tests.
+# tnyjev uses existing src/tests filesets; its HTTP fixtures generate all data
+# with Python stdlib and synthetic credentials (no live Jev calls).
 # Source filters shared by every tny derivation.
 #
 # Nix hashes the whole source tree, so an unfiltered `src = ../.` would rebuild

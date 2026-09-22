@@ -29,6 +29,8 @@ COMMAND_PARSERS = {
     "speak": ("cmd_speak",),
     "dictate": ("cmd_dictate",),
     "optimise": ("cmd_optimise",),
+    "score": ("cmd_jev",),
+    "choose": ("cmd_jev",),
     "login": ("cmd_login",),
     "image": ("cmd_image_service", "cmd_image", "tny_image_options"),
     "jobs": ("cmd_jobs", "tny_jobs_parse_argv"),

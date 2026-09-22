@@ -86,6 +86,8 @@ stdenv.mkDerivation {
     # fixtures, with fake xAI/Grok credentials and a test-only loopback URL.
     # test_dictation.py uses stdlib HTTP/WAV/PTY fixtures and generates fake
     # ffmpeg/arecord executables; no host audio package or device is required.
+    # test_tnyjev.py uses only stdlib loopback HTTP, temporary homes and fake
+    # TYPESAFE_API_KEY credentials; no provider account or extra tool is needed.
     # test_optimise.py uses the same stdlib HTTP/PTY harness and temporary
     # project files; it requires no OpenRouter login or live model access.
     # runner_restart_fault.c uses the existing stdenv C compiler for a private

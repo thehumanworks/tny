@@ -35,6 +35,27 @@ class MutationInventory(unittest.TestCase):
         )
         self.assertTrue(any("call.epoch !=" in item["content"] for item in mutants))
 
+    def test_mutation_invalidates_objects_and_executables_for_real_relink(self):
+        with tempfile.TemporaryDirectory(prefix="tny-mutation-relink-") as directory:
+            root = Path(directory)
+            source = root / "src/core/tnyjev.c"
+            source.parent.mkdir(parents=True)
+            source.write_text("old\n")
+            paths = [
+                root / "build" / name
+                for name in ("tny", "tny-test", "tny.exe", "tny-test.exe")
+            ]
+            paths += [
+                root / "build" / lane / "src/core/tnyjev.o" for lane in ("dbg", "rel")
+            ]
+            for path in paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("stale\n")
+            with patch.object(MUTATION, "ROOT", directory):
+                MUTATION.write_source_and_invalidate_objects(str(source), "new\n")
+            self.assertEqual(source.read_text(), "new\n")
+            self.assertTrue(all(not path.exists() for path in paths))
+
     def test_empty_focus_fails_before_running_or_editing(self):
         with (
             patch.object(sys, "argv", ["mutate", "--focus", "missing-focus"]),

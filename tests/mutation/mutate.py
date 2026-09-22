@@ -38,6 +38,23 @@ RUN_TIMEOUT = -1000
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
+        "src/core/tnyjev.c",
+        ["probability", "tnyjev_decode"],
+        r"p < 0|p > 1|selected == r->choice_count|probabilities\[selected\]",
+        "tests/integration/test_tnyjev.py",
+        "tnyjev",
+    ),
+    (
+        "src/core/tnyjev.c",
+        ["tnyjev_decode"],
+        r"fabs\(sum - 1.0\)",
+        "tests/integration/test_tnyjev.py",
+        "tnyjev",
+        # Moving the normalization center is observable. <= to < at 1e-5
+        # is not: no binary64 sum near one has that exact subtraction value.
+        {"- 1 -> + 1"},
+    ),
+    (
         "src/backends/acp/acp_client.c",
         None,
         r'strcmp\(agent_version, "0.75.1"\) == 0',
@@ -1066,6 +1083,11 @@ def write_source_and_invalidate_objects(filename, text):
     source.write_text(text)
     for lane in ("dbg", "rel", "pic", "fault-pic", "fault-san-pic", "tsan-pic"):
         (Path(ROOT) / "build" / lane / object_name).unlink(missing_ok=True)
+    # A fast rebuild can give the recreated object and previous binary the
+    # same timestamp on coarse-resolution make/filesystem combinations.
+    # Force the link too: a stale test executable is not mutation evidence.
+    for binary in ("tny-test", "tny", "tny-test.exe", "tny.exe"):
+        (Path(ROOT) / "build" / binary).unlink(missing_ok=True)
 
 
 def main():

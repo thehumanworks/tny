@@ -35,6 +35,7 @@ SUITE_EXTERN(intercept_suite);
 SUITE_EXTERN(provider_extras_suite);
 SUITE_EXTERN(speech_suite);
 SUITE_EXTERN(dictation_suite);
+SUITE_EXTERN(tnyjev_suite);
 SUITE_EXTERN(image_service_suite);
 
 int main(int argc, char **argv) {
@@ -47,6 +48,7 @@ int main(int argc, char **argv) {
     RUN_SUITE(image_service_suite);
     RUN_SUITE(speech_suite);
     RUN_SUITE(dictation_suite);
+    RUN_SUITE(tnyjev_suite);
     RUN_SUITE(util_suite);
     RUN_SUITE(worktree_suite);
     RUN_SUITE(task_workspace_suite);

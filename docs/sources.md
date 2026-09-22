@@ -1,5 +1,18 @@
 # Sources
 
+## TypeSafe Jev decision engine (tnyjev)
+
+Primary API documentation consulted 2026-09-22; model default `jev-latest`
+(versioned IDs can be selected explicitly). The no/yes CLI `score` maps to
+Noul, not the separate ordinal Score primitive. See [tnyjev](tnyjev.md).
+
+- https://docs.typesafe.ai/api — `POST https://api.typesafe.ai/v1/systemone`,
+  typed Noul/Choice requests and answers, Bearer auth, usage, HTTP errors.
+- https://docs.typesafe.ai/introduction/quickstart — `TYPESAFE_API_KEY` and examples.
+- https://docs.typesafe.ai/primitives/noul — `[0,1]` no/yes probability.
+- https://docs.typesafe.ai/primitives/choice — option descriptions and distribution.
+- https://docs.typesafe.ai/models — aliases and versioned model IDs.
+
 ## Bounded instruction evolution (2026-09-19)
 
 Primary-source snapshots and applicability are recorded in

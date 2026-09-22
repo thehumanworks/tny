@@ -31,6 +31,7 @@ reproducible offline evidence from unmeasured live-model improvement.
 | [speech.md](speech.md) | Ephemeral speech, Codex login, agents and optional MP3 export |
 | [dictation.md](dictation.md) | Microphone/file transcription into prompts, independent STT providers |
 | [optimisation.md](optimisation.md) | Project-aware prompt rewriting, independent model, draft review |
+| [tnyjev.md](tnyjev.md) | Independent typed Jev decisions: `score` and `choose` |
 | [cli.md](cli.md) | Command tree, flags, agent-friendly output |
 | [workflows.md](workflows.md) | Dependency DAGs and parallel agents from shell, Python, and TypeScript |
 | [team-control.md](team-control.md) | Job-backed async teams, captured parent identity, bounded collection and truthful verification state |

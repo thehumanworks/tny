@@ -22,7 +22,8 @@ static const char *need_val(int argc, char **argv, int *i, const char *flag, boo
 }
 
 bool cli_is_command(const char *name) {
-    if (strcmp(name, "optimise") == 0) return true;
+    if (strcmp(name, "optimise") == 0 || strcmp(name, "score") == 0 || strcmp(name, "choose") == 0)
+        return true;
     static const char *const names[] = {
         "ask",    "edit",     "speak",          "dictate",   "image",     "ask-user", "resume",
         "acp",    "sessions", "session",        "provider",  "providers", "backends", "models",
