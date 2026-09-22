@@ -1,0 +1,12 @@
+[package]
+name = "tny-gui"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-femtovg"] }
+serde_json = "1"
+
+[build-dependencies]
+slint-build = "=1.18.1"

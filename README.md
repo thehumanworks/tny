@@ -25,6 +25,14 @@ tny acp                      # serve tny's native loop to any ACP client
 
 Task presets (`--task NAME`) configure a native task independently of the HTTP provider.
 
+An [experimental Slint desktop companion](docs/gui.md) lives in `gui/`.
+It reuses the existing CLI for chat, sessions, draft services, images, SSH tools,
+and swarm/message-board inspection. Build it with `cd gui && cargo run` after
+building `tny`. Linux is the initial checked desktop target; macOS and iOS
+are **not yet verified or shipped** as GUI targets. See its documented
+[limitations](docs/gui.md#boundaries-and-next-steps) before using it for
+long-running turns.
+
 **Automatic workflow learning is on by default.** Normal CLI/TUI work learns
 bounded recovery guidance from actual edit/read/retry outcomes and applies it to
 later requests and sessions. No preset, manual experiment, or extra model call

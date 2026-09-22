@@ -171,3 +171,4 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0163: Explicit reasoning effort for embedded runtimes](0163-sdk-reasoning-effort.md) — ABI 1.3 `tny_runtime_options_v3`, `reasoning_effort` / `reasoningEffort` in both SDKs.
 
 - [0164: Optional ACP clients with an owning-runtime MCP bridge](0164-optional-acp-clients.md)
+- [0166: Experimental Slint desktop companion](0166-slint-desktop-companion.md) — CLI-backed Linux desktop UI; iOS and full runner control deferred.

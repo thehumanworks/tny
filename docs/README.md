@@ -44,6 +44,7 @@ reproducible offline evidence from unmeasured live-model improvement.
 | [admission.md](admission.md) | Shared launch permits, cleanup holds, scope limits and honest usage policies |
 | [settings.md](settings.md) | settings.json defaults, schema, env-key HTTP profiles |
 | [tui.md](tui.md) | Interactive shell, slash commands, keys |
+| [gui.md](gui.md) | Experimental Slint desktop companion, feature boundaries and platform support |
 | [worktrees.md](worktrees.md) | Isolated Git checkouts, named reuse, merge/remove/keep on exit |
 | [libtny.md](libtny.md) | Experimental headless C embedding ABI |
 | [sdks.md](sdks.md) | Python/cffi and TypeScript/Node-API SDK contracts |

@@ -1,0 +1,34 @@
+name: Slint desktop companion
+
+on:
+  push:
+    paths:
+      - 'gui/**'
+      - 'docs/gui.md'
+      - 'docs/adr/0166-slint-desktop-companion.md'
+      - '.github/workflows/gui.yml'
+  pull_request:
+    paths:
+      - 'gui/**'
+      - 'docs/gui.md'
+      - 'docs/adr/0166-slint-desktop-companion.md'
+      - '.github/workflows/gui.yml'
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: gui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+      - run: cargo test --locked
+      - run: cargo build --release --locked

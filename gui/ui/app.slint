@@ -1,0 +1,434 @@
+import { TextEdit, ScrollView, Button, AboutSlint } from "std-widgets.slint";
+
+export struct ChatRow { role: string, body: string, meta: string }
+export struct SessionRow { id: string, title: string, meta: string }
+export struct SwarmRow { title: string, detail: string }
+export struct SuggestionRow { label: string, detail: string }
+export struct BoardMessage { heading: string, id: string, state: string, body: string }
+
+export component App inherits Window {
+    title: "tny · desktop";
+    preferred-width: 1120px;
+    preferred-height: 760px;
+    min-width: 820px;
+    min-height: 550px;
+    no-frame: true;
+    resize-border-width: 7px;
+    background: #f8f9f7;
+
+    in property <[ChatRow]> chat;
+    in property <[SessionRow]> sessions;
+    in property <[SwarmRow]> swarms;
+    in property <[SuggestionRow]> suggestions;
+    in property <[BoardMessage]> board-messages;
+    in property <bool> board-has-run: false;
+    in property <bool> board-open-busy: false;
+    in property <string> board-status: "Parent inbox not opened";
+    in property <string> completion-note: "";
+    in property <string> session-title: "New conversation";
+    in property <string> workspace-label: "Workspace";
+    in property <string> connection-label: "Local";
+    in property <string> status-label: "Ready";
+    in property <string> usage-label: "Tokens —";
+    in property <string> allowance-label: "Allowance — check";
+    in property <string> mailbox-label: "Mailbox · select a run";
+    in property <bool> busy: false;
+    in property <bool> swarm-enabled: false;
+    in property <int> swarm-count: 2;
+    in property <string> swarm-mode-label: "Solo";
+    in property <bool> has-session: false;
+    in property <bool> saved-read-only: false;
+    in property <string> saved-read-only-note: "";
+    in property <bool> needs-tool-confirmation: false;
+    in property <bool> ssh-configured: false;
+    in property <bool> error-visible: false;
+    in property <string> error-text: "";
+    in-out property <string> draft: "";
+    in-out property <string> ssh-target: "";
+    in-out property <string> image-path: "";
+    in-out property <string> swarm-run: "";
+    in-out property <string> image-gen-prompt: "";
+    in-out property <string> image-gen-output: "";
+    in property <string> generated-path: "";
+    in property <bool> image-gen-busy: false;
+    in property <string> image-gen-result: "No image generated in this window";
+    in-out property <bool> about-open: false;
+    callback submit(string);
+    callback new-session();
+    callback select-session(int);
+    callback confirm-tool-location(bool);
+    callback refresh();
+    callback check-allowance();
+    callback draft-edited(string);
+    callback choose-suggestion(int);
+    callback generate-image(string, string);
+    callback attach-generated();
+    callback optimise(string);
+    callback dictate();
+    callback apply-ssh(string);
+    callback disconnect-ssh();
+    callback change-swarm(int);
+    callback inspect-swarm(string);
+    callback run-edited(string);
+    callback open-parent-inbox();
+    callback clear-error();
+    callback jump-to-latest();
+    jump-to-latest => {
+        history.content-y = min(0px, history.height - history.content-height);
+    }
+
+    // Winit supplies native resize edges; this small drag strip replaces OS chrome.
+    VerticalLayout {
+        spacing: 0px;
+        WindowMoveArea {
+            height: 36px;
+            Rectangle {
+                background: #e7ede7;
+                HorizontalLayout {
+                    padding-left: 19px; padding-right: 17px; spacing: 13px;
+                    Text { text: "tny"; color: #657a68; font-size: 11px; font-weight: 700; vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    Button { text: "About"; width: 68px; height: 26px; clicked => { root.about-open = true; } }
+                    Rectangle {
+                        width: 18px; height: 18px; border-radius: 9px; background: #b5c3b5;
+                        TouchArea { clicked => { root.minimized = true; } }
+                    }
+                    Rectangle {
+                        width: 18px; height: 18px; border-radius: 9px; background: #94b197;
+                        TouchArea { clicked => { root.maximized = !root.maximized; } }
+                    }
+                    Rectangle {
+                        width: 18px; height: 18px; border-radius: 9px; background: #ca9288;
+                        TouchArea { clicked => { root.close(); } }
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 0px;
+        Rectangle {
+            width: 258px;
+            background: #eef1ed;
+            VerticalLayout {
+                padding-left: 20px;
+                padding-right: 16px;
+                padding-top: 28px;
+                padding-bottom: 20px;
+                spacing: 0px;
+                HorizontalLayout {
+                    height: 54px;
+                    Text { text: "tny"; color: #26372e; font-size: 26px; font-weight: 700; vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    Rectangle {
+                        width: 28px; height: 28px; border-radius: 8px; background: #d9e1d9;
+                        Text { text: "+"; color: #364e3d; font-size: 22px; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { clicked => { root.new-session(); } }
+                    }
+                }
+                Text { text: "YOUR SESSIONS"; color: #819087; font-size: 10px; font-weight: 700; height: 29px; vertical-alignment: bottom; }
+                ScrollView {
+                    vertical-stretch: 1;
+                    HorizontalLayout { spacing: 0px;
+                        VerticalLayout {
+                            spacing: 4px;
+                            for row[i] in root.sessions: Rectangle {
+                                height: 56px;
+                                border-radius: 9px;
+                                background: session-touch.has-hover ? #dfe7dd : transparent;
+                                VerticalLayout {
+                                    padding-left: 10px; padding-right: 10px; spacing: 2px;
+                                    Text { text: row.title; color: #273a30; font-size: 13px; overflow: elide; vertical-alignment: bottom; }
+                                    Text { text: row.meta; color: #89958d; font-size: 11px; overflow: elide; vertical-alignment: top; }
+                                }
+                                session-touch := TouchArea { clicked => { root.select-session(i); } }
+                            }
+                            if root.sessions.length == 0: Text {
+                                text: "No saved sessions yet"; color: #8a968e; font-size: 12px; height: 48px;
+                            }
+                        }
+                    }
+                }
+                Rectangle { height: 1px; background: #dbe2db; }
+                Text { text: "RUN / BACKGROUND AGENTS"; color: #819087; font-size: 10px; font-weight: 700; height: 36px; vertical-alignment: center; }
+                for row in root.swarms: VerticalLayout {
+                    spacing: 3px; padding-bottom: 12px;
+                    Text { text: row.title; color: #2e4335; font-size: 12px; overflow: elide; }
+                    Text { text: row.detail; color: #819087; font-size: 11px; overflow: elide; }
+                }
+                if root.swarms.length == 0: Text {
+                    text: "No background agents"; color: #89958d; font-size: 12px; height: 33px;
+                }
+                Text { text: root.mailbox-label; color: #65786a; font-size: 11px; wrap: word-wrap; }
+                Text { text: "Passive · run history vs recipient backlog · no inbox read"; color: #91a095; font-size: 10px; wrap: word-wrap; }
+                Rectangle { height: 1px; background: #dbe2db; }
+                Text { text: root.workspace-label; color: #4f6254; font-size: 12px; overflow: elide; height: 44px; vertical-alignment: center; }
+            }
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            background: #f8f9f7;
+            VerticalLayout {
+                spacing: 0px;
+                Rectangle {
+                    height: 75px;
+                    background: #f8f9f7;
+                    HorizontalLayout {
+                        padding-left: 33px; padding-right: 30px; spacing: 14px;
+                        Text { text: root.session-title; color: #25342a; font-size: 18px; font-weight: 600; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                        Text { text: root.connection-label; color: #66816c; font-size: 12px; vertical-alignment: center; }
+                        Rectangle {
+                            width: 34px; height: 32px; border-radius: 8px;
+                            background: refresh-touch.has-hover ? #e6ece5 : transparent;
+                            Text { text: "↻"; font-size: 21px; color: #54715d; horizontal-alignment: center; vertical-alignment: center; }
+                            refresh-touch := TouchArea { clicked => { root.refresh(); } }
+                        }
+                    }
+                }
+                Rectangle { height: 1px; background: #e7ebe5; }
+                if root.error-visible: Rectangle {
+                    height: 53px; background: #fff1ec;
+                    HorizontalLayout {
+                        padding-left: 30px; padding-right: 28px; spacing: 12px;
+                        Text { text: root.error-text; color: #9d4639; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                        Rectangle { width: 28px; background: transparent;
+                            Text { text: "×"; color: #9d4639; font-size: 21px; vertical-alignment: center; horizontal-alignment: center; }
+                            TouchArea { clicked => { root.clear-error(); } }
+                        }
+                    }
+                }
+                if root.saved-read-only: Rectangle {
+                    height: 66px; background: #fff2e8;
+                    HorizontalLayout { padding-left: 28px; padding-right: 28px;
+                        Text { text: root.saved-read-only-note; color: #855b44; font-size: 12px; wrap: word-wrap; vertical-alignment: center; }
+                    }
+                }
+                if root.needs-tool-confirmation && !root.saved-read-only: Rectangle {
+                    height: 126px; background: #fff5e9;
+                    VerticalLayout { padding-left: 28px; padding-right: 28px; padding-top: 9px; padding-bottom: 9px; spacing: 6px;
+                        Text { text: "Confirm tool location before continuing this saved session."; color: #664d39; font-size: 12px; font-weight: 700; }
+                        Text { text: "Historical SSH host and remote cwd were not saved. Local tools may target the wrong files. Configure SSH before selecting if you need remote tools."; color: #765e49; font-size: 11px; wrap: word-wrap; }
+                        HorizontalLayout { spacing: 10px;
+                            Rectangle { width: 119px; height: 29px; border-radius: 7px; background: #e3eade;
+                                Text { text: "Use LOCAL tools"; color: #3f5947; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                                TouchArea { clicked => { root.confirm-tool-location(false); } }
+                            }
+                            if root.ssh-configured: Rectangle { width: 195px; height: 29px; border-radius: 7px; background: #e3eade;
+                                Text { text: "Use " + root.connection-label; color: #3f5947; font-size: 11px; overflow: elide; horizontal-alignment: center; vertical-alignment: center; }
+                                TouchArea { clicked => { root.confirm-tool-location(true); } }
+                            }
+                            Rectangle { horizontal-stretch: 1; background: transparent; }
+                        }
+                    }
+                }
+                history := ScrollView {
+                    vertical-stretch: 1;
+                    HorizontalLayout {
+                        spacing: 0px;
+                        Rectangle { width: 32px; background: transparent; }
+                        VerticalLayout {
+                            spacing: 24px;
+                            padding-top: 30px; padding-bottom: 28px;
+                            if root.chat.length == 0: VerticalLayout {
+                                padding-top: 70px; spacing: 14px;
+                                Text { text: "A quieter place to build."; color: #293a2e; font-size: 28px; font-weight: 600; horizontal-alignment: center; }
+                                Text { text: "Ask a question, continue a session, or bring in a swarm."; color: #869289; font-size: 13px; horizontal-alignment: center; }
+                            }
+                            for row in root.chat: VerticalLayout {
+                                spacing: 7px;
+                                Text { text: row.role; font-size: 11px; font-weight: 700; color: row.role == "You" ? #587063 : #859188; }
+                                Text { text: row.body; font-size: 14px; color: #27332c; wrap: word-wrap; }
+                                Text { text: row.meta; font-size: 11px; color: #8e9a91; visible: row.meta != ""; }
+                            }
+                        }
+                        Rectangle { width: 32px; background: transparent; }
+                    }
+                }
+                Rectangle {
+                    height: 78px; background: #f8f9f7;
+                    HorizontalLayout {
+                        padding-left: 32px; padding-right: 32px; spacing: 8px;
+                        Text { text: root.usage-label; color: #607366; font-size: 12px; vertical-alignment: center; }
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        Text { text: root.allowance-label; color: #849389; font-size: 12px; vertical-alignment: center; }
+                        Rectangle { width: 114px; height: 30px; border-radius: 8px; background: #e6ece5;
+                            Text { text: "Check allowance"; color: #52695a; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { clicked => { root.check-allowance(); } }
+                        }
+                    }
+                }
+                if root.suggestions.length > 0: Rectangle {
+                    height: root.suggestions.length * 32px + 12px;
+                    background: #edf3ec;
+                    VerticalLayout {
+                        padding-left: 30px; padding-right: 30px; padding-top: 6px; padding-bottom: 6px;
+                        spacing: 0px;
+                        for item[i] in root.suggestions: Rectangle {
+                            height: 32px; border-radius: 7px;
+                            background: candidate-touch.has-hover ? #dce9db : transparent;
+                            HorizontalLayout { padding-left: 10px; padding-right: 10px; spacing: 8px;
+                                Text { text: item.label; color: #354c3b; font-size: 12px; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+                                Text { text: item.detail; color: #829286; font-size: 10px; vertical-alignment: center; }
+                            }
+                            candidate-touch := TouchArea { clicked => { root.choose-suggestion(i); } }
+                        }
+                    }
+                }
+                if root.completion-note != "": Text {
+                    text: root.completion-note; color: #8c7766; font-size: 11px;
+                    height: 26px; vertical-alignment: center; horizontal-alignment: center;
+                }
+                Rectangle {
+                    height: 158px;
+                    background: #f8f9f7;
+                    HorizontalLayout {
+                        padding-left: 28px; padding-right: 28px; padding-bottom: 22px;
+                        Rectangle {
+                            border-radius: 14px; border-width: 1px; border-color: #dfe6dc; background: #ffffff;
+                            VerticalLayout {
+                                padding-left: 14px; padding-right: 14px; padding-top: 8px; padding-bottom: 8px; spacing: 6px;
+                                composer := TextEdit {
+                                    text <=> root.draft;
+                                    edited(text) => { root.draft-edited(text); }
+                                    font-size: 14px;
+                                    vertical-stretch: 1;
+                                }
+                                HorizontalLayout {
+                                    height: 34px; spacing: 10px;
+                                    Rectangle { width: 78px; border-radius: 8px; background: opt-touch.has-hover ? #e8eee8 : #f2f5f1;
+                                        Text { text: "Optimise"; color: #52695a; font-size: 11px; vertical-alignment: center; horizontal-alignment: center; }
+                                        opt-touch := TouchArea { clicked => { root.optimise(root.draft); } }
+                                    }
+                                    Rectangle { width: 68px; border-radius: 8px; background: mic-touch.has-hover ? #e8eee8 : #f2f5f1;
+                                        Text { text: "Dictate"; color: #52695a; font-size: 11px; vertical-alignment: center; horizontal-alignment: center; }
+                                        mic-touch := TouchArea { clicked => { root.dictate(); } }
+                                    }
+                                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                                    Text { text: root.busy ? "Thinking…" : "Enter a prompt"; color: #96a39a; font-size: 11px; vertical-alignment: center; }
+                                    Rectangle { width: 68px; border-radius: 9px; background: root.busy || root.saved-read-only || root.needs-tool-confirmation ? #a9b8ab : #385844;
+                                        Text { text: "Send ↗"; color: white; font-size: 11px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center; }
+                                        TouchArea { clicked => { if !root.busy && !root.saved-read-only && !root.needs-tool-confirmation && root.draft != "" { root.submit(root.draft); } } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Rectangle { height: 1px; background: #e7ebe5; }
+                Rectangle {
+                    height: 67px; background: #f3f6f2;
+                    HorizontalLayout {
+                        padding-left: 30px; padding-right: 30px; spacing: 10px;
+                        Text { text: root.status-label; color: #4f6655; font-size: 11px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                        Text { text: root.swarm-mode-label; color: #6c8070; font-size: 11px; vertical-alignment: center; overflow: elide; }
+                        Rectangle { width: 38px; height: 27px; border-radius: 7px; background: #e3eae2;
+                            Text { text: "+"; color: #45604b; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { clicked => { root.change-swarm(root.swarm-enabled ? root.swarm-count + 1 : 2); } }
+                        }
+                        Rectangle { width: 38px; height: 27px; border-radius: 7px; background: #e3eae2;
+                            Text { text: "−"; color: #45604b; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { clicked => { root.change-swarm(root.swarm-enabled ? root.swarm-count - 1 : 2); } }
+                        }
+                    }
+                }
+            }
+        }
+        Rectangle {
+            width: 220px; background: #f3f6f2;
+            ScrollView {
+                VerticalLayout {
+                padding-left: 17px; padding-right: 17px; padding-top: 32px; padding-bottom: 20px; spacing: 12px;
+                Text { text: "WORKSPACE"; color: #839289; font-size: 10px; font-weight: 700; }
+                Text { text: root.workspace-label; color: #364c3b; font-size: 12px; wrap: word-wrap; }
+                Rectangle { height: 1px; background: #dce6dc; }
+                Text { text: "REMOTE TOOLS"; color: #839289; font-size: 10px; font-weight: 700; }
+                Text { text: root.connection-label; color: #536b59; font-size: 11px; }
+                ssh-input := TextEdit { text <=> root.ssh-target; height: 47px; font-size: 11px; }
+                Rectangle { height: 30px; border-radius: 7px; background: #e1eae0;
+                    Text { text: "Connect SSH"; color: #3f5947; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea { clicked => { root.apply-ssh(root.ssh-target); } }
+                }
+                Rectangle { height: 28px; border-radius: 7px; background: #e9ede9;
+                    Text { text: "Use local tools"; color: #536b59; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea { clicked => { root.disconnect-ssh(); } }
+                }
+                Rectangle { height: 1px; background: #dce6dc; }
+                Text { text: "IMAGE FOR NEXT TURN"; color: #839289; font-size: 10px; font-weight: 700; }
+                image-input := TextEdit { text <=> root.image-path; height: 48px; font-size: 11px; }
+                Rectangle { height: 30px; border-radius: 7px; background: #e1eae0;
+                    Text { text: "Clear image"; color: #3f5947; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea { clicked => { root.image-path = ""; } }
+                }
+                Text { text: "Local image path · sent with next prompt"; color: #a06c61; font-size: 10px; wrap: word-wrap; }
+                Rectangle { height: 1px; background: #dce6dc; }
+                Text { text: "GENERATE IMAGE"; color: #839289; font-size: 10px; font-weight: 700; }
+                TextEdit { text <=> root.image-gen-prompt; height: 64px; font-size: 11px; placeholder-text: "Describe an image"; }
+                TextEdit { text <=> root.image-gen-output; height: 47px; font-size: 11px; placeholder-text: "/absolute/path.png"; }
+                Rectangle { height: 31px; border-radius: 7px; background: root.image-gen-busy ? #b9c5b9 : #dce9dc;
+                    Text { text: root.image-gen-busy ? "Generating…" : "Generate image"; color: #3f5947; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea { clicked => { if !root.image-gen-busy { root.generate-image(root.image-gen-prompt, root.image-gen-output); } } }
+                }
+                Text { text: "May replace the output file · default manifest stores prompt"; color: #916e53; font-size: 10px; wrap: word-wrap; }
+                Text { text: root.image-gen-result; color: #6e776e; font-size: 10px; wrap: word-wrap; }
+                if root.generated-path != "": VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "Saved (not previewed):"; color: #596b60; font-size: 11px; }
+                    Text { text: root.generated-path; color: #435a48; font-size: 11px; wrap: word-wrap; }
+                    Rectangle { height: 30px; border-radius: 7px; background: #e1eae0;
+                        Text { text: "Attach to next prompt"; color: #3f5947; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { clicked => { root.attach-generated(); } }
+                    }
+                }
+                Rectangle { height: 1px; background: #dce6dc; }
+                Text { text: "SWARM RUN"; color: #839289; font-size: 10px; font-weight: 700; }
+                TextEdit { text <=> root.swarm-run; edited(text) => { root.run-edited(text); } height: 48px; font-size: 11px; }
+                Rectangle { height: 30px; border-radius: 7px; background: #e1eae0;
+                    Text { text: "Inspect run"; color: #3f5947; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea { clicked => { root.inspect-swarm(root.swarm-run); } }
+                }
+                Text { text: "Run state is observational, not verification"; color: #91a095; font-size: 10px; wrap: word-wrap; }
+                Rectangle { height: 1px; background: #dce6dc; }
+                Text { text: "PARENT MESSAGE BOARD"; color: #839289; font-size: 10px; font-weight: 700; }
+                Text { text: "Opening marks delivered; does NOT acknowledge. Untrusted message text."; color: #916e53; font-size: 10px; wrap: word-wrap; }
+                Rectangle { height: 32px; border-radius: 7px; background: root.board-has-run && !root.board-open-busy ? #dce9dc : #e5e8e4;
+                    Text { text: root.board-open-busy ? "Opening…" : "Open parent inbox"; color: #3f5947; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea { clicked => { if root.board-has-run && !root.board-open-busy { root.open-parent-inbox(); } } }
+                }
+                Text { text: root.board-status; color: #667569; font-size: 10px; wrap: word-wrap; }
+                for entry in root.board-messages: Rectangle {
+                    border-radius: 7px; background: #e6ede5;
+                    VerticalLayout { padding-left: 8px; padding-right: 8px; padding-top: 7px; padding-bottom: 7px; spacing: 4px;
+                        Text { text: entry.heading; color: #435a49; font-size: 10px; wrap: word-wrap; }
+                        Text { text: entry.id; color: #597262; font-size: 10px; wrap: word-wrap; }
+                        Text { text: entry.state; color: #7d6956; font-size: 10px; }
+                        Text { text: entry.body; color: #25382d; font-size: 11px; wrap: word-wrap; }
+                    }
+                }
+                Text { text: "tny · native desktop"; color: #9ba99d; font-size: 11px; }
+                }
+            }
+        }
+    }
+    }
+    // Available from the top-level header; no separate decorated window.
+    if root.about-open: Rectangle {
+        x: 0px; y: 36px;
+        width: parent.width; height: parent.height - 36px;
+        background: #142b1d99;
+        Rectangle {
+            width: min(parent.width - 48px, 430px);
+            height: 242px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: 12px; border-width: 1px; border-color: #d9e3d8;
+            background: #f8f9f7;
+            VerticalLayout {
+                padding-left: 20px; padding-right: 20px; padding-top: 16px; padding-bottom: 16px; spacing: 12px;
+                HorizontalLayout {
+                    Text { text: "About tny"; color: #26372e; font-size: 18px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                    Button { text: "Close"; width: 72px; height: 28px; clicked => { root.about-open = false; } }
+                }
+                AboutSlint { }
+            }
+        }
+    }
+}
