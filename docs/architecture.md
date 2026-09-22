@@ -54,17 +54,18 @@ not a separate provider lifecycle.
 ## Process rules
 
 - One tny process, one primary workspace (`cwd` unless `--cwd`).
-- **Turns run in a detached session runner** ([ADR 0053](adr/0053-forked-turn-isolation.md)): on native builds, `ask` and the TUI fork a `setsid()` runner that owns the backend, engine, MCP servers, and every `session.json` write, streaming normalized events back over `<session>/sock` (NDJSON). A caller crash or SIGKILL detaches the turn. Explicit interrupts, TUI exit, and foreground terminal hangup stop it, with a verified process kill if cancellation stalls ([ADR 0081](adr/0081-reliable-session-interruption.md)). wasm, `--ephemeral`, and `TNY_ISOLATE=0` run in-process; on macOS a caller that has already initialized SecureTransport also keeps later turns in-process because Apple's trust runtime is unsafe in a fork-only child; libtny embedders stay in-process by design — their callers own lifecycle.
+- **Turns run in a detached session runner** ([ADR 0053](adr/0053-forked-turn-isolation.md), [ADR 0166](adr/0166-global-sessions-and-immediate-backgrounding.md)): on native builds, `ask` and the TUI spawn a fresh executable in a detached process session. The runner owns the backend, engine, MCP servers and every `session.json` write, streaming normalized events over `<session>/sock` (NDJSON). A caller crash or SIGKILL detaches the turn. Explicit interrupts, foreground TUI exit and foreground terminal hangup stop it, with a verified process kill if cancellation stalls ([ADR 0081](adr/0081-reliable-session-interruption.md)). Caller-side macOS TLS initialization does not disable isolation. wasm, `--ephemeral`, and `TNY_ISOLATE=0` run in-process; libtny embedders stay in-process by design because their callers own lifecycle.
 - Always have a RAII-style shutdown path: cancel turn → close stream → release resources.
 - Never log bearer tokens, `.env` values.
 
-Left-arrow backgrounding adds a quiescent tool boundary to the native loop:
-local effective results (or a completed hosted-search response) and the consumed
-batch index are saved before a mapped fresh
-executable takes over the same turn. The listener and writer description remain
-continuously held; the TUI opens the shared agents dashboard and can reattach
-mid-turn as owner. Resolved secrets/configuration travel only through anonymous
-IPC. See [ADR 0107](adr/0107-tool-boundary-restart-and-agents-dashboard.md).
+Left-arrow backgrounding marks the existing runner as background and opens the
+shared agents dashboard as soon as the runner acknowledges persistence. The
+same HTTP or ACP turn continues through streaming and tools without a restart
+or replay; the writer and listener remain continuously held. Resolved secrets
+and configuration for initial runner startup travel only through anonymous
+IPC. The dashboard includes all saved sessions across all stored workspaces,
+with workspace labels and owner-checked reattachment. See
+[ADR 0166](adr/0166-global-sessions-and-immediate-backgrounding.md).
 
 Private runner and durable-job C++ aggregates own descriptors, advisory-lock
 lifetimes and native process scopes ([ADR 0118](adr/0118-runner-and-job-resource-ownership.md)).

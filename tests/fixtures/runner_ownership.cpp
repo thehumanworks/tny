@@ -16,6 +16,7 @@ static int checked_pipe(int ends[2]) {
 extern "C" {
 #include "core/runner.h"
 #include "util/jobs_host.h"
+#include "util/process.h"
 #include "util/tny_poll.h"
 #include "net/net.h"
 }
@@ -30,13 +31,17 @@ extern "C" {
 extern "C" void tny_resource_fault_set(int fault, int dup_at);
 
 static bool probe_writer = false;
-static bool fail_fork = false, fail_listener = false, fail_save = false;
-static pid_t checked_fork() {
-    if (fail_fork) {
-        errno = EAGAIN;
-        return -1;
+static bool fail_spawn = false, fail_child_before_ready = false, fail_listener = false,
+            fail_save = false;
+static int checked_spawn_session(char *const argv[], char *const envp[], const tny_fd_mapping *maps,
+                                 int n_maps, pid_t *pid) {
+    if (fail_spawn) return EAGAIN;
+    if (fail_child_before_ready) {
+        char path[] = "/usr/bin/false";
+        char *reject[] = {path, nullptr};
+        return tny_process_spawn_mapped_session(reject, envp, maps, n_maps, pid);
     }
-    return fork();
+    return tny_process_spawn_mapped_session(argv, envp, maps, n_maps, pid);
 }
 static int checked_listener(const char *path) {
     if (fail_listener) {
@@ -60,6 +65,7 @@ static int save_checked(tny_session_state *session) {
     }
     if (probe_writer) {
         assert(session->lock_fd >= 0);
+        std::snprintf(writer_path, sizeof writer_path, "%s/lock", session->dir);
         assert(tny_jobs_host_owner_state(writer_path) == TNY_JOBS_OWNER_HELD);
     }
     if (fail_save) return -1;
@@ -70,10 +76,10 @@ static int unlink_checked(const char *path) {
         assert(tny_jobs_host_owner_state(writer_path) == TNY_JOBS_OWNER_HELD);
     return unlink(path);
 }
-#define fork         checked_fork
-#define unix_listen  checked_listener
-#define session_save save_checked
-#define unlink       unlink_checked
+#define tny_process_spawn_mapped_session checked_spawn_session
+#define unix_listen                      checked_listener
+#define session_save                     save_checked
+#define unlink                           unlink_checked
 #ifndef TNY_RUNNER_SOURCE
 #define TNY_RUNNER_SOURCE "../../src/core/runner.cpp"
 #endif
@@ -81,7 +87,7 @@ static int unlink_checked(const char *path) {
 #undef unlink
 #undef session_save
 #undef unix_listen
-#undef fork
+#undef tny_process_spawn_mapped_session
 
 /* Job persistence faults run the real supervisor. Mode 1 loses the first
  * child's wait result while a second real child waits for a fixture file;
@@ -373,13 +379,14 @@ static void acquisition_faults(const char *directory) {
         assert(descriptor_count() == before);
     }
     fail_pipe_at = 0;
-    for (int fault = 0; fault < 3; ++fault) {
+    for (int fault = 0; fault < 4; ++fault) {
         auto *ctx = tny_ctx_new_explicit(directory, directory);
         auto *session = session_new(ctx);
         assert(session);
         fail_save = fault == 0;
         fail_listener = fault == 1;
-        fail_fork = fault == 2;
+        fail_spawn = fault == 2;
+        fail_child_before_ready = fault == 3;
         tny_runner_opts options{};
         char error[256];
         assert(tny_runner_spawn(ctx, session, &options, error, sizeof error) < 0);
@@ -392,8 +399,8 @@ static void acquisition_faults(const char *directory) {
         tny_ctx_free(ctx);
         assert(descriptor_count() == before);
     }
-    fail_save = fail_listener = fail_fork = false;
-    puts("acquisition faults: pipe1/pipe2/save/listener/fork closed all resources");
+    fail_save = fail_listener = fail_spawn = fail_child_before_ready = false;
+    puts("acquisition faults: pipe1/pipe2/save/listener/spawn/child reject closed all resources");
 }
 
 static void client_allocation_fault(const char *directory) {
@@ -767,6 +774,80 @@ static void runner_shutdown(const char *directory) {
     tny_ctx_free(ctx);
 }
 
+static void background_question_replays_to_next_owner() {
+    rn_state bounded{};
+    int bounded_pair[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, bounded_pair) == 0);
+    bounded.cl[0].fd.adopt(bounded_pair[0]);
+    tny::descriptor bounded_peer;
+    bounded_peer.adopt(bounded_pair[1]);
+    bounded.cl[0].handshaken = true;
+    bounded.cl[0].role = TNY_RUNNER_OWNER;
+    bounded.cl[0].can_answer_questions = true;
+    char oversized[RN_QUESTION_MAX + 2];
+    std::memset(oversized, '\\', sizeof oversized - 1);
+    oversized[sizeof oversized - 1] = 0;
+    assert(rn_start_question(&bounded, -1, "too-large", oversized) == -3);
+    assert(!bounded.question_pending && bounded.cl[0].fd.borrow() >= 0);
+    assert(rn_start_question(&bounded, -1, "small", "Still usable?") == 0);
+    assert(bounded.cl[0].fd.borrow() >= 0 && bounded.question_pending);
+    rn_question_fail(&bounded, "fixture complete");
+    rn_client_drop(&bounded, 0);
+
+    rn_state runner{};
+    int first[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, first) == 0);
+    runner.cl[0].fd.adopt(first[0]);
+    tny::descriptor old_peer;
+    old_peer.adopt(first[1]);
+    runner.cl[0].handshaken = true;
+    runner.cl[0].role = TNY_RUNNER_OWNER;
+    runner.cl[0].can_answer_questions = true;
+    runner.question_pending = true;
+    runner.question_tool_client = -1;
+    runner.question_text = xstrdup("Which branch?");
+    std::snprintf(runner.question_id, sizeof runner.question_id, "question-1");
+    runner.background_permissions = true; /* acknowledged explicit handoff */
+    rn_client_drop(&runner, 0);
+    assert(runner.question_pending && !runner.question_done);
+
+    int second[2];
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, second) == 0);
+    runner.cl[1].fd.adopt(second[0]);
+    tny::descriptor new_peer;
+    new_peer.adopt(second[1]);
+    runner.cl[1].handshaken = true;
+    runner.cl[1].role = TNY_RUNNER_OWNER;
+    runner.cl[1].can_answer_questions = true;
+    rn_send_pending_question(&runner, 1);
+    char line[256] = {};
+    ssize_t n = read(new_peer.borrow(), line, sizeof line - 1);
+    assert(n > 0 && std::strstr(line, "Which branch?") && std::strstr(line, "question-1"));
+    const char reply[] = "{\"op\":\"ask_user_reply\",\"id\":\"question-1\",\"answer\":\"main\"}";
+    auto *doc = jparse(reply, sizeof reply - 1);
+    assert(doc);
+    rn_handle_op(&runner, 1, yyjson_doc_get_root(doc));
+    assert(runner.question_done && !runner.question_pending && !runner.question_failed);
+    assert(runner.question_answer && std::strcmp(runner.question_answer, "main") == 0);
+    yyjson_doc_free(doc);
+    std::free(runner.question_answer);
+    rn_client_drop(&runner, 1);
+
+    rn_state ordinary{};
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, first) == 0);
+    ordinary.cl[0].fd.adopt(first[0]);
+    tny::descriptor ordinary_peer;
+    ordinary_peer.adopt(first[1]);
+    ordinary.cl[0].handshaken = true;
+    ordinary.cl[0].role = TNY_RUNNER_OWNER;
+    ordinary.question_pending = true;
+    ordinary.question_tool_client = -1;
+    ordinary.question_text = xstrdup("No background handoff");
+    rn_client_drop(&ordinary, 0);
+    assert(ordinary.question_done && ordinary.question_failed && !ordinary.question_pending);
+    puts("background question survives explicit detach and replays; ordinary loss fails closed");
+}
+
 static void metadata_pid_is_not_authority(const char *directory) {
     auto *ctx = tny_ctx_new_explicit(directory, directory);
     assert(ctx);
@@ -920,6 +1001,14 @@ static void checkpoint_allocation_faults(const char *directory) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 2 && std::strcmp(argv[1], "--runner-start") == 0) {
+        probe_writer = true; /* exec does not inherit fixture globals */
+        return tny_runner_start_main();
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--runner-restart") == 0) {
+        probe_writer = true;
+        return tny_runner_restart_main();
+    }
     if (argc > 2 && std::strcmp(argv[1], "--cwd") == 0) {
         if (tny_process_scope_admit() != 0) return 2;
         char bytes[64];
@@ -951,6 +1040,7 @@ int main(int argc, char **argv) {
     unknown_cleanup();
     durable_cleanup_faults(argv[1]);
     runner_shutdown(argv[1]);
+    background_question_replays_to_next_owner();
     metadata_pid_is_not_authority(argv[1]);
     consumed_checkpoint_stays_consumed(argv[1]);
     checkpoint_allocation_faults(argv[1]);

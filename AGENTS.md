@@ -37,7 +37,7 @@ The product source is live under `src/` with unit, integration, mutation, and la
 - Language: C11 for existing application, OS seams, transports and vendored code; private C++20 ownership modules only as scoped by ADR 0114, ADR 0126 and ADR 0133. Retain the public C ABI.
 - Footprint (ADR 0150): keep shipped artifacts small and measure their size and runtime dependencies. There is no fixed binary-size ceiling. Favor maintainability, reliability, portability and measured speed over byte minimization; no vendor agent binary is required.
 - Startup: no provider I/O before a turn; help/version stay fast. Native session runners start lazily.
-- Isolation: on native builds every turn — interactive and one-shot — executes in a detached, forked **session runner** that survives caller crashes and finalizes into the session; the caller renders its NDJSON stream from `<session>/sock` (`docs/adr/0053`). No tmux. wasm, `--ephemeral`, and `TNY_ISOLATE=0` are the only in-process turns.
+- Isolation: on native builds every turn — interactive and one-shot — executes in a detached **session runner** started as a fresh executable, surviving caller crashes and finalizing into the session; the caller renders its NDJSON stream from `<session>/sock` (`docs/adr/0053`, `docs/adr/0166`). No tmux. wasm, `--ephemeral`, and `TNY_ISOLATE=0` are the only in-process turns.
 - One event loop; normalize HTTP and ACP streams to the shared event schema.
 - Native tools/MCP/skills/permissions remain shared. ACP agents own their inference
   loop; the MCP bridge executes tny tools in the owning runtime. Verified Claude

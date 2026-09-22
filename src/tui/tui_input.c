@@ -477,9 +477,10 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         tui_pick_refresh(t);
         break;
     case TUI_K_LEFT:
-        if (t->turn_active && !t->input.len && !t->wiz_step && !popover && !t->overlay.len &&
-            !t->perm_id) {
-            tui_background_arm(t);
+        if (!t->input.len && !t->wiz_step && !popover && !t->overlay.len && !t->perm_id) {
+            if (t->turn_active && t->background_view) tui_agents_open(t);
+            else if (t->turn_active) tui_background_arm(t);
+            else if (!t->turn_active) tui_agents_open(t);
             break;
         }
         t->cur = prev_ch(t, t->cur);

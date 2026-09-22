@@ -68,6 +68,7 @@ PARSED_WITHOUT_HELP = {
     "<global>": {
         "--resume-*",
         "--runner-restart",
+        "--runner-start",
         "--child-context",
         # Private ACP stdio MCP relay, launched only with runtime-owned IPC.
         "--acp-mcp-bridge",

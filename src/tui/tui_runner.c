@@ -1,4 +1,4 @@
-/* tui_runner.c — the interactive shell as a runner client (docs/adr/0053).
+/* tui_runner.c — the interactive shell as a runner client (docs/adr/0053, 0166).
  *
  * In isolation mode the TUI never runs a turn in-process: a detached serve
  * runner owns the backend, the engine, and every session.json write, and
@@ -24,9 +24,7 @@
 #include "util/tny_poll.h"
 
 bool tui_runner_mode(const tui *t) {
-    /* Caller-side TLS can disable future forks on macOS while an already
-     * healthy runner is serving this shell. Keep using that runner until a
-     * rebind drops it; the replacement then takes the safe in-process path. */
+    /* A clean exec runner remains available after caller-side TLS use. */
     return t->rc != NULL || tny_isolation_enabled(t->ctx);
 }
 
@@ -57,6 +55,10 @@ int tui_runner_ensure(tui *t, bool quiet) {
     char err[512];
     tny_runner_opts opts = {0};
     opts.serve = true;
+    if (t->worktree && t->worktree->lock_fd >= 0) {
+        opts.has_worktree_lock = true;
+        opts.worktree_lock_fd = t->worktree->lock_fd;
+    }
     pid_t pid = tny_runner_spawn(t->ctx, t->session, &opts, err, sizeof err);
     if (pid < 0) {
         if (!quiet) tui_err(t, err);
@@ -151,9 +153,7 @@ void tui_runner_dispatch(tui *t) {
     while (t->rc && (m = tny_runner_client_pop(t->rc))) {
         switch (m->kind) {
         case TNY_RMSG_EVENT:
-            if (m->ev.kind == TNY_EV_STATUS && m->ev.text &&
-                str_starts(m->ev.text, "Background restart failed"))
-                t->background_armed = false;
+            if (m->ev.kind == TNY_EV_ERROR && t->background_armed) t->background_armed = false;
             tui_handle_backend_event(t, &m->ev);
             break;
         case TNY_RMSG_SNAPSHOT:

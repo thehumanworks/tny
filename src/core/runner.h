@@ -1,9 +1,10 @@
 /* runner.h — the detached session-runner process and its wire client
- * (docs/adr/0053). Every native turn executes inside a forked, setsid()
+ * (docs/adr/0053, 0166). Every saved native turn executes inside a fresh
+ * executable, setsid()
  * runner that owns the backend, the engine, and every session.json write;
  * the caller renders events streamed over <session-dir>/sock as
  * newline-delimited JSON. A dead client is a rendering loss, never an
- * agent loss. wasm has no fork: tny_isolation_enabled() is false there and
+ * agent loss. wasm has no process isolation: tny_isolation_enabled() is false there and
  * callers keep their in-process paths (docs/adr/0017). */
 #ifndef TNY_RUNNER_H
 #define TNY_RUNNER_H
@@ -22,12 +23,10 @@ extern "C" {
 struct tny_engine;
 
 /* Native default on; TNY_ISOLATE=0 (debug escape hatch) or wasm turn it
- * off. Ephemeral sessions always run in-process: there is no session
- * directory to serve from and nothing durable to survive for. On macOS,
- * once the caller has initialized SecureTransport, subsequent turns stay
- * in-process because Apple's trust runtime is unsafe after fork pre-exec. */
+ * off. Ephemeral sessions run in-process: there is no durable session. A
+ * caller's SecureTransport state does not affect the clean exec runner. */
 bool tny_isolation_enabled(const tny_ctx *ctx);
-/* Pure policy seam for tests; production passes nstream_fork_safe(). */
+/* Pure policy seam retained for tests; transport_fork_safe is now ignored. */
 bool tny_isolation_policy(const tny_ctx *ctx, bool transport_fork_safe);
 
 /* <session-dir>/sock; malloc'd, NULL when the path exceeds sun_path. */
@@ -41,13 +40,15 @@ typedef struct {
     const char *initial_prompt;  /* -B: run detached with no client */
     const char **initial_images; /* NULL-terminated array or NULL */
     bool continue_recovery;      /* fold recovery.json into the first turn */
+    bool has_worktree_lock;      /* preserve a managed checkout after frontend loss */
+    int worktree_lock_fd;        /* borrowed from frontend when flag is true */
 } tny_runner_opts;
 
-/* Fork the runner. The listener is bound in the parent before the fork so
- * a client connect never races runner startup. Parent: returns the child
- * pid (>0), listener closed. Child: never returns (_exit). -1 on error.
- * Acquire the writer before binding; the child inherits it through final
- * quiescence (ADR0104). A caller-owned lock remains caller-owned in the parent;
+/* Exec the runner through a private mapped-descriptor channel. The listener
+ * and writer are established in the caller, and the child validates both
+ * before acknowledging its launch. Returns child pid (>0) or -1 on error.
+ * The child holds the writer through final quiescence (ADR0104). A caller-owned
+ * lock remains caller-owned in the parent;
  * otherwise spawn closes its newly acquired parent copy on return. */
 pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runner_opts *opts,
                        char *err, size_t errlen);
@@ -65,7 +66,7 @@ char *tny_turn_result_json(tny_ctx *ctx, struct tny_engine *engine, tny_session_
 // C/C++ boundary: retain the C enum layout. NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
     TNY_RMSG_EVENT = 0,    /* ev is a normalized backend event */
-    TNY_RMSG_BACKGROUNDED, /* checkpoint restarted; owner may detach */
+    TNY_RMSG_BACKGROUNDED, /* saved live handoff; owner may detach */
     TNY_RMSG_HELLO,        /* pid/provider/model/state; snapshot may follow */
     TNY_RMSG_SNAPSHOT,     /* text: output accumulated before this attach */
     TNY_RMSG_RECOVERY,     /* text: replayed recovery partial */
@@ -118,6 +119,7 @@ void tny_runner_msg_free(tny_runner_msg *m);
 int tny_runner_client_turn(tny_runner_client *c, const char *prompt, const char **images,
                            bool continue_recovery);
 int tny_runner_client_steer(tny_runner_client *c, const char *text);
+int tny_runner_start_main(void);   /* private inherited-descriptor entry point */
 int tny_runner_restart_main(void); /* private inherited-descriptor entry point */
 int tny_runner_client_background(tny_runner_client *c);
 int tny_runner_client_cancel(tny_runner_client *c, bool hard);

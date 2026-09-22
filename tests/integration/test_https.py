@@ -23,6 +23,7 @@ import sys
 import tempfile
 import threading
 import time
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TNY = (
@@ -30,6 +31,7 @@ TNY = (
     if len(sys.argv) > 1
     else os.environ.get("TNY", os.path.join(ROOT, "build", "tny"))
 )
+TNY = os.path.abspath(TNY)
 MOCK = os.path.join(ROOT, "tests", "integration", "mock_openai.py")
 
 
@@ -67,6 +69,7 @@ def make_cert(tmp):
         ],
         check=True,
         capture_output=True,
+        env=dict(os.environ, OPENSSL_CONF="/dev/null"),
     )
     return cert, key
 
@@ -164,7 +167,59 @@ def run_models(cert, key, handler, env):
     return r
 
 
+def macos_runner_after_caller_tls():
+    """A failed SecureTransport request in the TUI must not demote later turns."""
+    from test_tui import BANNER, Term, base_env
+
+    with tempfile.TemporaryDirectory(prefix="tny-post-tls-runner-") as tmp:
+        cert, key = make_cert(tmp)
+        port, server = raw_tls_server(cert, key, recv_headers)
+        ws = Path(tmp) / "ws"
+        ws.mkdir()
+        home = Path(tmp) / "home"
+        env = base_env(
+            str(home),
+            {
+                "OPENAI_BASE_URL": f"https://127.0.0.1:{port}/v1",
+                "OPENAI_API_KEY": "synthetic-test-key",
+            },
+        )
+        term = Term([TNY, "--provider", "openai", "--no-extensions"], env, str(ws))
+        try:
+            term.expect(BANNER)
+            sessions = home / ".tny" / "sessions"
+            assert server.is_alive(), "provider I/O ran before /models"
+
+            term.send("/models\r")
+            server.join(timeout=10)
+            assert not server.is_alive(), "caller did not exercise SecureTransport"
+            term.send("hello\r")
+
+            deadline = time.monotonic() + 12
+            pid = None
+            while time.monotonic() < deadline:
+                term.pump(0.05)
+                pid = next(sessions.glob("*/*/pid"), None)
+                if pid:
+                    break
+            assert pid and int(pid.read_text()) > 0, (
+                "post-TLS turn stayed in the caller instead of a clean runner",
+                term.buf,
+            )
+            term.send("/quit\r")
+            assert term.wait() == 0, term.buf
+        finally:
+            term.close()
+    print("test_https: macOS caller TLS still starts a native runner")
+
+
 def main():
+    if sys.platform == "darwin":
+        if not shutil.which("openssl"):
+            print("test_https: skip (no openssl CLI to mint a test cert)")
+            return
+        macos_runner_after_caller_tls()
+        return
     if sys.platform != "linux":
         print("test_https: skip (linux-only system-libssl path)")
         return

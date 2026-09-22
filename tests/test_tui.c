@@ -1066,7 +1066,7 @@ TEST agents_unreadable_workspace_preserves_context(void) {
         ASSERT_STR_EQ("gateway", ctx.provider_name);
         ASSERT_STR_EQ("fixture-key", ctx.api_key);
         ASSERT_EQ(NULL, t.session);
-        ASSERT(t.out.data && strstr(t.out.data, "cannot load the background session's workspace"));
+        ASSERT(t.out.data && strstr(t.out.data, "cannot load the saved session's workspace"));
         free_tui(&t);
     }
     PASS();

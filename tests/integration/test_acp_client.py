@@ -321,6 +321,72 @@ class AcpClientTest(unittest.TestCase):
                 process.kill()
                 process.wait(timeout=3)
 
+    def test_active_acp_background_survives_frontend_loss(self):
+        # test_tui's standalone runner interprets argv[1] as a binary path;
+        # unittest uses that slot for this selected test name.
+        argv = sys.argv
+        try:
+            sys.argv = [argv[0]]
+            from test_tui import Term
+        finally:
+            sys.argv = argv
+
+        release = self.root / "release-acp"
+        env = dict(
+            self.env,
+            ACP_FIXTURE_SCENARIOS=json.dumps({"background": {"release": str(release)}}),
+        )
+        term = Term(
+            [
+                str(TNY),
+                "--provider",
+                "acp",
+                "--agent",
+                str(AGENT),
+                "--no-extensions",
+            ],
+            env,
+            str(self.workspace),
+        )
+        session = None
+        try:
+            term.expect("tny ")
+            term.send("ACP-MANAGED:background\r")
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline and not self.state_json().get("prompted"):
+                term.pump(0.05)
+            self.assertTrue(self.state_json().get("prompted"), term.buf)
+            session = next((self.home / ".tny/sessions").glob("*/*/session.json"))
+            runner_pid = int((session.parent / "pid").read_text())
+            term.send("\x1b[D")
+            term.expect("Agents — all saved sessions")
+            saved = json.loads(session.read_text())
+            self.assertTrue(saved.get("background"), saved)
+            self.assertEqual(int((session.parent / "pid").read_text()), runner_pid)
+            self.assertEqual(saved["status"], "running")
+            term.proc.kill()  # terminal/frontend loss does not own the ACP turn
+            term.proc.wait(timeout=5)
+            release.touch()
+            deadline = time.monotonic() + 12
+            while time.monotonic() < deadline:
+                saved = json.loads(session.read_text())
+                if saved.get("status") == "done":
+                    break
+                time.sleep(0.05)
+            self.assertEqual(saved["status"], "done", saved)
+            self.assertIn("ACP-OK café 🐕", saved["result"]["output"])
+        finally:
+            release.touch()
+            term.close()
+            if session and json.loads(session.read_text()).get("status") == "running":
+                subprocess.run(
+                    [str(TNY), "session", "stop", session.parent.name, "--kill"],
+                    env=env,
+                    cwd=self.workspace,
+                    capture_output=True,
+                    timeout=12,
+                )
+
     def test_named_profile_model_and_resume(self):
         (self.home / ".tny/settings.json").write_text(
             json.dumps(
