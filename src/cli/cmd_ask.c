@@ -818,6 +818,10 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
          * (the 0004 overlap, processified), then render its stream. */
         char err[512];
         tny_runner_opts opts = {0};
+        if (g->active_worktree && g->active_worktree->lock_fd >= 0) {
+            opts.has_worktree_lock = true;
+            opts.worktree_lock_fd = g->active_worktree->lock_fd;
+        }
         signal(SIGPIPE, SIG_IGN); /* a dying runner must not SIGPIPE us mid-send */
         pid_t child = tny_runner_spawn(ctx, session, &opts, err, sizeof err);
         if (child > 0) {
@@ -922,6 +926,10 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         }
         char err[512];
         tny_runner_opts opts = {0};
+        if (g->active_worktree && g->active_worktree->lock_fd >= 0) {
+            opts.has_worktree_lock = true;
+            opts.worktree_lock_fd = g->active_worktree->lock_fd;
+        }
         opts.initial_prompt = prompt.data;
         opts.initial_images = n_images ? images : NULL;
         opts.continue_recovery = continue_recovery;

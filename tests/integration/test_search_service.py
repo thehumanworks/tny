@@ -3,6 +3,7 @@
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -22,6 +23,29 @@ ACCOUNT = "fixture-codex-account"
 ACTIVE_KEY = "fixture-active-key-not-a-secret"
 QUERY = "fixture query — café"
 SOURCE = "https://example.com/search-source?a=1&b=2"
+
+
+def attach_dashboard_session(term, session_id):
+    """Select the current run even when earlier fixtures left saved rows."""
+    term.expect_on_screen("Agents — all saved sessions")
+    for _ in range(64):
+        selected = next(
+            (
+                line
+                for line in term.screen().splitlines()
+                if re.match(r"^>\s+[0-9a-f]{16}\b", line)
+            ),
+            "",
+        )
+        if session_id in selected:
+            term.send("\r")
+            term.expect(f"Attached {session_id}", 5)
+            return
+        term.send("\x1b[B")
+        term.pump(0.05)
+    raise AssertionError(
+        f"current session {session_id} was not selectable: {term.screen()}"
+    )
 
 
 def strict_object(pairs):
@@ -878,18 +902,25 @@ raise SystemExit(subprocess.call(["sh", "-c", args[-1]]))
                         )
                         old_pid = (state.parent / "pid").read_text()
                         term.send("\x1b[D")
-                        term.expect("Background armed", 5)
+                        term.expect("Agents — all saved sessions", 5)
+                        self.assertEqual((state.parent / "pid").read_text(), old_pid)
+                        self.assertTrue(json.loads(state.read_text()).get("background"))
+                        attach_dashboard_session(term, state.parent.name)
                         started = time.monotonic()
                         term.send("\x03")
                         term.expect("interrupted", 5)
                         self.assertLess(time.monotonic() - started, 3)
                         term.pump(0.2)
                         self.assertEqual((state.parent / "pid").read_text(), old_pid)
-                        self.assertFalse(
-                            json.loads(state.read_text()).get("background", False)
+                        self.assertEqual(
+                            json.loads(state.read_text())["status"], "interrupted"
                         )
+                        self.assertTrue(json.loads(state.read_text()).get("background"))
                         self.assertEqual(len(self.fixture.chat_requests), 1)
-                        self.assertNotIn("Background agents", term.screen())
+                        self.assertEqual(
+                            len(self.fixture.search_requests),
+                            0 if mode == "slow-refresh" else 1,
+                        )
                         self.assertFalse(self.fixture.errors)
                         term.send("/quit\r")
                         self.assertEqual(term.wait(), 0)
@@ -908,7 +939,7 @@ raise SystemExit(subprocess.call(["sh", "-c", args[-1]]))
     @unittest.skipIf(
         WASM, "native POSIX signal/runner semantics; shared HTTP paths run on wasm"
     )
-    def test_search_is_saved_before_background_restart_in_both_tool_profiles(self):
+    def test_search_is_saved_after_immediate_background_in_both_tool_profiles(self):
         for terminal in (False, True):
             with self.subTest(terminal=terminal):
                 self.fixture.terminal = terminal
@@ -952,17 +983,14 @@ raise SystemExit(subprocess.call(["sh", "-c", args[-1]]))
                     state = max(candidates, key=lambda p: p.stat().st_mtime_ns)
                     old_pid = (state.parent / "pid").read_text()
                     term.send("\x1b[D")
-                    term.expect("Background armed", 5)
+                    term.expect("Agents — all saved sessions", 5)
                     self.assertEqual((state.parent / "pid").read_text(), old_pid)
+                    self.assertTrue(json.loads(state.read_text()).get("background"))
                     self.fixture.release_search.set()
-                    term.expect("Background agents", 10)
-                    term.pump(0.3)
-                    new_pid = (state.parent / "pid").read_text()
-                    self.assertNotEqual(old_pid, new_pid)
                     self.assertTrue(self.fixture.followup_started.wait(5))
+                    self.assertEqual((state.parent / "pid").read_text(), old_pid)
                     self.assertEqual(len(self.fixture.search_requests), 1)
-                    term.send("\r")
-                    term.expect("Attached", 5)
+                    attach_dashboard_session(term, state.parent.name)
                     self.fixture.release_followup.set()
                     term.expect("CHAT-PROVIDER-UNCHANGED", 10)
                     term.pump(0.3)

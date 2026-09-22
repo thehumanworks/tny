@@ -421,14 +421,15 @@ static int stage_sources(const tny_fd_mapping *maps, int n_maps, int *staged) {
 }
 #endif
 
-int tny_process_spawn_mapped(char *const argv[], char *const envp[], const tny_fd_mapping *maps,
-                             int n_maps, pid_t *pid) {
+static int spawn_mapped(char *const argv[], char *const envp[], const tny_fd_mapping *maps,
+                        int n_maps, pid_t *pid, bool child_calls_setsid) {
 #ifdef __EMSCRIPTEN__
     (void)argv;
     (void)envp;
     (void)maps;
     (void)n_maps;
     (void)pid;
+    (void)child_calls_setsid;
     return ENOTSUP;
 #else
     if (!argv || !argv[0] || argv[0][0] != '/' || !envp || !pid) return EINVAL;
@@ -480,10 +481,12 @@ int tny_process_spawn_mapped(char *const argv[], char *const envp[], const tny_f
     sigaddset(&defaults, SIGPIPE);
     if (!e) e = posix_spawnattr_setsigdefault(&attr, &defaults);
     if (!e) e = posix_spawnattr_setsigmask(&attr, &empty);
-    if (!e) e = posix_spawnattr_setpgroup(&attr, 0);
-    if (!e)
-        e = posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF |
-                                                POSIX_SPAWN_SETSIGMASK);
+    if (!e && !child_calls_setsid) e = posix_spawnattr_setpgroup(&attr, 0);
+    if (!e) {
+        short flags = POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK;
+        if (!child_calls_setsid) flags |= POSIX_SPAWN_SETPGROUP;
+        e = posix_spawnattr_setflags(&attr, flags);
+    }
     if (!e) e = posix_spawn(pid, argv[0], &actions, &attr, argv, envp);
     if (attr_ready) posix_spawnattr_destroy(&attr);
     posix_spawn_file_actions_destroy(&actions);
@@ -491,6 +494,16 @@ int tny_process_spawn_mapped(char *const argv[], char *const envp[], const tny_f
         if (staged[i] >= 0) close(staged[i]);
     return e;
 #endif
+}
+
+int tny_process_spawn_mapped(char *const argv[], char *const envp[], const tny_fd_mapping *maps,
+                             int n_maps, pid_t *pid) {
+    return spawn_mapped(argv, envp, maps, n_maps, pid, false);
+}
+
+int tny_process_spawn_mapped_session(char *const argv[], char *const envp[],
+                                     const tny_fd_mapping *maps, int n_maps, pid_t *pid) {
+    return spawn_mapped(argv, envp, maps, n_maps, pid, true);
 }
 
 /* -1 = not looked up yet, 0 = no watch, else the expected supervisor pid. */

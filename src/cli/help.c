@@ -29,7 +29,7 @@ void help_root(void) {
           "  team COMMAND           Start, inspect, collect or cancel a job-backed team\n"
           "  swarm validate FILE    Validate a purposeful nested-swarm definition\n"
           "  resume [last|<id>]     Resume a session interactively\n"
-          "  agents                 Background agents dashboard; --json lists state\n"
+          "  agents                 All saved sessions; --json lists state\n"
           "  web search|fetch TEXT  Search the web or fetch a URL\n"
           "  sessions               List saved sessions for this workspace\n"
           "  session <last|id>      Inspect one saved session\n"
@@ -585,12 +585,13 @@ bool help_for(const char *command) {
                "Example: tny task-workspace inspect --run RUN --task 0 --attempt 1 --json\n";
     else if (strcmp(command, "agents") == 0)
         text =
-            "Usage: tny agents [--run ID] [--json]\n\nOpen the background-session dashboard "
+            "Usage: tny agents [--run ID] [--json]\n\nOpen the saved-session dashboard "
             "without starting a provider. Up/Down select, Enter attaches or opens saved read-only "
-            "text. q exits without "
-            "stopping work. Lists live sessions and saved background sessions across this "
-            "repository's worktrees. An attached owner cannot be taken over. Non-TTY prints a "
-            "list.\n"
+            "text. Type to fuzzy-filter workspace paths; Backspace edits, Esc clears or exits, "
+            "Ctrl-C/D exit without stopping work. Lists all saved local sessions across every "
+            "workspace, including foreground and unrelated repositories. Directory sections put "
+            "the current cwd first, with newest sessions first in each. An attached "
+            "owner cannot be taken over. Non-TTY prints a list.\n"
             "A prompt or /continue requests ownership of the selected session. Saved checkpoints "
             "require /continue; rejected prompts are not queued. Unavailable owners are never "
             "taken over. New continuation requires a native isolated runner.\n"

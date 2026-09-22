@@ -1,6 +1,8 @@
 /* test_main.c — greatest runner; suites live in the other test files. */
 #include "greatest.h"
+#include "core/runner.h"
 #include <stdlib.h>
+#include <string.h>
 
 GREATEST_MAIN_DEFS();
 
@@ -39,6 +41,9 @@ SUITE_EXTERN(tnyjev_suite);
 SUITE_EXTERN(image_service_suite);
 
 int main(int argc, char **argv) {
+    /* Unit runner lifecycles exec this test binary as their trusted image. */
+    if (argc == 2 && strcmp(argv[1], "--runner-start") == 0) return tny_runner_start_main();
+    if (argc == 2 && strcmp(argv[1], "--runner-restart") == 0) return tny_runner_restart_main();
     /* The harness running this suite may itself use a restricted tool profile.
      * Tests select their own profiles explicitly; ambient TNY_TOOLS must not
      * hide fixture tools, including when leaks runs one suite per process. */

@@ -47,7 +47,7 @@ typedef struct {
     int target;
 } tny_fd_mapping;
 
-#define TNY_PROCESS_MAX_FD_MAPPINGS 4
+#define TNY_PROCESS_MAX_FD_MAPPINGS 5
 
 /* tny_process_spawn with explicit descriptor mappings instead of the fixed
  * stdin/stdout pair (docs/adr/0093). Every source is first staged into a
@@ -60,6 +60,10 @@ typedef struct {
  * EINVAL for a malformed mapping set. */
 int tny_process_spawn_mapped(char *const argv[], char *const envp[], const tny_fd_mapping *maps,
                              int n_maps, pid_t *pid);
+/* Start a mapped child that calls setsid() at its private entry point. Unlike
+ * spawn_mapped, this does not make the child a process-group leader first. */
+int tny_process_spawn_mapped_session(char *const argv[], char *const envp[],
+                                     const tny_fd_mapping *maps, int n_maps, pid_t *pid);
 
 /* Durable-job ownership and admission (ADR 0099). These APIs launch only the
  * trusted current executable; arbitrary tools keep using spawn_mapped above. */

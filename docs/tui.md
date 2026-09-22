@@ -96,8 +96,8 @@ This prevents local project instructions from crossing into the remote workspace
 | Ctrl-V | paste a clipboard image path (or text) |
 | Ctrl-R | record dictation; Enter/Ctrl-R transcribes into the editable draft; Esc/Ctrl-C cancels |
 | Ctrl-O | optimise the typed/dictated draft using an independent model; review before Enter submits |
-| Left during an active turn with an empty composer | arm backgrounding after the next completed tool boundary is saved; nonempty drafts and idle/focused inputs still edit |
-| Ctrl-X / `/agents` | background-session dashboard (during an active foreground turn, arms handoff) |
+| Left with an empty composer | background an active native turn and open all saved sessions; idle Left opens the same dashboard; drafts and focused inputs still edit |
+| Ctrl-X / `/agents` | all saved sessions; detach an active foreground turn into background mode |
 
 `/optimise PROMPT` also rewrites the draft; `--model MODEL` and
 `--provider NAME` before the prompt override its configured defaults.
@@ -120,17 +120,47 @@ Typing while a turn runs never writes a note into the transcript: a steered mess
 
 Menus are **transient overlays** ([ADR 0003](adr/0003-transient-menu-overlay.md)): the palette and `/help` draw inside the redrawn bottom block, esc hides them, and the next submit clears them — they never enter the scrollback. Without a tty, menu output degrades to plain transcript lines.
 
-## Background session inspection and continuation
+## Saved session inspection and continuation
 
-The background dashboard also opens directly with `tny agents`, without provider
-resolution or prewarm. Up/Down selects a row; Enter attaches as owner when the
-live runner accepts the unique owner handshake, including an idle completed
+The saved-session dashboard also opens directly with `tny agents`, without provider
+resolution or prewarm. It lists all saved local foreground and background sessions
+from every workspace, including unrelated repositories and non-Git directories.
+The current cwd's workspace comes first, followed by other workspace paths in
+alphabetical order; each section lists its newest sessions first. Directory
+headings appear above indented session rows:
+
+```text
+/Users/tomas
+  > session 1
+    session 2
+/Users/tomas/projects
+    session 3
+```
+
+Type to fuzzy-filter workspace paths (case-insensitive characters in order,
+not necessarily consecutive). For example, `prjtny` can match
+`/Users/tomas/projects/tny`. Every session in a matching workspace remains
+available. Backspace removes a character; Esc clears a nonempty filter, then
+Esc on an empty filter exits. Ctrl-C/D exit directly. The letter `q` is searchable
+text; the separate `--run` task view retains its q shortcut. Up/Down moves between
+sessions, skipping headings; Enter opens the selected session. The filter and
+selected session survive periodic refreshes, and scrolling repeats the visible
+section's heading. If only one display row is available, it shows the selected
+session. No matches displays an empty result instead of opening a hidden session. See [ADR 0167](adr/0167-workspace-dashboard-navigation.md).
+
+Opening or continuing a row from another cwd uses that session's original
+workspace. Legacy rows in the current workspace's storage bucket also appear
+under its known path and match that path's filter. Other legacy rows without
+saved workspace metadata explicitly identify the current-cwd fallback before
+continuation; their storage bucket and history are preserved. Up/Down selects a row; Enter attaches
+as owner when the live runner accepts the unique owner handshake, including an idle completed
 runner. This preserves the ongoing turn, permission mode, pending decision,
 model and workspace; it does not repost a prompt.
 
 Otherwise Enter opens the saved transcript, clearly labeled **read-only**, with
-continuation guidance. This includes completed/unlocked sessions and sessions
-whose writer is held by another owner or unreachable. Inspection does not resolve
+continuation guidance. This includes ordinary saved foreground sessions,
+completed/unlocked sessions and sessions whose writer is held by another owner or
+unreachable. Inspection does not resolve
 a provider, refresh credentials, start a runner, activate a saved checkpoint, or
 save session/settings/auth stores. Missing provider configuration does not hide
 saved text. A stored `done` status does not establish writer-lock freedom.
@@ -177,17 +207,18 @@ Quit from a background view or dashboard detaches without saving the replica;
 Ctrl-C can explicitly cancel an attached turn, but a saved read-only view has no
 cancellation authority. Ordinary foreground quit/interrupt behavior is unchanged.
 Handoff-origin pending permissions retain the runner's mode and wait for an owner
-(five-minute bound). A no-tool turn finishes before opening the list.
+(five-minute bound). Streaming and tool-running turns continue while the list is open.
 
 Handoff and starting a new runner from a saved background view require native
 runner support. wasm and in-process modes reject continuation before mutation,
 not by starting an unlocked in-process writer; ephemeral mode cannot open saved
 sessions. An already successful live attachment remains usable where supported,
 even if starting a replacement runner is unavailable.
-[ADR 0107](adr/0107-tool-boundary-restart-and-agents-dashboard.md) defines the
-checkpoint and fresh-process boundary; [ADR 0108](adr/0108-checkpoint-recovery-and-hosted-tool-boundaries.md)
-defines recovery validation and hosted search boundaries. A hosted search waits
-for its provider response to finish, then checkpoints before the first local tool.
+[ADR 0166](adr/0166-global-sessions-and-immediate-backgrounding.md) defines fresh
+executable runner startup and immediate background detachment. Caller-side TLS
+initialization does not disable the native runner. Older handoff checkpoints
+remain subject to [ADR 0108](adr/0108-checkpoint-recovery-and-hosted-tool-boundaries.md)
+recovery validation; current backgrounding does not create a restart checkpoint.
 [ADR 0154](adr/0154-agents-session-inspection-and-continuation.md) separates
 saved-row inspection from explicit continuation and checkpoint activation.
 
@@ -195,7 +226,7 @@ Each interactive dashboard entry clears the visible screen and terminal scrollba
 and paints the list from the top-left corner, separate from the chat or shell
 output ([ADR 0138](adr/0138-full-screen-agents-dashboard.md)). Terminals without
 scrollback-erasure support still clear the visible screen. A Left-arrow handoff
-clears only when the runner acknowledges it, not while the handoff is armed.
+clears only when the runner acknowledges the saved background marker.
 Periodic refreshes do not clear again. Saved transcripts and composer drafts are
 preserved; reattachment replays the saved chat. Non-TTY and `--json` listings keep
 their existing plain/structured output without screen controls.

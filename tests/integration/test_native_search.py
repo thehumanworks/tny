@@ -322,7 +322,7 @@ def fetch_compatibility():
 
 
 def hosted_boundary():
-    from test_background_agents import until
+    from test_background_agents import until, writer_live
     from test_tui import BANNER, Term
 
     started, release, finished = threading.Event(), threading.Event(), threading.Event()
@@ -478,6 +478,7 @@ def hosted_boundary():
                 },
             )
             term = Term([TNY, "--provider", "codex", "--no-extensions"], env, str(ws))
+            attached = None
             try:
                 term.expect(BANNER)
                 term.send("search then tool\r")
@@ -492,29 +493,49 @@ def hosted_boundary():
                     }
                 )
                 term.send("\x1b[D")
-                term.expect("Background armed")
+                term.expect("Agents — all saved sessions", timeout=5)
+                saved = json.loads(session.read_text())
+                assert saved["background"] is True and saved["status"] == "running", (
+                    saved
+                )
+                assert "continuation" not in saved, saved
+                assert int((session.parent / "pid").read_text()) == old
+                assert writer_live(session)
+                assert len(requests) == 1 and not (ws / "effects").exists()
+                term.send("\x04")
+                assert term.wait() == 0
+                assert (
+                    writer_live(session)
+                    and int((session.parent / "pid").read_text()) == old
+                )
+                attached = Term([TNY, "agents"], env, str(ws))
+                attached.expect("Agents — all saved sessions")
+                attached.send("\r")
+                attached.expect("Attached " + session.parent.name)
                 release.set()
-                term.expect("Background agents", timeout=20)
-                until(finished.is_set, term)
+                until(finished.is_set, attached)
                 until(
                     lambda: json.loads(session.read_text()).get("status") == "done",
-                    term,
+                    attached,
                 )
-                successor = int((ws / "execution-pid").read_text())
-                assert successor != old, (successor, old)
+                execution_pid = int((ws / "execution-pid").read_text())
+                assert execution_pid == old, (execution_pid, old)
                 assert (ws / "effects").read_text() == "once"
                 assert len(requests) == 2 and not errors, errors
                 saved = json.loads(session.read_text())
                 assert saved["turns"] == 1 and saved["result"]["steps"] == 2, saved
+                assert "continuation" not in saved, saved
                 assert any(
                     m.get("responses_items") == [search, message]
                     for m in saved["messages"]
                 ), saved
-                term.send("q")
-                assert term.wait() == 0
+                attached.send("/quit\r")
+                assert attached.wait() == 0
             finally:
                 release.set()
                 term.close()
+                if attached:
+                    attached.close()
                 session = next(
                     (Path(home) / ".tny/sessions").glob("*/*/session.json"), None
                 )
@@ -529,7 +550,7 @@ def hosted_boundary():
     finally:
         server.shutdown()
         server.server_close()
-    print("PASS hosted search checkpoints before first pending local call in successor")
+    print("PASS hosted search continues in the same runner after immediate handoff")
 
 
 if __name__ == "__main__":

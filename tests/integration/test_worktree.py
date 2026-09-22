@@ -119,33 +119,50 @@ class Worktrees(unittest.TestCase):
         )
         return sid
 
-    def test_agents_include_related_worktrees_only(self):
+    def test_agents_include_all_saved_workspaces(self):
         managed = self.enter()
         manual = self.root / 'manual "checkout"\nwith newline'
         self.git(self.repo, "worktree", "add", "-b", "manual", str(manual))
         other = self.root / "unrelated"
         self.init_repo(other)
         other_worktree = self.enter("unrelated", cwd=other)
+        manual_id = self.saved_agent(manual, 3)
+        managed_id = self.saved_agent(managed, 2)
+        repo_id = self.saved_agent(self.repo, 1)
+        foreground_id = self.saved_agent(managed, 4, background=False)
+        unrelated_id = self.saved_agent(other_worktree, 5)
+        local_id = self.saved_agent(self.home, 6)
         expected = [
-            self.saved_agent(manual, 3),
-            self.saved_agent(managed, 2),
-            self.saved_agent(self.repo, 1),
+            local_id,
+            unrelated_id,
+            foreground_id,
+            manual_id,
+            managed_id,
+            repo_id,
         ]
-        self.saved_agent(managed, 4, background=False)
-        self.saved_agent(other_worktree, 5)
-        local = self.saved_agent(self.home, 6)
+        workspaces = {
+            local_id: str(self.home),
+            unrelated_id: str(other_worktree),
+            foreground_id: str(managed),
+            manual_id: str(manual),
+            managed_id: str(managed),
+            repo_id: str(self.repo),
+        }
         nested = self.repo / "nested"
         nested.mkdir()
-        for cwd in (self.repo, managed, manual, nested):
+        for cwd in (self.repo, managed, manual, nested, self.home):
             rows = json.loads(self.cli("agents", "--json", cwd=cwd).stdout)["agents"]
             self.assertEqual([row["session_id"] for row in rows], expected)
+            self.assertEqual(
+                {row["session_id"]: row["workspace"] for row in rows}, workspaces
+            )
             self.assertTrue(all(row["status"] == "done" for row in rows))
             self.assertTrue(all(not row["live"] for row in rows))
         plain = self.cli("agents").stdout
         for sid in expected:
             self.assertIn(sid, plain)
-        rows = json.loads(self.cli("agents", "--json", cwd=self.home).stdout)["agents"]
-        self.assertEqual([row["session_id"] for row in rows], [local])
+        self.assertEqual(len(plain.splitlines()), len(expected))
+        self.assertIn('manual "checkout" with newline', plain)
 
     def provider_env(self, slow=0, **mock_options):
         port = free_port()
@@ -181,8 +198,13 @@ class Worktrees(unittest.TestCase):
         rows = json.loads(self.cli("agents", "--json").stdout)["agents"]
         self.assertEqual(len(rows), 1)
         self.assertTrue(rows[0]["live"])
+        sid = rows[0]["session_id"]
         self.finish(t)
-        self.assertEqual(json.loads(self.cli("agents", "--json").stdout)["agents"], [])
+        rows = json.loads(self.cli("agents", "--json").stdout)["agents"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["session_id"], sid)
+        self.assertEqual(rows[0]["status"], "done")
+        self.assertFalse(rows[0]["live"])
 
     def test_agents_discover_and_attach_live_worktree_runner(self):
         env = self.provider_env(slow=1500)
@@ -207,7 +229,7 @@ class Worktrees(unittest.TestCase):
         self.assertTrue(rows[0]["running"])
         t = Term([TNY, "agents"], env, str(self.repo))
         self.addCleanup(t.close)
-        t.expect("Background agents")
+        t.expect("Agents — all saved sessions")
         t.send("\r")
         t.expect("Attached " + sid)
         t.expect("MOCK-OK", timeout=15)
@@ -229,7 +251,7 @@ class Worktrees(unittest.TestCase):
         )
         t = Term([TNY, "agents"], env, str(self.repo))
         self.addCleanup(t.close)
-        t.expect("Background agents")
+        t.expect("Agents — all saved sessions")
         t.expect(sid)
         t.send("\r")
         t.expect("Saved read-only " + sid)
@@ -241,8 +263,8 @@ class Worktrees(unittest.TestCase):
         )
         self.assertFalse((self.repo / "continued-cwd.txt").exists())
         t.send("/agents\r")
-        t.expect_next("Background agents")
-        t.send("q")
+        t.expect_next("Agents — all saved sessions")
+        t.send("\x04")
         self.assertEqual(t.wait(), 0, clean(t.buf))
         self.cli("session", "stop", sid, "--kill", cwd=managed, env=env)
 

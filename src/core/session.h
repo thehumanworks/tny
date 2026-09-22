@@ -180,7 +180,8 @@ void session_recovery_clear(tny_session_state *s);
 /* Listing. */
 typedef struct {
     char *id, *title, *updated, *backend, *model, *workspace;
-    char *status; /* stored status field; NULL for pre-0031 sessions */
+    char ws_hash[17]; /* physical bucket, including legacy sessions without workspace */
+    char *status;     /* stored status field; NULL for pre-0031 sessions */
     char *task_name, *task_source, *task_digest; /* secret-safe task metadata */
     bool background;
     bool running; /* live writer-lock probe at list time */
@@ -188,6 +189,7 @@ typedef struct {
 } session_meta;
 
 session_meta *session_list(tny_ctx *ctx, bool all, int limit, const char *cursor, int *count);
+/* All saved local sessions across every workspace, newest first, with no page cap. */
 session_meta *session_agents(tny_ctx *ctx, int *count);
 void session_meta_free(session_meta *m, int count);
 char *session_latest_id(tny_ctx *ctx); /* malloc'd or NULL */
