@@ -2,6 +2,7 @@
 #include "tui/tui.h"
 #include "core/jobs.h"
 #include "mcp/mcp.h"
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -109,49 +110,182 @@ static void agents_run_refresh(tui *t) {
     t->dirty = true;
 }
 
+static void agents_rows_free(tui *t) {
+    for (int i = 0; i < t->n_agent_rows; i++) free(t->agent_rows[i].workspace);
+    free(t->agent_rows);
+    t->agent_rows = NULL;
+    t->n_agent_rows = 0;
+}
+
+static char *agents_workspace(const char *path) {
+    if (!path || !*path) return xstrdup("(unknown workspace)");
+    char *canonical = realpath(path, NULL);
+    char *out = canonical ? canonical : xstrdup(path);
+    if (!out) return NULL;
+    size_t n = strlen(out);
+    while (n > 1 && out[n - 1] == '/') out[--n] = '\0';
+    return out;
+}
+
+static bool agents_path_matches(const char *path, const char *query) {
+    if (!query || !*query) return true;
+    if (!path) return false;
+    for (; *path && *query; path++)
+        if (tolower((unsigned char)*path) == tolower((unsigned char)*query)) query++;
+    return *query == '\0';
+}
+
+static int agents_row_cmp(const void *a, const void *b) {
+    const tui_agent_row *x = a, *y = b;
+    if (x->current != y->current) return x->current ? -1 : 1;
+    int c = strcmp(x->workspace, y->workspace);
+    if (c) return c;
+    /* session_agents is already newest first; qsort needs a deterministic tie
+     * breaker because it is not stable. */
+    return x->session_index < y->session_index ? -1 : x->session_index > y->session_index;
+}
+
+static bool agents_same_group(const tui_agent_row *a, const tui_agent_row *b) {
+    return a && b && a->current == b->current && strcmp(a->workspace, b->workspace) == 0;
+}
+
+/* Number of lines from the first visible session through selected, including
+ * the heading repeated at the top of every scrolled page. */
+static int agents_lines_through(const tui *t, int first, int selected) {
+    int lines = 1;
+    for (int i = first; i <= selected; i++) {
+        if (i > first && !agents_same_group(&t->agent_rows[i - 1], &t->agent_rows[i])) lines++;
+        lines++;
+    }
+    return lines;
+}
+
+static void agents_draw(tui *t) {
+    tui_overlay_clear(t);
+    int budget = tui_overlay_budget(t);
+    if (budget <= 0) goto done;
+    int available = budget;
+    if (budget >= 3) {
+        char *filter = agent_display(t->agent_filter.data, "");
+        tui_overlay_linef(t, "Agents — all saved sessions; Enter opens; Esc clears/exits; path: %s",
+                          filter ? filter : "");
+        free(filter);
+        available--;
+    }
+    if (!t->n_agent_rows) {
+        if (available > 0)
+            tui_overlay_linef(
+                t, "%s", t->agent_filter.len ? "No matching workspaces." : "No saved sessions.");
+        goto done;
+    }
+    if (available < 2) {
+        const tui_agent_row *row = &t->agent_rows[t->agent_selected];
+        const session_meta *m = &t->agents[row->session_index];
+        char *workspace = agent_display(row->workspace, "(unknown workspace)");
+        tui_overlay_linef(t, "  > %s  %s", m->id, workspace ? workspace : "(unknown workspace)");
+        free(workspace);
+        goto done;
+    }
+    if (t->agent_selected < t->agent_scroll) t->agent_scroll = t->agent_selected;
+    while (t->agent_scroll < t->agent_selected &&
+           agents_lines_through(t, t->agent_scroll, t->agent_selected) > available)
+        t->agent_scroll++;
+    int left = available;
+    for (int i = t->agent_scroll; i < t->n_agent_rows && left > 0; i++) {
+        const tui_agent_row *row = &t->agent_rows[i];
+        bool heading = i == t->agent_scroll || !agents_same_group(row, &t->agent_rows[i - 1]);
+        if (heading) {
+            if (left < 2) break;
+            char *workspace = agent_display(row->workspace, "(unknown workspace)");
+            tui_overlay_linef(t, "%s", workspace ? workspace : "(unknown workspace)");
+            free(workspace);
+            left--;
+        }
+        const session_meta *m = &t->agents[row->session_index];
+        char *title = agent_display(m->title, "(untitled)");
+        char *provider = agent_display(m->backend, "unknown");
+        char *status = agent_display(agent_status(m), "saved");
+        tui_overlay_linef(t, "  %s %s  %-10s  %s  %.70s", i == t->agent_selected ? ">" : " ", m->id,
+                          status ? status : "saved", provider ? provider : "unknown",
+                          title ? title : "(untitled)");
+        free(title);
+        free(provider);
+        free(status);
+        left--;
+    }
+done:
+    t->agents_refresh = monotonic_ms() + 500;
+    t->dirty = true;
+}
+
+static void agents_build(tui *t, const char *selected, const char *selected_hash) {
+    char *cwd = agents_workspace(t->ctx->cwd);
+    tui_agent_row *rows = t->n_agents ? calloc((size_t)t->n_agents, sizeof *rows) : NULL;
+    int count = 0;
+    for (int i = 0; rows && i < t->n_agents; i++) {
+        const session_meta *m = &t->agents[i];
+        bool legacy_current =
+            (!m->workspace || !*m->workspace) && strcmp(m->ws_hash, t->ctx->ws_hash) == 0;
+        char *path = legacy_current && cwd ? xstrdup(cwd) : agents_workspace(m->workspace);
+        if (!path) continue;
+        if (!agents_path_matches(path, t->agent_filter.data)) {
+            free(path);
+            continue;
+        }
+        rows[count++] = (tui_agent_row){
+            .session_index = i, .workspace = path, .current = cwd && strcmp(path, cwd) == 0};
+    }
+    free(cwd);
+    if (count) qsort(rows, (size_t)count, sizeof *rows, agents_row_cmp);
+    t->agent_rows = rows;
+    t->n_agent_rows = count;
+    int chosen = -1;
+    for (int i = 0; selected && i < count; i++) {
+        const session_meta *m = &t->agents[rows[i].session_index];
+        if (m->id && strcmp(selected, m->id) == 0 && strcmp(selected_hash, m->ws_hash) == 0) {
+            chosen = i;
+            break;
+        }
+    }
+    t->agent_selected = chosen >= 0 ? chosen : 0;
+    if (t->agent_scroll >= count) t->agent_scroll = count ? count - 1 : 0;
+    agents_draw(t);
+}
+
+void tui_agents_rebuild(tui *t) {
+    if (t->g->agents_run) {
+        agents_run_refresh(t);
+        return;
+    }
+    char *selected = NULL;
+    char hash[17] = "";
+    if (t->agent_selected >= 0 && t->agent_selected < t->n_agent_rows) {
+        session_meta *m = &t->agents[t->agent_rows[t->agent_selected].session_index];
+        selected = xstrdup(m->id);
+        snprintf(hash, sizeof hash, "%s", m->ws_hash);
+    }
+    agents_rows_free(t);
+    agents_build(t, selected, hash);
+    free(selected);
+}
+
 void tui_agents_refresh(tui *t) {
     if (t->g->agents_run) {
         agents_run_refresh(t);
         return;
     }
-    char *selected = t->agent_selected >= 0 && t->agent_selected < t->n_agents
-                         ? xstrdup(t->agents[t->agent_selected].id)
-                         : NULL;
-    char selected_hash[17] = "";
-    if (selected)
-        snprintf(selected_hash, sizeof selected_hash, "%s", t->agents[t->agent_selected].ws_hash);
+    char *selected = NULL;
+    char hash[17] = "";
+    if (t->agent_selected >= 0 && t->agent_selected < t->n_agent_rows) {
+        session_meta *m = &t->agents[t->agent_rows[t->agent_selected].session_index];
+        selected = xstrdup(m->id);
+        snprintf(hash, sizeof hash, "%s", m->ws_hash);
+    }
+    agents_rows_free(t);
     session_meta_free(t->agents, t->n_agents);
     t->agents = session_agents(t->ctx, &t->n_agents);
-    for (int i = 0; selected && i < t->n_agents; i++)
-        if (strcmp(selected, t->agents[i].id) == 0 &&
-            strcmp(selected_hash, t->agents[i].ws_hash) == 0)
-            t->agent_selected = i;
+    agents_build(t, selected, hash);
     free(selected);
-    if (t->agent_selected >= t->n_agents) t->agent_selected = t->n_agents ? t->n_agents - 1 : 0;
-    tui_overlay_clear(t);
-    tui_overlay_linef(t, "Agents — all saved sessions; Enter opens; q exits");
-    if (!t->n_agents) tui_overlay_linef(t, "No saved sessions.");
-    int start = t->agent_selected / 8 * 8;
-    for (int i = start; i < t->n_agents && i < start + 8; i++) {
-        const session_meta *m = &t->agents[i];
-        char *title = agent_display(m->title, "(untitled)");
-        char *workspace = agent_display(m->workspace, "(unknown workspace)");
-        char *provider = agent_display(m->backend, "unknown");
-        char *status = agent_display(agent_status(m), "saved");
-        const char *name = workspace ? strrchr(workspace, '/') : NULL;
-        tui_overlay_linef(t, "%s %s  %-10s  %s  %.70s", i == t->agent_selected ? ">" : " ", m->id,
-                          status ? status : "saved", provider ? provider : "unknown",
-                          title ? title : "(untitled)");
-        tui_overlay_linef(t, "  %s  %s",
-                          name ? name + 1 : (workspace ? workspace : "(unknown workspace)"),
-                          workspace ? workspace : "(unknown workspace)");
-        free(title);
-        free(workspace);
-        free(provider);
-        free(status);
-    }
-    t->agents_refresh = monotonic_ms() + 500;
-    t->dirty = true;
 }
 
 void tui_agents_open(tui *t) {
@@ -185,6 +319,8 @@ void tui_agents_open(tui *t) {
     tui_pick_close(t);
     tui_clear_screen(t);
     t->agents_dashboard = true;
+    buf_clear(&t->agent_filter);
+    t->agent_scroll = t->agent_selected = 0;
     tui_agents_refresh(t);
 }
 
@@ -222,8 +358,13 @@ static bool agents_checkpoint(const tui *t) {
 }
 
 void tui_agents_select(tui *t) {
-    if (t->agent_selected < 0 || t->agent_selected >= t->n_agents) return;
-    session_meta *m = &t->agents[t->agent_selected];
+    int index = t->agent_selected;
+    if (t->agent_rows) {
+        if (index < 0 || index >= t->n_agent_rows) return;
+        index = t->agent_rows[index].session_index;
+    }
+    if (index < 0 || index >= t->n_agents) return;
+    session_meta *m = &t->agents[index];
     cli_globals next = *t->g;
     next.cwd = m->workspace ? m->workspace : t->ctx->cwd;
     next.ssh = next.ssh_cwd = NULL;

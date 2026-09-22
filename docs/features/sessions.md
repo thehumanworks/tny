@@ -37,7 +37,12 @@ Serve runners retain ownership between turns, including rejected turns.
 
 `tny agents` lists all saved sessions across the configured state directory,
 including foreground conversations, explicit `ask -B` launches and Left-arrow
-background sessions. Each row shows its workspace. The writer lock determines
+background sessions. The TUI groups sessions under directory headings, with the
+current cwd's workspace first, other paths alphabetically, and newest sessions
+first in each section. Type to fuzzy-filter workspace paths; Backspace edits,
+Esc clears the filter or exits when empty, and Ctrl-C/D exit directly. Up/Down
+selects sessions and Enter opens them. Plain and JSON listings remain unfiltered.
+The writer lock determines
 liveness; a stored running state with no writer is stale. Completed/error/interrupted
 rows remain selectable after the runner exits. Open the dashboard from any cwd
 and select a session to view or continue it in its original workspace.

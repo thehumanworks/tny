@@ -502,7 +502,7 @@ def hosted_boundary():
                 assert int((session.parent / "pid").read_text()) == old
                 assert writer_live(session)
                 assert len(requests) == 1 and not (ws / "effects").exists()
-                term.send("q")
+                term.send("\x04")
                 assert term.wait() == 0
                 assert (
                     writer_live(session)

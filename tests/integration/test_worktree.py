@@ -264,7 +264,7 @@ class Worktrees(unittest.TestCase):
         self.assertFalse((self.repo / "continued-cwd.txt").exists())
         t.send("/agents\r")
         t.expect_next("Agents — all saved sessions")
-        t.send("q")
+        t.send("\x04")
         self.assertEqual(t.wait(), 0, clean(t.buf))
         self.cli("session", "stop", sid, "--kill", cwd=managed, env=env)
 

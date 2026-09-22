@@ -125,10 +125,34 @@ Menus are **transient overlays** ([ADR 0003](adr/0003-transient-menu-overlay.md)
 The saved-session dashboard also opens directly with `tny agents`, without provider
 resolution or prewarm. It lists all saved local foreground and background sessions
 from every workspace, including unrelated repositories and non-Git directories.
-Each row shows the saved workspace, and opening or continuing a row from another
-cwd uses that session's original workspace. Legacy rows without saved workspace
-metadata explicitly identify the current-cwd fallback before continuation; their
-storage bucket and history are preserved. Up/Down selects a row; Enter attaches
+The current cwd's workspace comes first, followed by other workspace paths in
+alphabetical order; each section lists its newest sessions first. Directory
+headings appear above indented session rows:
+
+```text
+/Users/tomas
+  > session 1
+    session 2
+/Users/tomas/projects
+    session 3
+```
+
+Type to fuzzy-filter workspace paths (case-insensitive characters in order,
+not necessarily consecutive). For example, `prjtny` can match
+`/Users/tomas/projects/tny`. Every session in a matching workspace remains
+available. Backspace removes a character; Esc clears a nonempty filter, then
+Esc on an empty filter exits. Ctrl-C/D exit directly. The letter `q` is searchable
+text; the separate `--run` task view retains its q shortcut. Up/Down moves between
+sessions, skipping headings; Enter opens the selected session. The filter and
+selected session survive periodic refreshes, and scrolling repeats the visible
+section's heading. If only one display row is available, it shows the selected
+session. No matches displays an empty result instead of opening a hidden session. See [ADR 0167](adr/0167-workspace-dashboard-navigation.md).
+
+Opening or continuing a row from another cwd uses that session's original
+workspace. Legacy rows in the current workspace's storage bucket also appear
+under its known path and match that path's filter. Other legacy rows without
+saved workspace metadata explicitly identify the current-cwd fallback before
+continuation; their storage bucket and history are preserved. Up/Down selects a row; Enter attaches
 as owner when the live runner accepts the unique owner handshake, including an idle completed
 runner. This preserves the ongoing turn, permission mode, pending decision,
 model and workspace; it does not repost a prompt.

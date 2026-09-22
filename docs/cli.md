@@ -818,8 +818,15 @@ prompt or step-limit reset. Idle Left opens the same dashboard. Nonempty drafts
 and focused modal/question/permission inputs retain ordinary cursor editing.
 See [ADR 0166](adr/0166-global-sessions-and-immediate-backgrounding.md).
 
-A successful handoff opens the same dashboard as `tny agents`. Up/Down selects a
-row. Enter attaches when a live runner accepts the unique owner handshake,
+A successful handoff opens the same dashboard as `tny agents`. Workspace sections
+show the current cwd first, then other paths alphabetically, with newest sessions
+first within each section. Type to fuzzy-filter directory paths; matching is
+case-insensitive and allows gaps between characters. Backspace edits the filter;
+Esc clears it, then exits when empty. Ctrl-C/D exit directly, while `q` is ordinary
+search text. Up/Down selects a session beneath its directory heading; headings
+are not selectable. The selection survives refreshes and stays visible while
+scrolling. No matches leaves no selectable session. Enter attaches when a live
+runner accepts the unique owner handshake,
 including halfway through a turn or while idle after completion; the active turn
 is not reposted. Otherwise it opens a labeled **saved read-only transcript**, even
 when a rival owns the connection or a held-lock runner is unreachable. Completed
@@ -842,8 +849,9 @@ checkpoints require `/continue`, not a typed prompt, as described below.
 under the user's tny state directory without starting a provider. This includes
 foreground and background sessions from unrelated repositories, linked worktrees,
 and non-Git directories, regardless of the launch cwd. It does not impose the
-`tny sessions` page limit. Each JSON row includes `workspace` and its physical `workspace_bucket`; plain and interactive
-rows show it alongside the session. A saved foreground session with no status
+`tny sessions` page limit. Each JSON row includes `workspace` and its physical
+`workspace_bucket`; plain rows show it alongside the session, while the TUI groups
+rows beneath directory headings. A saved foreground session with no status
 field is labeled `saved`; a stored running session with no live writer is `stale`.
 Inspection uses the selected session's saved text, without provider resolution.
 Live attachment retains the runner's permission mode, pending decision, model and

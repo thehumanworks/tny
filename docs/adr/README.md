@@ -7,6 +7,7 @@ files in this directory are the complete record.
 
 | ADR | Decision |
 | --- | --- |
+| [0167](0167-workspace-dashboard-navigation.md) | Current-workspace-first session sections and fuzzy directory filtering |
 | [0166](0166-global-sessions-and-immediate-backgrounding.md) | Fresh native runners, immediate background detachment and a dashboard of all saved workspaces |
 | [0165](0165-tnyjev-decision-engine.md) | Isolated typed tnyjev decision client and standalone score/choose commands |
 | [0157](0157-purposeful-file-defined-swarms.md) | Strict versioned swarm files compile bounded nesting into one durable team with persisted provenance |

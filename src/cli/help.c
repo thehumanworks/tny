@@ -587,9 +587,10 @@ bool help_for(const char *command) {
         text =
             "Usage: tny agents [--run ID] [--json]\n\nOpen the saved-session dashboard "
             "without starting a provider. Up/Down select, Enter attaches or opens saved read-only "
-            "text. q exits without "
-            "stopping work. Lists all saved local sessions across every workspace, including "
-            "foreground and unrelated repositories. Each row shows its workspace. An attached "
+            "text. Type to fuzzy-filter workspace paths; Backspace edits, Esc clears or exits, "
+            "Ctrl-C/D exit without stopping work. Lists all saved local sessions across every "
+            "workspace, including foreground and unrelated repositories. Directory sections put "
+            "the current cwd first, with newest sessions first in each. An attached "
             "owner cannot be taken over. Non-TTY prints a list.\n"
             "A prompt or /continue requests ownership of the selected session. Saved checkpoints "
             "require /continue; rejected prompts are not queued. Unavailable owners are never "

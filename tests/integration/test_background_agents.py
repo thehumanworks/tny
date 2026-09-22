@@ -7,14 +7,16 @@ import json
 import os
 import shlex
 import signal
+import struct
 import subprocess
 import tempfile
+import termios
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from test_tui import BANNER, TNY, Term, base_env, clean
+from test_tui import BANNER, TNY, Screen, Term, base_env, clean
 
 TNY = os.path.abspath(TNY)
 
@@ -333,7 +335,7 @@ def run_case(
                 if images:
                     (ws / "image.png").write_bytes(b"later bytes must not be reopened")
                 (ws / "release").touch()
-            term.send("q")
+            term.send("\x04")
             assert term.wait() == 0
             assert_same_owner()
             attached = Term([TNY, "agents"], env, str(ws))
@@ -710,6 +712,155 @@ def global_saved_sessions():
     print("PASS global saved sessions across workspaces and original-cwd continuation")
 
 
+def workspace_sections_and_fuzzy_filter():
+    """The visible dashboard groups cwd first and opens the filtered identity."""
+    with tempfile.TemporaryDirectory(prefix="tny-nav-", dir="/tmp") as home:
+        current = Path(home) / "current"
+        remote = Path(home) / "quartz-research"
+        last = Path(home) / "z-last"
+        for workspace in (current, remote, last):
+            workspace.mkdir()
+        entries = []
+        for workspace, sid, title, updated, answer in (
+            (current, "1111111111111111", "LOCAL-NEW", "2026-09-20", "LOCAL-ANSWER"),
+            (
+                current,
+                "2222222222222222",
+                "LOCAL-OLD",
+                "2026-09-19",
+                "LOCAL-OLD-ANSWER",
+            ),
+            (remote, "1111111111111111", "REMOTE-NEW", "2026-09-22", "FILTERED-ANSWER"),
+            (
+                remote,
+                "3333333333333333",
+                "REMOTE-OLD",
+                "2026-09-21",
+                "REMOTE-OLD-ANSWER",
+            ),
+            (last, "4444444444444444", "LAST-ROW", "2026-09-18", "LAST-ANSWER"),
+        ):
+            session = saved_fixture(home, workspace, sid=sid)
+            body = json.loads(session.read_text())
+            body.update(title=title, updated=updated + "T00:00:00Z")
+            body["messages"][-1]["content"] = answer
+            session.write_text(json.dumps(body))
+            entries.append(session)
+        before = snapshot_state(home)
+        term = Term([TNY, "agents"], base_env(home), str(current))
+        try:
+            term.expect_on_screen("LAST-ROW")
+            lines = term.screen().splitlines()
+            local_heading = lines.index(str(current.resolve()))
+            remote_heading = lines.index(str(remote.resolve()))
+            local_new = next(i for i, line in enumerate(lines) if "LOCAL-NEW" in line)
+            local_old = next(i for i, line in enumerate(lines) if "LOCAL-OLD" in line)
+            remote_new = next(i for i, line in enumerate(lines) if "REMOTE-NEW" in line)
+            assert (
+                local_heading < local_new < local_old < remote_heading < remote_new
+            ), lines
+            assert lines[local_new].startswith("  > "), lines
+            assert lines[local_old].startswith("    "), lines
+            assert lines.count(str(current.resolve())) == 1, lines
+            assert lines.count(str(remote.resolve())) == 1, lines
+
+            # Noncontiguous, case-insensitive matching, with q accepted as text.
+            term.send("qRZ")
+            term.expect_gone_from_screen("LOCAL-NEW")
+            term.expect_on_screen("REMOTE-NEW")
+            assert term.proc.poll() is None
+            assert "LAST-ROW" not in term.screen()
+            term.send("X")
+            term.expect_on_screen("No matching workspaces")
+            term.send("\r")
+            term.pump(0.1)
+            assert "Saved read-only" not in term.buf
+            term.send("\x7f")
+            term.expect_on_screen("REMOTE-NEW")
+            term.send("\x1b[B")
+            term.expect_on_screen("  > 3333333333333333")
+            # Refresh changes recency but must preserve the selected bucket/id.
+            body = json.loads(entries[3].read_text())
+            body["updated"] = "2026-09-23T00:00:00Z"
+            entries[3].write_text(json.dumps(body))
+            before = snapshot_state(home)
+            paints = term.buf.count("Agents — all saved sessions")
+            until(lambda: term.buf.count("Agents — all saved sessions") > paints, term)
+            term.expect_on_screen("  > 3333333333333333")
+            term.send("\x1b[A")  # now clamped on the newly first row
+            term.send("\r")
+            term.expect("REMOTE-OLD-ANSWER")
+            term.expect("Workspace: " + str(remote.resolve()))
+            term.send("/agents\r")
+            term.expect_next("Agents — all saved sessions")
+            term.send("\x04")
+            assert term.wait() == 0
+            assert term.restored()
+            assert snapshot_state(home) == before
+        finally:
+            term.close()
+    print("PASS cwd-first sections, fuzzy paths, empty results and refreshed selection")
+
+
+def workspace_filter_paste_and_small_viewport():
+    """Every selected session retains its heading while scrolling/resizing."""
+    with tempfile.TemporaryDirectory(prefix="tny-nav-small-", dir="/tmp") as home:
+        workspace = Path(home) / "café-project"
+        workspace.mkdir()
+        for index in range(16):
+            session = saved_fixture(home, workspace, sid=f"{index + 1:016x}")
+            body = json.loads(session.read_text())
+            body.update(
+                title=f"SCROLL-{index:02d}",
+                updated=f"2026-09-{20 - index:02d}T00:00:00Z",
+            )
+            session.write_text(json.dumps(body))
+        term = Term([TNY, "agents"], base_env(home), str(workspace))
+        try:
+            term.expect_on_screen("SCROLL-00")
+            term.send("\x1b[200~café\x1b[201~")
+            term.expect_on_screen("café")
+            term.send("\x7f")  # removes one Unicode character, never a partial byte
+            term.send("\x1b[200~é\x1b[201~")
+            term.pump(0.2)
+            assert "No matching workspaces" not in term.screen()
+            assert "�" not in term.screen()
+            # Clear the query without exiting, then resize and cross old 8-row pages.
+            term.send("\x1b")
+            term.pump(0.2)
+            assert term.proc.poll() is None
+            fcntl.ioctl(
+                term.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 10, 100, 0, 0)
+            )
+            os.kill(term.proc.pid, signal.SIGWINCH)
+            term.pump(0.2)
+            term.buf = ""  # emulate the new screen dimensions from the next repaint
+            for index in range(1, 16):
+                term.send("\x1b[B")
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    term.pump(0.05)
+                    screen = Screen(rows=10, cols=100)
+                    screen.feed(term.buf)
+                    rows = screen.text().splitlines()
+                    selected = next(
+                        (i for i, row in enumerate(rows) if row.startswith("  > ")),
+                        None,
+                    )
+                    if selected is not None and f"SCROLL-{index:02d}" in rows[selected]:
+                        heading = rows.index(str(workspace.resolve()))
+                        assert heading < selected, rows
+                        break
+                else:
+                    raise AssertionError(f"selected row {index} hidden: {rows}")
+            term.send("\x04")
+            assert term.wait() == 0
+            assert term.restored()
+        finally:
+            term.close()
+    print("PASS pasted Unicode workspace filter and small-screen section scrolling")
+
+
 def legacy_session_without_workspace():
     with tempfile.TemporaryDirectory(prefix="tny-agents-legacy-") as home:
         original = Path(home) / "original"
@@ -720,6 +871,22 @@ def legacy_session_without_workspace():
         body = json.loads(session.read_text())
         body.pop("workspace")
         session.write_text(json.dumps(body))
+        # Its physical bucket identifies the current workspace even without old
+        # document metadata: filtering that known path must keep the session.
+        local_view = Term([TNY, "agents"], base_env(home), str(original))
+        try:
+            local_view.expect_on_screen(str(original.resolve()))
+            local_view.send("orgnl")
+            local_view.expect_on_screen("path: orgnl")
+            local_view.expect_on_screen(session.parent.name)
+            assert "No matching workspaces" not in local_view.screen()
+            local_view.send("\r")
+            local_view.expect("SAVED-ANSWER")
+            local_view.send("/quit\r")
+            assert local_view.wait() == 0
+            assert "workspace" not in json.loads(session.read_text())
+        finally:
+            local_view.close()
         provider = ContinuationProvider(workspace_probe=True)
         env = provider.env(home)
         term = None
@@ -1284,7 +1451,7 @@ def idle_left_dashboard():
             term.expect("Agents — all saved sessions")
             term.expect("No saved sessions")
             assert not (Path(home) / ".tny/sessions").exists()
-            term.send("q")
+            term.send("\x04")
             assert term.wait() == 0
         finally:
             term.close()
@@ -1385,7 +1552,7 @@ def unsupported_in_process():
             term.send("/agents\r")
             term.expect("Agents — all saved sessions")
             term.expect(session.parent.name)
-            term.send("q")
+            term.send("\x04")
             assert term.wait() == 0
             assert not provider.errors, provider.errors
             assert not json.loads(session.read_text()).get("background")
@@ -1441,7 +1608,7 @@ def empty_dashboard():
                     assert not (Path(home) / ".tny/sessions").exists(), (
                         "dashboard prewarmed a runner"
                     )
-                    term.send("q")
+                    term.send("\x04")
                     assert term.wait() == 0
                     assert term.restored(), "dashboard left the terminal raw"
                 finally:
@@ -1518,6 +1685,8 @@ def unattended_permission():
 
 
 if __name__ == "__main__":
+    workspace_sections_and_fuzzy_filter()
+    workspace_filter_paste_and_small_viewport()
     global_saved_sessions()
     legacy_session_without_workspace()
     duplicate_ids_keep_selected_bucket()
