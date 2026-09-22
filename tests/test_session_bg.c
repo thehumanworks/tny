@@ -143,6 +143,79 @@ TEST bg_legacy_session_has_no_status(void) {
     PASS();
 }
 
+TEST bg_agents_list_all_saved_workspaces_without_page_limit(void) {
+    bg_env e;
+    bg_env_begin(&e);
+    char other[560], launch[560];
+    snprintf(other, sizeof other, "%s/other", e.root);
+    snprintf(launch, sizeof launch, "%s/launch", e.root);
+    ASSERT_EQ(0, mkdir_p(other));
+    ASSERT_EQ(0, mkdir_p(launch));
+    tny_ctx *first = tny_ctx_load(e.workspace);
+    tny_ctx *second = tny_ctx_load(other);
+    tny_ctx *outside = tny_ctx_load(launch);
+    ASSERT(first && second && outside);
+    char foreground_id[17] = "", background_id[17] = "", legacy_id[17] = "";
+    for (int i = 0; i < 103; i++) {
+        tny_session_state *s = session_new(first);
+        ASSERT(s);
+        if (i == 0) snprintf(foreground_id, sizeof foreground_id, "%s", s->id);
+        ASSERT_EQ(0, session_save(s)); /* ordinary foreground history has no background flag */
+        session_close(s);
+    }
+    for (int i = 0; i < 2; i++) {
+        tny_session_state *s = session_new(second);
+        ASSERT(s);
+        if (i == 0) {
+            snprintf(background_id, sizeof background_id, "%s", s->id);
+            session_set_status_finished(s, "done", 0, NULL);
+        }
+        ASSERT_EQ(0, session_save(s));
+        session_close(s);
+    }
+    tny_session_state *legacy = session_new(second);
+    ASSERT(legacy);
+    snprintf(legacy_id, sizeof legacy_id, "%s", legacy->id);
+    ASSERT_EQ(0, session_save(legacy));
+    char *legacy_file = path_join(legacy->dir, "session.json");
+    char old_json[256];
+    snprintf(old_json, sizeof old_json,
+             "{\"id\":\"%s\",\"updated\":\"2026-09-22T00:00:00Z\",\"messages\":[]}", legacy_id);
+    ASSERT_EQ(0, file_write_atomic(legacy_file, old_json, strlen(old_json)));
+    free(legacy_file);
+    session_close(legacy);
+    int n = 0;
+    session_meta *m = session_agents(outside, &n);
+    ASSERT_EQ(106, n);
+    bool foreground_found = false, background_found = false, legacy_found = false;
+    for (int i = 0; i < n; i++) {
+        if (strcmp(m[i].id, foreground_id) == 0) {
+            foreground_found = true;
+            ASSERT_STR_EQ(first->cwd, m[i].workspace);
+            ASSERT_STR_EQ(first->ws_hash, m[i].ws_hash);
+            ASSERT_EQ(NULL, (void *)m[i].status);
+        }
+        if (strcmp(m[i].id, background_id) == 0) {
+            background_found = true;
+            ASSERT_STR_EQ(second->cwd, m[i].workspace);
+            ASSERT_STR_EQ(second->ws_hash, m[i].ws_hash);
+            ASSERT_STR_EQ("done", m[i].status);
+        }
+        if (strcmp(m[i].id, legacy_id) == 0) {
+            legacy_found = true;
+            ASSERT_EQ(NULL, (void *)m[i].workspace);
+            ASSERT_STR_EQ(second->ws_hash, m[i].ws_hash);
+        }
+    }
+    ASSERT(foreground_found && background_found && legacy_found);
+    session_meta_free(m, n);
+    tny_ctx_free(outside);
+    tny_ctx_free(second);
+    tny_ctx_free(first);
+    bg_env_end(&e);
+    PASS();
+}
+
 /* flock semantics are per open-file-description, so contention is only
  * observable cross-process: a fork()ed child takes the lock, the parent
  * probe sees "running"; the child exits (self-release), the probe clears. */
@@ -806,6 +879,7 @@ SUITE(session_bg_suite) {
     RUN_TEST(bg_status_running_then_done_roundtrip);
     RUN_TEST(bg_bad_result_json_stores_nothing);
     RUN_TEST(bg_legacy_session_has_no_status);
+    RUN_TEST(bg_agents_list_all_saved_workspaces_without_page_limit);
     RUN_TEST(bg_lock_contention_across_processes);
     RUN_TEST(bg_pid_file_roundtrip);
     RUN_TEST(bg_api_null_and_ephemeral_contract);

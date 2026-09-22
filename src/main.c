@@ -16,6 +16,7 @@ int main(int argc, char **argv) {
     if (argc == 3 && strcmp(argv[1], "--acp-mcp-bridge") == 0)
         return tny_acp_bridge_relay_main(argv[2]);
     if (argc == 2 && strcmp(argv[1], "--runner-restart") == 0) return tny_runner_restart_main();
+    if (argc == 2 && strcmp(argv[1], "--runner-start") == 0) return tny_runner_start_main();
     /* fast paths: no allocation, no config */
     if (argc >= 2) {
         const char *a = argv[1];

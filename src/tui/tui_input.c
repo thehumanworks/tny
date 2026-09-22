@@ -397,6 +397,48 @@ static void do_paste(tui *t) {
     buf_free(&text);
 }
 
+static size_t filter_utf8_pending(const buf_t *filter) {
+    size_t i = filter->len;
+    while (i > 0 && ((unsigned char)filter->data[i - 1] & 0xc0) == 0x80) i--;
+    if (!i) return 0;
+    unsigned char lead = (unsigned char)filter->data[i - 1];
+    size_t width = lead >= 0xc2 && lead <= 0xdf   ? 2
+                   : lead >= 0xe0 && lead <= 0xef ? 3
+                   : lead >= 0xf0 && lead <= 0xf4 ? 4
+                                                  : 1;
+    return width > filter->len - i + 1 ? width - (filter->len - i + 1) : 0;
+}
+
+void tui_filter_append_utf8(buf_t *filter, const char *text, size_t len) {
+    for (size_t j = 0; j < len; j++) {
+        unsigned char c = (unsigned char)text[j];
+        size_t pending = filter_utf8_pending(filter);
+        if ((c & 0xc0) == 0x80) {
+            if (pending) buf_append(filter, text + j, 1);
+            continue;
+        }
+        if (pending) {
+            size_t i = filter->len;
+            while (i > 0 && ((unsigned char)filter->data[i - 1] & 0xc0) == 0x80) i--;
+            filter->len = i - 1; /* discard an incomplete code point */
+            filter->data[filter->len] = '\0';
+        }
+        size_t width = c < 0x80                 ? 1
+                       : c >= 0xc2 && c <= 0xdf ? 2
+                       : c >= 0xe0 && c <= 0xef ? 3
+                       : c >= 0xf0 && c <= 0xf4 ? 4
+                                                : 0;
+        if ((c < 32 || c == 127) || !width || filter->len + width > 4096) continue;
+        buf_append(filter, text + j, 1);
+    }
+}
+
+static void dashboard_filter_append(tui *t, const char *text, size_t len) {
+    tui_filter_append_utf8(&t->agent_filter, text, len);
+    t->agent_scroll = 0;
+    tui_agents_rebuild(t);
+}
+
 static void do_key(tui *t, int k, const char *ch, size_t chlen) {
     bool popover = t->pick != PICK_NONE && t->n_items > 0;
 
@@ -420,19 +462,51 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
     }
 
     if (t->agents_dashboard) {
-        if (k == TUI_K_UP && t->agent_selected > 0) t->agent_selected--;
-        else if (k == TUI_K_DOWN &&
-                 t->agent_selected + 1 < (t->g->agents_run ? t->agent_run_count : t->n_agents))
-            t->agent_selected++;
-        else if (k == TUI_K_ENTER) {
-            tui_agents_select(t);
-            return;
-        } else if (k == TUI_K_ESC || k == TUI_K_CTRLD || k == TUI_K_CTRLC ||
-                   (k == TUI_K_CHAR && chlen == 1 && ch[0] == 'q')) {
-            t->quit = true;
+        if (t->g->agents_run) {
+            if (k == TUI_K_UP && t->agent_selected > 0) t->agent_selected--;
+            else if (k == TUI_K_DOWN && t->agent_selected + 1 < t->agent_run_count)
+                t->agent_selected++;
+            else if (k == TUI_K_ESC || k == TUI_K_CTRLD || k == TUI_K_CTRLC ||
+                     (k == TUI_K_CHAR && chlen == 1 && ch[0] == 'q'))
+                t->quit = true;
+            tui_agents_refresh(t);
             return;
         }
-        tui_agents_refresh(t);
+        if (k == TUI_K_UP && t->agent_selected > 0) t->agent_selected--;
+        else if (k == TUI_K_DOWN && t->agent_selected + 1 < t->n_agent_rows) t->agent_selected++;
+        else if (k == TUI_K_ENTER) {
+            if (t->n_agent_rows) tui_agents_select(t);
+            return;
+        } else if (k == TUI_K_ESC) {
+            if (t->agent_filter.len) {
+                buf_clear(&t->agent_filter);
+                t->agent_scroll = 0;
+            } else t->quit = true;
+        } else if (k == TUI_K_CTRLD || k == TUI_K_CTRLC) t->quit = true;
+        else if ((k == TUI_K_BS || k == TUI_K_DEL) && t->agent_filter.len) {
+            size_t i = t->agent_filter.len - 1;
+            while (i > 0 && ((unsigned char)t->agent_filter.data[i] & 0xc0) == 0x80) i--;
+            t->agent_filter.len = i;
+            t->agent_filter.data[i] = '\0';
+            t->agent_scroll = 0;
+        } else if (k == TUI_K_CTRLL) {
+            buf_clear(&t->agent_filter);
+            t->agent_scroll = 0;
+        } else if (k == TUI_K_CHAR) {
+            dashboard_filter_append(t, ch, chlen);
+            return;
+        } else if (k == TUI_K_PASTE) {
+            buf_t text;
+            buf_init(&text);
+            if (clipboard_text(&text) == 0) dashboard_filter_append(t, text.data, text.len);
+            buf_free(&text);
+            return;
+        } else if (k == TUI_K_PASTE_BEGIN) {
+            t->in_paste = true;
+            return;
+        }
+        if (t->quit) return;
+        tui_agents_rebuild(t);
         return;
     }
 
@@ -477,9 +551,10 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         tui_pick_refresh(t);
         break;
     case TUI_K_LEFT:
-        if (t->turn_active && !t->input.len && !t->wiz_step && !popover && !t->overlay.len &&
-            !t->perm_id) {
-            tui_background_arm(t);
+        if (!t->input.len && !t->wiz_step && !popover && !t->overlay.len && !t->perm_id) {
+            if (t->turn_active && t->background_view) tui_agents_open(t);
+            else if (t->turn_active) tui_background_arm(t);
+            else if (!t->turn_active) tui_agents_open(t);
             break;
         }
         t->cur = prev_ch(t, t->cur);
@@ -807,13 +882,18 @@ static bool decode_all(tui *t, bool final) {
             bool done = false;
             used = tui_paste_scan(g_kb, g_kn, &txt, &done);
             if (txt.len && !t->approval && !t->dictation && !t->optimise) {
-                ins(t, txt.data, txt.len);
-                t->dirty = true;
+                if (t->agents_dashboard && !t->g->agents_run)
+                    dashboard_filter_append(t, txt.data, txt.len);
+                else {
+                    ins(t, txt.data, txt.len);
+                    t->dirty = true;
+                }
             }
             buf_free(&txt);
             if (done) {
                 t->in_paste = false;
-                if (!t->approval && !t->dictation && !t->optimise) tui_pick_refresh(t);
+                if (!t->approval && !t->dictation && !t->optimise && !t->agents_dashboard)
+                    tui_pick_refresh(t);
             }
         } else {
             used = decode_one(t, g_kb, g_kn, final);

@@ -32,6 +32,12 @@ typedef struct {
     char *label, *hint;
 } pick_item;
 
+typedef struct {
+    int session_index; /* index into the latest global session scan */
+    char *workspace;   /* canonical path used for grouping and filtering */
+    bool current;
+} tui_agent_row;
+
 typedef struct tui {
     tny_ctx *ctx;
     const cli_globals *g;
@@ -83,6 +89,9 @@ typedef struct tui {
     bool session_readonly; /* saved agents view without an owner; never save or execute locally */
     session_meta *agents;
     int n_agents, agent_selected, agent_run_count;
+    tui_agent_row *agent_rows;
+    int n_agent_rows, agent_scroll;
+    buf_t agent_filter;
     int64_t agents_refresh;
     bool rc_restart_pending; /* ctx changed mid-turn: restart after it ends */
 
@@ -179,6 +188,9 @@ size_t tui_decode_one(const char *p, size_t n, bool final, tui_decoded *out);
  * a possible split terminator (or trailing \r) stays unconsumed until more
  * bytes arrive. *done is set once the terminator was consumed. */
 size_t tui_paste_scan(const char *p, size_t n, buf_t *out, bool *done);
+/* Append printable path-filter text without splitting a UTF-8 code point at
+ * the dashboard's input cap. Partial paste chunks may complete one another. */
+void tui_filter_append_utf8(buf_t *filter, const char *text, size_t len);
 
 /* Composer wrap math. width is display columns after the "> " / "  " prefix. */
 void tui_wrap_locate(const char *s, size_t n, size_t cur, int width, int *row, int *col,
@@ -191,6 +203,7 @@ int tui_queue_image(tui *t, const char *path);
 
 void tui_agents_open(tui *t);
 void tui_agents_refresh(tui *t);
+void tui_agents_rebuild(tui *t); /* filter/navigation without a disk rescan */
 void tui_agents_select(tui *t);
 bool tui_agents_continue(tui *t, bool prompt);
 void tui_background_arm(tui *t);

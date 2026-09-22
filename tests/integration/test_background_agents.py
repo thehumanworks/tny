@@ -6,16 +6,17 @@ import fcntl
 import json
 import os
 import shlex
-import shutil
 import signal
+import struct
 import subprocess
 import tempfile
+import termios
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from test_tui import BANNER, TNY, Term, base_env, clean
+from test_tui import BANNER, TNY, Screen, Term, base_env, clean
 
 TNY = os.path.abspath(TNY)
 
@@ -218,19 +219,15 @@ def run_case(
     no_tools=False,
     permission=False,
     steer=False,
-    restart_failure=False,
     images=False,
     transformed=False,
-    restart_fault=None,
+    trigger="\x1b[D",
 ):
+    """An active turn detaches immediately and keeps its runner and owner lock."""
     with tempfile.TemporaryDirectory(prefix="tny-agents-") as home:
         ws = Path(home) / "ws"
         ws.mkdir()
         provider = Provider(ws, no_tools, steer, images, transformed)
-        binary = TNY
-        if restart_failure or restart_fault:
-            binary = str(Path(home) / "fixture-tny")
-            shutil.copy2(TNY, binary)
         env = base_env(
             home,
             {
@@ -241,29 +238,6 @@ def run_case(
                 "TNY_PROVIDER_RETRIES": "0",
             },
         )
-        if restart_fault:
-            library = Path(home) / "restart-fault.so"
-            source = (
-                Path(__file__).resolve().parents[1] / "fixtures/runner_restart_fault.c"
-            )
-            subprocess.run(
-                [
-                    os.environ.get("CC", "cc"),
-                    "-shared",
-                    "-fPIC",
-                    str(source),
-                    "-o",
-                    str(library),
-                ],
-                check=True,
-                capture_output=True,
-            )
-            env[
-                "DYLD_INSERT_LIBRARIES"
-                if os.uname().sysname == "Darwin"
-                else "LD_PRELOAD"
-            ] = str(library)
-            env["TNY_FIXTURE_RESTART_FAULT"] = restart_fault
         if transformed:
             ext = Path(home) / ".tny/extensions/effective.py"
             ext.parent.mkdir(parents=True, exist_ok=True)
@@ -280,7 +254,7 @@ def run_case(
                 "            f.write(json.dumps({'type': event.type, 'reason': getattr(event, 'reason', None), 'initialized': initialized}) + '\\n')\n"
                 "    @api.on(PostToolUseEvent)\n"
                 "    def replace(event):\n"
-                "        assert initialized, 'fresh host received a hook before initialization'\n"
+                "        assert initialized, 'host received a hook before initialization'\n"
                 "        if event.tool_id == 'first': return replace_tool_result('EFFECTIVE-RESULT')\n"
             )
             env["EVENTS_PATH"] = str(Path(home) / "events.jsonl")
@@ -289,7 +263,7 @@ def run_case(
             )
         term = Term(
             [
-                binary,
+                TNY,
                 "--provider",
                 "openai",
                 *([] if transformed else ["--no-extensions"]),
@@ -312,7 +286,7 @@ def run_case(
             term.send("perform fixture\r")
             if permission:
                 term.expect("approve?")
-                # Split Left in a focused permission must neither deny nor arm.
+                # Focused permission Left must neither deny nor detach.
                 term.send("\x1b[")
                 term.pump(0.03)
                 term.send("D")
@@ -324,7 +298,7 @@ def run_case(
             else:
                 until(lambda: (ws / "started").exists(), term)
             session = next((Path(home) / ".tny/sessions").glob("*/*/session.json"))
-            old_pid = int((session.parent / "pid").read_text())
+            pid = int((session.parent / "pid").read_text())
             candidates = [session.parent / "sock"]
             for root in (env.get("TMPDIR", "/tmp"), "/tmp"):
                 candidates.append(
@@ -333,322 +307,138 @@ def run_case(
             socket_path = next(path for path in candidates if path.exists())
             socket_identity = socket_path.stat()
 
-            def assert_writer_and_listener_retained():
+            def assert_same_owner():
+                assert int((session.parent / "pid").read_text()) == pid
                 current = socket_path.stat()
                 assert (current.st_dev, current.st_ino) == (
                     socket_identity.st_dev,
                     socket_identity.st_ino,
                 )
-                with (session.parent / "lock").open("r+b") as lock:
-                    try:
-                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    except BlockingIOError:
-                        pass
-                    else:
-                        raise AssertionError("restart released writer authority")
+                assert writer_live(session), "handoff released writer authority"
 
-            assert_writer_and_listener_retained()
+            assert_same_owner()
             if steer:
                 term.send("STEER-KEEP\r")
                 term.expect("steer")
-            if restart_failure:
-                # Make the re-exec fail on every platform: the runner spawns
-                # its own executable path, and on Linux /proc/self/exe follows
-                # a rename, so hiding the file would still restart there.
-                # A copy with no permission bits fails posix_spawn with
-                # EACCES on Linux and macOS alike.
-                os.chmod(binary, 0)
-            term.send("\x1b[D\x1b[D")
-            term.expect("Background armed")
-            assert "\x1b[2J" not in term.buf, "arming handoff cleared the chat early"
-            if images:
-                (ws / "image.png").write_bytes(b"later bytes must not be reopened")
-            if no_tools:
-                provider.finish.set()
-            else:
-                (ws / "release").touch()
-            if restart_failure or restart_fault == "post-go":
-                term.expect(
-                    "Background restart failed; continuing in foreground", timeout=20
-                )
-                until(provider.second.is_set, term)
-                assert int((session.parent / "pid").read_text()) == old_pid
-                assert_writer_and_listener_retained()
-                assert len(provider.requests) == 2, provider.requests
-                effects = (ws / "effects").read_text()
-                assert effects.count("first") == effects.count("second") == 1
-                provider.finish.set()
-                term.expect("FINISHED-ONCE")
-                term.send("\x04")
-                assert term.wait() == 0
-                assert not provider.errors, provider.errors
-                print("PASS background restart failure retains foreground")
-                return
-            if restart_fault == "post-run":
-                until(
-                    lambda: (
-                        json.loads(session.read_text())
-                        .get("continuation", {})
-                        .get("_resume", {})
-                        .get("resumable")
-                        is True
-                    ),
-                    term,
-                )
-                # The successor exits after RUN but before consuming the durable
-                # checkpoint. No pending effect has been released.
-                until(lambda: not writer_live(session), term)
-                assert len(provider.requests) == 1
-                assert "second" not in (ws / "effects").read_text()
-                term.send("\x04")
-                assert term.wait() == 0
-                saved_checkpoint = session.read_text()
-                assert "fixture-secret" not in saved_checkpoint
-                assert "127.0.0.1" not in saved_checkpoint
-                env.pop("TNY_FIXTURE_RESTART_FAULT")
-                # An already-activated checkpoint cannot establish whether an
-                # external effect ran. It must be rejected, never replayed.
-                consumed = json.loads(saved_checkpoint)
-                consumed["continuation"]["_resume"]["resumable"] = False
-                session.write_text(json.dumps(consumed))
-                refused = Term(
-                    [TNY, "--provider", "openai", "resume", session.parent.name],
-                    env,
-                    str(ws),
-                )
-                try:
-                    refused.expect("checkpoint cannot be replayed", timeout=10)
-                    refused.send("\x04")
-                    refused.wait()
-                finally:
-                    refused.close()
-                assert "second" not in (ws / "effects").read_text()
-                session.write_text(saved_checkpoint)
-                # A different endpoint must never receive or execute recovery.
-                wrong = {**env, "OPENAI_BASE_URL": "http://127.0.0.1:1/v1"}
-                rejected = Term(
-                    [TNY, "--provider", "openai", "resume", session.parent.name],
-                    wrong,
-                    str(ws),
-                )
-                try:
-                    rejected.expect("checkpoint cannot be replayed", timeout=10)
-                    rejected.send("\x04")
-                    rejected.wait()
-                finally:
-                    rejected.close()
-                assert "second" not in (ws / "effects").read_text()
-                before_inspect = snapshot_state(home)
-                attached = Term([TNY, "agents"], env, str(ws))
-                attached.expect("Background agents")
-                attached.send("\r")
-                attached.expect("Saved read-only")
-                attached.expect("perform fixture")
-                assert snapshot_state(home) == before_inspect
-                assert not writer_live(session)
-                assert len(provider.requests) == 1
-                attached.send("CHECKPOINT-PROMPT-NOT-QUEUED\r")
-                attached.expect("Your prompt was not submitted or queued")
-                assert snapshot_state(home) == before_inspect
-                assert len(provider.requests) == 1
-                attached.send("/continue\r")
-                if permission:
-                    attached.expect("approve?")
-                    attached.pump(0.1)
-                    assert not provider.second.is_set(), (
-                        "disk recovery widened permission"
-                    )
-                    attached.send("y")
-                attached.expect("SAME-TURN-RUNNING", timeout=20)
-                until(provider.second.is_set, attached)
-                provider.finish.set()
-                attached.expect("FINISHED-ONCE")
-                until(
-                    lambda: json.loads(session.read_text()).get("status") == "done",
-                    attached,
-                )
-                final = json.loads(session.read_text())
-                assert final["turns"] == 1 and final["result"]["steps"] == 2, final
-                assert "continuation" not in final, final
-                attached.send("\x04")
-                assert attached.wait() == 0
-                assert not provider.errors, provider.errors
-                print(
-                    "PASS unconsumed checkpoint recovery with exact batch/config/steps"
-                )
-                return
-            term.expect("Background agents", timeout=20)
+            term.send(trigger)
+            term.expect("Agents — all saved sessions", timeout=5)
             assert_clean_dashboard(term, BANNER, "REASONING-KEEP", "FINISHED-ONCE")
             saved = json.loads(session.read_text())
-            assert saved["background"] is True, saved
+            assert saved["background"] is True and saved["status"] == "running", saved
+            assert "continuation" not in saved, saved
+            assert_same_owner()
+            # The dashboard opens before the active tool or response completes.
+            assert len(provider.requests) == 1, provider.requests
             if not no_tools:
-                pid = int((session.parent / "pid").read_text())
-                assert pid != old_pid, (old_pid, pid)
-                assert_writer_and_listener_retained()
-                if not permission:
-                    until(provider.second.is_set, term)
-                else:
-                    term.pump(0.25)
-                    assert not provider.second.is_set()
-                    assert "second" not in (ws / "effects").read_text()
-                # Dashboard quit cannot stop the detached worker.
-                term.send("q")
-                assert term.wait() == 0
-                os.kill(pid, 0)
-                attached = Term([TNY, "agents"], env, str(ws))
-                attached.expect("Background agents")
+                assert not (ws / "release").exists()
+                assert "second" not in (ws / "effects").read_text()
+                if images:
+                    (ws / "image.png").write_bytes(b"later bytes must not be reopened")
+                (ws / "release").touch()
+            term.send("\x04")
+            assert term.wait() == 0
+            assert_same_owner()
+            attached = Term([TNY, "agents"], env, str(ws))
+            attached.expect("Agents — all saved sessions")
+            attached.send("\r")
+            attached.expect("Attached " + session.parent.name)
+            if permission:
+                attached.expect("approve?")
+                attached.pump(0.1)
+                assert not provider.second.is_set(), "reattach widened ask to yolo"
+                attached.send("y")
+            attached.expect("SAME-TURN-RUNNING")
+            until(provider.second.is_set, attached)
+            expected_requests = 1 if no_tools else 2
+            assert len(provider.requests) == expected_requests, provider.requests
+            assert_same_owner()
+
+            rival = Term([TNY, "agents"], env, str(ws))
+            try:
+                rival.expect("Agents — all saved sessions")
+                rival.send("\r")
+                rival.expect("Saved read-only")
                 before = len(provider.requests)
+                rival.send("/continue\r")
+                rival.expect_next("Still read-only: owner unavailable")
+                assert len(provider.requests) == before
+                assert_same_owner()
+                rival.send("/quit\r")
+                assert rival.wait() == 0
+            finally:
+                rival.close()
+            for detach in ("/agents\r", "\x18", "\x1b[D"):
+                attached.send(detach)
+                attached.expect_next("Agents — all saved sessions")
+                assert_same_owner()
                 attached.send("\r")
-                attached.expect("Attached")
-                if permission:
-                    attached.expect("approve?")
-                    attached.pump(0.1)
-                    assert not provider.second.is_set(), "reattach widened ask to yolo"
-                    attached.send("y")
-                attached.expect("SAME-TURN-RUNNING")
-                assert len(provider.requests) == 2
-                assert before == (1 if permission else 2)
-                rival = Term([TNY, "agents"], env, str(ws))
-                try:
-                    rival.expect("Background agents")
-                    rival.send("\r")
-                    rival.expect("Saved read-only")
-                    rival.expect("perform fixture")
-                    before_rival = snapshot_state(home)
-                    for attempt in ("/continue\r", "RIVAL-NOT-SENT\r"):
-                        rival.send(attempt)
-                        rival.expect_next("Still read-only: owner unavailable")
-                        assert len(provider.requests) == 2
-                        assert snapshot_state(home) == before_rival
-                        assert_writer_and_listener_retained()
-                    if not (permission or steer or images or transformed):
-                        attached.send("/agents\r")
-                        attached.expect_next("Background agents")
-                        # Retry only after an explicit response. The detached
-                        # socket may still be queued in the runner's poll loop.
-                        continue_owner(rival, session.parent.name)
-                        rival.expect_next("SAME-TURN-RUNNING")
-                        assert len(provider.requests) == 2
-                        assert_writer_and_listener_retained()
-                        rival.send("/quit\r")
-                        assert rival.wait() == 0
-                        attached.send("\r")
-                        attached.expect_next("Attached")
-                    else:
-                        rival.send("/quit\r")
-                        assert rival.wait() == 0
-                finally:
-                    rival.close()
-                # An attached running background turn returns immediately to
-                # the list for both commands, without a second restart.
-                for detach in ("/agents\r", "\x18"):
-                    attached.send(detach)
-                    attached.expect_next("Background agents")
-                    assert_clean_dashboard(attached, "Attached", "SAME-TURN-RUNNING")
-                    assert int((session.parent / "pid").read_text()) == pid
-                    attached.send("\r")
-                    attached.expect_next("Attached")
-                provider.finish.set()
-                attached.expect("FINISHED-ONCE")
-                until(
-                    lambda: json.loads(session.read_text()).get("status") == "done",
-                    attached,
-                )
-                final = json.loads(session.read_text())
-                assert final["turns"] == 1, final
-                assert final["result"]["steps"] == 2, final
-                assert final["result"]["output"].count("FINISHED-ONCE") == 1, final
-                assert "fixture-secret" not in session.read_text()
-                listed = subprocess.run(
-                    [TNY, "agents", "--json"],
-                    env=env,
-                    cwd=ws,
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                live_row = json.loads(listed.stdout)["agents"][0]
-                assert (
-                    live_row["status"] == "done"
-                    and not live_row["running"]
-                    and live_row["live"]
-                ), live_row
-                if transformed:
-                    records = [
-                        json.loads(line)
-                        for line in Path(env["EVENTS_PATH"]).read_text().splitlines()
-                    ]
-                    assert all(r["initialized"] for r in records), records
-                    assert (
-                        len(
-                            [
-                                r
-                                for r in records
-                                if r["type"] == "session_start"
-                                and r["reason"] == "background_resume"
-                            ]
-                        )
-                        == 1
-                    ), records
-                    events = [
-                        json.loads(line)["type"]
-                        for line in Path(env["EVENTS_PATH"]).read_text().splitlines()
-                    ]
-                    assert events.count("user_prompt_submit") == 1, events
-                    assert events.count("session_start") == 2, events
+                attached.expect_next("Attached")
+            provider.finish.set()
+            attached.expect("FINISHED-ONCE")
+            until(
+                lambda: json.loads(session.read_text()).get("status") == "done",
+                attached,
+            )
+            final = json.loads(session.read_text())
+            assert final["turns"] == 1 and "continuation" not in final, final
+            assert final["result"]["output"].count("FINISHED-ONCE") == 1, final
+            assert_same_owner()
+            listed = subprocess.run(
+                [TNY, "agents", "--json"],
+                env=env,
+                cwd=ws,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            live_row = json.loads(listed.stdout)["agents"][0]
+            assert live_row["status"] == "done" and live_row["live"], live_row
+            if transformed:
+                records = [
+                    json.loads(line)
+                    for line in Path(env["EVENTS_PATH"]).read_text().splitlines()
+                ]
+                assert all(record["initialized"] for record in records), records
+                events = [record["type"] for record in records]
+                assert events.count("session_start") == 1, events
+                assert events.count("user_prompt_submit") == 1, events
+            if not no_tools:
                 attached.send("FOLLOWUP-AFTER-DONE\r")
                 attached.expect("LIVE-FOLLOWUP-OK")
                 until(lambda: saved_turn_complete(session, 2), attached)
-                final = json.loads(session.read_text())
-                attached.send("\x04")
-                assert attached.wait() == 0
-
-                # The same list keeps completed rows; a stale marker is never
-                # presented as running once its writer is actually free.
-                def free_writer():
-                    with (session.parent / "lock").open() as lock:
-                        try:
-                            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        except BlockingIOError:
-                            return False
-                        return True
-
-                until(free_writer)
-                listed = subprocess.run(
-                    [TNY, "agents", "--json"],
-                    env=env,
-                    cwd=ws,
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                row = json.loads(listed.stdout)["agents"][0]
-                assert row["status"] == "done" and not row["running"], row
-                final["status"] = "running"
-                session.write_text(json.dumps(final))
-                listed = subprocess.run(
-                    [TNY, "agents", "--json"],
-                    env=env,
-                    cwd=ws,
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                assert json.loads(listed.stdout)["agents"][0]["status"] == "stale"
-            else:
-                assert saved["status"] == "done", saved
-                term.send("q")
-                assert term.wait() == 0
+                assert len(provider.requests) == 3, provider.requests
+                assert_same_owner()
+            attached.send("/quit\r")
+            assert attached.wait() == 0
+            until(lambda: not writer_live(session))
+            listed = subprocess.run(
+                [TNY, "agents", "--json"],
+                env=env,
+                cwd=ws,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            row = json.loads(listed.stdout)["agents"][0]
+            assert row["status"] == "done" and not row["running"], row
+            final = json.loads(session.read_text())
+            final["status"] = "running"
+            session.write_text(json.dumps(final))
+            listed = subprocess.run(
+                [TNY, "agents", "--json"],
+                env=env,
+                cwd=ws,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            assert json.loads(listed.stdout)["agents"][0]["status"] == "stale"
             assert not provider.errors, provider.errors
         finally:
             provider.close()
-            for t in (term, attached):
-                if t:
-                    t.close()
-            if session is None:
-                session = next(
-                    (Path(home) / ".tny/sessions").glob("*/*/session.json"), None
-                )
+            for client in (term, attached):
+                if client:
+                    client.close()
             if session and (session.parent / "pid").exists():
                 subprocess.run(
                     [TNY, "session", "stop", session.parent.name, "--kill"],
@@ -658,14 +448,18 @@ def run_case(
                     timeout=12,
                 )
     print(
-        "PASS background agents",
+        "PASS immediate background",
         "no-tools"
         if no_tools
         else "permission"
         if permission
         else "steer"
         if steer
-        else "multi-tool restart/reattach",
+        else "image"
+        if images
+        else "transformed"
+        if transformed
+        else "streaming tool",
     )
 
 
@@ -708,13 +502,14 @@ def snapshot_state(home):
     }
 
 
-def saved_fixture(home, ws, backend="fixture", checkpoint=False):
+def saved_fixture(
+    home, ws, backend="fixture", checkpoint=False, sid="1234567890abcdef"
+):
     # Match the physical cwd used by tny, including macOS /var -> /private/var.
     ws = ws.resolve()
     value = 0xCBF29CE484222325
     for byte in str(ws).encode():
         value = ((value ^ byte) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
-    sid = "1234567890abcdef"
     directory = Path(home) / ".tny/sessions" / f"{value:016x}" / sid
     directory.mkdir(parents=True)
     session = directory / "session.json"
@@ -743,9 +538,10 @@ def saved_fixture(home, ws, backend="fixture", checkpoint=False):
 class ContinuationProvider:
     """Immediate loopback turns, with observable inference and OAuth requests."""
 
-    def __init__(self):
+    def __init__(self, workspace_probe=False):
         self.requests = []
         self.refreshes = []
+        self.workspace_probe = workspace_probe
         fixture = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -765,14 +561,42 @@ class ContinuationProvider:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.end_headers()
-                event = {
-                    "choices": [
-                        {
-                            "delta": {"content": f"SAVED-TURN-{len(fixture.requests)}"},
-                            "finish_reason": "stop",
-                        }
-                    ]
-                }
+                if fixture.workspace_probe and len(fixture.requests) == 1:
+                    event = {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": 0,
+                                            "id": "workspace-probe",
+                                            "type": "function",
+                                            "function": {
+                                                "name": "terminal",
+                                                "arguments": json.dumps(
+                                                    {
+                                                        "command": "pwd > global-resume-proof"
+                                                    }
+                                                ),
+                                            },
+                                        }
+                                    ]
+                                },
+                                "finish_reason": "tool_calls",
+                            }
+                        ]
+                    }
+                else:
+                    event = {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "content": f"SAVED-TURN-{len(fixture.requests)}"
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ]
+                    }
                 self.wfile.write(("data: " + json.dumps(event) + "\n\n").encode())
                 self.wfile.write(b"data: [DONE]\n\n")
 
@@ -808,6 +632,335 @@ def stop_fixture(session, env, ws):
         )
         assert stopped.returncode == 0, stopped.stderr
     until(lambda: not writer_live(session))
+
+
+def global_saved_sessions():
+    """All workspaces and ordinary saved sessions are visible and resumable."""
+    with tempfile.TemporaryDirectory(prefix="tny-agents-global-") as home:
+        launch = Path(home) / "launch"
+        other = Path(home) / "other\nworkspace"
+        third = Path(home) / "third"
+        for path in (launch, other, third):
+            path.mkdir()
+        foreground = saved_fixture(home, other, sid="1234567890abcdea")
+        foreground_state = json.loads(foreground.read_text())
+        foreground_state.pop("background")
+        foreground_state.pop("status")
+        foreground_state["title"] = "foreground\nsession"
+        foreground_state["updated"] = "2026-09-20T00:00:00Z"
+        foreground.write_text(json.dumps(foreground_state))
+        background = saved_fixture(home, third, sid="1234567890abcdeb")
+        no_auth = base_env(home, {"TNY_ISOLATE": "1"})
+        listed = subprocess.run(
+            [TNY, "agents", "--json"],
+            env=no_auth,
+            cwd=launch,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert listed.returncode == 0, listed.stderr
+        rows = json.loads(listed.stdout)["agents"]
+        assert len(rows) == 2, rows
+        by_id = {row["session_id"]: row for row in rows}
+        assert by_id[foreground.parent.name]["workspace"] == str(other.resolve())
+        assert by_id[foreground.parent.name]["status"] == "saved"
+        assert by_id[background.parent.name]["workspace"] == str(third.resolve())
+        assert by_id[background.parent.name]["status"] == "done"
+        plain = subprocess.run(
+            [TNY, "agents"],
+            env=no_auth,
+            cwd=launch,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert plain.returncode == 0 and len(plain.stdout.splitlines()) == 2, (
+            plain.stdout,
+            plain.stderr,
+        )
+        assert (
+            "other workspace" in plain.stdout and "foreground session" in plain.stdout
+        )
+        assert "\x1b" not in plain.stdout
+        provider = ContinuationProvider(workspace_probe=True)
+        env = provider.env(home)
+        term = Term([TNY, "agents"], env, str(launch))
+        try:
+            term.expect("Agents — all saved sessions")
+            term.expect_on_screen("other workspace")
+            term.send("\r")  # newest row is the ordinary saved foreground session
+            term.expect("Saved read-only " + foreground.parent.name)
+            term.expect("SAVED-ANSWER")
+            term.send("FOLLOWUP-FROM-ELSEWHERE\r")
+            term.expect("SAVED-TURN-2")
+            until(lambda: saved_turn_complete(foreground, 2), term)
+            assert (other / "global-resume-proof").read_text().strip() == str(
+                other.resolve()
+            )
+            assert not (launch / "global-resume-proof").exists()
+            assert len(provider.requests) == 2, provider.requests
+            assert provider.requests[0]["messages"][-1]["content"] == (
+                "FOLLOWUP-FROM-ELSEWHERE"
+            )
+            term.send("/quit\r")
+            assert term.wait() == 0
+        finally:
+            term.close()
+            stop_fixture(foreground, env, other)
+            provider.close()
+    print("PASS global saved sessions across workspaces and original-cwd continuation")
+
+
+def workspace_sections_and_fuzzy_filter():
+    """The visible dashboard groups cwd first and opens the filtered identity."""
+    with tempfile.TemporaryDirectory(prefix="tny-nav-", dir="/tmp") as home:
+        current = Path(home) / "current"
+        remote = Path(home) / "quartz-research"
+        last = Path(home) / "z-last"
+        for workspace in (current, remote, last):
+            workspace.mkdir()
+        entries = []
+        for workspace, sid, title, updated, answer in (
+            (current, "1111111111111111", "LOCAL-NEW", "2026-09-20", "LOCAL-ANSWER"),
+            (
+                current,
+                "2222222222222222",
+                "LOCAL-OLD",
+                "2026-09-19",
+                "LOCAL-OLD-ANSWER",
+            ),
+            (remote, "1111111111111111", "REMOTE-NEW", "2026-09-22", "FILTERED-ANSWER"),
+            (
+                remote,
+                "3333333333333333",
+                "REMOTE-OLD",
+                "2026-09-21",
+                "REMOTE-OLD-ANSWER",
+            ),
+            (last, "4444444444444444", "LAST-ROW", "2026-09-18", "LAST-ANSWER"),
+        ):
+            session = saved_fixture(home, workspace, sid=sid)
+            body = json.loads(session.read_text())
+            body.update(title=title, updated=updated + "T00:00:00Z")
+            body["messages"][-1]["content"] = answer
+            session.write_text(json.dumps(body))
+            entries.append(session)
+        before = snapshot_state(home)
+        term = Term([TNY, "agents"], base_env(home), str(current))
+        try:
+            term.expect_on_screen("LAST-ROW")
+            lines = term.screen().splitlines()
+            local_heading = lines.index(str(current.resolve()))
+            remote_heading = lines.index(str(remote.resolve()))
+            local_new = next(i for i, line in enumerate(lines) if "LOCAL-NEW" in line)
+            local_old = next(i for i, line in enumerate(lines) if "LOCAL-OLD" in line)
+            remote_new = next(i for i, line in enumerate(lines) if "REMOTE-NEW" in line)
+            assert (
+                local_heading < local_new < local_old < remote_heading < remote_new
+            ), lines
+            assert lines[local_new].startswith("  > "), lines
+            assert lines[local_old].startswith("    "), lines
+            assert lines.count(str(current.resolve())) == 1, lines
+            assert lines.count(str(remote.resolve())) == 1, lines
+
+            # Noncontiguous, case-insensitive matching, with q accepted as text.
+            term.send("qRZ")
+            term.expect_gone_from_screen("LOCAL-NEW")
+            term.expect_on_screen("REMOTE-NEW")
+            assert term.proc.poll() is None
+            assert "LAST-ROW" not in term.screen()
+            term.send("X")
+            term.expect_on_screen("No matching workspaces")
+            term.send("\r")
+            term.pump(0.1)
+            assert "Saved read-only" not in term.buf
+            term.send("\x7f")
+            term.expect_on_screen("REMOTE-NEW")
+            term.send("\x1b[B")
+            term.expect_on_screen("  > 3333333333333333")
+            # Refresh changes recency but must preserve the selected bucket/id.
+            body = json.loads(entries[3].read_text())
+            body["updated"] = "2026-09-23T00:00:00Z"
+            entries[3].write_text(json.dumps(body))
+            before = snapshot_state(home)
+            paints = term.buf.count("Agents — all saved sessions")
+            until(lambda: term.buf.count("Agents — all saved sessions") > paints, term)
+            term.expect_on_screen("  > 3333333333333333")
+            term.send("\x1b[A")  # now clamped on the newly first row
+            term.send("\r")
+            term.expect("REMOTE-OLD-ANSWER")
+            term.expect("Workspace: " + str(remote.resolve()))
+            term.send("/agents\r")
+            term.expect_next("Agents — all saved sessions")
+            term.send("\x04")
+            assert term.wait() == 0
+            assert term.restored()
+            assert snapshot_state(home) == before
+        finally:
+            term.close()
+    print("PASS cwd-first sections, fuzzy paths, empty results and refreshed selection")
+
+
+def workspace_filter_paste_and_small_viewport():
+    """Every selected session retains its heading while scrolling/resizing."""
+    with tempfile.TemporaryDirectory(prefix="tny-nav-small-", dir="/tmp") as home:
+        workspace = Path(home) / "café-project"
+        workspace.mkdir()
+        for index in range(16):
+            session = saved_fixture(home, workspace, sid=f"{index + 1:016x}")
+            body = json.loads(session.read_text())
+            body.update(
+                title=f"SCROLL-{index:02d}",
+                updated=f"2026-09-{20 - index:02d}T00:00:00Z",
+            )
+            session.write_text(json.dumps(body))
+        term = Term([TNY, "agents"], base_env(home), str(workspace))
+        try:
+            term.expect_on_screen("SCROLL-00")
+            term.send("\x1b[200~café\x1b[201~")
+            term.expect_on_screen("café")
+            term.send("\x7f")  # removes one Unicode character, never a partial byte
+            term.send("\x1b[200~é\x1b[201~")
+            term.pump(0.2)
+            assert "No matching workspaces" not in term.screen()
+            assert "�" not in term.screen()
+            # Clear the query without exiting, then resize and cross old 8-row pages.
+            term.send("\x1b")
+            term.pump(0.2)
+            assert term.proc.poll() is None
+            fcntl.ioctl(
+                term.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 10, 100, 0, 0)
+            )
+            os.kill(term.proc.pid, signal.SIGWINCH)
+            term.pump(0.2)
+            term.buf = ""  # emulate the new screen dimensions from the next repaint
+            for index in range(1, 16):
+                term.send("\x1b[B")
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    term.pump(0.05)
+                    screen = Screen(rows=10, cols=100)
+                    screen.feed(term.buf)
+                    rows = screen.text().splitlines()
+                    selected = next(
+                        (i for i, row in enumerate(rows) if row.startswith("  > ")),
+                        None,
+                    )
+                    if selected is not None and f"SCROLL-{index:02d}" in rows[selected]:
+                        heading = rows.index(str(workspace.resolve()))
+                        assert heading < selected, rows
+                        break
+                else:
+                    raise AssertionError(f"selected row {index} hidden: {rows}")
+            term.send("\x04")
+            assert term.wait() == 0
+            assert term.restored()
+        finally:
+            term.close()
+    print("PASS pasted Unicode workspace filter and small-screen section scrolling")
+
+
+def legacy_session_without_workspace():
+    with tempfile.TemporaryDirectory(prefix="tny-agents-legacy-") as home:
+        original = Path(home) / "original"
+        launch = Path(home) / "launch"
+        original.mkdir()
+        launch.mkdir()
+        session = saved_fixture(home, original)
+        body = json.loads(session.read_text())
+        body.pop("workspace")
+        session.write_text(json.dumps(body))
+        # Its physical bucket identifies the current workspace even without old
+        # document metadata: filtering that known path must keep the session.
+        local_view = Term([TNY, "agents"], base_env(home), str(original))
+        try:
+            local_view.expect_on_screen(str(original.resolve()))
+            local_view.send("orgnl")
+            local_view.expect_on_screen("path: orgnl")
+            local_view.expect_on_screen(session.parent.name)
+            assert "No matching workspaces" not in local_view.screen()
+            local_view.send("\r")
+            local_view.expect("SAVED-ANSWER")
+            local_view.send("/quit\r")
+            assert local_view.wait() == 0
+            assert "workspace" not in json.loads(session.read_text())
+        finally:
+            local_view.close()
+        provider = ContinuationProvider(workspace_probe=True)
+        env = provider.env(home)
+        term = None
+        try:
+            listed = subprocess.run(
+                [TNY, "agents", "--json"],
+                env=base_env(home),
+                cwd=launch,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            assert listed.returncode == 0, listed.stderr
+            row = json.loads(listed.stdout)["agents"][0]
+            assert row["session_id"] == session.parent.name
+            assert row["workspace"] is None
+            assert row["workspace_bucket"] == session.parent.parent.name
+            term = Term([TNY, "agents"], env, str(launch))
+            term.expect("Agents — all saved sessions")
+            term.send("\r")
+            term.expect("Saved read-only " + session.parent.name)
+            term.expect("Saved workspace unknown; continuing uses current cwd:")
+            term.expect("SAVED-ANSWER")
+            term.send("LEGACY-FOLLOWUP\r")
+            term.expect("SAVED-TURN-2")
+            until(lambda: saved_turn_complete(session, 2), term)
+            assert (launch / "global-resume-proof").read_text().strip() == str(
+                launch.resolve()
+            )
+            assert not (original / "global-resume-proof").exists()
+            assert len(provider.requests) == 2
+            term.send("/quit\r")
+            assert term.wait() == 0
+        finally:
+            if term:
+                term.close()
+            stop_fixture(session, env, original)
+            provider.close()
+    print("PASS legacy session opens by physical bucket and continues in current cwd")
+
+
+def duplicate_ids_keep_selected_bucket():
+    with tempfile.TemporaryDirectory(prefix="tny-agents-duplicate-") as home:
+        first = Path(home) / "first"
+        second = Path(home) / "second"
+        launch = Path(home) / "launch"
+        for path in (first, second, launch):
+            path.mkdir()
+        newest = saved_fixture(home, first)
+        older = saved_fixture(home, second)  # same ID in another physical bucket
+        for session, title, answer, updated in (
+            (newest, "newer row", "NEWER-ANSWER", "2026-09-22T00:00:00Z"),
+            (older, "selected row", "SELECTED-ANSWER", "2026-09-21T00:00:00Z"),
+        ):
+            body = json.loads(session.read_text())
+            body["title"] = title
+            body["updated"] = updated
+            body["messages"][-1]["content"] = answer
+            session.write_text(json.dumps(body))
+        term = Term([TNY, "agents"], base_env(home), str(launch))
+        try:
+            term.expect("Agents — all saved sessions")
+            term.send("\x1b[B")
+            term.expect_on_screen("selected row")
+            paints = term.buf.count("Agents — all saved sessions")
+            until(lambda: term.buf.count("Agents — all saved sessions") > paints, term)
+            term.send("\r")
+            term.expect("SELECTED-ANSWER")
+            assert "Workspace: " + str(second.resolve()) in clean(term.buf)
+            term.send("/quit\r")
+            assert term.wait() == 0
+        finally:
+            term.close()
+    print("PASS duplicate session IDs retain selected physical workspace")
 
 
 def completed_session_continuation():
@@ -850,7 +1003,7 @@ def completed_session_continuation():
                 env,
                 str(ws),
             )
-            term.expect("Background agents")
+            term.expect("Agents — all saved sessions")
             term.send("\r")
             term.expect("Saved read-only " + initial["id"])
             term.expect("SAVED-TURN-1")
@@ -898,7 +1051,7 @@ def locked_saved_inspection_retry():
         identity = listener.stat().st_ino
         term = Term([TNY, "agents"], env, str(ws))
         try:
-            term.expect("Background agents")
+            term.expect("Agents — all saved sessions")
             term.send("\r")
             term.expect("Saved read-only")
             term.expect("SAVED-ANSWER")
@@ -943,7 +1096,7 @@ def locked_saved_inspection_retry():
             assert snapshot_state(home) == before
             term.close()
             term = Term([TNY, "agents"], env, str(ws))
-            term.expect("Background agents")
+            term.expect("Agents — all saved sessions")
             term.send("\r")
             term.expect("SAVED-ANSWER")
             term.send("/continue\r")
@@ -1002,7 +1155,7 @@ def dashboard_cancels_provider_wizard():
             term.expect("base url (OpenAI-compatible")
             before = snapshot_state(home)
             term.send("\x18")
-            term.expect("Background agents")
+            term.expect("Agents — all saved sessions")
             term.send("\r")
             term.expect("Saved read-only " + session.parent.name)
             term.expect("SAVED-ANSWER")
@@ -1059,7 +1212,7 @@ def killed_idle_runner_continuation(stale_client=False):
         env = provider.env(home)
         term = Term([TNY, "agents"], env, str(ws))
         try:
-            term.expect("Background agents")
+            term.expect("Agents — all saved sessions")
             term.send("\r")
             term.expect("Saved read-only")
             term.send("BEFORE-RUNNER-DEATH\r")
@@ -1152,7 +1305,7 @@ def provider_free_inspection():
                 before = snapshot_state(home)
                 term = Term([TNY, "agents"], env, str(ws))
                 try:
-                    term.expect("Background agents")
+                    term.expect("Agents — all saved sessions")
                     term.send("\r")
                     term.expect("Saved read-only")
                     term.expect("SAVED-ANSWER")
@@ -1182,7 +1335,7 @@ def provider_free_inspection():
                 before = snapshot_state(home)
                 term = Term([TNY, "agents"], env, str(ws))
                 try:
-                    term.expect("Background agents")
+                    term.expect("Agents — all saved sessions")
                     term.send("\r")
                     term.expect("SAVED-ANSWER")
                     assert snapshot_state(home) == before
@@ -1225,7 +1378,7 @@ def provider_free_inspection():
         provider.close()
 
 
-def cancellation_before_boundary():
+def cancellation_after_handoff():
     with tempfile.TemporaryDirectory(prefix="tny-background-cancel-") as home:
         ws = Path(home) / "ws"
         ws.mkdir()
@@ -1250,9 +1403,14 @@ def cancellation_before_boundary():
             term.pump(0.2)
             assert "Background armed" not in term.buf
             assert "draft abc" in term.screen(), term.screen()
-            term.send("\x05\x15")  # end then clear draft; empty-composer Left arms
+            term.send("\x05\x15")  # end then clear draft; empty-composer Left detaches
             term.send("\x1b[D")
-            term.expect("Background armed")
+            term.expect("Agents — all saved sessions")
+            saved = json.loads(session.read_text())
+            assert saved["background"] is True, saved
+            assert writer_live(session)
+            term.send("\r")
+            term.expect("Attached " + session.parent.name)
             term.send("\x03")
             until(
                 lambda: json.loads(session.read_text()).get("status") == "interrupted",
@@ -1260,7 +1418,7 @@ def cancellation_before_boundary():
                 8,
             )
             saved = json.loads(session.read_text())
-            assert not saved.get("background"), saved
+            assert saved.get("background"), saved
             assert "second" not in (ws / "effects").read_text()
             term.send("\x04")
             assert term.wait() == 0
@@ -1278,7 +1436,90 @@ def cancellation_before_boundary():
                     capture_output=True,
                     timeout=12,
                 )
-    print("PASS active cancellation beats armed handoff; idle Left edits")
+    print("PASS active cancellation after handoff; draft Left edits")
+
+
+def idle_left_dashboard():
+    with tempfile.TemporaryDirectory(prefix="tny-agents-idle-left-") as home:
+        ws = Path(home) / "ws"
+        ws.mkdir()
+        env = base_env(home)
+        term = Term([TNY, "--no-extensions", "--provider", "openai"], env, str(ws))
+        try:
+            term.expect(BANNER)
+            term.send("\x1b[D")
+            term.expect("Agents — all saved sessions")
+            term.expect("No saved sessions")
+            assert not (Path(home) / ".tny/sessions").exists()
+            term.send("\x04")
+            assert term.wait() == 0
+        finally:
+            term.close()
+    print("PASS idle empty Left opens all-saved dashboard")
+
+
+def terminal_loss_after_handoff():
+    with tempfile.TemporaryDirectory(prefix="tny-agents-hangup-") as home:
+        ws = Path(home) / "ws"
+        ws.mkdir()
+        provider = Provider(ws, no_tools=True)
+        env = base_env(
+            home,
+            {
+                "OPENAI_API_KEY": "fixture",
+                "OPENAI_BASE_URL": f"http://127.0.0.1:{provider.server.server_port}/v1",
+                "OPENAI_WIRE_API": "chat",
+            },
+        )
+        term = Term([TNY, "--provider", "openai", "--no-extensions"], env, str(ws))
+        attached = None
+        session = None
+        try:
+            term.expect(BANNER)
+            term.send("hangup fixture\r")
+            term.expect("SAME-TURN-RUNNING")
+            session = next((Path(home) / ".tny/sessions").glob("*/*/session.json"))
+            pid = int((session.parent / "pid").read_text())
+            candidates = [session.parent / "sock"]
+            for root in (env.get("TMPDIR", "/tmp"), "/tmp"):
+                candidates.append(
+                    Path(root) / f"tny-{os.getuid()}" / f"{session.parent.name}.sock"
+                )
+            sock = next(path for path in candidates if path.exists())
+            identity = sock.stat().st_ino
+            term.send("\x1b[D")
+            term.expect("Agents — all saved sessions")
+            assert json.loads(session.read_text())["background"] is True
+            assert writer_live(session) and sock.stat().st_ino == identity
+            # Closing the PTY master models terminal loss after the durable
+            # acknowledgement, while the provider response is still pending.
+            os.close(term.master)
+            term.master = os.open(os.devnull, os.O_RDONLY)  # Term.close owns this fd
+            term.proc.wait(timeout=5)
+            assert int((session.parent / "pid").read_text()) == pid
+            assert writer_live(session) and sock.stat().st_ino == identity
+            provider.finish.set()
+            until(lambda: saved_turn_complete(session, 1), seconds=10)
+            final = json.loads(session.read_text())
+            assert final["result"]["output"].count("FINISHED-ONCE") == 1, final
+            assert len(provider.requests) == 1 and not provider.errors
+            attached = Term([TNY, "agents"], env, str(ws))
+            attached.expect("Agents — all saved sessions")
+            attached.send("\r")
+            attached.expect("FINISHED-ONCE")
+            assert "Attached " + session.parent.name in clean(
+                attached.buf
+            ) or "Saved read-only " + session.parent.name in clean(attached.buf)
+            attached.send("/quit\r")
+            assert attached.wait() == 0
+        finally:
+            term.close()
+            if attached:
+                attached.close()
+            if session:
+                stop_fixture(session, env, ws)
+            provider.close()
+    print("PASS terminal hangup after handoff preserves the active runner")
 
 
 def unsupported_in_process():
@@ -1302,19 +1543,18 @@ def unsupported_in_process():
             term.expect("SAME-TURN-RUNNING")
             for command in ("\x1b[D", "\x18", "/agents\r"):
                 term.send(command)
-                term.expect_next(
-                    "background handoff requires a saved native session runner"
-                )
-                assert "Background agents" not in term.buf
+                term.expect_next("background requires a saved native session runner")
+                assert "Agents — all saved sessions" not in term.buf
                 assert "\x1b[2J" not in term.buf, "refused handoff cleared the chat"
             provider.finish.set()
             term.expect("FINISHED-ONCE")
+            session = next((Path(home) / ".tny/sessions").glob("*/*/session.json"))
             term.send("/agents\r")
-            term.expect("No background sessions")
-            term.send("q")
+            term.expect("Agents — all saved sessions")
+            term.expect(session.parent.name)
+            term.send("\x04")
             assert term.wait() == 0
             assert not provider.errors, provider.errors
-            session = next((Path(home) / ".tny/sessions").glob("*/*/session.json"))
             assert not json.loads(session.read_text()).get("background")
         finally:
             provider.close()
@@ -1323,20 +1563,22 @@ def unsupported_in_process():
 
 
 def assert_clean_dashboard(term, *old_text):
-    term.expect_on_screen("Background agents")
+    term.expect_on_screen("Agents — all saved sessions")
     screen = term.screen()
-    assert screen.splitlines()[0].startswith("Background agents"), screen
+    assert screen.splitlines()[0].startswith("Agents — all saved sessions"), screen
     for text in old_text:
         assert text not in screen, screen
     assert "\x1b[2J" in term.buf and "\x1b[3J" in term.buf, term.buf
     clears = term.buf.count("\x1b[2J")
-    paints = term.buf.count("Background agents")
+    paints = term.buf.count("Agents — all saved sessions")
     # Observe a repaint, not a fixed sleep: idle polling can delay the 500 ms
     # refresh. It must neither clear again nor restore old chat text.
-    until(lambda: term.buf.count("Background agents") > paints, term, seconds=5)
+    until(
+        lambda: term.buf.count("Agents — all saved sessions") > paints, term, seconds=5
+    )
     assert term.buf.count("\x1b[2J") == clears, term.buf
     screen = term.screen()
-    assert screen.splitlines()[0].startswith("Background agents"), screen
+    assert screen.splitlines()[0].startswith("Agents — all saved sessions"), screen
     for text in old_text:
         assert text not in screen, screen
 
@@ -1361,12 +1603,12 @@ def empty_dashboard():
                     if command:
                         term.expect_on_screen(BANNER)
                         term.send(command)
-                    term.expect("No background sessions")
+                    term.expect("No saved sessions")
                     assert_clean_dashboard(term, "OLD-SHELL-TEXT", BANNER)
                     assert not (Path(home) / ".tny/sessions").exists(), (
                         "dashboard prewarmed a runner"
                     )
-                    term.send("q")
+                    term.send("\x04")
                     assert term.wait() == 0
                     assert term.restored(), "dashboard left the terminal raw"
                 finally:
@@ -1385,7 +1627,7 @@ def empty_dashboard():
             if "--json" in args:
                 assert json.loads(result.stdout) == {"kind": "agents", "agents": []}
             else:
-                assert result.stdout == "No background sessions in this workspace.\n"
+                assert result.stdout == "No saved sessions.\n"
     print("PASS clean full-screen dashboard, no provider work, plain/JSON unchanged")
 
 
@@ -1443,6 +1685,11 @@ def unattended_permission():
 
 
 if __name__ == "__main__":
+    workspace_sections_and_fuzzy_filter()
+    workspace_filter_paste_and_small_viewport()
+    global_saved_sessions()
+    legacy_session_without_workspace()
+    duplicate_ids_keep_selected_bucket()
     completed_session_continuation()
     locked_saved_inspection_retry()
     dashboard_cancels_provider_wizard()
@@ -1454,14 +1701,14 @@ if __name__ == "__main__":
     run_case(no_tools=True)
     run_case(permission=True)
     run_case(steer=True)
-    run_case(restart_failure=True)
     run_case(images=True)
     run_case(transformed=True)
-    run_case(restart_fault="post-go")
-    run_case(restart_fault="post-run")
-    run_case(permission=True, restart_fault="post-run")
+    run_case(trigger="\x18")
+    run_case(trigger="/agents\r")
 
-    cancellation_before_boundary()
+    cancellation_after_handoff()
+    idle_left_dashboard()
+    terminal_loss_after_handoff()
     empty_dashboard()
 
     unattended_permission()

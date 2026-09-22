@@ -80,8 +80,14 @@ class Ctx:
             open(os.path.join(self.ws, name), "w").write("x\n")
 
     def env(self, port, **kw):
+        # This fixture exercises the default full tool surface and durable
+        # runner behavior. A parent shell or toolchain shim may inject a
+        # narrower TNY_TOOLS profile even when the caller unsets it.
+        env = dict(os.environ)
+        env.pop("TNY_TOOLS", None)
+        env.pop("TNY_SELF_IMPROVE", None)
         return dict(
-            os.environ,
+            env,
             HOME=self.home,
             OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
             OPENAI_API_KEY="test-key-not-real",
@@ -116,6 +122,8 @@ def test_foreground_streams_and_finishes(ctx, port):
     assert r.returncode == 0, f"exit {r.returncode}: {r.stderr.decode()}"
     assert b"MOCK-OK" in r.stdout, r.stdout
     assert "⏺ list_files" in r.stderr.decode(), r.stderr
+    assert "  ✓ list_files" in r.stderr.decode(), r.stderr
+    assert "  ✓ glob_files" in r.stderr.decode(), r.stderr
     sdir, doc = ctx.newest_doc()
     assert doc is not None
     # 0053: foreground turns now record status/result like -B turns
@@ -137,6 +145,7 @@ def test_foreground_json_shape(ctx, port):
     fg = json.loads(r.stdout)
     assert "MOCK-OK" in fg["output"], fg
     assert [t["name"] for t in fg["tool_calls"]] == ["list_files", "glob_files"], fg
+    assert [t["status"] for t in fg["tool_calls"]] == ["success", "success"], fg
     _, doc = ctx.newest_doc()
     assert {k: v for k, v in doc["result"].items() if k != "session_id"} == {
         k: v for k, v in fg.items() if k != "session_id"

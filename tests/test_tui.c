@@ -75,6 +75,7 @@ static void mk_tui(tui *t, int rows) {
     buf_init(&t->out);
     buf_init(&t->partial);
     buf_init(&t->input);
+    buf_init(&t->agent_filter);
     buf_init(&t->overlay);
     buf_init(&t->note);
     t->rows = rows;
@@ -87,6 +88,9 @@ static void free_tui(tui *t) {
     buf_free(&t->out);
     buf_free(&t->partial);
     buf_free(&t->input);
+    buf_free(&t->agent_filter);
+    for (int i = 0; i < t->n_agent_rows; i++) free(t->agent_rows[i].workspace);
+    free(t->agent_rows);
     buf_free(&t->overlay);
     buf_free(&t->note);
     tui_items_clear(t);
@@ -1066,9 +1070,107 @@ TEST agents_unreadable_workspace_preserves_context(void) {
         ASSERT_STR_EQ("gateway", ctx.provider_name);
         ASSERT_STR_EQ("fixture-key", ctx.api_key);
         ASSERT_EQ(NULL, t.session);
-        ASSERT(t.out.data && strstr(t.out.data, "cannot load the background session's workspace"));
+        ASSERT(t.out.data && strstr(t.out.data, "cannot load the saved session's workspace"));
         free_tui(&t);
     }
+    PASS();
+}
+
+TEST agents_group_filter_and_selection_mapping(void) {
+    tui t;
+    mk_tui(&t, 24);
+    tny_ctx ctx = {0};
+    ctx.cwd = (char *)"/tmp/current";
+    cli_globals g = {0};
+    t.ctx = &ctx;
+    t.g = &g;
+    session_meta entries[] = {
+        {.id = "new-other", .workspace = "/tmp/QOther", .updated = "2026-01-04"},
+        {.id = "new-current", .workspace = "/tmp/current", .updated = "2026-01-03"},
+        {.id = "old-other", .workspace = "/tmp/QOther", .updated = "2026-01-02"},
+        {.id = "old-current", .workspace = "/tmp/current", .updated = "2026-01-01"},
+    };
+    t.agents = entries;
+    t.n_agents = 4;
+    tui_agents_rebuild(&t);
+    ASSERT_EQ(4, t.n_agent_rows);
+    /* The fixture is in newest-first order within each path. */
+    ASSERT_STR_EQ("new-current", entries[t.agent_rows[0].session_index].id);
+    ASSERT_STR_EQ("old-current", entries[t.agent_rows[1].session_index].id);
+    ASSERT_STR_EQ("new-other", entries[t.agent_rows[2].session_index].id);
+    ASSERT(t.overlay.data && strstr(t.overlay.data, "/tmp/current\n"));
+    ASSERT(strstr(t.overlay.data, "/tmp/QOther\n"));
+    t.rows = 7; /* four overlay rows: header, heading, selected row, spare */
+    t.agent_selected = 3;
+    tui_agents_rebuild(&t);
+    ASSERT(strstr(t.overlay.data, "/tmp/QOther\n"));
+    ASSERT(strstr(t.overlay.data, "> old-other"));
+    int lines = 0;
+    for (const char *p = t.overlay.data; *p; p++)
+        if (*p == '\n') lines++;
+    ASSERT(lines <= tui_overlay_budget(&t));
+    t.agent_selected = 2;
+    buf_appends(&t.agent_filter, "qtr"); /* case-insensitive subsequence of QOther */
+    tui_agents_rebuild(&t);
+    ASSERT_EQ(2, t.n_agent_rows);
+    ASSERT_EQ(0, t.agent_selected);
+    ASSERT_STR_EQ("new-other", entries[t.agent_rows[t.agent_selected].session_index].id);
+    buf_clear(&t.agent_filter);
+    buf_appends(&t.agent_filter, "nowhere");
+    tui_agents_rebuild(&t);
+    ASSERT_EQ(0, t.n_agent_rows);
+    ASSERT(strstr(t.overlay.data, "No matching workspaces."));
+    free_tui(&t);
+    PASS();
+}
+
+TEST agents_filter_cap_keeps_utf8_codepoints_whole(void) {
+    buf_t filter;
+    buf_init(&filter);
+    char prefix[4096];
+    memset(prefix, 'x', sizeof prefix);
+    tui_filter_append_utf8(&filter, prefix, 4095);
+    tui_filter_append_utf8(&filter, "\xc3", 1);
+    tui_filter_append_utf8(&filter, "\xa9", 1);
+    ASSERT_EQ(4095, filter.len); /* no room for all of é */
+    ASSERT_EQ('x', filter.data[filter.len - 1]);
+    buf_clear(&filter);
+    tui_filter_append_utf8(&filter, prefix, 4094);
+    tui_filter_append_utf8(&filter, "\xc3", 1);
+    tui_filter_append_utf8(&filter, "\xa9", 1);
+    ASSERT_EQ(4096, filter.len);
+    ASSERT_EQ((unsigned char)0xc3, (unsigned char)filter.data[4094]);
+    ASSERT_EQ((unsigned char)0xa9, (unsigned char)filter.data[4095]);
+    buf_free(&filter);
+    PASS();
+}
+
+TEST agents_current_bucket_legacy_rows_share_cwd_group(void) {
+    tui t;
+    mk_tui(&t, 4); /* one overlay row: compact selected session and workspace */
+    tny_ctx ctx = {0};
+    ctx.cwd = (char *)"/tmp/current";
+    snprintf(ctx.ws_hash, sizeof ctx.ws_hash, "%s", "1111111111111111");
+    cli_globals g = {0};
+    t.ctx = &ctx;
+    t.g = &g;
+    session_meta entries[] = {
+        {.id = "foreign", .workspace = NULL, .ws_hash = "2222222222222222"},
+        {.id = "known", .workspace = "/tmp/current", .ws_hash = "1111111111111111"},
+        {.id = "legacy", .workspace = NULL, .ws_hash = "1111111111111111"},
+    };
+    t.agents = entries;
+    t.n_agents = 3;
+    buf_appends(&t.agent_filter, "/TMP/CUR");
+    tui_agents_rebuild(&t);
+    ASSERT_EQ(2, t.n_agent_rows);
+    ASSERT_STR_EQ("/tmp/current", t.agent_rows[0].workspace);
+    ASSERT_STR_EQ("/tmp/current", t.agent_rows[1].workspace);
+    ASSERT_STR_EQ("known", entries[t.agent_rows[0].session_index].id);
+    ASSERT_STR_EQ("legacy", entries[t.agent_rows[1].session_index].id);
+    ASSERT(strstr(t.overlay.data, "  > known  /tmp/current"));
+    ASSERT_EQ(1, tui_overlay_budget(&t));
+    free_tui(&t);
     PASS();
 }
 
@@ -1110,6 +1212,9 @@ TEST saved_view_discards_stale_provider_wizard(void) {
 
 SUITE(tui_suite) {
     RUN_TEST(agents_unreadable_workspace_preserves_context);
+    RUN_TEST(agents_group_filter_and_selection_mapping);
+    RUN_TEST(agents_filter_cap_keeps_utf8_codepoints_whole);
+    RUN_TEST(agents_current_bucket_legacy_rows_share_cwd_group);
     RUN_TEST(saved_view_discards_stale_provider_wizard);
     RUN_TEST(push_ansi_plain_truncates);
     RUN_TEST(push_ansi_sgr_is_zero_width);

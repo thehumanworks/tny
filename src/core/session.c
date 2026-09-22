@@ -3,7 +3,6 @@
 #include "core/tasks.h"
 #include "util/util.h"
 #include "util/process.h"
-#include "util/git.h"
 #include "util/alloc.h"
 
 #include <stdio.h>
@@ -1348,14 +1347,13 @@ static int cmp_meta_updated(const void *a, const void *b) {
     return strcmp(uy, ux); /* newest first */
 }
 
-static void scan_ws_dir(const char *wsdir, const char *wsname, session_meta **arr, int *n,
-                        bool backgrounds) {
-    if (!wsdir) return;
+static void scan_ws_dir(const char *wsdir, const char *ws_hash, session_meta **arr, int *n) {
+    if (!wsdir || !valid_session_id(ws_hash)) return;
     DIR *d = opendir(wsdir);
     if (!d) return;
     struct dirent *e;
     while ((e = readdir(d))) {
-        if (e->d_name[0] == '.') continue;
+        if (!valid_session_id(e->d_name)) continue;
         buf_t p;
         buf_init(&p);
         buf_appendf(&p, "%s/%s/session.json", wsdir, e->d_name);
@@ -1368,10 +1366,6 @@ static void scan_ws_dir(const char *wsdir, const char *wsname, session_meta **ar
         buf_appendf(&ld, "%s/%s", wsdir, e->d_name);
         bool running = lock_dir_held(ld.data); /* one flock probe per entry */
         buf_free(&ld);
-        if (backgrounds && !jget_bool(r, "background", false) && !running) {
-            yyjson_doc_free(doc);
-            continue;
-        }
         session_meta *grown = realloc(*arr, sizeof(session_meta) * (size_t)(*n + 1));
         if (!grown) {
             yyjson_doc_free(doc);
@@ -1380,6 +1374,7 @@ static void scan_ws_dir(const char *wsdir, const char *wsname, session_meta **ar
         *arr = grown;
         session_meta *m = &(*arr)[(*n)++];
         memset(m, 0, sizeof *m);
+        snprintf(m->ws_hash, sizeof m->ws_hash, "%s", ws_hash);
         const char *v;
         m->id = xstrdup(e->d_name);
         if ((v = jget_str(r, "title"))) m->title = xstrdup(v);
@@ -1398,7 +1393,6 @@ static void scan_ws_dir(const char *wsdir, const char *wsname, session_meta **ar
         m->turns = (int)jget_int(r, "turns", 0);
         m->running = running;
         yyjson_doc_free(doc);
-        (void)wsname;
     }
     closedir(d);
 }
@@ -1414,7 +1408,7 @@ session_meta *session_list(tny_ctx *ctx, bool all, int limit, const char *cursor
             while ((e = readdir(d))) {
                 if (e->d_name[0] == '.') continue;
                 char *ws = path_join(root, e->d_name);
-                scan_ws_dir(ws, e->d_name, &arr, &n, false);
+                scan_ws_dir(ws, e->d_name, &arr, &n);
                 free(ws);
             }
             closedir(d);
@@ -1422,7 +1416,7 @@ session_meta *session_list(tny_ctx *ctx, bool all, int limit, const char *cursor
         free(root);
     } else {
         char *ws = sessions_root(ctx);
-        scan_ws_dir(ws, ctx->ws_hash, &arr, &n, false);
+        scan_ws_dir(ws, ctx->ws_hash, &arr, &n);
         free(ws);
     }
     if (n) qsort(arr, (size_t)n, sizeof *arr, cmp_meta_updated);
@@ -1471,35 +1465,19 @@ session_meta *session_list(tny_ctx *ctx, bool all, int limit, const char *cursor
 session_meta *session_agents(tny_ctx *ctx, int *count) {
     session_meta *arr = NULL;
     int n = 0;
-    char *ws = sessions_root(ctx);
-    scan_ws_dir(ws, ctx->ws_hash, &arr, &n, true);
-    free(ws);
-    /* Session storage remains checkout-local. Ask Git for related checkouts
-     * once, rather than walking every saved session or spawning Git per row.
-     * NUL records preserve spaces, newlines and Git-quoted path characters. */
-    buf_t worktrees = {0};
-    const char *args[] = {"worktree", "list", "--porcelain", "-z", NULL};
-    if (!ctx->ssh_host && git_run(ctx->cwd, args, &worktrees) == 0) {
-        for (size_t pos = 0; pos < worktrees.len;) {
-            const char *record = worktrees.data + pos;
-            const char *end = memchr(record, 0, worktrees.len - pos);
-            if (!end) break; /* never consume a truncated record */
-            pos += (size_t)(end - record) + 1;
-            if (!str_starts(record, "worktree ")) continue;
-            char *path = path_abs(record + strlen("worktree "));
-            if (!path) continue;
-            char hash[17];
-            snprintf(hash, sizeof hash, "%016llx", (unsigned long long)fnv1a(path, strlen(path)));
-            free(path);
-            if (strcmp(hash, ctx->ws_hash) == 0) continue;
-            char *root = path_join(ctx->tny_dir, "sessions");
-            ws = root ? path_join(root, hash) : NULL;
-            scan_ws_dir(ws, hash, &arr, &n, true);
+    char *root = path_join(ctx->tny_dir, "sessions");
+    DIR *d = root ? opendir(root) : NULL;
+    if (d) {
+        struct dirent *e;
+        while ((e = readdir(d))) {
+            if (e->d_name[0] == '.') continue;
+            char *ws = path_join(root, e->d_name);
+            scan_ws_dir(ws, e->d_name, &arr, &n);
             free(ws);
-            free(root);
         }
+        closedir(d);
     }
-    buf_free(&worktrees);
+    free(root);
     if (n) qsort(arr, (size_t)n, sizeof *arr, cmp_meta_updated);
     *count = n;
     return arr;

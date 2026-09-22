@@ -808,6 +808,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     buf_init(&t.out);
     buf_init(&t.partial);
     buf_init(&t.input);
+    buf_init(&t.agent_filter);
     buf_init(&t.overlay);
     buf_init(&t.note);
     buf_init(&t.last_reply);
@@ -989,6 +990,8 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     tui_worktree_finish(&t, stopped);
     term_restore();
     session_meta_free(t.agents, t.n_agents);
+    for (int i = 0; i < t.n_agent_rows; i++) free(t.agent_rows[i].workspace);
+    free(t.agent_rows);
     perm_free(t.perm);
     tui_items_clear(&t);
     tui_files_free(&t);
@@ -997,6 +1000,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     for (int i = 0; i < t.n_images; i++) free(t.images[i]);
     tui_queue_clear(&t);
     buf_free(&t.out);
+    buf_free(&t.agent_filter);
     buf_free(&t.partial);
     buf_free(&t.input);
     buf_free(&t.overlay);

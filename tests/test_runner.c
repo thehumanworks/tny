@@ -15,6 +15,7 @@
 #include "util/util.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <pthread.h>
@@ -26,6 +27,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <sys/file.h>
 
 /* Every runner→client message shape on one wire, in order. */
 static const char *WIRE =
@@ -280,10 +282,9 @@ TEST runner_isolation_switch(void) {
     const char *prev = getenv("TNY_ISOLATE");
     unsetenv("TNY_ISOLATE");
     ASSERT(tny_isolation_policy(NULL, true));
-    /* Once macOS has initialized SecureTransport, a fork-only child must
-     * not enter CoreFoundation/SecTrust. The production wrapper supplies
-     * the live transport state; this pure seam makes the gate portable. */
-    ASSERT_FALSE(tny_isolation_policy(NULL, false));
+    /* Initial runners exec a clean image, so TLS initialized in the caller
+     * no longer changes native isolation policy. */
+    ASSERT(tny_isolation_policy(NULL, false));
     setenv("TNY_ISOLATE", "0", 1);
     ASSERT_FALSE(tny_isolation_policy(NULL, true));
     if (prev) setenv("TNY_ISOLATE", prev, 1);
@@ -356,6 +357,45 @@ static void live_runner_end(live_runner *x) {
     free(x->sock);
     if (x->session) session_close(x->session);
     tny_ctx_free(x->ctx);
+}
+
+static tny_runner_msg *wait_runner_msg(tny_runner_client *c, tny_runner_msg_kind kind);
+
+TEST runner_preserves_managed_worktree_lock_after_frontend_exit(void) {
+    live_runner x;
+    ASSERT_EQ(0, live_runner_prepare(&x));
+    char path[640];
+    snprintf(path, sizeof path, "%s/use.lock", x.root);
+    int held = open(path, O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+    ASSERT(held >= 0);
+    ASSERT_EQ(0, flock(held, LOCK_EX | LOCK_NB));
+    tny_runner_opts opts = {.serve = true, .has_worktree_lock = true, .worktree_lock_fd = held};
+    char err[256];
+    x.pid = tny_runner_spawn(x.ctx, x.session, &opts, err, sizeof err);
+    ASSERT(x.pid > 0);
+    close(held); /* the foreground checkout owner exits */
+    int contender = open(path, O_RDWR | O_CLOEXEC);
+    ASSERT(contender >= 0);
+    ASSERT_EQ(-1, flock(contender, LOCK_EX | LOCK_NB));
+    ASSERT(errno == EWOULDBLOCK || errno == EAGAIN);
+    x.sock = tny_runner_sock_path(x.session->dir);
+    tny_runner_client *client = tny_runner_client_connect(x.sock, 4000, TNY_RUNNER_OWNER, false);
+    ASSERT(client);
+    tny_runner_msg *hello = wait_runner_msg(client, TNY_RMSG_HELLO);
+    ASSERT(hello);
+    ASSERT_EQ(x.pid, hello->pid);
+    tny_runner_msg_free(hello);
+    ASSERT_EQ(0, tny_runner_client_end(client, "done"));
+    tny_runner_msg *bye = wait_runner_msg(client, TNY_RMSG_BYE);
+    ASSERT(bye);
+    tny_runner_msg_free(bye);
+    tny_runner_client_close(client);
+    ASSERT_EQ(x.pid, waitpid(x.pid, NULL, 0));
+    x.pid = -1;
+    ASSERT_EQ(0, flock(contender, LOCK_EX | LOCK_NB));
+    close(contender);
+    live_runner_end(&x);
+    PASS();
 }
 
 static tny_runner_msg *wait_runner_msg(tny_runner_client *c, tny_runner_msg_kind kind) {
@@ -1029,6 +1069,7 @@ TEST runner_repeated_lifecycle_preserves_descriptors_and_borrowed_writer(void) {
 }
 
 SUITE(runner_suite) {
+    RUN_TEST(runner_preserves_managed_worktree_lock_after_frontend_exit);
     RUN_TEST(runner_repeated_lifecycle_preserves_descriptors_and_borrowed_writer);
     RUN_TEST(runner_reads_end_before_owner_eof);
     RUN_TEST(runner_refuses_competing_spawn_without_touching_listener);

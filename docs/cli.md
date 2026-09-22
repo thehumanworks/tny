@@ -42,7 +42,7 @@ tny jobs submit ask|image|batch   # durable work; prints a job id immediately
 tny jobs status|wait|cancel|retry|logs|rm <id>
 tny jobs list               # durable jobs in this workspace's state directory
 tny resume [last|<id>]      # interactive resume
-tny agents                  # background dashboard; --json for scripts
+tny agents                  # all saved sessions; --json for scripts
 tny web search QUERY        # override, else Codex login, else DuckDuckGo
 tny web fetch URL           # bounded HTTP fetch
 tny sessions
@@ -810,18 +810,23 @@ tny session attach $id             # watch it live; ^C detaches
 
 ## `tny agents` and active-turn backgrounding
 
-Press **Left with an empty composer** during an active native runner turn to
-arm backgrounding after the next completed tool boundary is saved. Repeated Left
-while armed is idempotent. tny checkpoints the remaining batch and restarts the
-same turn in a fresh detached process; no new prompt, tool replay or step-limit
-reset is needed. A local tool's effective result is saved before any next call.
-A hosted Codex search waits for its provider response to finish, then checkpoints
-before the first pending local tool. If the turn finishes without pending work,
-it opens the completed list instead. Nonempty drafts, idle Left and focused
-modal/question/permission inputs retain ordinary cursor editing.
+Press **Left with an empty composer** to open the agents dashboard. During an
+active saved native turn, the runner saves its background marker and acknowledges
+detachment immediately, while the same HTTP or ACP stream or tool keeps running.
+Repeated Left is idempotent. There is no tool-boundary wait, restart, repeated
+prompt or step-limit reset. Idle Left opens the same dashboard. Nonempty drafts
+and focused modal/question/permission inputs retain ordinary cursor editing.
+See [ADR 0166](adr/0166-global-sessions-and-immediate-backgrounding.md).
 
-A successful handoff opens the same dashboard as `tny agents`. Up/Down selects a
-row. Enter attaches when a live runner accepts the unique owner handshake,
+A successful handoff opens the same dashboard as `tny agents`. Workspace sections
+show the current cwd first, then other paths alphabetically, with newest sessions
+first within each section. Type to fuzzy-filter directory paths; matching is
+case-insensitive and allows gaps between characters. Backspace edits the filter;
+Esc clears it, then exits when empty. Ctrl-C/D exit directly, while `q` is ordinary
+search text. Up/Down selects a session beneath its directory heading; headings
+are not selectable. The selection survives refreshes and stays visible while
+scrolling. No matches leaves no selectable session. Enter attaches when a live
+runner accepts the unique owner handshake,
 including halfway through a turn or while idle after completion; the active turn
 is not reposted. Otherwise it opens a labeled **saved read-only transcript**, even
 when a rival owns the connection or a held-lock runner is unreachable. Completed
@@ -840,22 +845,26 @@ Stored completion is not
 writer quiescence ([ADR 0104](adr/0104-runner-quiescence-ownership.md)). Saved
 checkpoints require `/continue`, not a typed prompt, as described below.
 
-`tny agents --json` (or non-TTY plain output) lists the workspace without
-starting any provider. It shows live sessions (including foreground TUI sessions)
-and saved background sessions. In a Git repository, it also includes sessions
-from the main checkout and linked worktrees, including `~/.tny/worktrees`.
-This works from repository subdirectories too. Unrelated repositories are not
-included. Inspection uses the selected session's saved text, without provider
-resolution. Live attachment retains the runner's permission mode, pending decision,
-model and workspace. New execution uses the saved provider/model/workspace plus
-current settings and launch flags for other options; legacy missing metadata uses
-the [existing fallbacks](features/sessions.md#explicit-continuation-and-ownership),
-not reconstructed historical configuration. A foreground session with an attached
-owner can be inspected but not taken over; detach its
-owner first to make owner attachment available. Finished foreground sessions are
-not retained in this list. This lists local tny sessions.
-Outside Git (or when Git is unavailable), listing remains workspace-local;
-wasm remains workspace-local because local Git is unavailable.
+`tny agents --json` (or non-TTY plain output) lists **all saved local sessions**
+under the user's tny state directory without starting a provider. This includes
+foreground and background sessions from unrelated repositories, linked worktrees,
+and non-Git directories, regardless of the launch cwd. It does not impose the
+`tny sessions` page limit. Each JSON row includes `workspace` and its physical
+`workspace_bucket`; plain rows show it alongside the session, while the TUI groups
+rows beneath directory headings. A saved foreground session with no status
+field is labeled `saved`; a stored running session with no live writer is `stale`.
+Inspection uses the selected session's saved text, without provider resolution.
+Live attachment retains the runner's permission mode, pending decision, model and
+workspace. New execution runs in the selected session's original workspace, using
+its saved provider and model plus current settings and launch flags for other
+options. Legacy missing metadata uses the
+[existing fallbacks](features/sessions.md#explicit-continuation-and-ownership),
+not reconstructed historical configuration. A legacy row without workspace metadata remains
+viewable from anywhere; it explicitly labels the workspace unknown and identifies
+the current cwd that continuation will use. Its physical storage bucket and session
+ID are preserved. A session with an attached owner can
+be inspected but not taken over; detach its owner first to make owner attachment
+available. This lists local tny sessions only.
 
 `tny agents --run RUN_ID` instead shows the task tree of an opt-in durable DAG
 job. The run ID is the job ID, not an arbitrary session ID. Each row shows its
@@ -881,7 +890,7 @@ behavior is unchanged. Handoff and new-runner continuation from a saved backgrou
 view are unavailable in wasm and in-process modes, with refusal before mutation;
 there is no unlocked in-process fallback. A successful live attachment can remain
 usable when starting a replacement runner is unavailable. Ephemeral mode cannot
-open saved sessions. See [ADR 0107](adr/0107-tool-boundary-restart-and-agents-dashboard.md).
+open saved sessions. See [ADR 0166](adr/0166-global-sessions-and-immediate-backgrounding.md).
 
 **Selecting a saved handoff checkpoint does not activate it.** While a saved
 checkpoint is present, including consumed or invalid checkpoints, a typed prompt
