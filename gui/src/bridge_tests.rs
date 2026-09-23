@@ -1,6 +1,7 @@
 #[cfg(unix)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
@@ -717,5 +718,155 @@ mod tests {
         let f = Fixture::new("head -c 65536 /dev/zero >&2\nexit 1");
         let err = f.bridge().ask_stream("ok", None, None, |_| {}).unwrap_err();
         assert_eq!(err, "tny ask failed (exit 1)");
+    }
+
+    #[test]
+    fn explicit_model_choice_leads_and_overrides_saved_session_pin() {
+        let id = "0123456789abcdef";
+        let f = Fixture::new(
+            "if [ \"$3\" = session ]; then echo read > session-read; exit 1; fi\n\
+             printf '%s\\n' \"$@\" > args\ncat >/dev/null\n\
+             printf '%s\\n' '{\"type\":\"turn_end\",\"stop_reason\":0}'",
+        );
+        let choice = ModelChoice {
+            provider: "grok".into(),
+            model: Some("grok-4.7".into()),
+        };
+        f.bridge()
+            .with_model(Some(choice))
+            .ask_stream("hello", Some(id), None, |_| {})
+            .unwrap();
+        // The saved config is not consulted: the explicit choice is final.
+        assert!(!f.dir.join("session-read").exists());
+        assert_eq!(
+            f.text("args").lines().take(7).collect::<Vec<_>>(),
+            [
+                "--cwd",
+                f.dir.to_str().unwrap(),
+                "--provider",
+                "grok",
+                "--model",
+                "grok-4.7",
+                "ask"
+            ]
+        );
+        // Provider default: no --model flag at all.
+        f.bridge()
+            .with_model(Some(ModelChoice {
+                provider: "codex".into(),
+                model: None,
+            }))
+            .ask_stream("hello", None, None, |_| {})
+            .unwrap();
+        assert_eq!(
+            f.text("args").lines().take(5).collect::<Vec<_>>(),
+            ["--cwd", f.dir.to_str().unwrap(), "--provider", "codex", "ask"]
+        );
+    }
+
+    #[test]
+    fn invalid_model_choice_is_rejected_before_spawning() {
+        let f = Fixture::new("echo spawned > marker");
+        for (provider, model) in [
+            ("--ssh", None),
+            ("", None),
+            ("with space", None),
+            ("codex", Some("--permission-mode")),
+            ("codex", Some("bad\nmodel")),
+            ("codex", Some("")),
+        ] {
+            let err = f
+                .bridge()
+                .with_model(Some(ModelChoice {
+                    provider: provider.into(),
+                    model: model.map(Into::into),
+                }))
+                .ask_stream("hello", None, None, |_| {})
+                .unwrap_err();
+            assert!(err.contains("Invalid provider or model"), "{err}");
+        }
+        assert!(f.bridge().models("--bad").is_err());
+        assert!(!f.dir.join("marker").exists());
+    }
+
+    #[test]
+    fn model_catalog_is_provider_scoped_local_and_parses_both_shapes() {
+        let f = Fixture::new(
+            "printf '%s\\n' \"$@\" > args\n\
+             printf '%s\\n' '{\"kind\":\"models\",\"provider\":\"codex\",\"models\":[{\"id\":\"gpt-6-astra\",\"name\":\"GPT-6-Astra\",\"description\":\"Frontier\"},{\"id\":\"gpt-5.5\"},{\"id\":\"gpt-5.5\"},{\"id\":\"--flag\"},{\"name\":\"no id\"}]}'",
+        );
+        let ssh = Bridge::new(
+            f.binary.clone(),
+            f.dir.clone(),
+            Some("host".into()),
+            None,
+        );
+        let models = ssh.models("codex").unwrap();
+        assert_eq!(
+            models,
+            [
+                ModelInfo {
+                    id: "gpt-6-astra".into(),
+                    name: "GPT-6-Astra".into(),
+                    description: "Frontier".into()
+                },
+                ModelInfo {
+                    id: "gpt-5.5".into(),
+                    name: "gpt-5.5".into(),
+                    description: "".into()
+                }
+            ]
+        );
+        // The catalog is metadata: never routed over the SSH tool target.
+        assert_eq!(
+            f.text("args").lines().collect::<Vec<_>>(),
+            [
+                "--cwd",
+                f.dir.to_str().unwrap(),
+                "--provider",
+                "codex",
+                "models",
+                "--json"
+            ]
+        );
+        let plain = json!({"kind":"models","models":["grok-4.7","grok-4.6"]});
+        let ids: Vec<_> = parse_models(&plain).unwrap().into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, ["grok-4.7", "grok-4.6"]);
+        let fallback = json!({"kind":"models","provider":"acp","models":[{"id":"default"}]});
+        assert!(parse_models(&fallback).unwrap().is_empty());
+        assert!(parse_models(&json!({"kind":"status"})).is_err());
+        let failing = Fixture::new("printf '%s\\n' 'SECRET_BASE_URL' >&2\nexit 1");
+        let err = failing.bridge().models("aiproxy").unwrap_err();
+        assert!(!err.contains("SECRET_BASE_URL"));
+    }
+
+    #[test]
+    fn providers_keep_readiness_but_drop_free_form_hints() {
+        let doc = json!({"kind":"providers","providers":[
+            {"name":"openai","active":false,"healthy":true,"hint":"base_url https://secret@example"},
+            {"name":"codex","active":true,"healthy":true},
+            {"name":"acp","active":false,"healthy":false},
+            {"name":"codex","active":false,"healthy":false},
+            {"name":"--bad","healthy":true},
+            {"healthy":true}
+        ]});
+        let rows = parse_providers(&doc).unwrap();
+        assert_eq!(
+            rows,
+            [
+                ProviderInfo { name: "openai".into(), active: false, ready: true },
+                ProviderInfo { name: "codex".into(), active: true, ready: true },
+                ProviderInfo { name: "acp".into(), active: false, ready: false },
+            ]
+        );
+        assert!(parse_providers(&json!({"kind":"models"})).is_err());
+        let f = Fixture::new(
+            "printf '%s\\n' \"$@\" > args\nprintf '%s\\n' '{\"kind\":\"providers\",\"providers\":[]}'",
+        );
+        assert!(f.bridge().command(&["providers", "--json"]).is_ok());
+        assert_eq!(
+            f.text("args").lines().skip(2).collect::<Vec<_>>(),
+            ["providers", "--json"]
+        );
     }
 }

@@ -174,3 +174,4 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 
 - [0164: Optional ACP clients with an owning-runtime MCP bridge](0164-optional-acp-clients.md)
 - [0166: Experimental Slint desktop companion](0166-slint-desktop-companion.md) — CLI-backed Linux desktop UI; iOS and full runner control deferred.
+- [0168: Desktop model picker and visual language](0168-desktop-model-picker-and-visual-language.md) — composer provider/model picker with lazy catalogs; flat, shadow-elevated UI with tooltips.

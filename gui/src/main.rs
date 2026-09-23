@@ -1,7 +1,7 @@
 //! Native desktop shell. CLI processes run on workers; only UI model updates run on Slint's loop.
 mod bridge;
 
-use bridge::{Bridge, ImageFailure};
+use bridge::{parse_providers, Bridge, ImageFailure, ModelChoice, ModelInfo, ProviderInfo};
 use serde_json::Value;
 use slint::{Model, ModelRc, SharedString, VecModel, Weak};
 use std::cell::RefCell;
@@ -47,6 +47,242 @@ struct State {
     local_index: LocalIndex,
     completion_source: String,
     completions: Vec<Completion>,
+    picker: Picker,
+}
+
+/// Provider/model picker. `choice` is what the next turn passes as leading
+/// `--provider/--model`; `None` leaves resolution to the CLI (and, for a
+/// resumed session, to the bridge's saved-session pin).
+#[derive(Default)]
+struct Picker {
+    providers: Vec<ProviderInfo>,
+    providers_loaded: bool,
+    providers_in_flight: bool,
+    /// The picker was opened before the provider list arrived.
+    models_wanted: bool,
+    choice: Option<ModelChoice>,
+    catalogs: HashMap<String, Vec<ModelInfo>>,
+    catalog_failed: HashSet<String>,
+    catalog_in_flight: HashSet<String>,
+}
+
+impl Picker {
+    /// The provider the next turn will use, when it is known.
+    fn provider(&self) -> Option<&str> {
+        self.choice
+            .as_ref()
+            .map(|c| c.provider.as_str())
+            .or_else(|| {
+                self.providers
+                    .iter()
+                    .find(|p| p.active)
+                    .map(|p| p.name.as_str())
+            })
+    }
+
+    fn model(&self) -> Option<&str> {
+        self.choice.as_ref().and_then(|c| c.model.as_deref())
+    }
+
+    fn label(&self) -> String {
+        let Some(provider) = self.provider() else {
+            return "Default model".into();
+        };
+        let model = match self.model() {
+            None => "Default".to_string(),
+            Some(id) => self
+                .catalogs
+                .get(provider)
+                .and_then(|list| list.iter().find(|m| m.id == id))
+                .map_or_else(|| id.to_string(), |m| m.name.clone()),
+        };
+        format!("{provider} · {model}")
+    }
+
+    fn status(&self) -> &'static str {
+        let Some(provider) = self.provider() else {
+            return if self.providers_loaded {
+                "No provider is configured. Set one up with tny setup in a terminal."
+            } else {
+                "Loading providers…"
+            };
+        };
+        if self.catalog_in_flight.contains(provider) {
+            "Loading models…"
+        } else if self.catalog_failed.contains(provider) {
+            "Couldn't load this provider's model list. Default still works, or enter a model ID below."
+        } else if self.catalogs.get(provider).is_some_and(Vec::is_empty) {
+            "This provider doesn't publish a model list. Use Default or enter a model ID below."
+        } else {
+            ""
+        }
+    }
+}
+
+/// A saved session's provider/model, as the CLI would resume it: a legacy
+/// session without a provider is `openai`, a missing model is that provider's default.
+fn saved_choice(doc: &Value) -> Option<ModelChoice> {
+    let provider = match doc.get("backend") {
+        None | Some(Value::Null) => "openai",
+        Some(Value::String(name)) => name,
+        _ => return None,
+    };
+    let model = match doc.get("model") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(name)) => Some(name.clone()),
+        _ => return None,
+    };
+    let choice = ModelChoice {
+        provider: provider.into(),
+        model,
+    };
+    choice.is_valid().then_some(choice)
+}
+
+fn provider_rows(picker: &Picker) -> Vec<ProviderRow> {
+    picker
+        .providers
+        .iter()
+        .map(|p| ProviderRow {
+            name: p.name.clone().into(),
+            detail: match (p.ready, p.active) {
+                (true, true) => "Default · ready",
+                (true, false) => "Ready",
+                (false, _) => "Needs setup",
+            }
+            .into(),
+            ready: p.ready,
+        })
+        .collect()
+}
+
+fn model_rows(picker: &Picker) -> Vec<ModelRow> {
+    let listed = picker
+        .provider()
+        .and_then(|p| picker.catalogs.get(p))
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let mut rows: Vec<ModelRow> = listed
+        .iter()
+        .map(|m| ModelRow {
+            id: m.id.clone().into(),
+            label: m.name.clone().into(),
+            detail: if !m.description.is_empty() {
+                m.description.clone()
+            } else if m.name != m.id {
+                m.id.clone()
+            } else {
+                String::new()
+            }
+            .into(),
+        })
+        .collect();
+    // A typed or saved model that the catalog does not list still shows as selected.
+    if let Some(id) = picker.model() {
+        if !listed.iter().any(|m| m.id == id) {
+            rows.insert(
+                0,
+                ModelRow {
+                    id: id.into(),
+                    label: id.into(),
+                    detail: "Not in this provider's list".into(),
+                },
+            );
+        }
+    }
+    rows
+}
+
+fn render_picker(ui: &App, picker: &Picker) {
+    ui.set_providers(ModelRc::from(Rc::new(VecModel::from(provider_rows(
+        picker,
+    )))));
+    ui.set_models(ModelRc::from(Rc::new(VecModel::from(model_rows(picker)))));
+    ui.set_picker_provider(picker.provider().unwrap_or("").into());
+    ui.set_picker_model(picker.model().unwrap_or("").into());
+    ui.set_model_label(picker.label().into());
+    ui.set_models_status(picker.status().into());
+}
+
+fn load_providers(ui: &App, state: &Rc<RefCell<State>>) {
+    let bridge = {
+        let mut s = state.borrow_mut();
+        if s.picker.providers_in_flight {
+            return;
+        }
+        s.picker.providers_in_flight = true;
+        s.bridge.clone()
+    };
+    // Local configuration only: `providers` resolves credentials, never inference.
+    dispatch(
+        ui.as_weak(),
+        move || {
+            bridge
+                .command(&["providers", "--json"])
+                .and_then(|doc| parse_providers(&doc))
+        },
+        move |ui, result| {
+            let Some(state) = ui_state(ui) else {
+                return;
+            };
+            let wanted = {
+                let mut s = state.borrow_mut();
+                s.picker.providers_in_flight = false;
+                match result {
+                    Ok(list) => {
+                        s.picker.providers = list;
+                        s.picker.providers_loaded = true;
+                    }
+                    Err(_) => app_error(ui, "Provider list"),
+                }
+                render_picker(ui, &s.picker);
+                std::mem::take(&mut s.picker.models_wanted)
+            };
+            if wanted {
+                load_models(ui, &state);
+            }
+        },
+    );
+}
+
+/// Model catalogs are provider requests: fetched only when the picker needs
+/// them, once per provider per window (Refresh clears the cache).
+fn load_models(ui: &App, state: &Rc<RefCell<State>>) {
+    let (bridge, provider) = {
+        let mut s = state.borrow_mut();
+        let Some(provider) = s.picker.provider().map(str::to_owned) else {
+            return;
+        };
+        if s.picker.catalogs.contains_key(&provider)
+            || s.picker.catalog_failed.contains(&provider)
+            || !s.picker.catalog_in_flight.insert(provider.clone())
+        {
+            return;
+        }
+        (s.bridge.clone(), provider)
+    };
+    render_picker(ui, &state.borrow().picker);
+    let requested = provider.clone();
+    dispatch(
+        ui.as_weak(),
+        move || bridge.models(&requested),
+        move |ui, result| {
+            let Some(state) = ui_state(ui) else {
+                return;
+            };
+            let mut s = state.borrow_mut();
+            s.picker.catalog_in_flight.remove(&provider);
+            match result {
+                Ok(list) => {
+                    s.picker.catalogs.insert(provider, list);
+                }
+                Err(_) => {
+                    s.picker.catalog_failed.insert(provider);
+                }
+            }
+            render_picker(ui, &s.picker);
+        },
+    );
 }
 
 #[derive(Default, Debug)]
@@ -767,12 +1003,26 @@ fn sessions_from_json(value: &Value) -> Vec<SessionRow> {
         .collect()
 }
 
+/// Token counts at a glance: 842, 12.3k, 167.9M.
+fn compact_count(n: u64) -> String {
+    match n {
+        0..=999 => n.to_string(),
+        1_000..=999_949 => format!("{:.1}k", n as f64 / 1e3),
+        999_950..=999_949_999 => format!("{:.1}M", n as f64 / 1e6),
+        _ => format!("{:.1}B", n as f64 / 1e9),
+    }
+}
+
 fn usage_label(value: &Value) -> String {
     match (
         value.get("input_tokens").and_then(Value::as_u64),
         value.get("output_tokens").and_then(Value::as_u64),
     ) {
-        (Some(input), Some(output)) => format!("{input} in · {output} out tokens"),
+        (Some(input), Some(output)) => format!(
+            "{} in · {} out tokens",
+            compact_count(input),
+            compact_count(output)
+        ),
         _ => "Tokens unavailable".into(),
     }
 }
@@ -781,8 +1031,8 @@ fn session_usage_label(doc: &Value) -> Option<String> {
     let usage = doc.get("usage")?;
     Some(format!(
         "Session {} in · {} out tokens",
-        usage.get("in")?.as_u64()?,
-        usage.get("out")?.as_u64()?,
+        compact_count(usage.get("in")?.as_u64()?),
+        compact_count(usage.get("out")?.as_u64()?),
     ))
 }
 
@@ -1038,7 +1288,7 @@ fn validation_error(ui: &App, message: &'static str) {
 
 fn reset_pending_allowance(ui: &App) {
     if ui.get_allowance_label() == "Checking allowance…" {
-        ui.set_allowance_label("Allowance — check".into());
+        ui.set_allowance_label("".into());
     }
 }
 
@@ -1239,6 +1489,7 @@ fn stream_event(ui: &App, state: &Rc<RefCell<State>>, generation: u64, event: Va
     let id = field(&event, "session_id");
     if lowercase_hex_id(id, 16) {
         s.session_id = Some(id.into());
+        ui.set_current_session_id(id.into());
         ui.set_has_session(true);
     }
     match field(&event, "type") {
@@ -1296,6 +1547,14 @@ fn stream_event(ui: &App, state: &Rc<RefCell<State>>, generation: u64, event: Va
     }
 }
 
+fn connection_label(ssh: Option<&str>) -> String {
+    ssh.map_or_else(|| "This computer".into(), |host| format!("SSH · {host}"))
+}
+
+fn swarm_label(swarm: Option<u8>) -> String {
+    swarm.map_or_else(|| "Solo".into(), |count| format!("Swarm of {count}"))
+}
+
 fn main() -> Result<(), slint::PlatformError> {
     let launch_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let cwd = std::env::var_os("TNY_GUI_CWD")
@@ -1349,6 +1608,7 @@ fn main() -> Result<(), slint::PlatformError> {
         local_index: LocalIndex::default(),
         completion_source: String::new(),
         completions: Vec::new(),
+        picker: Picker::default(),
     }));
     let ui = App::new()?;
     ui.set_chat(ModelRc::from(rows));
@@ -1364,6 +1624,12 @@ fn main() -> Result<(), slint::PlatformError> {
                 if state.borrow().ssh.is_none() {
                     build_local_index(&ui, &state);
                 }
+                {
+                    let mut s = state.borrow_mut();
+                    s.picker.catalogs.clear();
+                    s.picker.catalog_failed.clear();
+                }
+                load_providers(&ui, &state);
             }
         }
     });
@@ -1432,11 +1698,8 @@ fn main() -> Result<(), slint::PlatformError> {
                 s.generation += 1;
                 reset_pending_allowance(&ui);
                 s.session_id = None;
-                ui.set_swarm_mode_label(if let Some(count) = s.swarm {
-                    format!("Swarm {count}").into()
-                } else {
-                    "Solo".into()
-                });
+                ui.set_current_session_id("".into());
+                ui.set_swarm_mode_label(swarm_label(s.swarm).into());
                 s.session_usage = None;
                 ui.set_usage_label("Workspace tokens · refresh to view".into());
                 s.current_response = None;
@@ -1502,10 +1765,14 @@ fn main() -> Result<(), slint::PlatformError> {
                             let access = saved_session_access(&doc);
                             s.rows.set_vec(rows_from_session(&doc));
                             ui.invoke_jump_to_latest();
+                            ui.set_current_session_id(selected_id.clone().into());
                             s.session_id = Some(selected_id);
                             s.swarm = None;
                             ui.set_swarm_enabled(false);
-                            ui.set_swarm_mode_label("Saved configuration · CLI restores swarm".into());
+                            ui.set_swarm_mode_label("Saved setup".into());
+                            // The picker follows the chat: show what it resumes with.
+                            s.picker.choice = saved_choice(&doc);
+                            render_picker(ui, &s.picker);
                             s.session_usage = session_usage_label(&doc);
                             ui.set_usage_label(s.session_usage.clone().unwrap_or_else(|| "Session tokens unavailable".into()).into());
                             s.unconfirmed = false;
@@ -1527,7 +1794,7 @@ fn main() -> Result<(), slint::PlatformError> {
                                 }
                                 SavedSessionAccess::ReviewToolLocation => {
                                     ui.set_saved_read_only_note("".into());
-                                    ui.set_status_label("Saved session · confirm future tool location".into());
+                                    ui.set_status_label("Choose where tools run to continue this chat".into());
                                 }
                             }
                         }
@@ -1557,11 +1824,11 @@ fn main() -> Result<(), slint::PlatformError> {
             s.requires_tool_confirmation = false;
             ui.set_needs_tool_confirmation(false);
             ui.set_ssh_configured(host.is_some());
-            ui.set_connection_label(host.as_deref().map_or_else(|| "Local".to_string(), |h| format!("SSH · {h}" )).into());
+            ui.set_connection_label(connection_label(host.as_deref()).into());
             ui.set_status_label(if host.is_some() {
-                "Saved session · CURRENT SSH tools explicitly confirmed; historical target unknown".into()
+                "Tools will run on the current SSH host when you continue".into()
             } else {
-                "Saved session · LOCAL tools explicitly confirmed; historical target unknown".into()
+                "Tools will run on this computer when you continue".into()
             });
         }
     });
@@ -1626,7 +1893,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     return;
                 }
                 if s.requires_tool_confirmation {
-                    validation_error(&ui, "Confirm LOCAL or current SSH tool location before resuming this saved session.");
+                    validation_error(&ui, "Choose where tools run (above the conversation) before continuing this saved chat.");
                     return;
                 }
                 if s.unconfirmed {
@@ -1650,7 +1917,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     meta: "Sending…".into(),
                 });
                 (
-                    s.bridge.clone(),
+                    s.bridge.clone().with_model(s.picker.choice.clone()),
                     s.session_id.clone(),
                     swarm_for_turn(s.session_id.as_deref(), s.swarm),
                     s.generation,
@@ -1714,6 +1981,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             s.rows.set_vec(rows);
                             s.current_response = None;
                             s.session_id = Some(id.clone());
+                            ui.set_current_session_id(id.clone().into());
                             s.session_usage = session_usage_label(doc);
                             ui.set_usage_label(s.session_usage.clone().unwrap_or_else(|| "Session tokens unavailable".into()).into());
                             ui.set_has_session(true);
@@ -1983,7 +2251,7 @@ fn main() -> Result<(), slint::PlatformError> {
             if s.busy || s.session_id.is_some() {
                 validation_error(
                     &ui,
-                    "Start a new idle session before changing the SSH target.",
+                    "Start a new chat (and let any turn finish) before changing where tools run.",
                 );
                 return;
             }
@@ -1998,9 +2266,9 @@ fn main() -> Result<(), slint::PlatformError> {
             reset_pending_allowance(&ui);
             s.bridge = Bridge::new(s.binary.clone(), s.cwd.clone(), Some(host.clone()), None);
             s.ssh = Some(host.clone());
-            ui.set_connection_label(format!("SSH · {host}").into());
+            ui.set_connection_label(connection_label(Some(&host)).into());
             ui.set_ssh_configured(true);
-            ui.set_status_label("SSH tools will run remotely on the next turn".into());
+            ui.set_status_label("Tools will run on this SSH host from the next message".into());
             ui.set_error_visible(false);
             drop(s);
             update_suggestions(&ui, &state, &ui.get_draft());
@@ -2014,10 +2282,14 @@ fn main() -> Result<(), slint::PlatformError> {
                 return;
             };
             let mut s = state.borrow_mut();
+            if s.ssh.is_none() {
+                ui.set_status_label("Tools already run on this computer".into());
+                return;
+            }
             if s.busy || s.session_id.is_some() {
                 validation_error(
                     &ui,
-                    "Start a new idle session before changing the SSH target.",
+                    "Start a new chat (and let any turn finish) before changing where tools run.",
                 );
                 return;
             }
@@ -2025,9 +2297,9 @@ fn main() -> Result<(), slint::PlatformError> {
             reset_pending_allowance(&ui);
             s.bridge = Bridge::new(s.binary.clone(), s.cwd.clone(), None, None);
             s.ssh = None;
-            ui.set_connection_label("Local".into());
+            ui.set_connection_label(connection_label(None).into());
             ui.set_ssh_configured(false);
-            ui.set_status_label("Local tools on the next turn".into());
+            ui.set_status_label("Tools will run on this computer from the next message".into());
             drop(s);
             update_suggestions(&ui, &state, &ui.get_draft());
         }
@@ -2188,21 +2460,93 @@ fn main() -> Result<(), slint::PlatformError> {
             };
             ui.set_swarm_enabled(s.swarm.is_some());
             ui.set_swarm_count(s.swarm.unwrap_or(2) as i32);
-            ui.set_swarm_mode_label(if let Some(count) = s.swarm {
-                format!("Swarm {count}").into()
-            } else {
-                "Solo".into()
-            });
+            ui.set_swarm_mode_label(swarm_label(s.swarm).into());
             ui.set_status_label(if s.swarm.is_some() {
-                "Swarm enabled for next turn".into()
+                "Swarm enabled for the first message".into()
             } else {
-                "Solo mode".into()
+                "Solo: one agent".into()
             });
+        }
+    });
+
+    ui.on_open_model_picker({
+        let state = state.clone();
+        let weak = ui.as_weak();
+        move || {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let loaded = state.borrow().picker.providers_loaded;
+            if !loaded {
+                state.borrow_mut().picker.models_wanted = true;
+                load_providers(&ui, &state);
+            }
+            load_models(&ui, &state);
+        }
+    });
+    ui.on_pick_provider({
+        let state = state.clone();
+        let weak = ui.as_weak();
+        move |name| {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            {
+                let mut s = state.borrow_mut();
+                let ready = s
+                    .picker
+                    .providers
+                    .iter()
+                    .any(|p| p.name == name.as_str() && p.ready);
+                if !ready {
+                    return;
+                }
+                let keep = s.picker.provider() == Some(name.as_str());
+                if !keep {
+                    s.picker.choice = Some(ModelChoice {
+                        provider: name.to_string(),
+                        model: None,
+                    });
+                }
+                render_picker(&ui, &s.picker);
+                ui.set_status_label(format!("Next message uses {}", s.picker.label()).into());
+            }
+            load_models(&ui, &state);
+        }
+    });
+    ui.on_pick_model({
+        let state = state.clone();
+        let weak = ui.as_weak();
+        move |id| {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let mut s = state.borrow_mut();
+            let Some(provider) = s.picker.provider().map(str::to_owned) else {
+                validation_error(&ui, "Choose a provider first.");
+                return;
+            };
+            let id = id.trim();
+            let choice = ModelChoice {
+                provider,
+                model: (!id.is_empty()).then(|| id.to_owned()),
+            };
+            if !choice.is_valid() {
+                validation_error(
+                    &ui,
+                    "That model ID can't be used (empty, control characters or a leading dash).",
+                );
+                return;
+            }
+            s.picker.choice = Some(choice);
+            render_picker(&ui, &s.picker);
+            ui.set_status_label(format!("Next message uses {}", s.picker.label()).into());
         }
     });
 
     refresh(&ui, &state);
     build_local_index(&ui, &state);
+    load_providers(&ui, &state);
     // Track an explicitly selected durable run without consuming mailbox messages.
     // Chat events already stream, so ordinary startup makes no periodic provider request.
     let run_timer = slint::Timer::default();
@@ -2501,7 +2845,131 @@ mod tests {
             usage_label(&json!({"input_tokens":12,"output_tokens":4})),
             "12 in · 4 out tokens"
         );
+        assert_eq!(
+            usage_label(&json!({"input_tokens":167_919_212u64,"output_tokens":637_762})),
+            "167.9M in · 637.8k out tokens"
+        );
+        assert_eq!(compact_count(999), "999");
+        assert_eq!(compact_count(1_000), "1.0k");
+        assert_eq!(compact_count(999_949), "999.9k");
+        assert_eq!(compact_count(999_950), "1.0M");
+        assert_eq!(compact_count(2_500_000_000), "2.5B");
     }
+    fn provider(name: &str, active: bool, ready: bool) -> ProviderInfo {
+        ProviderInfo {
+            name: name.into(),
+            active,
+            ready,
+        }
+    }
+
+    #[test]
+    fn picker_follows_cli_default_until_a_choice_is_made() {
+        let mut picker = Picker::default();
+        assert_eq!(picker.label(), "Default model");
+        assert_eq!(picker.status(), "Loading providers…");
+        picker.providers_loaded = true;
+        assert!(picker.status().contains("No provider is configured"));
+        picker.providers = vec![
+            provider("openai", false, true),
+            provider("codex", true, true),
+            provider("acp", false, false),
+        ];
+        // No explicit choice: the CLI's active provider and its default model.
+        assert_eq!(picker.provider(), Some("codex"));
+        assert_eq!(picker.label(), "codex · Default");
+        let rows = provider_rows(&picker);
+        assert_eq!(rows[1].detail.as_str(), "Default · ready");
+        assert_eq!(rows[2].detail.as_str(), "Needs setup");
+        assert!(!rows[2].ready);
+        picker.catalog_in_flight.insert("codex".into());
+        assert_eq!(picker.status(), "Loading models…");
+        picker.catalog_in_flight.clear();
+        picker.catalogs.insert(
+            "codex".into(),
+            vec![ModelInfo {
+                id: "gpt-6-astra".into(),
+                name: "GPT-6-Astra".into(),
+                description: "Frontier".into(),
+            }],
+        );
+        assert_eq!(picker.status(), "");
+        picker.choice = Some(ModelChoice {
+            provider: "codex".into(),
+            model: Some("gpt-6-astra".into()),
+        });
+        // Catalog display names label the pill; ids stay the CLI argument.
+        assert_eq!(picker.label(), "codex · GPT-6-Astra");
+        let models = model_rows(&picker);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].detail.as_str(), "Frontier");
+        picker.choice = Some(ModelChoice {
+            provider: "openai".into(),
+            model: None,
+        });
+        picker.catalog_failed.insert("openai".into());
+        assert_eq!(picker.label(), "openai · Default");
+        assert!(picker.status().contains("Couldn't load"));
+        picker.catalogs.insert("grok".into(), Vec::new());
+        picker.choice = Some(ModelChoice {
+            provider: "grok".into(),
+            model: None,
+        });
+        assert!(picker.status().contains("doesn't publish"));
+    }
+
+    #[test]
+    fn picker_keeps_typed_or_saved_models_outside_the_catalog_visible() {
+        let mut picker = Picker::default();
+        picker.catalogs.insert(
+            "aiproxy".into(),
+            vec![ModelInfo {
+                id: "grok-4.6".into(),
+                name: "grok-4.6".into(),
+                description: "".into(),
+            }],
+        );
+        picker.choice = Some(ModelChoice {
+            provider: "aiproxy".into(),
+            model: Some("custom/model".into()),
+        });
+        let rows = model_rows(&picker);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].id.as_str(), "custom/model");
+        assert!(rows[0].detail.contains("Not in this provider's list"));
+        // A plain id-only catalog row repeats nothing under the label.
+        assert_eq!(rows[1].detail.as_str(), "");
+        assert_eq!(picker.label(), "aiproxy · custom/model");
+    }
+
+    #[test]
+    fn saved_choice_matches_cli_resume_fallbacks_and_rejects_flags() {
+        assert_eq!(
+            saved_choice(&json!({"backend":"codex","model":"gpt-6-luna"})),
+            Some(ModelChoice {
+                provider: "codex".into(),
+                model: Some("gpt-6-luna".into())
+            })
+        );
+        assert_eq!(
+            saved_choice(&json!({"id":"aabbccddeeff0011"})),
+            Some(ModelChoice {
+                provider: "openai".into(),
+                model: None
+            })
+        );
+        assert_eq!(saved_choice(&json!({"backend":"--ssh"})), None);
+        assert_eq!(
+            saved_choice(&json!({"backend":"codex","model":"--yolo"})),
+            None
+        );
+        assert_eq!(saved_choice(&json!({"backend":7})), None);
+        assert_eq!(connection_label(None), "This computer");
+        assert_eq!(connection_label(Some("me@box")), "SSH · me@box");
+        assert_eq!(swarm_label(None), "Solo");
+        assert_eq!(swarm_label(Some(3)), "Swarm of 3");
+    }
+
     #[test]
     fn swarm_only_reports_active_agents() {
         let rows = swarm_rows(

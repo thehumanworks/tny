@@ -4,7 +4,8 @@
 runtime. The existing executable continues to own providers, tools, permissions,
 sessions, SSH, images, jobs and swarms. The GUI calls an allowlisted set of CLI
 operations without a shell, streams canonical `ask --events=jsonl` events and
-keeps the Slint event loop free of blocking CLI work. See [ADR 0166](adr/0166-slint-desktop-companion.md).
+keeps the Slint event loop free of blocking CLI work. See [ADR 0166](adr/0166-slint-desktop-companion.md)
+and, for the model picker and visual language, [ADR 0168](adr/0168-desktop-model-picker-and-visual-language.md).
 
 ## Run
 
@@ -31,18 +32,31 @@ does not store API keys. It inherits the CLI's effective permission mode
 
 | Surface | Behavior |
 | --- | --- |
-| Chat | Streams text and per-turn usage; opens saved session transcripts and resumes idle sessions after an explicit choice of future tool location. An in-flight/unconfirmed turn blocks automatic repost. Saved running/stale/checkpointed sessions open read-only. |
+| Chat | Streams text and per-turn usage; opens saved session transcripts and resumes idle sessions after an explicit choice of where tools run. An in-flight/unconfirmed turn blocks automatic repost. Saved running/stale/checkpointed sessions open read-only. Enter sends; Shift+Enter inserts a new line. |
+| Model | The composer's `provider · model` picker. Providers come from `tny providers --json` (local, at startup and Refresh); unhealthy ones show "Needs setup" and cannot be picked. A provider's catalog (`tny --provider P models --json`) is fetched only when the picker needs it and cached per window. "Default" omits `--model`; an unlisted ID can be typed. The choice becomes leading `--provider/--model` on `ask`. Opening a saved chat shows the provider/model it resumes with; an explicit pick overrides that pin. |
 | Draft | Optimise sends a draft by stdin and requires review before Send; Dictate records ten seconds to an editable draft. These services need their independently configured providers/microphone. |
 | Completion | Clickable `/new`, `/refresh`, `/usage`, `/help`; local `@` paths and `$` skill names. Git paths honor Git excludes; non-Git scans are bounded and skip symlinks. Remote path and skill completion is deliberately disabled under SSH, not mislabeled as remote. The list is a bounded cache; Refresh rebuilds it. |
 | Images | Attach an existing local image with `ask --image`; Generate writes to an explicit absolute path using `image generate`. A successful generation can be explicitly attached to the next turn. No pixels are automatically rendered/previewed. Generation may replace an existing destination and the CLI's default manifest stores the prompt; do not use a sensitive output location without reviewing `docs/images.md`. A failed finalization can leave a committed image, which the UI labels separately. |
-| SSH | Set the SSH tool target before a new turn. The GUI still runs locally; tny executes workspace tools remotely. When reopening a saved session, *historical SSH details are not recoverable*; confirm the current local/SSH tool location explicitly before submitting. |
-| Swarms and messages | Enable a local-only `--swarm=N` turn. Inspect a run by its 32-character ID; refresh shows agents, the run and *parent/operator* mailbox capacity. `Open parent inbox` is explicit: it marks queued messages delivered but **does not acknowledge** them. Message bodies are untrusted display data, not instructions or proof of verified work. Other participants' inboxes cannot be read by the operator. |
+| Where tools run | Tools panel choice between *This computer* and an *SSH host* (set before a new chat's first turn). The GUI still runs locally; tny executes workspace tools remotely. When reopening a saved session, *historical SSH details are not recoverable*; choose where tools run explicitly before submitting. |
+| Swarms and messages | The composer's *Solo / Swarm of N* control enables a local-only `--swarm=N` first turn. *Follow a swarm run* takes its 32-character ID; refresh shows agents, the run and *parent/operator* mailbox capacity. *Open inbox* (parent inbox) is explicit: it marks queued messages delivered but **does not acknowledge** them. Message bodies are untrusted display data, not instructions or proof of verified work. Other participants' inboxes cannot be read by the operator. |
 | Usage | Streamed turn tokens, saved session totals, workspace totals and explicit Codex allowance lookup (if configured). Missing usage is labeled unavailable, never zero. Run/worker verification remains `unverified` until checks are independently performed. |
 
-## Measured footprint (Linux x86-64, September 22, 2026)
+## Visual language
 
-A local `cargo build --release --locked` produced a 26,164,992-byte
-executable; `strip --strip-unneeded` on a copy measured **19,903,904 bytes**. The CLI is
+One page tone throughout; hierarchy comes from type weight and lighter tones
+of the same green-grey scale rather than panels, rules or background changes.
+Only surfaces that float (composer, fields, popovers, tooltips) are elevated,
+and only with a shadow. Interaction never changes a color: clickable elements
+get a pointer cursor, and selection is shown with weight or a check mark.
+Every icon-only or non-obvious control carries a tooltip that says what it does
+and what it affects. Below 1100px an open tools panel takes the sidebar's
+place so the conversation keeps a readable width.
+
+## Measured footprint (Linux x86-64, September 23, 2026)
+
+A local `cargo build --release --locked` produced a 27,616,288-byte
+executable; `strip --strip-unneeded` on a copy measured **20,703,520 bytes**
+(19,903,904 before the ADR 0168 picker, tooltips and restyle; +4.0%). The CLI is
 still a separate executable. `ldd` reports fontconfig/freetype and standard
 system libraries (libc, libm, libgcc_s, expat, zlib, bzip2, libpng, Brotli).
 These are local measurements, not a binary-size gate or a macOS/iOS estimate.

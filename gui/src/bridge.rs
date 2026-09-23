@@ -12,6 +12,43 @@ const MAX_EVENT: usize = 4 * 1024 * 1024;
 const MAX_DIAGNOSTIC: usize = 16 * 1024;
 // Local metadata must not pin a GUI worker on a stalled CLI or inherited pipe.
 const METADATA_TIMEOUT: Duration = Duration::from_secs(12);
+// A model catalog is one provider request; the CLI bounds its own HTTP read at 15s.
+const CATALOG_TIMEOUT: Duration = Duration::from_secs(20);
+const CATALOG_MAX: usize = 256;
+
+/// An explicit provider/model selection. `model: None` keeps the provider's
+/// configured default, exactly as a CLI invocation without `--model` would.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelChoice {
+    pub provider: String,
+    pub model: Option<String>,
+}
+
+impl ModelChoice {
+    pub fn is_valid(&self) -> bool {
+        valid_provider(&self.provider)
+            && self
+                .model
+                .as_deref()
+                .is_none_or(|m| valid_model(m) && !m.starts_with('-'))
+    }
+}
+
+/// One `tny providers --json` row. `ready` is the CLI's local credential/config
+/// check; its free-form hint may contain URLs and is never carried into the UI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderInfo {
+    pub name: String,
+    pub active: bool,
+    pub ready: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelInfo {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+}
 
 /// `None` means the CLI did not prove whether an artifact was committed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +74,7 @@ pub struct Bridge {
     cwd: PathBuf,
     ssh: Option<String>,
     ssh_cwd: Option<String>,
+    model: Option<ModelChoice>,
 }
 
 impl Bridge {
@@ -51,7 +89,15 @@ impl Bridge {
             cwd,
             ssh,
             ssh_cwd,
+            model: None,
         }
+    }
+
+    /// The same bridge with an explicit provider/model for `ask`. Other
+    /// operations keep the CLI's own provider resolution.
+    pub fn with_model(mut self, choice: Option<ModelChoice>) -> Self {
+        self.model = choice;
+        self
     }
 
     fn process(&self, remote_tools: bool) -> Result<Command, String> {
@@ -82,6 +128,7 @@ impl Bridge {
             ["sessions", "--json"] => "sessions",
             ["usage", "--json"] => "usage",
             ["status", "--json"] => "status",
+            ["providers", "--json"] => "providers",
             ["agents", "--json"] => "agents",
             ["agents", "--run", run, "--json"] if hex_id(run, 32) => "agents",
             ["session", id, "--json"] if hex_id(id, 16) => "session",
@@ -155,6 +202,21 @@ impl Bridge {
             return Err("tny jobs status produced inconsistent run state".into());
         }
         Ok(doc)
+    }
+
+    /// One provider's model catalog. This is a provider request, so the GUI only
+    /// calls it when the picker is opened, never at startup.
+    pub fn models(&self, provider: &str) -> Result<Vec<ModelInfo>, String> {
+        if !valid_provider(provider) {
+            return Err("Invalid provider".into());
+        }
+        let mut cmd = self.process(false)?;
+        cmd.arg("--provider")
+            .arg(provider)
+            .args(["models", "--json"])
+            .stdin(Stdio::null());
+        let doc = run_json(cmd, "models", None, Some(CATALOG_TIMEOUT))?;
+        parse_models(&doc)
     }
 
     /// Generate via the standalone image CLI. The CLI owns provider selection,
@@ -278,9 +340,14 @@ impl Bridge {
         // A fresh `tny ask` process resolves the current default before it opens
         // --resume. Pin the saved session's provider/model in leading CLI flags,
         // rather than accidentally continuing a transcript on a new default.
-        let saved_config = resume.map(|id| self.saved_session_config(id)).transpose()?;
+        // An explicit picker choice is the user's decision and takes precedence.
+        let pinned = match self.model.as_ref() {
+            Some(choice) if !choice.is_valid() => return Err("Invalid provider or model".into()),
+            Some(choice) => Some((choice.provider.clone(), choice.model.clone())),
+            None => resume.map(|id| self.saved_session_config(id)).transpose()?,
+        };
         let mut cmd = self.process(true)?;
-        if let Some((provider, model)) = saved_config.as_ref() {
+        if let Some((provider, model)) = pinned.as_ref() {
             cmd.arg("--provider").arg(provider);
             if let Some(model) = model {
                 cmd.arg("--model").arg(model);
@@ -522,6 +589,77 @@ fn valid_provider(name: &str) -> bool {
 
 fn valid_model(model: &str) -> bool {
     !model.is_empty() && model.len() <= 1024 && !model.chars().any(char::is_control)
+}
+
+pub fn parse_providers(doc: &Value) -> Result<Vec<ProviderInfo>, String> {
+    if doc.get("kind").and_then(Value::as_str) != Some("providers") {
+        return Err("tny providers produced an invalid document".into());
+    }
+    let rows = doc
+        .get("providers")
+        .and_then(Value::as_array)
+        .ok_or("tny providers produced an invalid document")?;
+    let mut out: Vec<ProviderInfo> = Vec::new();
+    for row in rows.iter().take(64) {
+        let Some(name) = row.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if !valid_provider(name) || name.len() > 64 || out.iter().any(|p| p.name == name) {
+            continue;
+        }
+        out.push(ProviderInfo {
+            name: name.to_owned(),
+            active: row.get("active").and_then(Value::as_bool) == Some(true),
+            ready: row.get("healthy").and_then(Value::as_bool) == Some(true),
+        });
+    }
+    Ok(out)
+}
+
+/// Catalogs arrive as `["id", …]` (OpenAI-compatible `/models`) or as
+/// `[{"id","name","description",…}, …]` (normalized native catalogs). The
+/// CLI's no-catalog fallback (`[{"id":"default"}]`) is an empty catalog.
+pub fn parse_models(doc: &Value) -> Result<Vec<ModelInfo>, String> {
+    if doc.get("kind").and_then(Value::as_str) != Some("models") {
+        return Err("tny models produced an invalid document".into());
+    }
+    let rows = doc
+        .get("models")
+        .and_then(Value::as_array)
+        .ok_or("tny models produced an invalid document")?;
+    let text = |value: Option<&Value>, max: usize| -> String {
+        value
+            .and_then(Value::as_str)
+            .filter(|s| s.len() <= max && !s.chars().any(char::is_control))
+            .unwrap_or("")
+            .to_owned()
+    };
+    let mut out: Vec<ModelInfo> = Vec::new();
+    for row in rows.iter().take(CATALOG_MAX) {
+        let (id, name, description) = match row {
+            Value::String(id) => (id.clone(), String::new(), String::new()),
+            Value::Object(_) => (
+                text(row.get("id"), 256),
+                text(row.get("name"), 128),
+                text(row.get("description"), 240),
+            ),
+            _ => continue,
+        };
+        if id == "default"
+            || id.len() > 256
+            || !valid_model(&id)
+            || id.starts_with('-')
+            || out.iter().any(|m| m.id == id)
+        {
+            continue;
+        }
+        out.push(ModelInfo {
+            name: if name.is_empty() { id.clone() } else { name },
+            id,
+            description,
+        });
+    }
+    Ok(out)
 }
 
 fn read_bounded(mut input: impl Read, max: usize) -> io::Result<Vec<u8>> {
