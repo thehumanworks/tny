@@ -131,6 +131,7 @@ def base_env(home, port=1, issuer=None):
         ):
             env.pop(key)
     env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+    env.pop("TNY_CODEX_CLIENT_VERSION", None)
     env.update(
         HOME=home, TNY_CODEX_BASE_URL=f"http://127.0.0.1:{port}/v1", TNY_ISOLATE="0"
     )
@@ -582,10 +583,29 @@ def main():
             assert b"showing configured" not in r.stderr, r.stderr
             cat = json.loads(r.stdout)
             assert cat["kind"] == "models" and cat["provider"] == "codex", cat
-            assert [m["id"] for m in cat["models"]] == ["gpt-5.6-sol", "gpt-5.5"], cat
+            assert [m["id"] for m in cat["models"]] == [
+                "gpt-6-sol",
+                "gpt-6-luna",
+                "gpt-5.6-sol",
+                "gpt-5.5",
+            ], cat
             assert cat["models"][0]["efforts"] == ["low", "medium", "high"], cat
-            assert cat["models"][0]["default_effort"] == "low", cat
-            assert "efforts" not in cat["models"][1], cat
+            assert cat["models"][0]["default_effort"] == "medium", cat
+            assert cat["models"][2]["default_effort"] == "low", cat
+            assert "efforts" not in cat["models"][3], cat
+            old_env = dict(env, TNY_CODEX_CLIENT_VERSION="0.154.0")
+            old = subprocess.run(
+                [TNY, "--provider", "codex", "models", "--json"],
+                env=old_env,
+                capture_output=True,
+                timeout=30,
+            )
+            assert old.returncode == 0, old.stderr
+            old_cat = json.loads(old.stdout)
+            assert [m["id"] for m in old_cat["models"]] == [
+                "gpt-5.6-sol",
+                "gpt-5.5",
+            ], old_cat
             r = subprocess.run(
                 [TNY, "--provider", "codex", "models"],
                 env=env,
@@ -597,9 +617,10 @@ def main():
                 b"gpt-5.6-sol  \xe2\x80\x94  GPT-5.6-Sol  (active)  [effort: low medium high]"
                 in r.stdout
             ), r.stdout
+            assert b"gpt-6-sol" in r.stdout and b"gpt-6-luna" in r.stdout, r.stdout
             assert b"gpt-reserve" not in r.stdout, r.stdout
             print(
-                "ok  tny models reads the ChatGPT catalog (client_version, hidden slugs dropped)"
+                "ok  tny models discovers new models; client_version gates them; hidden slugs dropped"
             )
             print(
                 "ok  $CODEX_HOME/auth.json from `codex login` still works and auto-detects"

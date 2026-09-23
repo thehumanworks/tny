@@ -177,7 +177,7 @@ and its routing amendment [ADR 0109](../adr/0109-provider-independent-codex-sear
 The ChatGPT backend's catalog is not the public `GET /v1/models`:
 
 ```text
-GET https://chatgpt.com/backend-api/codex/models?client_version=<codex cli version>
+GET https://chatgpt.com/backend-api/codex/models?client_version=<discovery compatibility version>
 Authorization: Bearer <access_token>
 chatgpt-account-id: <account_id>
 OpenAI-Beta: responses=v1
@@ -188,16 +188,24 @@ OpenAI-Beta: responses=v1
 
 `client_version` is **required** (a bare `/models` is HTTP 400) and gates
 the listing: the backend only returns models whose `minimal_client_version`
-the claimed client meets, so an old version yields an empty catalog. tny
-claims a pinned Codex CLI release (`CODEX_CLIENT_VERSION` in
-`src/core/profiles.c`); `TNY_CODEX_CLIENT_VERSION` overrides it without a
-rebuild when the pin falls behind. In ChatGPT mode `tny models` sends that
-query and normalizes the answer into the shared catalog shape
+the claimed client meets. The former `0.154.0` pin omitted `gpt-6-sol` and
+`gpt-6-luna`, whose minimum is `0.155.0`. tny now claims `999.999.999` for
+catalog discovery, so a new minimum version does not require a tny release.
+`TNY_CODEX_CLIENT_VERSION` overrides that default if the backend changes its
+version handling or a gateway needs a specific value. This value affects
+catalog filtering, not the model used for a turn.
+
+In ChatGPT mode every `tny models` or TUI `/models` invocation sends a fresh
+request; tny has no CLI/TUI catalog cache to revalidate. It normalizes the
+answer into the shared catalog shape
 (`[{"id","name","description","efforts":[…],"default_effort","context_window"}]`),
 dropping entries whose `visibility` is not `list` (`hide`, `none`). `--json`
 reports `{"kind":"models","provider":"codex","models":[…]}`; the plain
 listing shows `[effort: …]` per model and the `efforts` tokens
-are what `--effort` accepts verbatim.
+are what `--effort` accepts verbatim. The backend can still restrict models
+by account or visibility, and a catalog entry does not establish that a turn
+with that model will succeed. If the catalog request fails, tny shows its
+configured-model fallback. See [ADR 0170](../adr/0170-codex-catalog-discovery-version.md).
 
 ## Selection, shadowing, overrides
 
@@ -206,7 +214,7 @@ are what `--effort` accepts verbatim.
 | `--provider codex` / `/provider codex` / `last_provider` | select the builtin profile |
 | `$CODEX_HOME/auth.json` present | auto-detected first among subscription logins |
 | `TNY_CODEX_BASE_URL` | redirect the ChatGPT-mode base URL (mocks, gateways) while keeping the profile's headers |
-| `TNY_CODEX_CLIENT_VERSION` | Codex CLI version claimed on `/models?client_version=` (catalog gating, above) |
+| `TNY_CODEX_CLIENT_VERSION` | Override the `999.999.999` catalog discovery compatibility value on `/models?client_version=` |
 | `--base-url` | one-run override of any profile's URL  |
 | settings `"codex": {"base_url": …}` or `CODEX_BASE_URL` | a **user profile named codex shadows the builtin** entirely (no ChatGPT headers, `CODEX_API_KEY` key) — explicit config wins, like `grok` |
 | `--chatgpt-token` / `CHATGPT_ACCESS_TOKEN`, `--chatgpt-account-id` / `CHATGPT_ACCOUNT_ID` | file-less credential (precedence above) |

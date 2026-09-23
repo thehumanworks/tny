@@ -10,15 +10,14 @@
 
 #define CODEX_CHATGPT_BASE_URL "https://chatgpt.com/backend-api/codex"
 #define CODEX_BETA_HEADER      "OpenAI-Beta: responses=v1"
-/* The ChatGPT backend's `/models` is gated on the caller's Codex CLI
- * version (`?client_version=`): the catalog only lists models whose
- * `minimal_client_version` the claimed client meets, and a missing query
- * is a 400. Pinned to a known-current CLI release; TNY_CODEX_CLIENT_VERSION
- * overrides without a rebuild. */
-#define CODEX_CLIENT_VERSION "0.154.0"
-#define CODEX_DEFAULT_MODEL  "gpt-5.6-sol"
-#define GROK_PROXY_BASE_URL  "https://cli-chat-proxy.grok.com/v1"
-#define GROK_PROXY_HEADER    "X-XAI-Token-Auth: xai-grok-cli"
+/* The ChatGPT backend requires `?client_version=` and uses it as a minimum
+ * version filter. tny fetches the catalog live and is not a Codex CLI build,
+ * so use a high discovery value instead of pinning model visibility to a
+ * particular CLI release. TNY_CODEX_CLIENT_VERSION can override it. */
+#define CODEX_CATALOG_CLIENT_VERSION "999.999.999"
+#define CODEX_DEFAULT_MODEL          "gpt-5.6-sol"
+#define GROK_PROXY_BASE_URL          "https://cli-chat-proxy.grok.com/v1"
+#define GROK_PROXY_HEADER            "X-XAI-Token-Auth: xai-grok-cli"
 /* The proxy version-gates on x-grok-client-version and 426s requests that
  * claim less than its rolling minimum. Pinned to a known-accepted grok-build
  * release; TNY_GROK_CLIENT_VERSION overrides without a rebuild. */
@@ -245,7 +244,7 @@ bool tny_codex_chatgpt_mode(const tny_ctx *ctx) {
 
 const char *tny_codex_client_version(void) {
     const char *v = getenv("TNY_CODEX_CLIENT_VERSION");
-    return v && *v ? v : CODEX_CLIENT_VERSION;
+    return v && *v ? v : CODEX_CATALOG_CLIENT_VERSION;
 }
 
 char *tny_codex_models_normalize(const char *body, size_t len) {

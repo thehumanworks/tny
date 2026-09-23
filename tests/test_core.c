@@ -5298,12 +5298,12 @@ TEST codex_models_normalize_keeps_listed_slugs(void) {
 
 TEST codex_client_version_env_override(void) {
     unsetenv("TNY_CODEX_CLIENT_VERSION");
-    const char *pinned = tny_codex_client_version();
-    ASSERT(pinned && strchr(pinned, '.'));
+    const char *discovery_version = tny_codex_client_version();
+    ASSERT_STR_EQ("999.999.999", discovery_version);
     setenv("TNY_CODEX_CLIENT_VERSION", "9.9.9", 1);
     ASSERT_STR_EQ("9.9.9", tny_codex_client_version());
     setenv("TNY_CODEX_CLIENT_VERSION", "", 1);
-    ASSERT_STR_EQ(pinned, tny_codex_client_version());
+    ASSERT_STR_EQ(discovery_version, tny_codex_client_version());
     unsetenv("TNY_CODEX_CLIENT_VERSION");
     PASS();
 }

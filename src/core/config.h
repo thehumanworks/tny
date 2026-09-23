@@ -272,8 +272,8 @@ int tny_apply_builtin_profile(tny_ctx *ctx, const char *name);
  * token + the responses beta header), as opposed to API-key mode on
  * api.openai.com. Decides the `/models` dialect below. */
 bool tny_codex_chatgpt_mode(const tny_ctx *ctx);
-/* Codex CLI version tny claims on `GET /models?client_version=` —
- * TNY_CODEX_CLIENT_VERSION or the pinned default. */
+/* Codex catalog discovery version sent on `GET /models?client_version=` —
+ * TNY_CODEX_CLIENT_VERSION or a high value that avoids CLI release gating. */
 const char *tny_codex_client_version(void);
 /* Normalize the ChatGPT backend's `{"models":[{slug,display_name,
  * visibility,supported_reasoning_levels,…}]}` into the catalog shape

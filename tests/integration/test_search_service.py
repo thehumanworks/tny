@@ -28,21 +28,25 @@ SOURCE = "https://example.com/search-source?a=1&b=2"
 def attach_dashboard_session(term, session_id):
     """Select the current run even when earlier fixtures left saved rows."""
     term.expect_on_screen("Agents — all saved sessions")
-    for _ in range(64):
-        selected = next(
-            (
-                line
-                for line in term.screen().splitlines()
-                if re.match(r"^>\s+[0-9a-f]{16}\b", line)
-            ),
-            "",
-        )
-        if session_id in selected:
-            term.send("\r")
-            term.expect(f"Attached {session_id}", 5)
-            return
-        term.send("\x1b[B")
-        term.pump(0.05)
+
+    def selected_id():
+        for line in term.screen().splitlines():
+            match = re.match(r"^\s*>\s+([0-9a-f]{16})\b", line)
+            if match:
+                return match.group(1)
+        return None
+
+    for direction in ("\x1b[B", "\x1b[A"):
+        for _ in range(64):
+            selected = selected_id()
+            if selected == session_id:
+                term.send("\r")
+                term.expect(f"Attached {session_id}", 5)
+                return
+            term.send(direction)
+            term.pump(0.05)
+            if selected_id() == selected:
+                break
     raise AssertionError(
         f"current session {session_id} was not selectable: {term.screen()}"
     )

@@ -444,8 +444,8 @@ int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     for (char **e = ctx->extra_headers; e && *e && hn < 11; e++)
         hdrs[hn++] = *e; /* builtin-profile headers (docs/adr/0019) */
     hdrs[hn] = NULL;
-    /* The ChatGPT backend behind the codex profile gates its catalog on the
-     * caller's Codex CLI version and answers {"models":[…]} instead of
+    /* The ChatGPT backend behind the codex profile requires a client_version
+     * filter and answers {"models":[…]} instead of
      * {"data":[…]} (docs/backends/codex.md) */
     bool codex_catalog = tny_codex_chatgpt_mode(ctx);
     buf_t path;
@@ -499,9 +499,8 @@ int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         }
         if (strcmp(arr, "[]") == 0)
             fprintf(stderr,
-                    "tny: codex catalog is empty for client_version %s; the backend hides "
-                    "models newer than the claimed Codex CLI — set TNY_CODEX_CLIENT_VERSION "
-                    "to a current release\n",
+                    "tny: codex catalog has no listed models for client_version %s; "
+                    "check account access or TNY_CODEX_CLIENT_VERSION\n",
                     tny_codex_client_version());
         models_print(ctx, arr, json);
         free(arr);

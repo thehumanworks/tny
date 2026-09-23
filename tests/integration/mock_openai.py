@@ -201,8 +201,9 @@ REASONING_ENCRYPTED = "gAAAA-encrypted-reasoning"
 LOG_HEADERS = [h for h in os.environ.get("MOCK_LOG_HEADERS", "").split(";") if h]
 
 
-# A trimmed chatgpt.com/backend-api/codex catalog: one hidden entry, one
-# without efforts, so the client's filtering is observable.
+# A trimmed chatgpt.com/backend-api/codex catalog: newly gated models, one
+# hidden entry, and one without efforts make both server and client filtering
+# observable.
 CODEX_CATALOG = {
     "models": [
         {
@@ -210,6 +211,30 @@ CODEX_CATALOG = {
             "display_name": "GPT-Reserve",
             "visibility": "hide",
             "supported_reasoning_levels": [{"effort": "medium", "description": ""}],
+        },
+        {
+            "slug": "gpt-6-sol",
+            "display_name": "GPT-6-Sol",
+            "visibility": "list",
+            "minimal_client_version": "0.155.0",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+                {"effort": "low", "description": "Fast"},
+                {"effort": "medium", "description": "Balanced"},
+                {"effort": "high", "description": "Deep"},
+            ],
+        },
+        {
+            "slug": "gpt-6-luna",
+            "display_name": "GPT-6-Luna",
+            "visibility": "list",
+            "minimal_client_version": "0.155.0",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+                {"effort": "low", "description": "Fast"},
+                {"effort": "medium", "description": "Balanced"},
+                {"effort": "high", "description": "Deep"},
+            ],
         },
         {
             "slug": "gpt-5.6-sol",
@@ -232,6 +257,14 @@ CODEX_CATALOG = {
         },
     ]
 }
+
+
+def catalog_version(version):
+    try:
+        parts = tuple(int(part) for part in version.split("."))
+    except ValueError:
+        return None
+    return parts if len(parts) == 3 else None
 
 
 def sse(obj):
@@ -469,7 +502,8 @@ class Handler(BaseHTTPRequestHandler):
                 # chatgpt.com/backend-api/codex: the catalog is gated on the
                 # Codex CLI version and keyed by slug (docs/backends/codex.md)
                 query = urllib.parse.parse_qs(url.query)
-                if not query.get("client_version"):
+                versions = query.get("client_version")
+                if not versions:
                     self._json(
                         400,
                         {
@@ -480,7 +514,22 @@ class Handler(BaseHTTPRequestHandler):
                         },
                     )
                     return
-                self._json(200, CODEX_CATALOG)
+                version = catalog_version(versions[0])
+                if version is None:
+                    self._reject("client_version must be a three-part numeric version")
+                    return
+                self._json(
+                    200,
+                    {
+                        "models": [
+                            model
+                            for model in CODEX_CATALOG["models"]
+                            if "minimal_client_version" not in model
+                            or version
+                            >= catalog_version(model["minimal_client_version"])
+                        ]
+                    },
+                )
                 return
             self._json(200, {"data": [{"id": "mock-model-1"}, {"id": "mock-model-2"}]})
         else:
