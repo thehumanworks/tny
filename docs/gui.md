@@ -4,8 +4,10 @@
 runtime. The existing executable continues to own providers, tools, permissions,
 sessions, SSH, images, jobs and swarms. The GUI calls an allowlisted set of CLI
 operations without a shell, streams canonical `ask --events=jsonl` events and
-keeps the Slint event loop free of blocking CLI work. See [ADR 0166](adr/0166-slint-desktop-companion.md)
-and, for the model picker and visual language, [ADR 0168](adr/0168-desktop-model-picker-and-visual-language.md).
+keeps the Slint event loop free of blocking CLI work. See [ADR 0166](adr/0166-slint-desktop-companion.md),
+for the model picker and visual language [ADR 0168](adr/0168-desktop-model-picker-and-visual-language.md),
+and for the effort picker, working folder, Markdown replies and the proven turn
+status [ADR 0169](adr/0169-desktop-effort-folder-markdown-and-verified-turn-status.md).
 
 ## Run
 
@@ -18,6 +20,7 @@ make release                   # if build/tny is not already present
 cd gui
 cargo test                     # fake CLI; no provider/network access
 cargo run                      # from this directory, cwd defaults to repo root
+cd proofs && lake build        # Lean 4 proofs of the UI state machines
 ```
 
 Set `TNY_GUI_BINARY=/absolute/path/to/tny` to choose another binary and
@@ -32,7 +35,9 @@ does not store API keys. It inherits the CLI's effective permission mode
 
 | Surface | Behavior |
 | --- | --- |
-| Chat | Streams text and per-turn usage; opens saved session transcripts and resumes idle sessions after an explicit choice of where tools run. An in-flight/unconfirmed turn blocks automatic repost. Saved running/stale/checkpointed sessions open read-only. Enter sends; Shift+Enter inserts a new line. |
+| Chat | Streams text and per-turn usage. tny's replies render as Markdown (headings, emphasis, inline code, links, lists, quotes, rules; fenced code and pipe tables in the platform monospace face); links are shown, never followed; the user's own text is shown as typed. Each turn reports its state under the messages and in the status line: the prompt reads "Sending…" only until tny has it, then "Sent"; the status line names the phase (waiting for the model, running a tool, writing, saving) with the elapsed time; a stream that ends early is marked "Incomplete", never left "Streaming…". It opens saved session transcripts and resumes idle sessions after an explicit choice of where tools run. An in-flight/unconfirmed turn blocks automatic repost. Saved running/stale/checkpointed sessions open read-only. Enter sends; Shift+Enter inserts a new line. |
+| Effort | The composer's `Effort · …` picker, next to the model. "Default" passes no `--effort`, so the CLI's env/settings/provider precedence applies. It offers the selected model's catalog `efforts` when listed, nothing when the catalog lists an empty set, and otherwise the CLI's generic `off light medium high xhigh max`. The choice is re-clamped whenever the provider, model, catalog or opened chat changes, and is passed as a leading `--effort`. |
+| Working folder | The composer's `in <folder>` control sets the CLI's `--cwd`. Enter an absolute path (or `~/…`) or pick a folder used earlier in this window. tny sessions belong to their folder, so switching starts a new chat there; the old chat stays under Recent for its folder. Not available while a turn runs or while tools run over SSH. `@` files and Recent follow the folder; results computed for the previous folder are dropped. |
 | Model | The composer's `provider · model` picker. Providers come from `tny providers --json` (local, at startup and Refresh); unhealthy ones show "Needs setup" and cannot be picked. A provider's catalog (`tny --provider P models --json`) is fetched only when the picker needs it and cached per window. "Default" omits `--model`; an unlisted ID can be typed. The choice becomes leading `--provider/--model` on `ask`. Opening a saved chat shows the provider/model it resumes with; an explicit pick overrides that pin. |
 | Draft | Optimise sends a draft by stdin and requires review before Send; Dictate records ten seconds to an editable draft. These services need their independently configured providers/microphone. |
 | Completion | Clickable `/new`, `/refresh`, `/usage`, `/help`; local `@` paths and `$` skill names. Git paths honor Git excludes; non-Git scans are bounded and skip symlinks. Remote path and skill completion is deliberately disabled under SSH, not mislabeled as remote. The list is a bounded cache; Refresh rebuilds it. |
@@ -52,11 +57,23 @@ Every icon-only or non-obvious control carries a tooltip that says what it does
 and what it affects. Below 1100px an open tools panel takes the sidebar's
 place so the conversation keeps a readable width.
 
+## Proofs
+
+`gui/proofs` is a Lean 4 (core only) project, pinned by `lean-toolchain`. It
+models the turn/message status, Markdown block grouping, effort picker and
+working-folder state, and proves their invariants (ADR 0169). `lake exe
+export golden` writes the finite transition tables to `proofs/golden/`, and
+`cargo test` replays every row against the Rust code the GUI runs. CI builds
+the proofs and fails if the regenerated tables differ from the committed
+copies. The proofs cover transition functions and labels, not rendering or
+CLI behaviour.
+
 ## Measured footprint (Linux x86-64, September 23, 2026)
 
-A local `cargo build --release --locked` produced a 27,616,288-byte
-executable; `strip --strip-unneeded` on a copy measured **20,703,520 bytes**
-(19,903,904 before the ADR 0168 picker, tooltips and restyle; +4.0%). The CLI is
+A local `cargo build --release --locked` produced a 29,361,592-byte
+executable; `strip --strip-unneeded` on a copy measured **21,917,784 bytes**
+(20,703,520 before ADR 0169's Markdown rendering, effort picker, working
+folder and turn status; +5.9%; 19,903,904 before ADR 0168). The CLI is
 still a separate executable. `ldd` reports fontconfig/freetype and standard
 system libraries (libc, libm, libgcc_s, expat, zlib, bzip2, libpng, Brotli).
 These are local measurements, not a binary-size gate or a macOS/iOS estimate.

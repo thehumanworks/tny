@@ -808,12 +808,16 @@ mod tests {
                 ModelInfo {
                     id: "gpt-6-astra".into(),
                     name: "GPT-6-Astra".into(),
-                    description: "Frontier".into()
+                    description: "Frontier".into(),
+                    efforts: None,
+                    default_effort: None,
                 },
                 ModelInfo {
                     id: "gpt-5.5".into(),
                     name: "gpt-5.5".into(),
-                    description: "".into()
+                    description: "".into(),
+                    efforts: None,
+                    default_effort: None,
                 }
             ]
         );
@@ -838,6 +842,111 @@ mod tests {
         let failing = Fixture::new("printf '%s\\n' 'SECRET_BASE_URL' >&2\nexit 1");
         let err = failing.bridge().models("aiproxy").unwrap_err();
         assert!(!err.contains("SECRET_BASE_URL"));
+    }
+
+    #[test]
+    fn catalog_efforts_are_validated_tokens_and_empty_differs_from_missing() {
+        let doc = json!({"kind":"models","models":[
+            {"id":"a","efforts":["low","medium","medium","--flag","Upper","ultra"],"default_effort":"medium"},
+            {"id":"b","efforts":[],"default_effort":"-x"},
+            {"id":"c"}
+        ]});
+        let rows = parse_models(&doc).unwrap();
+        assert_eq!(
+            rows[0].efforts.as_deref(),
+            Some(&["low".to_string(), "medium".into(), "ultra".into()][..])
+        );
+        assert_eq!(rows[0].default_effort.as_deref(), Some("medium"));
+        assert_eq!(rows[1].efforts.as_deref(), Some(&[][..]));
+        assert_eq!(rows[1].default_effort, None);
+        assert_eq!(rows[2].efforts, None);
+        assert!(valid_effort("xhigh") && valid_effort("low_2"));
+        assert!(!valid_effort("-high") && !valid_effort("") && !valid_effort("hi gh"));
+    }
+
+    #[test]
+    fn effort_leads_after_model_and_invalid_effort_never_spawns() {
+        let f = Fixture::new(
+            "printf '%s\\n' \"$@\" > args\ncat >/dev/null\n\
+             printf '%s\\n' '{\"type\":\"turn_end\",\"stop_reason\":0}'",
+        );
+        f.bridge()
+            .with_model(Some(ModelChoice {
+                provider: "codex".into(),
+                model: Some("gpt-6-astra".into()),
+            }))
+            .with_effort(Some("xhigh".into()))
+            .ask_stream("hello", None, None, |_| {})
+            .unwrap();
+        assert_eq!(
+            f.text("args").lines().take(9).collect::<Vec<_>>(),
+            [
+                "--cwd",
+                f.dir.to_str().unwrap(),
+                "--provider",
+                "codex",
+                "--model",
+                "gpt-6-astra",
+                "--effort",
+                "xhigh",
+                "ask"
+            ]
+        );
+        // Default effort: no flag, so the CLI's env/settings precedence applies.
+        f.bridge().ask_stream("hello", None, None, |_| {}).unwrap();
+        assert!(!f.text("args").contains("--effort"));
+        fs::remove_file(f.dir.join("args")).unwrap();
+        for bad in ["--yolo", "", "high medium", "HIGH"] {
+            let err = f
+                .bridge()
+                .with_effort(Some(bad.into()))
+                .ask_stream("hello", None, None, |_| {})
+                .unwrap_err();
+            assert!(err.contains("Invalid reasoning effort"), "{err}");
+        }
+        assert!(!f.dir.join("args").exists());
+    }
+
+    #[test]
+    fn delivery_is_reported_before_the_first_event() {
+        // tny holds the prompt, then stays silent (a slow model or tool) until
+        // the marker appears. The GUI must learn the prompt arrived meanwhile.
+        let f = Fixture::new(
+            "cat > prompt\nwhile [ ! -f marker ]; do sleep 0.01; done\n\
+             printf '{\"type\":\"turn_end\",\"stop_reason\":0}\\n'",
+        );
+        let marker = f.dir.join("marker");
+        let seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = seen.clone();
+        f.bridge()
+            .ask_stream_delivered(
+                "hello",
+                None,
+                None,
+                None,
+                move || {
+                    flag.store(true, Ordering::SeqCst);
+                    fs::write(marker, "go").unwrap();
+                },
+                |_| {},
+            )
+            .unwrap();
+        assert!(seen.load(Ordering::SeqCst));
+        assert_eq!(f.text("prompt"), "hello");
+        // A prompt that never reaches tny is never reported delivered.
+        let closed = Fixture::new("exec 0<&-\nsleep 0.2\nexit 3");
+        let seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = seen.clone();
+        let big = "x".repeat(4 << 20);
+        let _ = closed.bridge().ask_stream_delivered(
+            &big,
+            None,
+            None,
+            None,
+            move || flag.store(true, Ordering::SeqCst),
+            |_| {},
+        );
+        assert!(!seen.load(Ordering::SeqCst));
     }
 
     #[test]

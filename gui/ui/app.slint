@@ -1,6 +1,9 @@
 import { ScrollView, AboutSlint } from "std-widgets.slint";
 
-export struct ChatRow { role: string, body: string, meta: string }
+// One Markdown block of a reply (gui/src/markdown.rs). kind: 1 heading,
+// 2 rule, 3 paragraph, 4 list item, 5 quote, 6 table, 7 code.
+export struct MdBlock { kind: int, text: styled-text, plain: string, level: int, marker: string }
+export struct ChatRow { role: string, body: string, meta: string, rich: bool, blocks: [MdBlock] }
 export struct SessionRow { id: string, title: string, meta: string }
 export struct SwarmRow { title: string, detail: string }
 export struct SuggestionRow { label: string, detail: string }
@@ -172,6 +175,8 @@ component ChoiceRow inherits Rectangle {
     in property <string> detail;
     in property <bool> selected;
     in property <string> tip;
+    // Long values (a workspace path) stay on one line; the tooltip has them whole.
+    in property <bool> elide-detail: false;
     callback clicked;
     min-height: 40px;
     HorizontalLayout {
@@ -199,7 +204,13 @@ component ChoiceRow inherits Rectangle {
                 font-size: 12px;
                 font-weight: root.selected ? 600 : 400;
             }
-            Text { text: root.detail; color: Theme.faint; font-size: 11px; wrap: word-wrap; }
+            Text {
+                text: root.detail;
+                color: Theme.faint;
+                font-size: 11px;
+                wrap: root.elide-detail ? no-wrap : word-wrap;
+                overflow: elide;
+            }
         }
     }
     TouchArea {
@@ -207,6 +218,84 @@ component ChoiceRow inherits Rectangle {
         clicked => { root.clicked(); }
     }
     if root.tip != "": Tooltip { Tip { text: root.tip; } }
+}
+
+// A reply's Markdown blocks. Inline emphasis, code and links come from
+// StyledText; code and tables are verbatim monospace on a lifted surface.
+// Links are shown, never followed: reply text is untrusted display data.
+component Markdown inherits VerticalLayout {
+    in property <[MdBlock]> blocks;
+    in property <string> mono-font;
+    spacing: 10px;
+    for b in root.blocks: VerticalLayout {
+        if b.kind == 1: VerticalLayout {
+            padding-top: 4px;
+            StyledText {
+                text: b.text;
+                default-color: Theme.ink;
+                default-font-size: b.level <= 1 ? 19px : (b.level == 2 ? 17px : 15px);
+                link-color: Theme.accent;
+            }
+        }
+        if b.kind == 2: VerticalLayout {
+            padding-top: 4px; padding-bottom: 4px;
+            Rectangle { height: 1px; background: Theme.ghost; }
+        }
+        if b.kind == 3: StyledText {
+            text: b.text;
+            default-color: Theme.text;
+            default-font-size: 14px;
+            link-color: Theme.accent;
+        }
+        if b.kind == 4: HorizontalLayout {
+            padding-left: b.level * 18px;
+            spacing: 8px;
+            Text {
+                text: b.marker;
+                min-width: 14px;
+                horizontal-stretch: 0;
+                color: Theme.muted;
+                font-size: 14px;
+            }
+            StyledText {
+                horizontal-stretch: 1;
+                text: b.text;
+                default-color: Theme.text;
+                default-font-size: 14px;
+                link-color: Theme.accent;
+            }
+        }
+        if b.kind == 5: HorizontalLayout {
+            spacing: 12px;
+            Rectangle { width: 3px; horizontal-stretch: 0; border-radius: 1.5px; background: Theme.ghost; }
+            StyledText {
+                horizontal-stretch: 1;
+                text: b.text;
+                default-color: Theme.muted;
+                default-font-size: 14px;
+                link-color: Theme.accent;
+            }
+        }
+        if b.kind == 6 || b.kind == 7: Rectangle {
+            background: Theme.surface;
+            border-radius: 10px;
+            drop-shadow-blur: 8px;
+            drop-shadow-offset-y: 1px;
+            drop-shadow-color: Theme.shadow-soft;
+            VerticalLayout {
+                padding-left: 14px; padding-right: 14px; padding-top: 10px; padding-bottom: 11px;
+                spacing: 4px;
+                if b.kind == 7 && b.marker != "": Text { text: b.marker; color: Theme.faint; font-size: 10px; font-weight: 600; }
+                Text {
+                    text: b.plain;
+                    color: Theme.ink;
+                    font-family: root.mono-font;
+                    font-size: 12.5px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
 }
 
 // Centers content in a readable column that grows to `measure`, then lets the
@@ -263,6 +352,15 @@ export component App inherits Window {
     in property <string> picker-model: "";
     in property <string> model-label: "Default model";
     in property <string> models-status: "";
+    in property <[string]> efforts;
+    in property <string> picker-effort: "";
+    in property <string> effort-label: "Effort · Default";
+    in property <string> effort-note: "";
+    in property <string> effort-default-detail: "Your settings, or the provider's default";
+    in property <string> workdir-label: "";
+    in property <[string]> recent-workdirs;
+    // The platform's monospace family, resolved at startup (`monospace_family`).
+    in property <string> mono-font: "";
     in property <string> current-session-id: "";
     in property <bool> board-has-run: false;
     in property <bool> board-open-busy: false;
@@ -319,6 +417,8 @@ export component App inherits Window {
     callback open-model-picker();
     callback pick-provider(string);
     callback pick-model(string);
+    callback pick-effort(string);
+    callback change-workdir(string);
     callback jump-to-latest();
     jump-to-latest => {
         history.content-y = min(0px, history.visible-height - history.content-height);
@@ -528,7 +628,8 @@ export component App inherits Window {
                                 font-weight: 700;
                                 color: row.role == "You" ? Theme.muted : Theme.faint;
                             }
-                            Text { text: row.body; font-size: 14px; color: row.role == "You" ? Theme.ink : Theme.text; wrap: word-wrap; }
+                            if !row.rich: Text { text: row.body; font-size: 14px; color: row.role == "You" ? Theme.ink : Theme.text; wrap: word-wrap; }
+                            if row.rich: Markdown { blocks: row.blocks; mono-font: root.mono-font; }
                             if row.meta != "": Text { text: row.meta; font-size: 11px; color: Theme.faint; }
                         }
                     }
@@ -614,6 +715,61 @@ export component App inherits Window {
 
                             HorizontalLayout {
                                 height: 32px; spacing: 2px;
+                                folder-pill := TextAction {
+                                    text: "in " + root.workdir-label + "  ▾";
+                                    pad: 6px;
+                                    tone: Theme.text;
+                                    tip: "Working folder: " + root.workspace-label + ". tny runs here; tools, @ files and Recent follow it. Click to change.";
+                                    clicked => { folder-popup.show(); }
+                                    folder-popup := PopupWindow {
+                                        x: 0px;
+                                        y: card.absolute-position.y - folder-pill.absolute-position.y - self.height - 10px;
+                                        width: 380px;
+                                        height: root.recent-workdirs.length == 0 ? 158px
+                                            : 190px + min(root.recent-workdirs.length, 6) * 26px;
+                                        close-policy: close-on-click-outside;
+                                        Rectangle {
+                                            background: Theme.surface;
+                                            border-radius: 14px;
+                                            drop-shadow-blur: 28px;
+                                            drop-shadow-offset-y: 8px;
+                                            drop-shadow-color: Theme.shadow;
+                                            VerticalLayout {
+                                                padding: 16px; spacing: 8px;
+                                                Caption { text: "Working folder"; }
+                                                Text { text: root.workspace-label; color: Theme.ink; font-size: 12px; wrap: word-wrap; }
+                                                folder-field := Field {
+                                                    placeholder: "Another folder, then Enter (~ works)";
+                                                    tip: "An absolute path to an existing folder, or one starting with ~.";
+                                                    accepted(value) => {
+                                                        if value != "" {
+                                                            root.change-workdir(value);
+                                                            folder-popup.close();
+                                                        }
+                                                    }
+                                                }
+                                                if root.recent-workdirs.length > 0: Caption { text: "Used in this window"; }
+                                                if root.recent-workdirs.length > 0: ScrollView {
+                                                    vertical-stretch: 1;
+                                                    VerticalLayout {
+                                                        spacing: 0px;
+                                                        for dir in root.recent-workdirs: Rectangle {
+                                                            height: 26px;
+                                                            Text { x: 0px; text: dir; color: Theme.text; font-size: 12px; overflow: elide; width: parent.width; vertical-alignment: center; }
+                                                            TouchArea { mouse-cursor: pointer; clicked => { root.change-workdir(dir); folder-popup.close(); } }
+                                                        }
+                                                    }
+                                                }
+                                                Hint {
+                                                    text: root.busy ? "Available when the current turn finishes."
+                                                        : root.ssh-configured ? "Tools run on the SSH host. Choose This computer in the tools panel to change the local folder."
+                                                        : root.has-session ? "tny keeps each chat with its folder, so switching starts a new chat there. This chat stays under Recent for this folder."
+                                                        : "Your next message runs in the folder you pick.";
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 TextAction {
                                     text: "Optimise";
                                     pad: 6px;
@@ -685,6 +841,67 @@ export component App inherits Window {
                                                     }
                                                 }
                                                 Hint { text: "Applies to the first message of a new chat."; }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                effort-pill := TextAction {
+                                    text: root.effort-label + "  ▾";
+                                    tone: Theme.muted;
+                                    tip: "Reasoning effort for your next message: how long the model may think. Default uses your settings or the provider's default.";
+                                    clicked => {
+                                        root.open-model-picker();
+                                        effort-popup.show();
+                                    }
+                                    effort-popup := PopupWindow {
+                                        x: effort-pill.width - 280px;
+                                        y: card.absolute-position.y - effort-pill.absolute-position.y - self.height - 10px;
+                                        width: 280px;
+                                        height: min(96px + (root.efforts.length + 1) * 38px, 420px);
+                                        close-policy: close-on-click-outside;
+                                        Rectangle {
+                                            background: Theme.surface;
+                                            border-radius: 14px;
+                                            drop-shadow-blur: 28px;
+                                            drop-shadow-offset-y: 8px;
+                                            drop-shadow-color: Theme.shadow;
+                                            VerticalLayout {
+                                                padding: 16px; spacing: 4px;
+                                                Caption { text: "Reasoning effort"; height: 22px; }
+                                                ScrollView {
+                                                    vertical-stretch: 1;
+                                                    VerticalLayout {
+                                                        spacing: 0px;
+                                                        Rectangle {
+                                                            height: 38px;
+                                                            property <bool> chosen: root.picker-effort == "";
+                                                            HorizontalLayout {
+                                                                padding-right: 10px; spacing: 6px;
+                                                                VerticalLayout {
+                                                                    alignment: center; spacing: 1px;
+                                                                    Text { text: "Default"; font-size: 13px; font-weight: chosen ? 600 : 400; color: chosen ? Theme.ink : Theme.text; }
+                                                                    Text { text: root.effort-default-detail; font-size: 10px; color: Theme.faint; overflow: elide; }
+                                                                }
+                                                                Rectangle { horizontal-stretch: 1; }
+                                                                Text { text: chosen ? "✓" : ""; color: Theme.accent; vertical-alignment: center; }
+                                                            }
+                                                            TouchArea { mouse-cursor: pointer; clicked => { root.pick-effort(""); effort-popup.close(); } }
+                                                        }
+                                                        for level in root.efforts: Rectangle {
+                                                            height: 38px;
+                                                            property <bool> chosen: level == root.picker-effort;
+                                                            HorizontalLayout {
+                                                                padding-right: 10px; spacing: 6px;
+                                                                Text { text: level; font-size: 13px; font-weight: chosen ? 600 : 400; color: chosen ? Theme.ink : Theme.text; vertical-alignment: center; }
+                                                                Rectangle { horizontal-stretch: 1; }
+                                                                Text { text: chosen ? "✓" : ""; color: Theme.accent; vertical-alignment: center; }
+                                                            }
+                                                            TouchArea { mouse-cursor: pointer; clicked => { root.pick-effort(level); effort-popup.close(); } }
+                                                        }
+                                                    }
+                                                }
+                                                Hint { text: root.effort-note; }
                                             }
                                         }
                                     }
@@ -831,7 +1048,7 @@ export component App inherits Window {
                     height: 36px;
                     HorizontalLayout {
                     spacing: 10px;
-                    Text { text: root.busy ? "Thinking…" : root.status-label; color: Theme.muted; font-size: 11px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                    Text { text: root.status-label; color: Theme.muted; font-size: 11px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                     Text {
                         text: root.usage-label;
                         color: Theme.faint;
@@ -865,8 +1082,9 @@ export component App inherits Window {
                     ChoiceRow {
                         title: "This computer";
                         detail: root.workspace-label;
+                        elide-detail: true;
                         selected: !root.ssh-configured;
-                        tip: "Run tools locally in the workspace folder. Takes effect on the next message of a new chat.";
+                        tip: "Run tools locally in " + root.workspace-label + ". Takes effect on the next message of a new chat.";
                         clicked => { root.disconnect-ssh(); }
                     }
                     ChoiceRow {

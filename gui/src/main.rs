@@ -1,5 +1,8 @@
 //! Native desktop shell. CLI processes run on workers; only UI model updates run on Slint's loop.
 mod bridge;
+mod markdown;
+mod turn;
+mod workdir;
 
 use bridge::{parse_providers, Bridge, ImageFailure, ModelChoice, ModelInfo, ProviderInfo};
 use serde_json::Value;
@@ -15,13 +18,18 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use turn::{CliKind, TurnMachine};
+use workdir::Workdir;
 
 slint::include_modules!();
 
 struct State {
     bridge: Bridge,
     binary: PathBuf,
-    cwd: PathBuf,
+    /// The chat's folder and what was computed for it (`workdir.rs`).
+    workdir: Workdir<PathBuf>,
+    /// Folders used earlier in this window, most recent first.
+    recent_dirs: Vec<PathBuf>,
     ssh: Option<String>,
     session_id: Option<String>,
     session_usage: Option<String>,
@@ -37,6 +45,13 @@ struct State {
     swarm_run: Option<String>,
     rows: Rc<VecModel<ChatRow>>,
     sessions: Vec<SessionRow>,
+    /// The live or last turn: every status label is derived from it (`turn.rs`).
+    turn: TurnMachine,
+    turn_started: Option<Instant>,
+    /// The user's message of the live or last turn.
+    turn_user_row: Option<usize>,
+    /// When the streaming reply's blocks were last re-rendered.
+    reply_rendered: Option<Instant>,
     current_response: Option<usize>,
     turn_has_error: bool,
     unconfirmed: bool,
@@ -61,6 +76,9 @@ struct Picker {
     /// The picker was opened before the provider list arrived.
     models_wanted: bool,
     choice: Option<ModelChoice>,
+    /// `--effort` for the next turn; `None` is the CLI's default. Always one
+    /// of `efforts()` (`Picker::clamp_effort`, proofs/Proofs/Effort.lean).
+    effort: Option<String>,
     catalogs: HashMap<String, Vec<ModelInfo>>,
     catalog_failed: HashSet<String>,
     catalog_in_flight: HashSet<String>,
@@ -82,6 +100,53 @@ impl Picker {
 
     fn model(&self) -> Option<&str> {
         self.choice.as_ref().and_then(|c| c.model.as_deref())
+    }
+
+    /// The selected model's catalog row, when the catalog lists it.
+    fn listed_model(&self) -> Option<&ModelInfo> {
+        let (provider, model) = (self.provider()?, self.model()?);
+        self.catalogs.get(provider)?.iter().find(|m| m.id == model)
+    }
+
+    /// Efforts the current selection offers (`Effort.allowed`): the model's
+    /// advertised list when the catalog has one, else the CLI's generic levels.
+    fn efforts(&self) -> Vec<String> {
+        match self.listed_model().and_then(|m| m.efforts.clone()) {
+            Some(list) => list,
+            None => GENERIC_EFFORTS.iter().map(|e| (*e).to_owned()).collect(),
+        }
+    }
+
+    /// `Effort.reclamp`: drop a chosen effort the selection no longer offers.
+    /// Returns the dropped effort.
+    fn clamp_effort(&mut self) -> Option<String> {
+        let offered = self.efforts();
+        match &self.effort {
+            Some(e) if !offered.contains(e) => self.effort.take(),
+            _ => None,
+        }
+    }
+
+    fn effort_label(&self) -> String {
+        format!("Effort · {}", self.effort.as_deref().unwrap_or("Default"))
+    }
+
+    fn effort_note(&self) -> &'static str {
+        match self.listed_model().and_then(|m| m.efforts.as_ref()) {
+            Some(list) if list.is_empty() => "This model takes no reasoning effort setting.",
+            Some(_) => "Levels this model advertises.",
+            None => "Generic levels. The provider maps them to its own or rejects ones it doesn't support.",
+        }
+    }
+
+    fn effort_default_detail(&self) -> String {
+        match self
+            .listed_model()
+            .and_then(|m| m.default_effort.as_deref())
+        {
+            Some(level) => format!("Your settings, or this model's default ({level})"),
+            None => "Your settings, or the provider's default".into(),
+        }
     }
 
     fn label(&self) -> String {
@@ -193,7 +258,29 @@ fn model_rows(picker: &Picker) -> Vec<ModelRow> {
     rows
 }
 
-fn render_picker(ui: &App, picker: &Picker) {
+/// Clamp the effort to what the selection offers, then show it. Every change
+/// of provider, model, catalog or saved chat goes through here.
+fn render_picker(ui: &App, picker: &mut Picker) {
+    if let Some(dropped) = picker.clamp_effort() {
+        ui.set_status_label(
+            format!(
+                "Effort reset to Default: {} doesn't offer {dropped}",
+                picker.label()
+            )
+            .into(),
+        );
+    }
+    ui.set_efforts(ModelRc::from(Rc::new(VecModel::from(
+        picker
+            .efforts()
+            .into_iter()
+            .map(SharedString::from)
+            .collect::<Vec<_>>(),
+    ))));
+    ui.set_picker_effort(picker.effort.clone().unwrap_or_default().into());
+    ui.set_effort_label(picker.effort_label().into());
+    ui.set_effort_note(picker.effort_note().into());
+    ui.set_effort_default_detail(picker.effort_default_detail().into());
     ui.set_providers(ModelRc::from(Rc::new(VecModel::from(provider_rows(
         picker,
     )))));
@@ -235,7 +322,7 @@ fn load_providers(ui: &App, state: &Rc<RefCell<State>>) {
                     }
                     Err(_) => app_error(ui, "Provider list"),
                 }
-                render_picker(ui, &s.picker);
+                render_picker(ui, &mut s.picker);
                 std::mem::take(&mut s.picker.models_wanted)
             };
             if wanted {
@@ -261,7 +348,7 @@ fn load_models(ui: &App, state: &Rc<RefCell<State>>) {
         }
         (s.bridge.clone(), provider)
     };
-    render_picker(ui, &state.borrow().picker);
+    render_picker(ui, &mut state.borrow_mut().picker);
     let requested = provider.clone();
     dispatch(
         ui.as_weak(),
@@ -280,7 +367,7 @@ fn load_models(ui: &App, state: &Rc<RefCell<State>>) {
                     s.picker.catalog_failed.insert(provider);
                 }
             }
-            render_picker(ui, &s.picker);
+            render_picker(ui, &mut s.picker);
         },
     );
 }
@@ -314,6 +401,9 @@ const INDEX_MAX_DEPTH: usize = 4;
 const INDEX_MAX_FILES: usize = 512;
 const INDEX_MAX_SKILLS: usize = 128;
 const COMPLETION_MAX: usize = 8;
+/// `tny --effort` levels (docs/cli.md) for models whose catalog lists none.
+const GENERIC_EFFORTS: &[&str] = &["off", "light", "medium", "high", "xhigh", "max"];
+const RECENT_DIRS_MAX: usize = 8;
 const GUI_COMMANDS: &[&str] = &["/new", "/refresh", "/usage", "/help"];
 const SKILL_DIRS: &[&str] = &[
     "skills",
@@ -880,20 +970,25 @@ fn build_local_index(ui: &App, state: &Rc<RefCell<State>>) {
         if !s.index_gate.request() {
             return;
         }
-        s.cwd.clone()
+        s.workdir.cwd.clone()
     };
     let home = std::env::var_os("HOME").map(PathBuf::from);
+    let built_for = cwd.clone();
     dispatch(
         ui.as_weak(),
-        move || local_index(&cwd, home.as_deref()),
+        move || local_index(&built_for, home.as_deref()),
         move |ui, index| {
             let Some(state) = ui_state(ui) else {
                 return;
             };
             let rerun = {
                 let mut s = state.borrow_mut();
-                s.local_index = index;
-                s.index_gate.complete()
+                // An index built for a folder the chat has since left is dropped.
+                let applied = s.workdir.step(workdir::Event::IndexArrived(cwd));
+                if applied {
+                    s.local_index = index;
+                }
+                s.index_gate.complete() || !applied
             };
             update_suggestions(ui, &state, &ui.get_draft());
             if rerun {
@@ -912,6 +1007,55 @@ fn lowercase_hex_id(id: &str, len: usize) -> bool {
         && id
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn md_blocks(text: &str) -> ModelRc<MdBlock> {
+    let blocks: Vec<MdBlock> = markdown::render(text)
+        .into_iter()
+        .map(|b| MdBlock {
+            kind: match b.kind {
+                markdown::BlockKind::Gap => 0,
+                markdown::BlockKind::Heading => 1,
+                markdown::BlockKind::Rule => 2,
+                markdown::BlockKind::Para => 3,
+                markdown::BlockKind::Item => 4,
+                markdown::BlockKind::Quote => 5,
+                markdown::BlockKind::Table => 6,
+                markdown::BlockKind::Code => 7,
+            },
+            // StyledText has no font weight: headings are strong spans. It
+            // rejects a few constructs; those blocks are shown as typed.
+            text: {
+                let source = if b.kind == markdown::BlockKind::Heading && !b.inline.is_empty() {
+                    format!("**{}**", b.inline)
+                } else {
+                    b.inline.clone()
+                };
+                slint::StyledText::from_markdown(&source)
+                    .unwrap_or_else(|_| slint::StyledText::from_plain_text(&b.inline))
+            },
+            plain: b.plain.into(),
+            level: b.level as i32,
+            marker: b.marker.into(),
+        })
+        .collect();
+    ModelRc::from(Rc::new(VecModel::from(blocks)))
+}
+
+/// tny's replies render as Markdown; the user's own text is shown as typed.
+fn chat_row(role: &str, body: &str, meta: &str) -> ChatRow {
+    let rich = role == "tny";
+    ChatRow {
+        role: role.into(),
+        body: body.into(),
+        meta: meta.into(),
+        rich,
+        blocks: if rich {
+            md_blocks(body)
+        } else {
+            ModelRc::default()
+        },
+    }
 }
 
 fn rows_from_session(doc: &Value) -> Vec<ChatRow> {
@@ -941,11 +1085,11 @@ fn rows_from_session(doc: &Value) -> Vec<ChatRow> {
                 .copied()
                 .unwrap_or_else(|| field(item, "content"));
             if !text.is_empty() {
-                rows.push(ChatRow {
-                    role: if role == "user" { "You" } else { "tny" }.into(),
-                    body: text.into(),
-                    meta: "".into(),
-                });
+                rows.push(chat_row(
+                    if role == "user" { "You" } else { "tny" },
+                    text,
+                    "",
+                ));
             }
         }
     }
@@ -953,11 +1097,7 @@ fn rows_from_session(doc: &Value) -> Vec<ChatRow> {
     if !rows.iter().any(|r| r.role == "tny") {
         if let Some(text) = doc.pointer("/result/output").and_then(Value::as_str) {
             if !text.is_empty() {
-                rows.push(ChatRow {
-                    role: "tny".into(),
-                    body: text.into(),
-                    meta: "Saved result".into(),
-                });
+                rows.push(chat_row("tny", text, "Saved result"));
             }
         }
     }
@@ -994,10 +1134,20 @@ fn sessions_from_json(value: &Value) -> Vec<SessionRow> {
             let title = field(row, "title");
             let status = field(row, "status");
             let turns = row.get("turns").and_then(Value::as_u64).unwrap_or(0);
+            let turns = if turns == 1 {
+                "1 turn".to_string()
+            } else {
+                format!("{turns} turns")
+            };
             Some(SessionRow {
                 id: id.into(),
                 title: if title.is_empty() { "Untitled" } else { title }.into(),
-                meta: format!("{turns} turns · {status}").into(),
+                meta: if status.is_empty() {
+                    turns
+                } else {
+                    format!("{turns} · {status}")
+                }
+                .into(),
             })
         })
         .collect()
@@ -1308,7 +1458,7 @@ where
 }
 
 fn refresh(ui: &App, state: &Rc<RefCell<State>>) {
-    let (bridge, swarm_run, serial, generation) = {
+    let (bridge, swarm_run, serial, generation, list_cwd) = {
         let mut s = state.borrow_mut();
         if !s.refresh_gate.request() {
             return;
@@ -1319,6 +1469,7 @@ fn refresh(ui: &App, state: &Rc<RefCell<State>>) {
             s.swarm_run.clone(),
             s.refresh_serial,
             s.generation,
+            s.workdir.cwd.clone(),
         )
     };
     let run_snapshot = swarm_run.clone();
@@ -1357,7 +1508,13 @@ fn refresh(ui: &App, state: &Rc<RefCell<State>>) {
                 (same_context && !pending, pending || !same_context)
             };
             if apply {
+                // `tny sessions` is workspace-scoped: only the chat's folder's list is shown.
+                let listed = state
+                    .borrow_mut()
+                    .workdir
+                    .step(workdir::Event::ListArrived(list_cwd));
                 match sessions {
+                    Ok(_) if !listed => {}
                     Ok(value) => {
                         let list = sessions_from_json(&value);
                         if let Some(id) = &state.borrow().session_id {
@@ -1481,11 +1638,52 @@ fn ui_state(_: &App) -> Option<Rc<RefCell<State>>> {
     UI_STATE.with(|state| state.borrow().clone())
 }
 
+/// Show the turn machine's state: the notes under the turn's two messages and,
+/// while the turn is live, the status line with the elapsed time.
+fn render_turn(ui: &App, s: &State) {
+    let set_meta = |pos: Option<usize>, role: &str, meta: &str| {
+        if let Some(mut row) = pos.and_then(|p| s.rows.row_data(p)) {
+            if row.role == role && row.meta != meta {
+                row.meta = meta.into();
+                s.rows.set_row_data(pos.expect("row exists"), row);
+            }
+        }
+    };
+    set_meta(s.turn_user_row, "You", s.turn.user_meta());
+    set_meta(s.current_response, "tny", s.turn.reply_meta());
+    if let Some(label) = s.turn.phase_label() {
+        let elapsed = s.turn_started.map_or(0, |t| t.elapsed().as_secs());
+        ui.set_status_label(format!("{label} · {}", turn::elapsed_label(elapsed)).into());
+    }
+}
+
+/// Re-render the streaming reply's Markdown, at most every 80ms unless forced.
+fn render_reply(s: &mut State, force: bool) {
+    let Some(pos) = s.current_response else {
+        return;
+    };
+    if !force
+        && s.reply_rendered
+            .is_some_and(|t| t.elapsed() < Duration::from_millis(80))
+    {
+        return;
+    }
+    if let Some(mut row) = s.rows.row_data(pos) {
+        row.blocks = md_blocks(&row.body);
+        s.rows.set_row_data(pos, row);
+        s.reply_rendered = Some(Instant::now());
+    }
+}
+
 fn stream_event(ui: &App, state: &Rc<RefCell<State>>, generation: u64, event: Value) {
     let mut s = state.borrow_mut();
     if s.generation != generation {
         return;
     }
+    let kind = CliKind::of_event(
+        field(&event, "type"),
+        event.get("stop_reason").and_then(Value::as_i64),
+    );
     let id = field(&event, "session_id");
     if lowercase_hex_id(id, 16) {
         s.session_id = Some(id.into());
@@ -1500,11 +1698,7 @@ fn stream_event(ui: &App, state: &Rc<RefCell<State>>, generation: u64, event: Va
                     Some(pos) => pos,
                     None => {
                         let pos = s.rows.row_count();
-                        s.rows.push(ChatRow {
-                            role: "tny".into(),
-                            body: "".into(),
-                            meta: "Streaming…".into(),
-                        });
+                        s.rows.push(chat_row("tny", "", ""));
                         s.current_response = Some(pos);
                         pos
                     }
@@ -1514,37 +1708,83 @@ fn stream_event(ui: &App, state: &Rc<RefCell<State>>, generation: u64, event: Va
                     body.push_str(text);
                     row.body = body.into();
                     s.rows.set_row_data(pos, row);
+                    render_reply(&mut s, false);
                     ui.invoke_jump_to_latest();
                 }
             }
         }
-        "tool_start" => {
-            // Tool names/details and CLI stderr may carry workspace or credential data.
-            ui.set_status_label("Using a tool…".into());
-        }
+        // Tool names/details and CLI stderr may carry workspace or credential
+        // data; the status line names the phase only. CLI JSONL exposes no owner
+        // approval channel to this GUI, so approvals follow the unattended policy.
         "usage" => ui.set_usage_label(format!("Turn {}", usage_label(&event)).into()),
-        "permission_request" => {
-            // CLI JSONL does not expose an owner approval channel to this GUI.
-            ui.set_status_label("Approval requested; unattended CLI policy applies".into());
-        }
         "error" => {
             s.turn_has_error = true;
             app_error(ui, "Agent turn");
         }
         "turn_end" => {
-            if let Some(pos) = s.current_response {
-                if let Some(mut row) = s.rows.row_data(pos) {
-                    row.meta = "".into();
-                    s.rows.set_row_data(pos, row);
-                }
-            }
-            if event.get("stop_reason").and_then(Value::as_i64) != Some(0) {
+            render_reply(&mut s, true);
+            if kind != CliKind::TurnEndOk {
                 s.turn_has_error = true;
                 app_error(ui, "Agent turn");
             }
         }
         _ => {}
     }
+    s.turn = s.turn.step(turn::Event::Cli(kind));
+    render_turn(ui, &s);
+}
+
+/// A new, empty chat in the current folder (`/new`, New chat, a folder change).
+fn reset_chat(ui: &App, s: &mut State) {
+    s.generation += 1;
+    reset_pending_allowance(ui);
+    s.workdir.step(workdir::Event::NewChat);
+    s.session_id = None;
+    ui.set_current_session_id("".into());
+    ui.set_swarm_mode_label(swarm_label(s.swarm).into());
+    s.session_usage = None;
+    ui.set_usage_label("Workspace tokens · refresh to view".into());
+    s.current_response = None;
+    s.turn = TurnMachine::default();
+    s.turn_user_row = None;
+    s.unconfirmed = false;
+    s.requires_tool_confirmation = false;
+    s.saved_read_only = false;
+    ui.set_needs_tool_confirmation(false);
+    ui.set_saved_read_only(false);
+    ui.set_saved_read_only_note("".into());
+    s.rows.set_vec(Vec::new());
+    ui.set_session_title("New conversation".into());
+    ui.set_has_session(false);
+    ui.set_error_visible(false);
+}
+
+fn render_workdir(ui: &App, s: &State) {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let cwd = &s.workdir.cwd;
+    // Workdir.Inv: the CLI's --cwd and the label always name the chat's folder.
+    debug_assert_eq!(s.bridge.cwd(), cwd.as_path());
+    ui.set_workspace_label(cwd.display().to_string().into());
+    ui.set_workdir_label(workdir::short_label(cwd, home.as_deref()).into());
+    ui.set_recent_workdirs(ModelRc::from(Rc::new(VecModel::from(
+        s.recent_dirs
+            .iter()
+            .map(|d| SharedString::from(workdir::display(d, home.as_deref())))
+            .collect::<Vec<_>>(),
+    ))));
+}
+
+/// Slint's `font-family` resolves named families only, so ask the platform's
+/// font system (fontconfig, CoreText, DirectWrite) which family `monospace` is.
+fn monospace_family() -> Option<String> {
+    let mut fonts = fontique::Collection::new(fontique::CollectionOptions {
+        shared: false,
+        system_fonts: true,
+    });
+    let id = fonts
+        .generic_families(fontique::GenericFamily::Monospace)
+        .next()?;
+    fonts.family_name(id).map(str::to_owned)
 }
 
 fn connection_label(ssh: Option<&str>) -> String {
@@ -1565,11 +1805,20 @@ fn main() -> Result<(), slint::PlatformError> {
             {
                 launch_cwd.parent().unwrap_or(&launch_cwd).to_path_buf()
             } else {
-                launch_cwd
+                launch_cwd.clone()
             }
         });
+    // The chat's folder can change; a relative binary path must not follow it.
+    let cwd = cwd.canonicalize().unwrap_or(cwd);
     let binary = std::env::var_os("TNY_GUI_BINARY")
         .map(PathBuf::from)
+        .map(|path| {
+            if path.is_relative() && path.components().count() > 1 {
+                launch_cwd.join(path)
+            } else {
+                path
+            }
+        })
         .unwrap_or_else(|| {
             let local = cwd.join("build/tny");
             if local.is_file() {
@@ -1582,7 +1831,8 @@ fn main() -> Result<(), slint::PlatformError> {
     let state = Rc::new(RefCell::new(State {
         bridge: Bridge::new(binary.clone(), cwd.clone(), None, None),
         binary,
-        cwd: cwd.clone(),
+        workdir: Workdir::new(cwd.clone()),
+        recent_dirs: Vec::new(),
         ssh: None,
         session_id: None,
         session_usage: None,
@@ -1598,6 +1848,10 @@ fn main() -> Result<(), slint::PlatformError> {
         swarm_run: None,
         rows: rows.clone(),
         sessions: Vec::new(),
+        turn: TurnMachine::default(),
+        turn_started: None,
+        turn_user_row: None,
+        reply_rendered: None,
         current_response: None,
         turn_has_error: false,
         unconfirmed: false,
@@ -1612,7 +1866,7 @@ fn main() -> Result<(), slint::PlatformError> {
     }));
     let ui = App::new()?;
     ui.set_chat(ModelRc::from(rows));
-    ui.set_workspace_label(cwd.display().to_string().into());
+    render_workdir(&ui, &state.borrow());
     UI_STATE.with(|s| *s.borrow_mut() = Some(state.clone()));
 
     ui.on_refresh({
@@ -1694,26 +1948,8 @@ fn main() -> Result<(), slint::PlatformError> {
                     );
                     return;
                 }
-                let mut s = state.borrow_mut();
-                s.generation += 1;
-                reset_pending_allowance(&ui);
-                s.session_id = None;
-                ui.set_current_session_id("".into());
-                ui.set_swarm_mode_label(swarm_label(s.swarm).into());
-                s.session_usage = None;
-                ui.set_usage_label("Workspace tokens · refresh to view".into());
-                s.current_response = None;
-                s.unconfirmed = false;
-                s.requires_tool_confirmation = false;
-                s.saved_read_only = false;
-                ui.set_needs_tool_confirmation(false);
-                ui.set_saved_read_only(false);
-                ui.set_saved_read_only_note("".into());
-                s.rows.set_vec(Vec::new());
-                ui.set_session_title("New conversation".into());
-                ui.set_has_session(false);
+                reset_chat(&ui, &mut state.borrow_mut());
                 ui.set_status_label("Ready · new session".into());
-                ui.set_error_visible(false);
             }
         }
     });
@@ -1733,6 +1969,12 @@ fn main() -> Result<(), slint::PlatformError> {
                 let Some(row) = s.sessions.get(index as usize).cloned() else {
                     return;
                 };
+                // Recent lists the chat folder's sessions; one read for another
+                // folder could not be resumed here.
+                if s.workdir.list.as_ref() != Some(&s.workdir.cwd) {
+                    validation_error(&ui, "Recent is still loading for this folder. Try again in a moment.");
+                    return;
+                }
                 s.generation += 1;
                 reset_pending_allowance(&ui);
                 s.busy = true;
@@ -1761,8 +2003,11 @@ fn main() -> Result<(), slint::PlatformError> {
                     s.busy = false;
                     ui.set_busy(false);
                     match result {
-                        Ok(doc) if field(&doc, "id") == selected_id => {
+                        Ok(doc) if field(&doc, "id") == selected_id && s.workdir.step(workdir::Event::Select) => {
                             let access = saved_session_access(&doc);
+                            s.turn = TurnMachine::default();
+                            s.turn_user_row = None;
+                            s.current_response = None;
                             s.rows.set_vec(rows_from_session(&doc));
                             ui.invoke_jump_to_latest();
                             ui.set_current_session_id(selected_id.clone().into());
@@ -1772,7 +2017,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             ui.set_swarm_mode_label("Saved setup".into());
                             // The picker follows the chat: show what it resumes with.
                             s.picker.choice = saved_choice(&doc);
-                            render_picker(ui, &s.picker);
+                            render_picker(ui, &mut s.picker);
                             s.session_usage = session_usage_label(&doc);
                             ui.set_usage_label(s.session_usage.clone().unwrap_or_else(|| "Session tokens unavailable".into()).into());
                             s.unconfirmed = false;
@@ -1819,7 +2064,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 return;
             }
             let host = if use_ssh { s.ssh.clone() } else { None };
-            s.bridge = Bridge::new(s.binary.clone(), s.cwd.clone(), host.clone(), None);
+            s.bridge = Bridge::new(s.binary.clone(), s.workdir.cwd.clone(), host.clone(), None);
             s.ssh = host.clone();
             s.requires_tool_confirmation = false;
             ui.set_needs_tool_confirmation(false);
@@ -1911,13 +2156,16 @@ fn main() -> Result<(), slint::PlatformError> {
                 s.turn_has_error = false;
                 s.generation += 1;
                 s.current_response = None;
-                s.rows.push(ChatRow {
-                    role: "You".into(),
-                    body: prompt.clone().into(),
-                    meta: "Sending…".into(),
-                });
+                s.turn = s.turn.step(turn::Event::Submit);
+                s.workdir.step(workdir::Event::Submit);
+                s.turn_started = Some(Instant::now());
+                s.turn_user_row = Some(before_rows);
+                s.rows.push(chat_row("You", &prompt, s.turn.user_meta()));
                 (
-                    s.bridge.clone().with_model(s.picker.choice.clone()),
+                    s.bridge
+                        .clone()
+                        .with_model(s.picker.choice.clone())
+                        .with_effort(s.picker.effort.clone()),
                     s.session_id.clone(),
                     swarm_for_turn(s.session_id.as_deref(), s.swarm),
                     s.generation,
@@ -1930,12 +2178,29 @@ fn main() -> Result<(), slint::PlatformError> {
             ui.set_draft("".into());
             update_suggestions(&ui, &state, "");
             ui.set_error_visible(false);
-            ui.set_status_label("Agent is working…".into());
+            render_turn(&ui, &state.borrow());
             ui.invoke_jump_to_latest();
             let weak = ui.as_weak();
             thread::spawn(move || {
                 let mut observed_id = resume.clone();
                 let weak_events = weak.clone();
+                let weak_delivered = weak.clone();
+                // tny has the whole prompt once stdin is written and closed.
+                let on_delivered = move || {
+                    let _ = slint::invoke_from_event_loop(move || {
+                        let Some(ui) = weak_delivered.upgrade() else {
+                            return;
+                        };
+                        let Some(state) = ui_state(&ui) else {
+                            return;
+                        };
+                        let mut s = state.borrow_mut();
+                        if s.generation == generation {
+                            s.turn = s.turn.step(turn::Event::Delivered);
+                            render_turn(&ui, &s);
+                        }
+                    });
+                };
                 let on_event = |event: Value| {
                     if let Some(id) = event.get("session_id").and_then(Value::as_str) {
                         if lowercase_hex_id(id, 16) {
@@ -1951,11 +2216,14 @@ fn main() -> Result<(), slint::PlatformError> {
                         }
                     });
                 };
-                let result = if let Some(path) = image.as_deref() {
-                    bridge.ask_stream_image(&prompt, resume.as_deref(), swarm, Some(path), on_event)
-                } else {
-                    bridge.ask_stream(&prompt, resume.as_deref(), swarm, on_event)
-                };
+                let result = bridge.ask_stream_delivered(
+                    &prompt,
+                    resume.as_deref(),
+                    swarm,
+                    image.as_deref(),
+                    on_delivered,
+                    on_event,
+                );
                 let saved = observed_id
                     .as_ref()
                     .map(|id| (id.clone(), bridge.command(&["session", id, "--json"])));
@@ -1972,14 +2240,26 @@ fn main() -> Result<(), slint::PlatformError> {
                     }
                     s.busy = false;
                     ui.set_busy(false);
+                    s.workdir.step(workdir::Event::Finish);
                     let failed = result.is_err() || s.turn_has_error;
                     let mut accepted = false;
                     let mut confirmed = false;
+                    render_reply(&mut s, true);
                     if let Some((id, Ok(doc))) = saved.as_ref() {
                         if let Some((rows, persisted_user)) = reconcile_saved(doc, id, before_users)
                         {
                             s.rows.set_vec(rows);
-                            s.current_response = None;
+                            // Re-attach the turn's notes to the saved transcript's rows.
+                            let count = s.rows.row_count();
+                            let last = |role: &str| {
+                                (0..count).rev().find(|&i| {
+                                    s.rows.row_data(i).is_some_and(|row| row.role == role)
+                                })
+                            };
+                            let user = last("You").filter(|_| persisted_user);
+                            s.current_response =
+                                last("tny").filter(|&r| user.is_some_and(|u| r > u));
+                            s.turn_user_row = user;
                             s.session_id = Some(id.clone());
                             ui.set_current_session_id(id.clone().into());
                             s.session_usage = session_usage_label(doc);
@@ -1990,25 +2270,25 @@ fn main() -> Result<(), slint::PlatformError> {
                             ui.invoke_jump_to_latest();
                         }
                     }
-                    if confirmed && !accepted && !failed {
-                        s.unconfirmed = true;
-                    }
-                    if !confirmed && saved.is_none() && failed {
-                        // No session identity was supplied: discard the optimistic
-                        // user/assistant rows so a retry cannot duplicate unsaved chat.
-                        while s.rows.row_count() > before_rows {
-                            s.rows.remove(before_rows);
+                    let outcome = turn::outcome(confirmed, accepted, failed, saved.is_some());
+                    s.turn = s.turn.step(turn::Event::Finish(outcome));
+                    match outcome {
+                        turn::Outcome::Discarded if !confirmed => {
+                            // No session identity was supplied: discard the optimistic
+                            // user/assistant rows so a retry cannot duplicate unsaved chat.
+                            while s.rows.row_count() > before_rows {
+                                s.rows.remove(before_rows);
+                            }
+                            s.turn_user_row = None;
+                            s.current_response = None;
                         }
-                    } else if !confirmed {
                         // A session may exist despite a lost read/stream. Do not
                         // manufacture a success or automatically repost the prompt.
-                        s.unconfirmed = true;
-                        if let Some(mut row) = s.rows.row_data(before_rows) {
-                            row.meta = "Unconfirmed · inspect saved session".into();
-                            s.rows.set_row_data(before_rows, row);
-                        }
+                        turn::Outcome::Unconfirmed => s.unconfirmed = true,
+                        _ => {}
                     }
-                    if failed && !accepted && !s.unconfirmed && ui.get_draft().is_empty() {
+                    render_turn(&ui, &s);
+                    if outcome == turn::Outcome::Discarded && ui.get_draft().is_empty() {
                         ui.set_draft(prompt.into());
                     }
                     if (result.is_ok() || accepted)
@@ -2264,7 +2544,12 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             s.generation += 1;
             reset_pending_allowance(&ui);
-            s.bridge = Bridge::new(s.binary.clone(), s.cwd.clone(), Some(host.clone()), None);
+            s.bridge = Bridge::new(
+                s.binary.clone(),
+                s.workdir.cwd.clone(),
+                Some(host.clone()),
+                None,
+            );
             s.ssh = Some(host.clone());
             ui.set_connection_label(connection_label(Some(&host)).into());
             ui.set_ssh_configured(true);
@@ -2295,7 +2580,7 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             s.generation += 1;
             reset_pending_allowance(&ui);
-            s.bridge = Bridge::new(s.binary.clone(), s.cwd.clone(), None, None);
+            s.bridge = Bridge::new(s.binary.clone(), s.workdir.cwd.clone(), None, None);
             s.ssh = None;
             ui.set_connection_label(connection_label(None).into());
             ui.set_ssh_configured(false);
@@ -2508,8 +2793,8 @@ fn main() -> Result<(), slint::PlatformError> {
                         model: None,
                     });
                 }
-                render_picker(&ui, &s.picker);
                 ui.set_status_label(format!("Next message uses {}", s.picker.label()).into());
+                render_picker(&ui, &mut s.picker);
             }
             load_models(&ui, &state);
         }
@@ -2539,16 +2824,124 @@ fn main() -> Result<(), slint::PlatformError> {
                 return;
             }
             s.picker.choice = Some(choice);
-            render_picker(&ui, &s.picker);
             ui.set_status_label(format!("Next message uses {}", s.picker.label()).into());
+            render_picker(&ui, &mut s.picker);
+        }
+    });
+    ui.on_pick_effort({
+        let state = state.clone();
+        let weak = ui.as_weak();
+        move |id| {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let mut s = state.borrow_mut();
+            let id = id.trim();
+            if id.is_empty() {
+                s.picker.effort = None;
+            } else if s.picker.efforts().iter().any(|e| e == id) {
+                s.picker.effort = Some(id.to_owned());
+            } else {
+                // `Effort.pick_unoffered_is_ignored`: nothing changes.
+                validation_error(&ui, "That effort isn't offered for this model.");
+                return;
+            }
+            ui.set_status_label(
+                format!(
+                    "Next message uses {} with {} effort",
+                    s.picker.label(),
+                    s.picker.effort.as_deref().unwrap_or("default")
+                )
+                .into(),
+            );
+            render_picker(&ui, &mut s.picker);
+        }
+    });
+    ui.on_change_workdir({
+        let state = state.clone();
+        let weak = ui.as_weak();
+        move |raw| {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let dir = match workdir::resolve(&raw, home.as_deref()) {
+                Ok(dir) => dir,
+                Err(message) => {
+                    validation_error(&ui, message);
+                    return;
+                }
+            };
+            {
+                let mut s = state.borrow_mut();
+                if s.busy {
+                    validation_error(&ui, "Wait for the current turn to finish before changing folders.");
+                    return;
+                }
+                if s.ssh.is_some() {
+                    validation_error(&ui, "Tools run on the SSH host. Switch to This computer to change the local folder.");
+                    return;
+                }
+                if dir == s.workdir.cwd {
+                    ui.set_status_label(format!("Already working in {}", dir.display()).into());
+                    return;
+                }
+                let previous = s.workdir.cwd.clone();
+                if !s.workdir.step(workdir::Event::Change(dir.clone(), true)) {
+                    validation_error(&ui, "Wait for the current turn to finish before changing folders.");
+                    return;
+                }
+                // Sessions belong to their folder: the chat starts fresh there.
+                reset_chat(&ui, &mut s);
+                s.bridge = Bridge::new(s.binary.clone(), dir.clone(), None, None);
+                s.local_index = LocalIndex::default();
+                s.sessions.clear();
+                ui.set_sessions(ModelRc::from(Rc::new(VecModel::from(Vec::<SessionRow>::new()))));
+                s.recent_dirs.retain(|d| *d != previous && *d != dir);
+                s.recent_dirs.insert(0, previous);
+                s.recent_dirs.truncate(RECENT_DIRS_MAX);
+                render_workdir(&ui, &s);
+                ui.set_status_label(
+                    format!(
+                        "Now working in {} · new chat",
+                        workdir::display(&dir, home.as_deref())
+                    )
+                    .into(),
+                );
+            }
+            update_suggestions(&ui, &state, &ui.get_draft());
+            refresh(&ui, &state);
+            build_local_index(&ui, &state);
+            load_providers(&ui, &state);
         }
     });
 
     refresh(&ui, &state);
     build_local_index(&ui, &state);
     load_providers(&ui, &state);
+    // Font enumeration stays off the UI thread; code shows in the default face until then.
+    dispatch(ui.as_weak(), monospace_family, |ui, family| {
+        if let Some(family) = family {
+            ui.set_mono_font(family.into());
+        }
+    });
     // Track an explicitly selected durable run without consuming mailbox messages.
     // Chat events already stream, so ordinary startup makes no periodic provider request.
+    // The live turn's status line counts elapsed seconds, so a long silent
+    // tool call still shows that tny is working and for how long.
+    let turn_timer = slint::Timer::default();
+    turn_timer.start(slint::TimerMode::Repeated, Duration::from_secs(1), {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        move || {
+            let s = state.borrow();
+            if s.turn.busy() {
+                if let Some(ui) = weak.upgrade() {
+                    render_turn(&ui, &s);
+                }
+            }
+        }
+    });
     let run_timer = slint::Timer::default();
     run_timer.start(slint::TimerMode::Repeated, Duration::from_secs(8), {
         let weak = ui.as_weak();
@@ -2822,6 +3215,9 @@ mod tests {
         );
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].meta.as_str(), "2 turns · done");
+        // A session without a status shows no dangling separator.
+        let sessions = sessions_from_json(&json!({"sessions":[{"id":"abc","turns":1}]}));
+        assert_eq!(sessions[0].meta.as_str(), "1 turn");
         let transcript = rows_from_session(
             &json!({"messages":[{"role":"user","content":"hello"},{"role":"assistant","content":"world"},{"role":"tool","content":"secret"}]}),
         );
@@ -2891,6 +3287,8 @@ mod tests {
                 id: "gpt-6-astra".into(),
                 name: "GPT-6-Astra".into(),
                 description: "Frontier".into(),
+                efforts: None,
+                default_effort: None,
             }],
         );
         assert_eq!(picker.status(), "");
@@ -2927,6 +3325,8 @@ mod tests {
                 id: "grok-4.6".into(),
                 name: "grok-4.6".into(),
                 description: "".into(),
+                efforts: None,
+                default_effort: None,
             }],
         );
         picker.choice = Some(ModelChoice {
@@ -2940,6 +3340,142 @@ mod tests {
         // A plain id-only catalog row repeats nothing under the label.
         assert_eq!(rows[1].detail.as_str(), "");
         assert_eq!(picker.label(), "aiproxy · custom/model");
+    }
+
+    fn model(id: &str, efforts: Option<&[&str]>) -> ModelInfo {
+        ModelInfo {
+            id: id.into(),
+            name: id.into(),
+            description: String::new(),
+            efforts: efforts.map(|l| l.iter().map(|e| (*e).to_owned()).collect()),
+            default_effort: Some("medium".into()),
+        }
+    }
+
+    fn choose(picker: &mut Picker, provider: &str, model: Option<&str>) {
+        picker.choice = Some(ModelChoice {
+            provider: provider.into(),
+            model: model.map(Into::into),
+        });
+        picker.clamp_effort();
+    }
+
+    #[test]
+    fn effort_offer_follows_the_selected_model_and_is_reclamped() {
+        let mut picker = Picker {
+            providers: vec![provider("codex", true, true)],
+            ..Picker::default()
+        };
+        // Unknown model: the CLI's generic levels.
+        assert_eq!(picker.efforts(), GENERIC_EFFORTS);
+        assert_eq!(picker.effort_label(), "Effort · Default");
+        picker.effort = Some("light".into());
+        picker.catalogs.insert(
+            "codex".into(),
+            vec![
+                model(
+                    "astra",
+                    Some(&["low", "medium", "high", "xhigh", "max", "ultra"]),
+                ),
+                model("plain", Some(&[])),
+                model("legacy", None),
+            ],
+        );
+        // A model whose catalog lists no "light" drops it (Effort.reclamp).
+        choose(&mut picker, "codex", Some("astra"));
+        assert_eq!(picker.effort, None);
+        assert!(picker.effort_default_detail().contains("(medium)"));
+        picker.effort = Some("ultra".into());
+        assert_eq!(picker.effort_label(), "Effort · ultra");
+        // Still supported: kept (Effort.clamp_keeps_supported).
+        choose(&mut picker, "codex", Some("astra"));
+        assert_eq!(picker.effort.as_deref(), Some("ultra"));
+        // A model that takes no effort offers only Default.
+        choose(&mut picker, "codex", Some("plain"));
+        assert!(picker.efforts().is_empty());
+        assert_eq!(picker.effort, None);
+        assert!(picker.effort_note().contains("no reasoning effort"));
+        // Unlisted efforts fall back to the generic set.
+        picker.effort = Some("high".into());
+        choose(&mut picker, "codex", Some("legacy"));
+        assert_eq!(picker.effort.as_deref(), Some("high"));
+        assert!(picker.effort_note().starts_with("Generic"));
+    }
+
+    #[test]
+    fn effort_invariant_holds_over_random_picker_histories() {
+        // Effort.inv_step, replayed against the real Picker over random events.
+        let catalogs = [
+            (
+                "codex",
+                vec![
+                    model("a", Some(&["low", "high", "ultra"])),
+                    model("b", Some(&[])),
+                ],
+            ),
+            (
+                "openai",
+                vec![model("c", None), model("d", Some(&["minimal", "high"]))],
+            ),
+        ];
+        let efforts = [
+            "off", "light", "low", "high", "ultra", "minimal", "max", "bogus",
+        ];
+        let selections: [(&str, Option<&str>); 7] = [
+            ("codex", None),
+            ("codex", Some("a")),
+            ("codex", Some("b")),
+            ("codex", Some("typed/id")),
+            ("openai", None),
+            ("openai", Some("c")),
+            ("openai", Some("d")),
+        ];
+        let mut seed = 1u64;
+        for _ in 0..200 {
+            let mut picker = Picker::default();
+            for _ in 0..40 {
+                seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                let r = (seed >> 33) as usize;
+                match r % 4 {
+                    0 => {
+                        let (p, m) = selections[r / 4 % selections.len()];
+                        choose(&mut picker, p, m);
+                    }
+                    1 => {
+                        let (name, list) = &catalogs[r / 4 % catalogs.len()];
+                        picker.catalogs.insert((*name).into(), list.clone());
+                        picker.clamp_effort();
+                    }
+                    2 => {
+                        let e = efforts[r / 4 % efforts.len()];
+                        // The pick handler: only offered efforts are accepted.
+                        if picker.efforts().iter().any(|x| x == e) {
+                            picker.effort = Some(e.into());
+                        }
+                    }
+                    _ => picker.effort = None,
+                }
+                if let Some(e) = &picker.effort {
+                    assert!(picker.efforts().contains(e), "{e} not offered");
+                    assert!(bridge::valid_effort(e));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn chat_rows_render_replies_as_markdown_and_user_text_as_typed() {
+        let reply = chat_row("tny", "## Files\n\n```text\nsrc/\n```", "");
+        assert!(reply.rich);
+        let kinds: Vec<i32> = reply.blocks.iter().map(|b| b.kind).collect();
+        assert_eq!(kinds, [1, 7]);
+        assert_eq!(reply.blocks.row_data(1).unwrap().plain.as_str(), "src/");
+        let mine = chat_row("You", "**not** rendered", "Sending…");
+        assert!(!mine.rich);
+        assert_eq!(mine.blocks.row_count(), 0);
+        assert_eq!(mine.body.as_str(), "**not** rendered");
     }
 
     #[test]

@@ -48,6 +48,20 @@ pub struct ModelInfo {
     pub id: String,
     pub name: String,
     pub description: String,
+    /// Reasoning efforts the catalog advertises; `None` when it says nothing.
+    pub efforts: Option<Vec<String>>,
+    pub default_effort: Option<String>,
+}
+
+/// An effort token as `--effort` accepts it: `[a-z0-9_-]`, 1–32 bytes, not
+/// flag-like. Catalog values that fail this are dropped before display.
+pub fn valid_effort(token: &str) -> bool {
+    !token.is_empty()
+        && token.len() <= 32
+        && !token.starts_with('-')
+        && token
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
 /// `None` means the CLI did not prove whether an artifact was committed.
@@ -75,6 +89,7 @@ pub struct Bridge {
     ssh: Option<String>,
     ssh_cwd: Option<String>,
     model: Option<ModelChoice>,
+    effort: Option<String>,
 }
 
 impl Bridge {
@@ -90,13 +105,26 @@ impl Bridge {
             ssh,
             ssh_cwd,
             model: None,
+            effort: None,
         }
+    }
+
+    /// The workspace every CLI call runs in (`--cwd`).
+    pub fn cwd(&self) -> &Path {
+        &self.cwd
     }
 
     /// The same bridge with an explicit provider/model for `ask`. Other
     /// operations keep the CLI's own provider resolution.
     pub fn with_model(mut self, choice: Option<ModelChoice>) -> Self {
         self.model = choice;
+        self
+    }
+
+    /// The same bridge with an explicit `--effort` for `ask`; `None` leaves the
+    /// CLI's own precedence (env, settings, provider default).
+    pub fn with_effort(mut self, effort: Option<String>) -> Self {
+        self.effort = effort;
         self
     }
 
@@ -292,6 +320,7 @@ impl Bridge {
         Ok((provider.to_owned(), model))
     }
 
+    #[cfg(test)]
     pub fn ask_stream(
         &self,
         prompt: &str,
@@ -302,12 +331,28 @@ impl Bridge {
         self.ask_stream_image(prompt, resume, swarm, None, on_event)
     }
 
+    #[cfg(test)]
     pub fn ask_stream_image(
         &self,
         prompt: &str,
         resume: Option<&str>,
         swarm: Option<u8>,
         image: Option<&str>,
+        on_event: impl FnMut(Value),
+    ) -> Result<(), String> {
+        self.ask_stream_delivered(prompt, resume, swarm, image, || {}, on_event)
+    }
+
+    /// `on_delivered` runs (on the writer thread) once the whole prompt has
+    /// been written to tny's stdin and the pipe closed: tny has the message,
+    /// even if no event arrives for a long time (a slow model or tool).
+    pub fn ask_stream_delivered(
+        &self,
+        prompt: &str,
+        resume: Option<&str>,
+        swarm: Option<u8>,
+        image: Option<&str>,
+        on_delivered: impl FnOnce() + Send + 'static,
         mut on_event: impl FnMut(Value),
     ) -> Result<(), String> {
         if resume.is_some_and(|id| !hex_id(id, 16)) {
@@ -346,12 +391,18 @@ impl Bridge {
             Some(choice) => Some((choice.provider.clone(), choice.model.clone())),
             None => resume.map(|id| self.saved_session_config(id)).transpose()?,
         };
+        if self.effort.as_deref().is_some_and(|e| !valid_effort(e)) {
+            return Err("Invalid reasoning effort".into());
+        }
         let mut cmd = self.process(true)?;
         if let Some((provider, model)) = pinned.as_ref() {
             cmd.arg("--provider").arg(provider);
             if let Some(model) = model {
                 cmd.arg("--model").arg(model);
             }
+        }
+        if let Some(effort) = self.effort.as_deref() {
+            cmd.arg("--effort").arg(effort);
         }
         cmd.args(["ask", "--events=jsonl", "--progress=none", "--stdin"]);
         if let Some(id) = resume {
@@ -369,7 +420,11 @@ impl Bridge {
         let mut child = spawn_tny(&mut cmd).map_err(|_| "Could not start tny ask".to_string())?;
         let stderr = drain_stderr(&mut child);
         // Write concurrently with stdout consumption, avoiding pipe deadlocks.
-        let writer = write_stdin(child.stdin.take().expect("piped stdin"), prompt);
+        let writer = write_stdin_then(
+            child.stdin.take().expect("piped stdin"),
+            prompt,
+            on_delivered,
+        );
         let mut output = BufReader::new(child.stdout.take().expect("piped stdout"));
         let mut terminal = None;
         let stream = (|| -> Result<(), String> {
@@ -538,14 +593,25 @@ fn run_process(
     }
 }
 
-fn write_stdin(
+fn write_stdin(input: impl Write + Send + 'static, text: &str) -> mpsc::Receiver<io::Result<()>> {
+    write_stdin_then(input, text, || {})
+}
+
+fn write_stdin_then(
     mut input: impl Write + Send + 'static,
     text: &str,
+    on_delivered: impl FnOnce() + Send + 'static,
 ) -> mpsc::Receiver<io::Result<()>> {
     let bytes = text.as_bytes().to_vec();
     let (tx, rx) = mpsc::sync_channel(1);
     thread::spawn(move || {
-        let _ = tx.send(input.write_all(&bytes));
+        let result = input.write_all(&bytes).and_then(|()| input.flush());
+        // Closing stdin is what tells `ask --stdin` the prompt is complete.
+        drop(input);
+        if result.is_ok() {
+            on_delivered();
+        }
+        let _ = tx.send(result);
     });
     rx
 }
@@ -645,6 +711,22 @@ pub fn parse_models(doc: &Value) -> Result<Vec<ModelInfo>, String> {
             ),
             _ => continue,
         };
+        // Only well-formed tokens are offered; a listed-but-empty set means the
+        // model takes no effort setting, a missing one means "unknown".
+        let efforts = row.get("efforts").and_then(Value::as_array).map(|list| {
+            let mut out: Vec<String> = Vec::new();
+            for token in list.iter().filter_map(Value::as_str).take(16) {
+                if valid_effort(token) && !out.iter().any(|e| e == token) {
+                    out.push(token.to_owned());
+                }
+            }
+            out
+        });
+        let default_effort = row
+            .get("default_effort")
+            .and_then(Value::as_str)
+            .filter(|e| valid_effort(e))
+            .map(str::to_owned);
         if id == "default"
             || id.len() > 256
             || !valid_model(&id)
@@ -657,6 +739,8 @@ pub fn parse_models(doc: &Value) -> Result<Vec<ModelInfo>, String> {
             name: if name.is_empty() { id.clone() } else { name },
             id,
             description,
+            efforts,
+            default_effort,
         });
     }
     Ok(out)

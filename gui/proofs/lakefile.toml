@@ -1,0 +1,10 @@
+name = "tny-gui-proofs"
+version = "0.1.0"
+defaultTargets = ["Proofs", "export"]
+
+[[lean_lib]]
+name = "Proofs"
+
+[[lean_exe]]
+name = "export"
+root = "Export"

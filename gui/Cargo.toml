@@ -7,6 +7,8 @@ publish = false
 [dependencies]
 slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-femtovg"] }
 serde_json = "1"
+# Already linked by Slint (same version): resolves the platform monospace family by name.
+fontique = "=0.11.1"
 
 [build-dependencies]
 slint-build = "=1.18.1"

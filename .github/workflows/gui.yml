@@ -6,12 +6,14 @@ on:
       - 'gui/**'
       - 'docs/gui.md'
       - 'docs/adr/0166-slint-desktop-companion.md'
+      - 'docs/adr/0169-desktop-effort-folder-markdown-and-verified-turn-status.md'
       - '.github/workflows/gui.yml'
   pull_request:
     paths:
       - 'gui/**'
       - 'docs/gui.md'
       - 'docs/adr/0166-slint-desktop-companion.md'
+      - 'docs/adr/0169-desktop-effort-folder-markdown-and-verified-turn-status.md'
       - '.github/workflows/gui.yml'
 
 jobs:
@@ -32,3 +34,21 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test --locked
       - run: cargo build --release --locked
+
+  # Lean 4 proofs of the GUI's state machines (ADR 0169). The golden tables the
+  # Rust tests replay are regenerated from the proven definitions; any drift
+  # between the proofs, the tables and the committed copies fails here.
+  proofs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: gui/proofs
+          auto-config: false
+          build: true
+      - name: Golden tables match the proven definitions
+        working-directory: gui/proofs
+        run: |
+          lake exe export golden
+          git diff --exit-code -- golden

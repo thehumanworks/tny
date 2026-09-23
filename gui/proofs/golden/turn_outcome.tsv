@@ -1,0 +1,17 @@
+confirmed	accepted	failed	had_id	outcome
+0	0	0	0	unconfirmed
+0	0	0	1	unconfirmed
+0	0	1	0	discarded
+0	0	1	1	unconfirmed
+0	1	0	0	unconfirmed
+0	1	0	1	unconfirmed
+0	1	1	0	discarded
+0	1	1	1	unconfirmed
+1	0	0	0	unconfirmed
+1	0	0	1	unconfirmed
+1	0	1	0	discarded
+1	0	1	1	discarded
+1	1	0	0	saved
+1	1	0	1	saved
+1	1	1	0	saved_failed
+1	1	1	1	saved_failed
