@@ -46,6 +46,38 @@ sends zstd-compressed requests. Without it, the proxy explains the problem
 and responds 415. `tiktoken` is optional; `run.py` and `report.py` label the
 chars/4 estimate when it is absent. The report writes both Markdown and JSON.
 
+## Compare two runs
+
+This command reads saved run results and request bodies; it makes no model
+requests.
+
+```sh
+python tests/bench/harness_bench/report.py \
+  --compare /home/tomas/.cache/tny-opt/runs/bench/baseline \
+            /home/tomas/.cache/tny-opt/runs/bench/confirmation \
+  --harness tny --margin -8 --fire compact='compaction marker regex' \
+  --out /home/tomas/.cache/tny-opt/runs/bench/comparison.md
+```
+
+The comparison also writes `comparison.json`. `--margin` is in percentage
+points; `-8` means B may lose at most eight points of success at the lower
+95% paired confidence bound. Task and repetition keys must match where both
+arms provide them; a task missing a repetition index must have one run per
+arm. Model and effort must be identical. When each directory contains
+one harness, `--harness` can be omitted (the harness names may differ).
+
+The report resamples whole tasks 10,000 times with a fixed seed, retaining
+all repetitions for each sampled task. ITE and USD per completed task divide
+the total over **every** run, including failures and timeouts, by passes.
+Paired cost and resource ratios are geometric means of per-task B/A ratios.
+Zero or missing costs make a log ratio unavailable; they are not replaced
+with an arbitrary offset. A run with no model requests has zero provider
+cost; a request lacking usage makes that run's cost unavailable.
+`--fire NAME=REGEX` can be repeated; it counts
+matches, requests, and runs in the saved decompressed request JSON for each
+arm. A zero-pass bootstrap sample makes the upper per-completed cost bound
+unbounded.
+
 For Unreal Agent, build its Go runner into
 `/home/tomas/.cache/tny-opt/bin/unreal-agent-runner` from the cloned source:
 

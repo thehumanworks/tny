@@ -135,6 +135,14 @@ best-of-several results that fall inside their own noise.
 - Publish the per-task flip table (fail→pass, pass→fail), not only
   aggregates.
 
+`tests/bench/harness_bench/report.py --compare ARM_A ARM_B --harness tny
+--margin -8 --out comparison.md` applies these rules to two run directories
+and writes Markdown plus JSON. It requires matching task/repetition keys,
+uses 10,000 fixed-seed bootstrap resamples of whole tasks, and reports the
+paired success delta, geometric mean per-task B/A cost ratios, and flips.
+Repeat `--fire NAME=REGEX` to count evidence of a feature in saved request
+bodies. See the benchmark README for the metric definitions and an example.
+
 ### Task format
 
 ```
