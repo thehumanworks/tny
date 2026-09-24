@@ -1,0 +1,121 @@
+# Harness efficiency benchmark
+
+Status: in progress (2026-09-24). This page defines what "optimised" means for
+tny as an agent harness, how it is measured against other harnesses, and the
+baseline observed before any change. Results tables are appended by the
+benchmark report (`tests/bench/harness_bench/report.py`).
+
+## What we optimise
+
+Primary objective: **price-weighted cost per completed task** at **no loss of
+task success**. Cost is measured per task, not per request: a change that
+shrinks requests but adds turns can cost more.
+
+Two layers are measured and tuned separately.
+
+| Layer | What it is | What tny controls | Metrics |
+| --- | --- | --- | --- |
+| **Harness** (tooling, environment) | Everything tny sends and executes: system prompt, tool schemas, injected context, tool result formatting, output offload, caching layout, compaction, isolation | Directly | Static prefix tokens (system / tools / injected), cache hit rate, tool-result tokens per call, context tokens per request, tool error rate, requests per task, TTFT, startup |
+| **Agent** (model behaviour) | The decisions the model makes inside the harness: which tools, how much to read, when to stop, delegation | Indirectly (definitions, triggers, defaults) | Pass rate, steps to pass, output + reasoning tokens, wasted reads, cost per completed task |
+
+Value density: every token placed in context should be likely to change a
+decision. Large outputs belong in files that the agent can grep, tail, or read
+in ranges, not inline in the transcript that every later request re-reads.
+
+Rules we keep (from the reference in `docs/web-resources/`):
+
+- Change what the harness sends, not how hard the model tries. No prompt text
+  asks the model to "save tokens" or "do less".
+- Do not truncate data away. Spill it to a file and return a path, size, and
+  a short head/tail.
+- Keep the cached prefix byte-stable; volatile values go after it.
+- Never drop reasoning items to save input tokens.
+- Ship a change only when cost per completed task drops and success does not
+  regress beyond noise. Record null results.
+
+## Cost model
+
+Token classes come from provider usage fields: uncached input
+(`input_tokens - cached_tokens`), cached input (`cached_tokens`), output
+(`output_tokens`, including reasoning).
+
+Cost is reported in **input-token equivalents (ITE)** with weights
+uncached `1.0`, cached `0.1`, output `8.0` (the published GPT-5-family
+ratio). Dollar figures use published list prices when they exist for the
+benchmark model and state the price date. Subscription use is converted with
+the same list prices; it is a comparison unit, not a bill.
+
+## Baseline from real usage (before changes)
+
+Source: all 59 saved tny sessions under `~/.tny/sessions` (2,337 requests,
+mostly `gpt-6-sol`, `gpt-6-astra`, `gpt-5.6-sol`).
+
+| Measure | Value |
+| --- | ---: |
+| Input tokens | 258.9 M |
+| Cached input tokens | 252.0 M (**97.3%** hit rate) |
+| Output tokens | 1.20 M |
+| Mean input tokens per request | **110.8 K** |
+| Cost share (ITE): cached input / uncached input / output | 60% / 17% / 23% |
+
+Cache misses are rare. The cost driver is the size of the context that every
+request re-reads. Tool results in saved transcripts (14.8 MB total):
+
+| Tool | Bytes | Calls | Mean bytes/call |
+| --- | ---: | ---: | ---: |
+| terminal | 11.6 M (79%) | 1,862 | 6,247 |
+| read_file | 2.1 M (14%) | 445 | 4,760 |
+| web_fetch | 0.28 M | 23 | 12,197 |
+| grep_files | 0.22 M | 170 | 1,306 |
+
+Static prefix of one rendered request (`build/tny`, `openai` provider,
+default `all` tool profile, empty project): system instructions 373 tokens;
+**38 tool schemas = 4,639 tokens**. The largest are `job_submit` (569),
+`image_contact_sheet` (484), `image_export` (445), `subagent` (325),
+`team_mailbox` (264), `swarm_message` (227), `team_control` (216).
+
+## Cross-harness benchmark
+
+### Fairness rules
+
+- Same model and reasoning effort for every harness in a comparison row.
+  Rows with a different model are flagged and excluded from the headline.
+- Every harness runs its **default** system prompt and tools, with user-level
+  configuration isolated (fresh `HOME`: no user AGENTS.md, skills,
+  extensions, or MCP servers).
+- All model traffic goes through one local recording proxy
+  (`tests/bench/harness_bench/proxy.py`) that forwards to the same upstream
+  (`chatgpt.com/backend-api/codex/responses`) and records usage from the
+  provider's own `response.completed` event. Harness self-reports are not
+  trusted.
+- Verification is hidden from the agent and runs after the harness exits.
+- Each (harness, task) runs at least 3 times; report mean and spread.
+
+### Task format
+
+```
+tests/bench/harness_bench/tasks/<id>/
+  task.json   {"id", "category", "prompt", "timeout_s", "tags": [...]}
+  repo/       initial workspace (copied, then git init + commit)
+  setup.sh    optional, deterministic; run in the workspace before the agent
+  verify.sh   verify.sh <workspace> <final_message_file>; exit 0 = pass;
+              prints a one-line reason; hidden tests live beside it
+```
+
+Prompts are short and phrased the way users write them. Tasks stress the
+harness paths that dominate real cost: large command output, large files,
+verbose test failures, multi-file edits, and codebase questions.
+
+### Per-run record
+
+pass/fail, wall seconds, model requests, tool calls, tool errors, input /
+cached / output / reasoning tokens, ITE cost, static prefix tokens (first
+request: instructions + tools), peak and mean context tokens per request,
+tool-result tokens, and the upstream HTTP status of every request.
+
+### Headline table
+
+| Harness | Model | Pass rate | ITE per task | ITE per passed task | Requests/task | Cache hit | Mean context tokens | Static prefix | p50 wall |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+
+Filled by `report.py` for baseline and final runs.
