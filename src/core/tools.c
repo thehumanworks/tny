@@ -697,12 +697,14 @@ char *tools_schema_json(tools_env *env) {
                     yyjson_mut_obj_get(yyjson_mut_obj_get(copy, "function"), "parameters"),
                     "properties");
                 if (properties) {
-                    size_t property_index, property_count;
-                    yyjson_mut_val *key, *value;
-                    yyjson_mut_obj_foreach(properties, property_index, property_count, key, value) {
+                    static const char *const keys[] = {"id", "provider", "model", "effort"};
+                    for (size_t property_index = 0; property_index < sizeof keys / sizeof keys[0];
+                         property_index++) {
+                        yyjson_mut_val *value =
+                            yyjson_mut_obj_get(properties, keys[property_index]);
                         const char *shorter =
-                            prefix_property_description(name, yyjson_mut_get_str(key));
-                        if (shorter &&
+                            prefix_property_description(name, keys[property_index]);
+                        if (value && shorter &&
                             !yyjson_mut_obj_put(value, yyjson_mut_strcpy(mut, "description"),
                                                 yyjson_mut_strcpy(mut, shorter))) {
                             complete = false;
