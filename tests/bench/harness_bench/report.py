@@ -9,6 +9,8 @@ import statistics
 from collections import defaultdict
 from pathlib import Path
 
+from compare import compare_runs
+from compare import markdown as comparison_markdown
 from cost import PRICE_DATE, request_cost
 from proxy import static_parts
 
@@ -265,23 +267,65 @@ def markdown(report):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "input", type=Path, help="run label directory containing result.json files"
+        "input",
+        nargs="?",
+        type=Path,
+        help="run label directory containing result.json files",
+    )
+    parser.add_argument(
+        "--compare",
+        nargs=2,
+        metavar=("ARM_A", "ARM_B"),
+        type=Path,
+        help="compare complete task/rep pairs from two run directories",
+    )
+    parser.add_argument("--harness", help="select one harness from each comparison arm")
+    parser.add_argument(
+        "--margin",
+        type=float,
+        default=-8.0,
+        help="non-inferiority margin in percentage points (default: -8)",
+    )
+    parser.add_argument(
+        "--fire",
+        action="append",
+        default=[],
+        metavar="NAME=REGEX",
+        help="count regex matches in decompressed request bodies (repeatable)",
     )
     parser.add_argument("--out", type=Path, required=True, help="Markdown report path")
     args = parser.parse_args()
-    paths = sorted(args.input.rglob("result.json"))
-    if not paths:
-        parser.error("no result.json files found")
-    results = []
-    for path in paths:
-        row = json.loads(path.read_text())
-        row["_path"] = str(path)
-        results.append(row)
-    report = aggregate(results)
+    if args.compare:
+        if args.input:
+            parser.error("positional input cannot be combined with --compare")
+        try:
+            report = compare_runs(
+                *args.compare, harness=args.harness, margin=args.margin, fires=args.fire
+            )
+        except (OSError, ValueError) as error:
+            parser.error(str(error))
+        rendered = comparison_markdown(report)
+    else:
+        if args.input is None:
+            parser.error("input directory or --compare is required")
+        if args.harness or args.fire or args.margin != -8.0:
+            parser.error("--harness, --fire, and --margin require --compare")
+        paths = sorted(args.input.rglob("result.json"))
+        if not paths:
+            parser.error("no result.json files found")
+        results = []
+        for path in paths:
+            row = json.loads(path.read_text())
+            row["_path"] = str(path)
+            results.append(row)
+        report = aggregate(results)
+        rendered = markdown(report)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(markdown(report))
-    args.out.with_suffix(".json").write_text(json.dumps(report, indent=2) + "\n")
-    print(markdown(report))
+    args.out.write_text(rendered)
+    args.out.with_suffix(".json").write_text(
+        json.dumps(report, indent=2, allow_nan=False) + "\n"
+    )
+    print(rendered)
 
 
 if __name__ == "__main__":
