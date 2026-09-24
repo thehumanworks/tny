@@ -220,6 +220,20 @@ yyjson_mut_val *encode(yyjson_mut_doc *d, const tny_ctx *c, bool public_only) {
     encode_array(d, r, "extra_dirs", c->extra_dirs, c->n_extra_dirs);
     encode_array(d, r, "instruction_paths", c->instruction_paths, c->n_instruction_paths);
     if (!public_only) {
+        /* Experiment settings belong to the private runner packet. Keep both
+         * public recovery and flag-off packets byte-identical. */
+        if (c->exp_compact) {
+            check(c->exp_compact_tokens > 0 && c->exp_compact_window >= 0);
+            check(yyjson_mut_obj_add_bool(d, r, "exp_compact", true));
+            check(yyjson_mut_obj_add_sint(d, r, "exp_compact_tokens", c->exp_compact_tokens));
+            check(yyjson_mut_obj_add_sint(d, r, "exp_compact_window", c->exp_compact_window));
+        }
+        if (c->ctx_edit_enabled) {
+            check(yyjson_mut_obj_add_bool(d, r, "ctx_edit_enabled", true));
+            check(yyjson_mut_obj_add_int(d, r, "ctx_edit_trigger", c->ctx_edit_trigger));
+            check(yyjson_mut_obj_add_int(d, r, "ctx_edit_step", c->ctx_edit_step));
+            check(yyjson_mut_obj_add_int(d, r, "ctx_edit_keep", c->ctx_edit_keep));
+        }
         encode_array(d, r, "extra_headers", c->extra_headers, header_count(c));
         int argc = 0;
         while (c->agent_argv && c->agent_argv[argc]) ++argc;
@@ -280,6 +294,42 @@ context restore(yyjson_val *r) {
         auto *v = jget(r, f.name);
         check(absent(v) || yyjson_is_bool(v));
         c.get()->*(f.member) = yyjson_get_bool(v);
+    }
+    auto *compact = jget(r, "exp_compact");
+    auto *compact_tokens = jget(r, "exp_compact_tokens");
+    auto *compact_window = jget(r, "exp_compact_window");
+    check(absent(compact) || yyjson_is_bool(compact));
+    c->exp_compact = yyjson_get_bool(compact);
+    if (c->exp_compact) {
+        check(yyjson_is_int(compact_tokens) && yyjson_is_int(compact_window));
+        check((!yyjson_is_uint(compact_tokens) ||
+               yyjson_get_uint(compact_tokens) <= std::numeric_limits<int64_t>::max()) &&
+              (!yyjson_is_uint(compact_window) ||
+               yyjson_get_uint(compact_window) <= std::numeric_limits<int64_t>::max()));
+        c->exp_compact_tokens = yyjson_get_sint(compact_tokens);
+        c->exp_compact_window = yyjson_get_sint(compact_window);
+        check(c->exp_compact_tokens > 0 && c->exp_compact_window >= 0);
+    } else {
+        check(absent(compact_tokens) && absent(compact_window));
+        c->exp_compact_tokens = 128000;
+        c->exp_compact_window = 0;
+    }
+    auto *ctx_edit_enabled = jget(r, "ctx_edit_enabled");
+    check(absent(ctx_edit_enabled) || yyjson_is_bool(ctx_edit_enabled));
+    c->ctx_edit_enabled = yyjson_get_bool(ctx_edit_enabled);
+    if (c->ctx_edit_enabled) {
+        auto restore_ctx_edit_count = [r](const char *key, int64_t maximum) {
+            auto *v = jget(r, key);
+            check(v && yyjson_is_int(v));
+            if (yyjson_is_uint(v)) check(yyjson_get_uint(v) <= static_cast<uint64_t>(maximum));
+            int64_t value =
+                yyjson_is_uint(v) ? static_cast<int64_t>(yyjson_get_uint(v)) : yyjson_get_sint(v);
+            check(value >= 0 && value <= maximum);
+            return value;
+        };
+        c->ctx_edit_trigger = restore_ctx_edit_count("ctx_edit_trigger", 10000000);
+        c->ctx_edit_step = restore_ctx_edit_count("ctx_edit_step", 10000000);
+        c->ctx_edit_keep = static_cast<int>(restore_ctx_edit_count("ctx_edit_keep", 1000000));
     }
     restore_number(c->backend, jget(r, "backend"));
     // tny_ctx_load uses -1 until provider resolution. Private snapshots have

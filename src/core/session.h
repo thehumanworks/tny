@@ -117,6 +117,18 @@ char *session_store_result(tny_session_state *s, const char *data, size_t len);
 char *session_read_result(tny_session_state *s, const char *handle, size_t off, size_t maxlen,
                           size_t *out_len);
 
+/* Replace eligible older tool contents in the current turn after storing each
+ * original. seen_until is the message count in the last submitted request;
+ * results at or beyond it have not been seen by the model. Returns the count
+ * cleared, -1 on preparation/storage failure, or -2 on a direct allocation
+ * failure. The
+ * caller persists the changed session before making the next request. */
+int session_context_edit(tny_session_state *s, int turn_first, int seen_until, int keep,
+                         size_t *bytes_saved, size_t *affected_bytes);
+bool session_record_context_edit(tny_session_state *s, int64_t before_tokens, int64_t after_tokens,
+                                 int cleared, size_t affected_bytes, size_t removed_bytes,
+                                 double payback_requests);
+
 /* Compaction: after 8 completed turns keep latest 4 verbatim; force=true
  * condenses everything before the latest turn. Summary is mechanical
  * (requests, files, commands, outcomes). */
@@ -125,6 +137,21 @@ bool session_compact_needed(tny_session_state *s, bool force);
 int session_message_count(tny_session_state *s);
 /* Index of first message the model should see verbatim + summary text. */
 int session_compact_boundary(tny_session_state *s, const char **summary);
+
+/* Experimental native compaction. The stored transcript stays complete;
+ * only the provider view changes. A summary is immutable until replaced. */
+void session_exp_set_last_tokens(tny_session_state *s, int64_t tokens);
+/* Replace a post-compaction size estimate with the first real provider usage. */
+void session_exp_record_usage(tny_session_state *s, int64_t tokens);
+int64_t session_exp_last_tokens(tny_session_state *s);
+int64_t session_exp_compact_after_tokens(tny_session_state *s);
+bool session_exp_compact_needed(tny_session_state *s);
+int session_exp_compact_cut(tny_session_state *s);
+char *session_exp_archive(tny_session_state *s); /* malloc'd path or NULL */
+char *session_exp_mechanical_summary(tny_session_state *s, int cut);
+int session_exp_compact_apply(tny_session_state *s, int cut, const char *summary,
+                              const char *archive, int64_t before_tokens);
+yyjson_mut_doc *session_exp_provider_view(tny_session_state *s, int *repairs);
 
 /* Runtime status for background tasks (docs/adr/0031). Top-level fields
  * `status` ("running"|"done"|"error"|"interrupted"), `exit_code` and

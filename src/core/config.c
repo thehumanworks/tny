@@ -60,6 +60,30 @@ int tny_parse_max_steps(const char *s) {
     return (int)v;
 }
 
+static int64_t ctx_edit_number(const char *name, int64_t fallback, int64_t maximum) {
+    const char *value = getenv(name);
+    if (!value || !*value) return fallback;
+    int64_t result = 0;
+    for (const char *p = value; *p; p++) {
+        if (*p < '0' || *p > '9' || result > (maximum - (*p - '0')) / 10) {
+            fprintf(stderr, "tny: warning: %s must be an integer from 0 to %lld\n", name,
+                    (long long)maximum);
+            return fallback;
+        }
+        result = result * 10 + (*p - '0');
+    }
+    return result;
+}
+
+static void ctx_edit_configure(tny_ctx *ctx) {
+    const char *flag = getenv("TNY_EXP_CTX_EDIT");
+    ctx->ctx_edit_enabled = flag && strcmp(flag, "1") == 0;
+    if (!ctx->ctx_edit_enabled) return;
+    ctx->ctx_edit_trigger = ctx_edit_number("TNY_EXP_CTX_EDIT_TRIGGER", 48000, 10000000);
+    ctx->ctx_edit_step = ctx_edit_number("TNY_EXP_CTX_EDIT_STEP", 32000, 10000000);
+    ctx->ctx_edit_keep = (int)ctx_edit_number("TNY_EXP_CTX_EDIT_KEEP", 8, 1000000);
+}
+
 void tny_color_resolve(const tny_ctx *ctx, bool tty, bool *color, bool *attr) {
     const char *f = getenv("CLICOLOR_FORCE");
     bool force = ctx->force_color || (f && *f && strcmp(f, "0") != 0);
@@ -84,6 +108,24 @@ bool tny_tier_is_fast(const char *tier) {
 bool tny_wire_is_chat(const char *wire_api) { return wire_api && strcmp(wire_api, "chat") == 0; }
 
 static const char *bk_names[TNY_BK_COUNT] = {"openai", "acp"};
+
+static void load_exp_compact(tny_ctx *ctx) {
+    const char *enabled = getenv("TNY_EXP_COMPACT");
+    ctx->exp_compact = enabled && strcmp(enabled, "1") == 0;
+    ctx->exp_compact_tokens = 128000;
+    const char *tokens = getenv("TNY_EXP_COMPACT_TOKENS");
+    if (tokens && *tokens) {
+        char *end = NULL;
+        long long value = strtoll(tokens, &end, 10);
+        if (end != tokens && !*end && value > 0) ctx->exp_compact_tokens = value;
+    }
+    const char *window = getenv("TNY_EXP_COMPACT_CONTEXT_WINDOW");
+    if (window && *window) {
+        char *end = NULL;
+        long long value = strtoll(window, &end, 10);
+        if (end != window && !*end && value > 0) ctx->exp_compact_window = value;
+    }
+}
 
 const char *tny_tool_profile_name(tny_tool_profile profile) {
     if (profile == TNY_TOOLS_TERMINAL_EDIT) return "terminal+edit";
@@ -634,6 +676,7 @@ static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
     ctx->backend = -1;
     ctx->perm_mode = TNY_MODE_YOLO;
     ctx->tool_profile = TNY_TOOLS_ALL;
+    ctx_edit_configure(ctx);
     yyjson_val *learning = jget(sroot, "self_improve");
     const char *learning_env = getenv("TNY_SELF_IMPROVE");
     if ((learning && !yyjson_is_bool(learning)) ||
@@ -644,6 +687,7 @@ static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
     }
     ctx->no_self_improve =
         learning_env ? strcmp(learning_env, "0") == 0 : !jget_bool(sroot, "self_improve", true);
+    load_exp_compact(ctx);
     ctx->max_steps = 0; /* unlimited; .tny.json "steps" or --max-steps cap it */
     const char *read_only = getenv("TNY_TEAM_READ_ONLY");
     ctx->workspace_read_only = read_only && strcmp(read_only, "1") == 0;
@@ -823,7 +867,8 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     ctx->provider_name = xstrdup("openai");
     ctx->perm_mode = TNY_MODE_ASK;
     ctx->tool_profile = TNY_TOOLS_ALL;
-    ctx->max_steps = 0;              /* unlimited unless the embedder sets a cap */
+    ctx->max_steps = 0; /* unlimited unless the embedder sets a cap */
+    load_exp_compact(ctx);
     ctx->extensions_enabled = false; /* explicit embedders opt into authority */
     ctx->max_extension_iterations = 0;
     ctx->extension_timeout_ms = 5000;
