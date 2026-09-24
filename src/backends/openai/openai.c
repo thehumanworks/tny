@@ -598,9 +598,12 @@ static const char *exp_text_verbosity(void) {
     return NULL;
 }
 
-static bool exp_batch_hint(void) {
+static int exp_batch_hint(void) {
     const char *v = getenv("TNY_EXP_BATCH_HINT");
-    return v && strcmp(v, "1") == 0;
+    if (!v) return 0;
+    if (strcmp(v, "1") == 0) return 1;
+    if (strcmp(v, "2") == 0) return 2;
+    return 0;
 }
 
 /* TNY_EXP_REASONING_CTX=all_turns asks the Responses server to use the
@@ -644,9 +647,17 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
     /* TNY_EXP_BATCH_HINT=1 (docs/benchmarks/harness-efficiency.md): describe
      * that tool calls in one response run in one step, so independent calls
      * need no extra round trips. Unset keeps today's prompt bytes. */
-    if (exp_batch_hint())
+    int batch_hint = exp_batch_hint();
+    if (batch_hint == 1)
         buf_appends(sys, "- Tool calls in one response run in the same step and return together. "
                          "Issue independent reads, searches, and commands in one response.\n");
+    else if (batch_hint == 2)
+        buf_appends(sys, "- Each response is one step, and every step re-sends the whole "
+                         "conversation. Tool calls in one response run in the same step and "
+                         "return together. When the next calls do not depend on each other's "
+                         "output (inspecting several files, running the build and the tests, "
+                         "probing two hypotheses), issue them together in one response instead "
+                         "of one per step.\n");
     buf_appends(
         sys,
         "\n# Instructions\n"
