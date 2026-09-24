@@ -149,7 +149,7 @@ bodies. See the benchmark README for the metric definitions and an example.
 
 ```
 tests/bench/harness_bench/tasks/<id>/
-  task.json   {"id", "category", "difficulty", "prompt", "timeout_s", "tags": [...],
+  task.json   {"id", "category", "difficulty", "prompt" or "prompts", "timeout_s", "tags": [...],
                optional "verify_timeout_s": seconds, default 120}
   repo/       initial workspace (copied, then git init + commit)
   setup.sh    optional, deterministic; run as bash setup.sh with cwd=workspace
@@ -186,6 +186,25 @@ python tests/bench/harness_bench/validate_tasks.py \
 To run live evaluations separately from the short tasks, pass
 `--tasks-dir tests/bench/harness_bench/tasks-long` to `run.py`. Long runs need
 a fresh output label. The offline validator does not make model requests.
+
+The optional `tasks-session/` suite has two 12-turn developer sessions: a
+commerce regression release and a 30-client policy API migration. `prompts`
+is an ordered list of user turns. `run.py` sends them sequentially to one
+workspace and one resumed tny session or Codex thread, then verifies the
+final state once. Other adapters are skipped because their noninteractive
+resume behavior is unverified. Request rows carry a one-based turn index;
+per-turn usage, cost, wall time, and completed/requested counts appear in the
+result and report. The `tasks-smoke/session-resume` fixture exercises two
+turns. Validate the full session suite offline with:
+
+```sh
+python tests/bench/harness_bench/validate_tasks.py \
+  tests/bench/harness_bench/tasks-session
+```
+
+The session fixtures generate traces and expose verbose tests across turns.
+Their eventual context size depends on agent behavior and requires live
+measurement; offline validation only proves the oracle and reference solution.
 
 ### Per-run record
 

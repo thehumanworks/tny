@@ -15,12 +15,33 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from adapters import ADAPTERS, final_message, invocation
+from adapters import (
+    ADAPTERS,
+    SESSION_ADAPTERS,
+    final_message,
+    invocation,
+    resume_id,
+    session_invocation,
+)
 from cost import request_cost
 from proxy import RecordingProxy, static_parts
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_OUT = Path("/home/tomas/.cache/tny-opt/runs/bench")
+
+
+def task_prompts(task):
+    """Return user turns while retaining the original single-prompt contract."""
+    if "prompts" not in task:
+        return [task["prompt"]]
+    prompts = task["prompts"]
+    if (
+        not isinstance(prompts, list)
+        or not prompts
+        or any(not isinstance(prompt, str) or not prompt.strip() for prompt in prompts)
+    ):
+        raise ValueError("task prompts must be a nonempty list of strings")
+    return prompts
 
 
 def token_count(value):
@@ -236,6 +257,10 @@ def _wire_settings_valid(rows, run_dir, model, effort):
 
 def run_one(args, task_dir, harness, rep):
     task = json.loads((task_dir / "task.json").read_text())
+    prompts = task_prompts(task)
+    session_task = "prompts" in task
+    if session_task and harness not in SESSION_ADAPTERS:
+        raise ValueError(f"{harness}: multi-turn resume is unsupported")
     run_dir = args.out / args.label / harness / task["id"] / f"rep-{rep:02d}"
     result_file = run_dir / "result.json"
     if result_file.exists():
@@ -259,50 +284,126 @@ def run_one(args, task_dir, harness, rep):
     adapter_error = None
     stdout = ""
     stderr = ""
+    turns_completed = 0
+    turn_records = []
+    session_id = None
     with RecordingProxy(run_dir / "proxy", args.auth_file) as proxy:
-        try:
-            call = invocation(
-                harness,
-                run_dir,
-                proxy.base_url,
-                task["prompt"],
-                args.model,
-                args.effort,
-                args.tny_bin,
+        for turn_index, prompt in enumerate(prompts, 1):
+            if session_task:
+                proxy.begin_turn(turn_index)
+            turn_started = time.monotonic()
+            exit_code = None
+            stdout = ""
+            stderr = ""
+            try:
+                if session_task:
+                    call = session_invocation(
+                        harness,
+                        run_dir,
+                        proxy.base_url,
+                        prompt,
+                        args.model,
+                        args.effort,
+                        args.tny_bin,
+                        session_id,
+                    )
+                else:
+                    call = invocation(
+                        harness,
+                        run_dir,
+                        proxy.base_url,
+                        prompt,
+                        args.model,
+                        args.effort,
+                        args.tny_bin,
+                    )
+                completed = subprocess.run(
+                    call.command,
+                    cwd=workspace,
+                    env=call.env,
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    timeout=task["timeout_s"],
+                    errors="replace",
+                )
+                exit_code, stdout, stderr = (
+                    completed.returncode,
+                    completed.stdout,
+                    completed.stderr,
+                )
+            except subprocess.TimeoutExpired as error:
+                timed_out = True
+                stdout = (
+                    (error.stdout or b"").decode(errors="replace")
+                    if isinstance(error.stdout, bytes)
+                    else (error.stdout or "")
+                )
+                stderr = (
+                    (error.stderr or b"").decode(errors="replace")
+                    if isinstance(error.stderr, bytes)
+                    else (error.stderr or "")
+                )
+            except (OSError, RuntimeError, ValueError) as error:
+                adapter_error = f"{type(error).__name__}: {error}"
+            if session_task:
+                (run_dir / f"turn-{turn_index:02d}.stdout.txt").write_text(stdout)
+                (run_dir / f"turn-{turn_index:02d}.stderr.txt").write_text(stderr)
+            # A CLI can exit just before the handler writes its accounting row.
+            time.sleep(0.2)
+            turn_records.append(
+                {
+                    "turn": turn_index,
+                    "exit_code": exit_code,
+                    "timeout": timed_out,
+                    "completed": exit_code == 0 and not timed_out and not adapter_error,
+                    "wall_s": round(time.monotonic() - turn_started, 3),
+                }
             )
-            completed = subprocess.run(
-                call.command,
-                cwd=workspace,
-                env=call.env,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                timeout=task["timeout_s"],
-                errors="replace",
-            )
-            exit_code, stdout, stderr = (
-                completed.returncode,
-                completed.stdout,
-                completed.stderr,
-            )
-        except subprocess.TimeoutExpired as error:
-            timed_out = True
-            stdout = (
-                (error.stdout or b"").decode(errors="replace")
-                if isinstance(error.stdout, bytes)
-                else (error.stdout or "")
-            )
-            stderr = (
-                (error.stderr or b"").decode(errors="replace")
-                if isinstance(error.stderr, bytes)
-                else (error.stderr or "")
-            )
-        except (OSError, RuntimeError, ValueError) as error:
-            adapter_error = f"{type(error).__name__}: {error}"
+            if timed_out or adapter_error or exit_code != 0:
+                break
+            if session_task:
+                observed_id = resume_id(harness, stdout)
+                if turn_index == 1 and not observed_id:
+                    adapter_error = "first turn did not report a session identifier"
+                    turn_records[-1]["completed"] = False
+                    break
+                if observed_id and session_id and observed_id != session_id:
+                    adapter_error = (
+                        "resumed turn reported a different session identifier"
+                    )
+                    turn_records[-1]["completed"] = False
+                    break
+                session_id = observed_id or session_id
+            turns_completed += 1
         wall_s = round(time.monotonic() - started, 3)
-        # A CLI can exit just before the handler writes its final accounting row.
-        time.sleep(0.2)
         rows = proxy.rows
+    for turn in turn_records:
+        turn_rows = (
+            [row for row in rows if row.get("turn") == turn["turn"]]
+            if session_task
+            else rows
+        )
+        turn["requests"] = len(turn_rows)
+        for key in (
+            "input_tokens",
+            "cached_input_tokens",
+            "cache_write_tokens",
+            "output_tokens",
+            "reasoning_tokens",
+        ):
+            turn[key] = (
+                sum(row[key] for row in turn_rows)
+                if turn_rows and all(row.get(key) is not None for row in turn_rows)
+                else None
+            )
+        costs = [request_cost(row, args.model) for row in turn_rows]
+        for key, index in (("ite", 0), ("usd", 1)):
+            turn[key] = (
+                sum(cost[index] for cost in costs)
+                if costs and all(cost[index] is not None for cost in costs)
+                else None
+            )
     (run_dir / "stdout.txt").write_text(stdout)
     (run_dir / "stderr.txt").write_text(stderr)
     message = final_message(harness, stdout)
@@ -312,7 +413,12 @@ def run_one(args, task_dir, harness, rep):
     verify = verify_task(task_dir, workspace, message_file, verify_timeout_s)
     verify_status, reason = verification_outcome(verify, message_file)
     verify_timed_out = verify.returncode == 124
-    passed = verify_status == "pass" and exit_code == 0 and not timed_out
+    passed = (
+        verify_status == "pass"
+        and exit_code == 0
+        and not timed_out
+        and turns_completed == len(prompts)
+    )
     measurement_valid = bool(rows) and all(
         row.get(key) is not None
         for row in rows
@@ -366,6 +472,9 @@ def run_one(args, task_dir, harness, rep):
         "wall_s": wall_s,
         "exit_code": exit_code,
         "timeout": timed_out or verify_timed_out,
+        "turns_requested": len(prompts),
+        "turns_completed": turns_completed,
+        "turns": turn_records,
         "requests": len(rows),
         "request_rows": rows,
         **_summarize(rows, run_dir, args.model),
@@ -419,12 +528,30 @@ def main():
     for task in selected:
         if task not in tasks:
             parser.error(f"unknown task: {task}")
-    jobs = [
-        (tasks[task], harness, rep)
-        for task in selected
-        for harness in (args.harness or ["tny", "codex"])
-        for rep in range(1, args.reps + 1)
-    ]
+    task_info = {
+        name: json.loads((tasks[name] / "task.json").read_text()) for name in selected
+    }
+    for info in task_info.values():
+        task_prompts(info)
+    jobs = []
+    for task in selected:
+        for harness in args.harness or ["tny", "codex"]:
+            for rep in range(1, args.reps + 1):
+                if "prompts" in task_info[task] and harness not in SESSION_ADAPTERS:
+                    print(
+                        json.dumps(
+                            {
+                                "harness": harness,
+                                "task": task,
+                                "rep": rep,
+                                "status": "skipped",
+                                "reason": "noninteractive multi-turn resume unsupported",
+                            }
+                        ),
+                        flush=True,
+                    )
+                else:
+                    jobs.append((tasks[task], harness, rep))
     errors = 0
     with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
         futures = {executor.submit(run_one, args, *job): job for job in jobs}
@@ -446,6 +573,7 @@ def main():
                             ),
                             "reason": row["reason"],
                             "requests": row["requests"],
+                            "turns_completed": row.get("turns_completed", 1),
                         }
                     ),
                     flush=True,
