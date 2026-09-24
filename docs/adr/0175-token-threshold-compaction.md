@@ -25,13 +25,17 @@ mechanical summary content and resume the ordinary request.
 
 The flag-off arm keeps the existing turn-count policy and wire bytes. Both
 Responses and Chat Completions use the shared session view. Native subagents
-inherit the flag through their environment. The same C path runs on wasm;
+inherit the flag through their environment. Normal native turns run in a fresh
+session runner, so the flag, threshold, and known window travel in its private
+start/restart context packet only when enabled. Public recovery records and
+flag-off packets gain no experiment fields. The same C path runs on wasm;
 ephemeral sessions keep the transcript only in memory and omit the file path.
 
 ## Local mock measurements
 
-The stdlib-only fixture in `tests/integration/test_exp_compact.py --measure`
-returns input bytes for every request and summary counts. It models usage as
+The stdlib-only fixture `tests/integration/test_exp_compact.py` with
+`--measure-isolated` runs normal detached session runners and returns input
+bytes for every request and summary counts. It models usage as
 request bytes divided by four and tests a 20-user-turn conversation with a
 small tool call in each turn, then one 120-step turn with tool outputs of
 4–20 KiB. The existing terminal-result offload leaves an 8 KiB inline preview
@@ -51,6 +55,11 @@ rewrites. The long-turn arm reduces cumulative bytes by about 47% with one
 compaction request. These figures do not establish task-success parity or
 actual cache billing. The raw per-request byte arrays are emitted by the
 fixture and kept outside this ADR because they are generated measurements.
+The same mock with `--compare-main` compared all 40 flag-off HTTP request
+bodies to a Release binary built from `main` at `41a3b828`, using one server
+and workspace under default isolation. They matched byte for byte (both
+concatenated SHA-256 values:
+`06ac930ea1ce3b0cf26abae1f497cc714738d8204ae521c5bbd911b672731a48`).
 
 ## Rollback
 

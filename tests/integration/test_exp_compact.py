@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Local provider checks for token-triggered compaction; --measure runs long cases."""
 
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -32,7 +34,10 @@ class Provider(BaseHTTPRequestHandler):
         body = json.loads(raw)
         chat = "messages" in body
         summary = body.get("tool_choice") == "none"
-        server.requests.append({"bytes": len(raw), "body": body, "summary": summary})
+        request = {"bytes": len(raw), "body": body, "summary": summary}
+        if getattr(server, "capture_raw", False):
+            request["raw"] = raw
+        server.requests.append(request)
         if summary:
             server.compactions += 1
             if server.fail_summary and server.compactions == 1:
@@ -150,6 +155,7 @@ def run_case(
     turns=2,
     fail_summary=False,
     tokens=128000,
+    isolate=False,
 ):
     with tempfile.TemporaryDirectory() as home:
         ws = Path(home) / "workspace"
@@ -168,17 +174,19 @@ def run_case(
         for name in list(env):
             if name.endswith("_API_KEY") or name.endswith("_BASE_URL"):
                 env.pop(name)
+        env.pop("TNY_ISOLATE", None)
         env.update(
             HOME=home,
             OPENAI_API_KEY="fixture",
             OPENAI_BASE_URL=f"http://127.0.0.1:{server.server_port}/v1",
             OPENAI_WIRE_API=wire,
-            TNY_ISOLATE="0",
             TNY_TOOLS="terminal",
             TNY_SELF_IMPROVE="0",
             TNY_EXP_COMPACT="1" if enabled else "0",
             TNY_EXP_COMPACT_TOKENS=str(tokens),
         )
+        if not isolate:
+            env["TNY_ISOLATE"] = "0"
         try:
             for turn in range(turns if scenario == "turns" else 1):
                 command = [TNY, "--cwd", str(ws), "--yolo", "ask", "--json"]
@@ -238,6 +246,7 @@ def run_case(
             return {
                 "scenario": scenario,
                 "enabled": enabled,
+                "default_isolation": isolate,
                 "wire": wire,
                 "request_input_bytes": sizes,
                 "total_bytes": sum(sizes),
@@ -256,6 +265,74 @@ def run_case(
                 "recorded_compactions": len(session.get("compactions", [])),
                 "archives_valid": archives_valid,
                 "session": session,
+            }
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+
+def compare_main_wire(main_binary):
+    """Compare complete flag-off HTTP bodies on the same native runner fixture."""
+    with tempfile.TemporaryDirectory() as home:
+        workspace = Path(home) / "workspace"
+        workspace.mkdir()
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
+        server.scenario = "turns"
+        server.steps = 0
+        server.fail_summary = False
+        server.capture_raw = True
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        env = dict(os.environ)
+        for name in list(env):
+            if name.endswith("_API_KEY") or name.endswith("_BASE_URL"):
+                env.pop(name)
+        env.pop("TNY_ISOLATE", None)
+        env.update(
+            HOME=home,
+            OPENAI_API_KEY="fixture",
+            OPENAI_BASE_URL=f"http://127.0.0.1:{server.server_port}/v1",
+            OPENAI_WIRE_API="responses",
+            TNY_TOOLS="terminal",
+            TNY_SELF_IMPROVE="0",
+            TNY_EXP_COMPACT="0",
+        )
+
+        def capture(binary):
+            shutil.rmtree(Path(home) / ".tny", ignore_errors=True)
+            server.requests = []
+            server.compactions = 0
+            server.normal_count = 0
+            server.phase = 0
+            for turn in range(20):
+                command = [binary, "--cwd", str(workspace), "--yolo", "ask", "--json"]
+                if turn:
+                    command += ["--resume", "last"]
+                command += [f"user turn {turn}: preserve this exact request"]
+                result = subprocess.run(
+                    command, env=env, capture_output=True, timeout=120
+                )
+                assert result.returncode == 0, (
+                    result.returncode,
+                    result.stdout[-1000:],
+                    result.stderr[-1000:],
+                )
+            return [request["raw"] for request in server.requests]
+
+        try:
+            main = capture(str(Path(main_binary).resolve()))
+            branch = capture(TNY)
+            return {
+                "main_binary": str(Path(main_binary).resolve()),
+                "branch_binary": TNY,
+                "default_isolation": True,
+                "requests": len(branch),
+                "main_request_bytes": [len(raw) for raw in main],
+                "branch_request_bytes": [len(raw) for raw in branch],
+                "main_sha256": hashlib.sha256(b"".join(main)).hexdigest(),
+                "branch_sha256": hashlib.sha256(b"".join(branch)).hexdigest(),
+                "identical": main == branch,
             }
         finally:
             server.shutdown()
@@ -283,13 +360,29 @@ class CompactTests(unittest.TestCase):
         self.assertTrue(result["archives_valid"])
         self.assertIn("GOAL=continue", result["session"]["compact"]["summary"])
 
+    def test_default_isolation_runner(self):
+        for wire in ("responses", "chat"):
+            with self.subTest(wire=wire):
+                result = run_case(
+                    "long", True, wire=wire, steps=6, tokens=3000, isolate=True
+                )
+                self.assertGreaterEqual(result["compactions"], 1)
+                self.assertGreaterEqual(result["recorded_compactions"], 1)
+                self.assertTrue(result["archives_valid"])
+
 
 if __name__ == "__main__":
-    if "--measure" in sys.argv:
+    if "--compare-main" in sys.argv:
+        result = compare_main_wire(sys.argv[sys.argv.index("--compare-main") + 1])
+        print(json.dumps(result, indent=2))
+        if not result["identical"]:
+            sys.exit(1)
+    elif "--measure" in sys.argv or "--measure-isolated" in sys.argv:
+        isolated = "--measure-isolated" in sys.argv
         output = [
             {
                 k: v
-                for k, v in run_case("turns", flag, turns=20).items()
+                for k, v in run_case("turns", flag, turns=20, isolate=isolated).items()
                 if k != "session"
             }
             for flag in (False, True)
@@ -297,7 +390,7 @@ if __name__ == "__main__":
         output += [
             {
                 k: v
-                for k, v in run_case("long", flag, steps=120).items()
+                for k, v in run_case("long", flag, steps=120, isolate=isolated).items()
                 if k != "session"
             }
             for flag in (False, True)

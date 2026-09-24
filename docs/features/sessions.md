@@ -33,6 +33,8 @@ provider-reported input-token count reaches `TNY_EXP_COMPACT_TOKENS` (default
 window. A missing usage count does not trigger compaction. This opt-in works
 with Responses and Chat Completions, including native subagents and wasm;
 ACP clients manage their own context.
+Native session runners receive the enabled settings through their private
+start packet, so normal isolated turns use the same threshold.
 
 The summary request reuses the live conversation and appends a short user
 instruction. The replacement provider view keeps recent user messages

@@ -5798,12 +5798,25 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ctx->no_self_improve = true;
     ctx->tool_profile = TNY_TOOLS_TERMINAL;
     ctx->extensions_enabled = false;
+    ctx->exp_compact = false;
+    yyjson_mut_doc *disabled_doc = yyjson_mut_doc_new(jallocator());
+    ASSERT(disabled_doc);
+    yyjson_mut_doc_set_root(disabled_doc, tny_checkpoint_context(disabled_doc, ctx));
+    char *disabled_json = jwrite(disabled_doc);
+    ASSERT(disabled_json);
+    ASSERT_FALSE(strstr(disabled_json, "exp_compact"));
+    free(disabled_json);
+    yyjson_mut_doc_free(disabled_doc);
+    ctx->exp_compact = true;
+    ctx->exp_compact_tokens = 16000;
+    ctx->exp_compact_window = 12000;
     tny_ctx_add_extra_header(ctx, "X-Fixture: runtime-only");
     yyjson_mut_doc *doc = yyjson_mut_doc_new(jallocator());
     ASSERT(doc);
     yyjson_mut_doc_set_root(doc, tny_checkpoint_context(doc, ctx));
     char *json = jwrite(doc);
     ASSERT(json);
+    ASSERT(strstr(json, "\"exp_compact\":true"));
     yyjson_doc *parsed = jparse(json, strlen(json));
     ASSERT(parsed);
     tny_ctx *restored = tny_checkpoint_context_restore(yyjson_doc_get_root(parsed));
@@ -5823,6 +5836,9 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT_STR_EQ(ctx->swarm_source, restored->swarm_source);
     ASSERT(restored->swarm_explicit);
     ASSERT(restored->no_self_improve);
+    ASSERT(restored->exp_compact);
+    ASSERT_EQ(16000, restored->exp_compact_tokens);
+    ASSERT_EQ(12000, restored->exp_compact_window);
     tny_ctx_free(restored);
     /* Public recovery stores effective selection but no credential/settings
      * bytes, and rejects changed identity or widened permission access. */
@@ -5837,6 +5853,7 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT_FALSE(strstr(public_json, "private-runtime-key"));
     ASSERT_FALSE(strstr(public_json, "private-only"));
     ASSERT_FALSE(strstr(public_json, "runtime-only"));
+    ASSERT_FALSE(strstr(public_json, "exp_compact"));
     yyjson_doc *public_parsed = jparse(public_json, strlen(public_json));
     ASSERT(public_parsed);
     tny_ctx *recovered = tny_checkpoint_recover(ctx, yyjson_doc_get_root(public_parsed));
@@ -5849,6 +5866,9 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT_STR_EQ(ctx->swarm_definition, recovered->swarm_definition);
     ASSERT(recovered->swarm_explicit);
     ASSERT(recovered->no_self_improve);
+    ASSERT(recovered->exp_compact);
+    ASSERT_EQ(16000, recovered->exp_compact_tokens);
+    ASSERT_EQ(12000, recovered->exp_compact_window);
     ASSERT_STR_EQ("private-runtime-key", recovered->api_key);
     tny_ctx_free(recovered);
     tny_ctx_add_extra_header(ctx, "X-Changed: different");
