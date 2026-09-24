@@ -98,6 +98,38 @@ class RescoreTest(unittest.TestCase):
             rescore(self.runs, self.tasks)
         self.assertEqual(self.result_file.read_bytes(), original)
 
+    def test_session_checks_every_turn_prompt_and_completion(self):
+        task = json.loads((self.task / "task.json").read_text())
+        task["prompts"] = [task.pop("prompt"), "Finish the demo."]
+        (self.task / "task.json").write_text(json.dumps(task))
+        proxy = self.run_dir / "proxy"
+        (proxy / "request-0002.json.gz").write_bytes(
+            gzip.compress(
+                json.dumps(
+                    {"input": [{"role": "user", "content": "Finish the demo."}]}
+                ).encode()
+            )
+        )
+        result = json.loads(self.result_file.read_text())
+        result["turns_requested"] = 2
+        result["turns_completed"] = 1
+        result["request_rows"] = [
+            {"turn": 1, "body_file": "request-0001.json.gz"},
+            {"turn": 2, "body_file": "request-0002.json.gz"},
+        ]
+        self.result_file.write_text(json.dumps(result))
+        (self.workspace / "done.txt").write_text("fixed\n")
+        self.assertEqual(rescore(self.runs, self.tasks), 1)
+        self.assertFalse(json.loads(self.result_file.read_text())["pass"])
+        result["turns_completed"] = 2
+        self.result_file.write_text(json.dumps(result))
+        self.assertEqual(rescore(self.runs, self.tasks), 1)
+        self.assertTrue(json.loads(self.result_file.read_text())["pass"])
+        task["prompts"][1] = "A changed final request."
+        (self.task / "task.json").write_text(json.dumps(task))
+        with self.assertRaisesRegex(ValueError, "prompt changed"):
+            rescore(self.runs, self.tasks)
+
 
 if __name__ == "__main__":
     unittest.main()
