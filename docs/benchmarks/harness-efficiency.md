@@ -39,11 +39,28 @@ Token classes come from provider usage fields: uncached input
 (`input_tokens - cached_tokens`), cached input (`cached_tokens`), output
 (`output_tokens`, including reasoning).
 
-Cost is reported in **input-token equivalents (ITE)** with weights
-uncached `1.0`, cached `0.1`, output `8.0` (the published GPT-5-family
-ratio). Dollar figures use published list prices when they exist for the
-benchmark model and state the price date. Subscription use is converted with
-the same list prices; it is a comparison unit, not a bill.
+Cost is reported in **input-token equivalents (ITE)** with the benchmark
+model's published ratios. For the gpt-6 family: uncached `1.0`, cached
+`0.1`, cache write `1.25`, output `5.0`. gpt-5.6-terra/luna use output
+`6.0`. Requests over 272K input tokens are billed at 2x input for the whole
+request. Dollar figures use the Standard-tier list prices below.
+Subscription use is converted with the same prices; it is a comparison unit,
+not a bill.
+
+| Model (USD per 1M, verified 2026-09-24) | Input | Cached | Cache write | Output |
+| --- | ---: | ---: | ---: | ---: |
+| gpt-6-astra | 10.00 | 1.00 | 12.50 | 50.00 |
+| gpt-6-sol | 2.00 | 0.20 | 2.50 | 10.00 |
+| gpt-6-luna | 0.10 | 0.01 | 0.125 | 0.50 |
+| gpt-5.6-terra | 2.00 | 0.20 | 2.50 | 12.00 |
+| gpt-5.6-luna | 0.20 | 0.02 | 0.25 | 1.20 |
+
+Source: developers.openai.com/api/docs/pricing (Standard tier).
+
+Rewriting history costs cache writes: an edit that invalidates `A` tokens
+after the edit point and removes `R` tokens pays back only after about
+`11.5 × A / R` later requests. Context editing must be batched and
+placed where that holds.
 
 ## Baseline from real usage (before changes)
 
@@ -56,7 +73,7 @@ mostly `gpt-6-sol`, `gpt-6-astra`, `gpt-5.6-sol`).
 | Cached input tokens | 252.0 M (**97.3%** hit rate) |
 | Output tokens | 1.20 M |
 | Mean input tokens per request | **110.8 K** |
-| Cost share (ITE): cached input / uncached input / output | 60% / 17% / 23% |
+| Cost share (ITE, gpt-6 ratios): cached input / uncached input / output | 66% / 18% / 16% |
 
 Cache misses are rare. The cost driver is the size of the context that every
 request re-reads. Tool results in saved transcripts (14.8 MB total):
