@@ -359,6 +359,8 @@ typedef struct {
     int decode_wire; /* 1: JSON, 2: SSE, 3: final SSE event without delimiter */
     bool cancel_decode;
     bool cancel_usage;
+    bool cancel_summary_once;
+    bool summary_started;
     int decoded_texts;
     int decoded_thinking;
     int terminal_during_decode;
@@ -512,6 +514,14 @@ static char *pv_ask_user(const char *question, void *ud) {
 static void pv_control(const tny_openai_control_request *request,
                        tny_openai_control_response *response, void *ud) {
     pv_fixture *f = ud;
+    if (request->kind == TNY_OPENAI_CONTROL_PRE_COMPACT && f->cancel_summary_once)
+        f->summary_started = true;
+    if (request->kind == TNY_OPENAI_CONTROL_PROVIDER_REQUEST && f->summary_started) {
+        f->summary_started = false;
+        f->cancel_summary_once = false;
+        f->backend->cancel(f->backend);
+        return;
+    }
     if (f->selected && request->tool_name && strcmp(request->tool_name, "image_preview") == 0) {
         if (request->kind == TNY_OPENAI_CONTROL_PERMISSION) {
             f->preview_permissions++;
@@ -617,6 +627,65 @@ static int pv_turn(pv_fixture *f, const char *prompt) {
             f->backend->cancel(f->backend); /* parked permission, not re-entrant */
     }
     return f->ended ? 0 : -1;
+}
+
+TEST compact_cancel_does_not_leak_summary_into_next_turn(void) {
+    pv_fixture f;
+    pv_open(&f);
+    f.ctx->exp_compact = true;
+    f.ctx->exp_compact_tokens = 100;
+    session_add_text(f.session, "user", "earlier real prompt");
+    session_add_assistant(f.session, "earlier answer", NULL);
+    session_exp_set_last_tokens(f.session, 100);
+    f.cancel_summary_once = true;
+    ASSERT_EQ(0, pv_turn(&f, "cancel this summary"));
+    ASSERT_EQ(TNY_STOP_INTERRUPTED, f.stop);
+    ASSERT_EQ(0, f.requests);
+    session_exp_set_last_tokens(f.session, 0);
+    ASSERT_EQ(0, pv_turn(&f, "new real prompt"));
+    ASSERT_EQ(TNY_STOP_DONE, f.stop);
+    ASSERT(f.requests > 0);
+    ASSERT(strstr(f.bodies[0].data, "new real prompt"));
+    ASSERT_FALSE(strstr(f.bodies[0].data, "\"tool_choice\":\"none\""));
+    pv_close(&f);
+    PASS();
+}
+
+TEST compact_chat_requests_usage_and_keeps_last_known_count(void) {
+    pv_fixture f;
+    pv_open(&f);
+    f.ctx->exp_compact = true;
+    f.ctx->exp_compact_tokens = 100000;
+    session_exp_set_last_tokens(f.session, 1234);
+    f.first_body = PV_DONE_BODY; /* no usage in this fixture's response */
+    ASSERT_EQ(0, pv_turn(&f, "keep usage"));
+    ASSERT(strstr(f.bodies[0].data, "\"stream_options\":{\"include_usage\":true}"));
+    ASSERT_EQ_FMT(1234LL, (long long)session_exp_last_tokens(f.session), "%lld");
+    pv_close(&f);
+    PASS();
+}
+
+TEST compact_archive_failure_still_completes_turn(void) {
+    pv_fixture f;
+    pv_open(&f);
+    f.ctx->exp_compact = true;
+    f.ctx->exp_compact_tokens = 100;
+    session_add_text(f.session, "user", "earlier real prompt");
+    session_add_assistant(f.session, "earlier answer", NULL);
+    session_exp_set_last_tokens(f.session, 100);
+    char archive_path[800];
+    snprintf(archive_path, sizeof archive_path, "%s/compact-transcript-3.jsonl", f.session->dir);
+    ASSERT_EQ(0, mkdir_p(archive_path)); /* rename onto a directory fails; session save works */
+    f.first_body = PV_DONE_BODY;         /* summary, then normal request */
+    ASSERT_EQ(0, pv_turn(&f, "continue after failed archive"));
+    ASSERT_EQ(TNY_STOP_DONE, f.stop);
+    ASSERT(f.requests >= 2);
+    const char *summary = NULL;
+    ASSERT(session_compact_boundary(f.session, &summary) > 0);
+    ASSERT(strstr(summary, "Transcript archive unavailable"));
+    ASSERT_EQ(0, rmdir(archive_path));
+    pv_close(&f);
+    PASS();
 }
 
 /* Every image_url payload in one recorded request body, decoded. */
@@ -2158,6 +2227,9 @@ SUITE(openai_suite) {
     RUN_TEST(retryable_statuses_and_permanent_tokens);
     RUN_TEST(reasoning_details_merge_by_index);
     RUN_TEST(openai_preview_rides_the_next_request_with_captured_bytes);
+    RUN_TEST(compact_cancel_does_not_leak_summary_into_next_turn);
+    RUN_TEST(compact_chat_requests_usage_and_keeps_last_known_count);
+    RUN_TEST(compact_archive_failure_still_completes_turn);
     RUN_TEST(openai_preview_refuses_wrong_hash_and_foreign_roots);
     RUN_TEST(openai_preview_fatal_flush_stops_the_next_request);
     RUN_TEST(openai_preview_reports_non_delivery_when_the_turn_ends_early);

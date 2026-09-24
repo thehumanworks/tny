@@ -1434,7 +1434,7 @@ static void finalize_turn(tny_engine *e) {
     if (tny_alloc_scope_failed()) return;
     if (!session_title(e->session) && e->prompt_text) session_set_title(e->session, e->prompt_text);
     if (tny_alloc_scope_failed()) return;
-    if (e->stop == TNY_STOP_DONE && !e->ctx->exp_compact)
+    if (e->stop == TNY_STOP_DONE && !(e->ctx->exp_compact && e->ctx->backend == TNY_BK_OPENAI))
         (void)tny_engine_compact(e, false, "threshold");
     if (tny_alloc_scope_failed()) return;
     session_save(e->session);

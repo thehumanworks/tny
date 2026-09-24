@@ -132,7 +132,8 @@ typedef struct {
     int64_t usage_cached, usage_cache_write;
     bool usage_seen, usage_recorded, usage_input_seen;
     bool compacting;
-    bool compact_skip_once;
+    bool compact_archive_failed;
+    bool compact_overflow_retried;
     int compact_cut;
     int64_t compact_before_tokens;
     char *compact_archive;
@@ -225,8 +226,8 @@ int64_t oa_context_edit_next_trigger(int64_t previous_input, size_t saved_bytes,
 
 static void record_usage(oa_impl *o) {
     if (tny_alloc_scope_failed()) return;
-    if (o->ctx->exp_compact && !o->compacting && !o->usage_recorded)
-        session_exp_set_last_tokens(o->env.session, o->usage_input_seen ? o->usage_in : 0);
+    if (o->ctx->exp_compact && !o->compacting && !o->usage_recorded && o->usage_input_seen)
+        session_exp_set_last_tokens(o->env.session, o->usage_in);
     if (!o->usage_seen || o->usage_recorded) return;
     o->usage_recorded = true;
     o->usage.input_tokens += o->usage_in;
@@ -280,11 +281,14 @@ static void compact_finish(oa_impl *o, const char *model_summary) {
         buf_init(&summary);
         if (o->compact_archive)
             buf_appendf(&summary, "Full pre-compaction transcript: %s\n\n", o->compact_archive);
+        else if (o->compact_archive_failed)
+            buf_appends(&summary, "Transcript archive unavailable; earlier details remain in "
+                                  "the session record.\n\n");
         buf_appends(&summary, model_summary);
         if (!summary.oom &&
             session_exp_compact_apply(o->env.session, o->compact_cut, summary.data,
                                       o->compact_archive, o->compact_before_tokens) == 0) {
-            if (session_save(o->env.session) == 0)
+            if (o->unsent_preview || session_save(o->env.session) == 0)
                 compact_observe(o, TNY_OPENAI_CONTROL_POST_COMPACT, summary.data);
         }
         buf_free(&summary);
@@ -293,7 +297,23 @@ static void compact_finish(oa_impl *o, const char *model_summary) {
     free(o->compact_archive);
     o->compact_archive = NULL;
     o->compacting = false;
-    o->compact_skip_once = true;
+    o->compact_archive_failed = false;
+    o->ctx_edit_prev_seen = false;
+    o->ctx_edit_next_trigger = o->ctx->ctx_edit_trigger;
+    o->ctx_edit_first = session_message_count(o->env.session);
+    o->ctx_edit_seen_until = o->ctx_edit_first;
+    emit_text(o, TNY_EV_STATUS, "context compaction complete",
+              sizeof "context compaction complete" - 1);
+}
+
+static void compact_abandon(oa_impl *o) {
+    if (!o->compacting) return;
+    free(o->compact_archive);
+    o->compact_archive = NULL;
+    o->compacting = false;
+    o->compact_archive_failed = false;
+    o->compact_cut = 0;
+    o->compact_before_tokens = 0;
 }
 
 /* Observe a sticky allocation failure and mark the provider OOM boundary. */
@@ -319,6 +339,10 @@ static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
         sse_parser_init(&o->sse);
         o->state = ST_COMPACT_RECOVER;
         return;
+    }
+    if (o->compacting) {
+        record_usage(o);
+        compact_abandon(o);
     }
     o->turn_open = false;
     /* Settlement callbacks may cancel again; the turn is already ending. */
@@ -565,7 +589,7 @@ static int parse_retry_after(const char *value) {
 static bool schedule_retry(oa_impl *o, const char *what, int delay_hint_ms) {
     if (provider_oom()) return false;
     if (o->cancelled || o->retries >= o->max_retries) return false;
-    bool cont = o->turn->text.len > 0;
+    bool cont = !o->compacting && o->turn->text.len > 0;
     record_usage(o);
     int backoff = OA_RETRY_BASE_MS << o->retries;
     if (delay_hint_ms > backoff) backoff = delay_hint_ms;
@@ -610,10 +634,39 @@ static int finish_error_response(oa_impl *o) {
         err = root; /* {"message":…,"type":…} without the wrapper */
     oa_error_info info;
     classify_error(o, err, status, &info);
+    const char *error_code = err && yyjson_is_obj(err) ? jget_str(err, "code") : NULL;
+    const char *error_type = err && yyjson_is_obj(err) ? jget_str(err, "type") : NULL;
+    bool context_overflow = (error_code && str_starts(error_code, "context_length")) ||
+                            (error_type && str_starts(error_type, "context_length"));
     info.retry_after_ms = retry_after;
     if (doc) yyjson_doc_free(doc);
     buf_clear(&o->turn->rawbody);
     char msg[512];
+    if (o->ctx->exp_compact && context_overflow && !o->compacting && !o->compact_overflow_retried &&
+        session_exp_compact_cut(o->env.session) > session_compact_boundary(o->env.session, NULL)) {
+        /* A provider that rejects the current context cannot summarize it
+         * with another oversized model request. Use the mechanical fallback
+         * once and retry the original work with the shorter history. */
+        o->compact_overflow_retried = true;
+        o->compact_cut = session_exp_compact_cut(o->env.session);
+        o->compact_before_tokens = session_exp_last_tokens(o->env.session);
+        if (o->compact_before_tokens == 0)
+            o->compact_before_tokens =
+                o->ctx->exp_compact_tokens > 0 ? o->ctx->exp_compact_tokens : 128000;
+        o->compact_archive = session_exp_archive(o->env.session);
+        o->compact_archive_failed = !o->ctx->no_save && !o->compact_archive;
+        o->compacting = true;
+        compact_observe(o, TNY_OPENAI_CONTROL_PRE_COMPACT, NULL);
+        emit_text(o, TNY_EV_STATUS, "context overflow: compacting and retrying",
+                  sizeof "context overflow: compacting and retrying" - 1);
+        compact_finish(o, NULL);
+        int rc = start_post_mode(o, msg, sizeof msg, false);
+        if (rc == 0) return 0;
+        if (rc == -2) return -1;
+        emit_error(o, TNY_EVENT_ERROR_IO, msg, strlen(msg));
+        emit_turn_end(o, TNY_STOP_ERROR);
+        return -1;
+    }
     if (status == 401 || status == 403) {
         error_text(o, &info, true, msg, sizeof msg);
         emit_error(o, TNY_EVENT_ERROR_AUTH, msg, strlen(msg));
@@ -682,14 +735,18 @@ static const char *COMPACT_INSTRUCTION =
     "Summarize the conversation so work can continue. Carry forward the goal, all user "
     "constraints, current plan and state, completed and remaining work, key facts, file paths "
     "and commands, and open errors. Preserve exact details needed to resume. Return only the "
-    "summary. The full transcript is available at the path supplied below.";
+    "summary.";
 
 static void append_compact_trigger(oa_impl *o, yyjson_mut_doc *view) {
     if (!o->compacting || !view) return;
     buf_t text;
     buf_init(&text);
     buf_appends(&text, COMPACT_INSTRUCTION);
-    if (o->compact_archive) buf_appendf(&text, "\nTranscript: %s", o->compact_archive);
+    if (o->compact_archive)
+        buf_appendf(&text, "\nThe full transcript is available at: %s", o->compact_archive);
+    else if (o->compact_archive_failed)
+        buf_appends(&text, "\nThe transcript archive is unavailable; preserve details in the "
+                           "summary.");
     yyjson_mut_val *m = yyjson_mut_obj(view);
     if (m && !text.oom) {
         yyjson_mut_obj_add_strcpy(view, m, "role", "user");
@@ -884,7 +941,8 @@ static char *build_request_chat(oa_impl *o, oa_request_owner *request) {
      * request members. */
     if (tny_tier_is_fast(o->ctx->service_tier)) buf_appends(b, ",\"service_tier\":\"priority\"");
     buf_appends(b, ",\"stream\":true");
-    if (o->ctx->ctx_edit_enabled) buf_appends(b, ",\"stream_options\":{\"include_usage\":true}");
+    if (o->ctx->ctx_edit_enabled || o->ctx->exp_compact)
+        buf_appends(b, ",\"stream_options\":{\"include_usage\":true}");
     buf_appends(b, ",\"messages\":[");
 
     if (buf_oom(b) || provider_oom()) { return NULL; }
@@ -1120,7 +1178,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
         tny_alloc_provider_failed();
         return -2;
     }
-    if (!retry && o->ctx->ctx_edit_enabled && !o->unsent_preview && o->step > 0 &&
+    if (!retry && !o->compacting && o->ctx->ctx_edit_enabled && !o->unsent_preview && o->step > 0 &&
         o->ctx_edit_prev_seen && o->ctx_edit_prev_input > o->ctx_edit_next_trigger) {
         tny_session_state *session = o->env.session;
         tny_session_state staged = *session;
@@ -1290,11 +1348,11 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     }
     /* A successful write is submission, not proof of perception. From here
      * retries/history must retain these exact bytes. */
-    if (o->ctx->ctx_edit_enabled) {
+    if (o->ctx->ctx_edit_enabled && !o->compacting) {
         o->ctx_edit_seen_until = session_message_count(o->env.session);
         o->ctx_edit_prev_seen = false;
     }
-    o->unsent_preview = NULL;
+    if (!o->compacting) o->unsent_preview = NULL;
     o->state = ST_HEADERS;
     o->last_byte_ms = monotonic_ms();
     o->stream_done = false;
@@ -1329,22 +1387,25 @@ request_oom:
 static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
     if (tny_swarm_activate(&o->env, errbuf, errlen) != 0) return -1;
     if (tny_team_deliver(&o->env, errbuf, errlen) != 0) return -1;
-    if (!o->compact_skip_once && !o->compacting && session_exp_compact_needed(o->env.session)) {
+    if (!o->compacting && session_exp_compact_needed(o->env.session)) {
         o->compact_cut = session_exp_compact_cut(o->env.session);
         o->compact_before_tokens = session_exp_last_tokens(o->env.session);
         o->compact_archive = session_exp_archive(o->env.session);
         if (!o->ctx->no_save && !o->compact_archive) {
-            snprintf(errbuf, errlen, "could not save pre-compaction transcript");
-            return -1;
+            o->compact_archive_failed = true;
+            emit_text(o, TNY_EV_STATUS, "context archive unavailable; continuing compaction",
+                      sizeof "context archive unavailable; continuing compaction" - 1);
         }
         o->compacting = true;
+        char notice[120];
+        snprintf(notice, sizeof notice, "compacting context: %lld input tokens",
+                 (long long)o->compact_before_tokens);
+        emit_text(o, TNY_EV_STATUS, notice, strlen(notice));
         compact_observe(o, TNY_OPENAI_CONTROL_PRE_COMPACT, NULL);
     }
-    o->compact_skip_once = false;
     int rc = start_post_mode(o, errbuf, errlen, false);
     if (rc == -1 && o->compacting && !o->cancelled) {
         compact_finish(o, NULL);
-        o->compact_skip_once = false;
         rc = start_post_mode(o, errbuf, errlen, false);
     }
     return rc;
@@ -1365,7 +1426,7 @@ static void capture_usage(oa_impl *o, const oa_decoded_event *event) {
     if (o->usage_out < 0) o->usage_out = 0;
     if (o->usage_cached > o->usage_in) o->usage_cached = o->usage_in;
     if (o->usage_cache_write > o->usage_in) o->usage_cache_write = o->usage_in;
-    if (o->ctx->ctx_edit_enabled) {
+    if (o->ctx->ctx_edit_enabled && !o->compacting) {
         o->ctx_edit_prev_input = o->usage_in;
         o->ctx_edit_prev_seen = true;
     }
@@ -2071,7 +2132,6 @@ static int step_finished(oa_impl *o) {
         oa_calls_reset(&o->calls);
         char err[512];
         int rc = start_post_mode(o, err, sizeof err, false);
-        o->compact_skip_once = false;
         if (rc == -2) return -1;
         if (rc != 0) {
             emit_error(o, TNY_EVENT_ERROR_IO, err, strlen(err));
@@ -2220,6 +2280,8 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_
     }
     o->cb = cb;
     o->ud = ud;
+    compact_abandon(o);
+    o->compact_overflow_retried = false;
     o->background_armed = o->background_boundary = false;
     o->step = 0;
     o->ctx_edit_first = session_message_count(o->env.session);
@@ -2329,6 +2391,7 @@ static void oa_cancel(tny_backend *b) {
         o->tool_index = o->tool_batch_failed = 0;
         o->decode_oom = false;
         o->background_armed = o->background_boundary = false;
+        compact_abandon(o);
         secure_zero(o->turn_state, sizeof o->turn_state);
         o->state = ST_IDLE;
         o->turn_open = false;
@@ -2443,7 +2506,6 @@ static int oa_dispatch_impl(tny_backend *b, struct pollfd *fds, int n) {
     if (o->state == ST_COMPACT_RECOVER) {
         char err[512];
         int rc = start_post_mode(o, err, sizeof err, false);
-        o->compact_skip_once = false;
         if (rc == -2) return -1;
         if (rc != 0) {
             emit_error(o, TNY_EVENT_ERROR_IO, err, strlen(err));

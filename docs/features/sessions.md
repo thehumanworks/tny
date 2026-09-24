@@ -30,7 +30,11 @@ Set `TNY_EXP_COMPACT=1` to compact native HTTP conversations when the last
 provider-reported input-token count reaches `TNY_EXP_COMPACT_TOKENS` (default
 128000). If the model's window is known, set
 `TNY_EXP_COMPACT_CONTEXT_WINDOW`; the trigger is capped at 80% of that
-window. A missing usage count does not trigger compaction. This opt-in works
+window. Set the window for models with a context limit at or below 128000:
+without it, the default trigger may be beyond their usable window. Chat
+requests ask the provider to stream usage. A missing usage count preserves
+the last known count. If the provider rejects an overlong request, tny makes
+one mechanical compaction and retries that turn. This opt-in works
 with Responses and Chat Completions, including native subagents and wasm;
 ACP clients manage their own context.
 Native session runners receive the enabled settings through their private
@@ -45,7 +49,14 @@ The full earlier transcript remains in `session.json` and, for saved sessions,
 in the `compact-transcript-<n>.jsonl` file named by the summary. Each line is
 one complete message, so `grep` or `rg` can search it. `session.json`
 records each compaction and its token trigger. If the summary request fails,
-the harness uses its mechanical summary and continues the turn. Ephemeral
+the harness uses its mechanical summary and continues the turn. If the archive
+cannot be written, compaction continues without it and says so in the summary.
+Only actual user prompts count toward the verbatim budget; tool screenshots
+and team or swarm context do not displace the latest prompt. Compaction waits
+for new work before triggering again on a still-large retained tail. With
+`TNY_EXP_CTX_EDIT=1` also enabled, compaction takes precedence: tool-result
+clearing pauses for the summary request and resumes only for later work.
+Ephemeral
 sessions compact in memory without writing a transcript file. With the flag
 unset, the existing turn-count compaction and request bytes are unchanged.
 

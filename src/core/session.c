@@ -506,6 +506,12 @@ int session_add_runtime_context(tny_session_state *s, const char *content) {
     }
     size_t before = yyjson_mut_arr_size(session_messages(s));
     session_add_text(s, "user", content);
+    if (s->ctx->exp_compact && s->ctx->backend != TNY_BK_ACP &&
+        yyjson_mut_arr_size(session_messages(s)) == before + 1) {
+        yyjson_mut_val *message = yyjson_mut_arr_get(session_messages(s), before);
+        yyjson_mut_obj_put(message, yyjson_mut_strcpy(s->doc, "_tny_source"),
+                           yyjson_mut_strcpy(s->doc, "runtime_context"));
+    }
     if (tny_alloc_scope_failed() || yyjson_mut_arr_size(session_messages(s)) != before + 1) {
         if (pending) yyjson_mut_arr_remove_last(pending);
         return -1;
@@ -662,6 +668,7 @@ yyjson_mut_doc *session_provider_view(tny_session_state *s, int boundary, int *r
             }
         }
         yyjson_mut_val *copy = yyjson_mut_val_mut_copy(d, m);
+        if (copy) yyjson_mut_obj_remove_key(copy, "_tny_source");
         if (copy) yyjson_mut_arr_add_val(out, copy);
     }
     fixes += view_close_open(d, out, open, &n_open);
@@ -1476,6 +1483,11 @@ void session_exp_set_last_tokens(tny_session_state *s, int64_t tokens) {
                        yyjson_mut_sint(s->doc, tokens));
 }
 
+static bool exp_real_user_prompt(yyjson_mut_val *message) {
+    const char *role = mrole(message);
+    return role && strcmp(role, "user") == 0 && !yyjson_mut_obj_get(message, "_tny_source");
+}
+
 int64_t session_exp_last_tokens(tny_session_state *s) {
     if (!s) return 0;
     return yyjson_mut_get_sint(yyjson_mut_obj_get(root_of(s), "last_input_tokens"));
@@ -1486,9 +1498,9 @@ int session_exp_compact_cut(tny_session_state *s) {
     int n = msgs ? (int)yyjson_mut_arr_size(msgs) : 0;
     if (!n) return 0;
     yyjson_mut_val *last = yyjson_mut_arr_get(msgs, (size_t)n - 1);
-    const char *last_role = yyjson_mut_get_str(yyjson_mut_obj_get(last, "role"));
+    bool trailing_generated_user = yyjson_mut_obj_get(last, "_tny_source") != NULL;
     /* The newly submitted user prompt must remain verbatim. */
-    if (last_role && strcmp(last_role, "user") == 0) return n - 1;
+    if (exp_real_user_prompt(last)) return n - 1;
     int cut = n, pairs = 0;
     for (int i = n - 1; i >= 0 && pairs < 2; i--) {
         yyjson_mut_val *m = yyjson_mut_arr_get(msgs, (size_t)i);
@@ -1498,7 +1510,10 @@ int session_exp_compact_cut(tny_session_state *s) {
             yyjson_mut_arr_size(calls)) {
             cut = i;
             pairs++;
-        } else if (role && strcmp(role, "user") == 0) break;
+        } else if (exp_real_user_prompt(m)) {
+            if (pairs == 0 && trailing_generated_user) cut = i;
+            break;
+        }
     }
     return cut;
 }
@@ -1509,7 +1524,20 @@ bool session_exp_compact_needed(tny_session_state *s) {
     if (s->ctx->exp_compact_window >= 5 && s->ctx->exp_compact_window / 5 * 4 < limit)
         limit = s->ctx->exp_compact_window / 5 * 4;
     if (session_exp_last_tokens(s) < limit) return false;
-    return session_exp_compact_cut(s) > session_compact_boundary(s, NULL);
+    int boundary = session_compact_boundary(s, NULL);
+    int cut = session_exp_compact_cut(s);
+    if (cut <= boundary) return false;
+    yyjson_mut_val *last = yyjson_mut_obj_get(root_of(s), "last_compact_after_tokens");
+    if (last) {
+        /* A retained large prompt can still exceed the limit. Wait for new
+         * work before another summary, even when its tail is already large. */
+        int64_t after = yyjson_mut_get_sint(last);
+        int64_t growth = limit / 4 > 256 ? limit / 4 : 256;
+        if (cut - boundary < 4 ||
+            session_exp_last_tokens(s) < (after > INT64_MAX - growth ? INT64_MAX : after + growth))
+            return false;
+    }
+    return true;
 }
 
 char *session_exp_archive(tny_session_state *s) {
@@ -1561,7 +1589,7 @@ char *session_exp_mechanical_summary(tny_session_state *s, int cut) {
         yyjson_mut_val *m = yyjson_mut_arr_get(msgs, (size_t)i);
         const char *role = yyjson_mut_get_str(yyjson_mut_obj_get(m, "role"));
         const char *content = yyjson_mut_get_str(yyjson_mut_obj_get(m, "content"));
-        if (role && content && strcmp(role, "user") == 0)
+        if (content && exp_real_user_prompt(m))
             buf_appendf(&out, "- user asked: %.160s\n", content);
         if (role && strcmp(role, "assistant") == 0) {
             yyjson_mut_val *calls = yyjson_mut_obj_get(m, "tool_calls");
@@ -1604,6 +1632,16 @@ int session_exp_compact_apply(tny_session_state *s, int cut, const char *summary
     if (!yyjson_mut_arr_add_val(records, record) ||
         !yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "compact"), c))
         return -1;
+    yyjson_mut_doc *view = session_exp_provider_view(s, NULL);
+    char *json = view ? jwrite_mut_val(yyjson_mut_doc_get_root(view)) : NULL;
+    if (json) {
+        int64_t after = 5000 + (int64_t)strlen(json) / 4;
+        yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "last_compact_after_tokens"),
+                           yyjson_mut_sint(s->doc, after));
+        session_exp_set_last_tokens(s, after);
+    }
+    free(json);
+    yyjson_mut_doc_free(view);
     return 0;
 }
 
@@ -1633,8 +1671,7 @@ yyjson_mut_doc *session_exp_provider_view(tny_session_state *s, int *repairs) {
     bool kept_user = false;
     for (int i = cut - 1; i >= 0; i--) {
         yyjson_mut_val *m = yyjson_mut_arr_get(msgs, (size_t)i);
-        const char *role = yyjson_mut_get_str(yyjson_mut_obj_get(m, "role"));
-        if (!role || strcmp(role, "user") != 0) continue;
+        if (!exp_real_user_prompt(m)) continue;
         char *json = jwrite_mut_val(m);
         if (!json) goto fail;
         size_t length = strlen(json);

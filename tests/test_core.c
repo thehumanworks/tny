@@ -1161,6 +1161,7 @@ TEST session_experimental_compaction_view(void) {
     ASSERT(fallback);
     ASSERT(strstr(fallback, "latest user instruction") != NULL);
     free(fallback);
+    ASSERT_EQ_FMT(6, session_compact_boundary(s, &summary), "%d");
     ASSERT_STR_EQ("Stable summary", summary);
     session_exp_set_last_tokens(s, 0);
     ASSERT_EQ_FMT((long long)0, (long long)session_exp_last_tokens(s), "%lld");
@@ -2576,6 +2577,90 @@ static const uint8_t PNG1[] = {
     0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78,
     0x9c, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
     0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+
+TEST experimental_compaction_real_prompt_and_hysteresis(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->exp_compact = true;
+    ctx->exp_compact_tokens = 100;
+    ctx->no_save = true;
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    tny_image_part image = {PNG1, sizeof PNG1, "image/png"};
+    char err[128];
+    session_add_text(s, "user", "REAL_OLD_PROMPT");
+    session_add_assistant(s, "done", NULL);
+    ASSERT_EQ(0, session_add_runtime_context(s, "RUNTIME_CONTEXT_MARKER"));
+    ASSERT_EQ(0,
+              session_add_user_loaded_images(s, "TOOL_IMAGE_MARKER", &image, 1, err, sizeof err));
+    session_add_assistant(s, "done", NULL);
+    session_add_text(s, "user", "REAL_LATEST_PROMPT");
+    ASSERT_EQ(5, session_exp_compact_cut(s));
+    ASSERT_EQ(0, session_exp_compact_apply(s, 5, "handoff", NULL, 100));
+    yyjson_mut_doc *view = session_exp_provider_view(s, NULL);
+    ASSERT(view);
+    char *json = jwrite_mut_val(yyjson_mut_doc_get_root(view));
+    ASSERT(json);
+    ASSERT(strstr(json, "REAL_OLD_PROMPT"));
+    ASSERT(strstr(json, "REAL_LATEST_PROMPT"));
+    ASSERT_FALSE(strstr(json, "RUNTIME_CONTEXT_MARKER"));
+    ASSERT_FALSE(strstr(json, "TOOL_IMAGE_MARKER"));
+    ASSERT_FALSE(strstr(json, "_tny_source"));
+    free(json);
+    yyjson_mut_doc_free(view);
+    for (int i = 1; i <= 4; i++) {
+        char id[8], calls[160];
+        snprintf(id, sizeof id, "c%d", i);
+        snprintf(calls, sizeof calls,
+                 "[{\"id\":\"%s\",\"type\":\"function\",\"function\":{\"name\":\"read_file\","
+                 "\"arguments\":\"{}\"}}]",
+                 id);
+        session_add_assistant(s, NULL, calls);
+        session_add_tool_result(s, id, "result");
+        session_exp_set_last_tokens(s, 100000);
+        if (i < 4) ASSERT_FALSE(session_exp_compact_needed(s));
+    }
+    ASSERT(session_exp_compact_needed(s));
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST experimental_compaction_keeps_prompt_before_tool_image(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->exp_compact = true;
+    ctx->no_save = true;
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    tny_image_part image = {PNG1, sizeof PNG1, "image/png"};
+    char err[128];
+    session_add_text(s, "user", "LATEST_REAL_PROMPT");
+    session_add_assistant(s, NULL,
+                          "[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"read_"
+                          "image\",\"arguments\":\"{}\"}}]");
+    session_add_tool_result(s, "c1", "pixels follow");
+    ASSERT_EQ(0,
+              session_add_user_loaded_images(s, "TOOL_IMAGE_MARKER", &image, 1, err, sizeof err));
+    ASSERT_EQ(1, session_exp_compact_cut(s));
+    ASSERT_EQ(0, session_exp_compact_apply(s, 1, "handoff", NULL, 100));
+    yyjson_mut_doc *view = session_exp_provider_view(s, NULL);
+    ASSERT(view);
+    char *json = jwrite_mut_val(yyjson_mut_doc_get_root(view));
+    ASSERT(json);
+    ASSERT(strstr(json, "LATEST_REAL_PROMPT"));
+    ASSERT(strstr(json, "TOOL_IMAGE_MARKER"));
+    ASSERT_FALSE(strstr(json, "_tny_source"));
+    free(json);
+    yyjson_mut_doc_free(view);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
 
 TEST image_mime_from_magic(void) {
     ASSERT_STR_EQ("image/png", image_mime(PNG1, sizeof PNG1));
@@ -6394,6 +6479,8 @@ SUITE(core_suite) {
     RUN_TEST(session_context_edit_keeps_pairs_reasoning_and_frozen_stubs);
     RUN_TEST(session_compaction);
     RUN_TEST(session_experimental_compaction_view);
+    RUN_TEST(experimental_compaction_real_prompt_and_hysteresis);
+    RUN_TEST(experimental_compaction_keeps_prompt_before_tool_image);
     RUN_TEST(session_recovery_roundtrip);
     RUN_TEST(image_mime_from_magic);
     RUN_TEST(image_data_url_roundtrip);

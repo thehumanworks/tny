@@ -2,6 +2,7 @@
  * image_url parts. role:tool messages cannot carry those parts on most
  * OpenAI-compatible APIs, so the native loop injects a follow-up user
  * message instead (docs/adr/0008). */
+#include "core/backend.h"
 #include "core/image.h"
 
 #include "core/image_preview.h"
@@ -221,6 +222,10 @@ int session_add_user_loaded_images(tny_session_state *s, const char *text,
             return -1;
         }
     }
+    /* Tool screenshots are provider-visible user parts, but not user prompts. */
+    if (s->ctx->exp_compact && s->ctx->backend != TNY_BK_ACP)
+        yyjson_mut_obj_put(b.msg, yyjson_mut_strcpy(s->doc, "_tny_source"),
+                           yyjson_mut_strcpy(s->doc, "tool_image"));
     builder_commit(s, &b);
     return 0;
 }

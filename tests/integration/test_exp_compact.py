@@ -38,8 +38,38 @@ class Provider(BaseHTTPRequestHandler):
         if getattr(server, "capture_raw", False):
             request["raw"] = raw
         server.requests.append(request)
+        if (
+            not summary
+            and getattr(server, "overflow_once", False)
+            and not server.overflow_done
+            and server.normal_count >= 2
+        ):
+            server.overflow_done = True
+            payload = (
+                b'{"error":{"type":"invalid_request_error",'
+                b'"code":"context_length_exceeded","message":"too long"}}'
+            )
+            self.send_response(400)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         if summary:
             server.compactions += 1
+            if (
+                getattr(server, "partial_summary_retry", False)
+                and server.compactions == 1
+            ):
+                wire = (
+                    b'data: {"type":"response.output_text.delta",'
+                    b'"delta":"PARTIALSTART"}\n\n'
+                )
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Content-Length", str(len(wire)))
+                self.end_headers()
+                self.wfile.write(wire)
+                return
             if server.fail_summary and server.compactions == 1:
                 payload = (
                     b'{"error":{"type":"invalid_request_error","message":"fixture"}}'
@@ -85,18 +115,18 @@ class Provider(BaseHTTPRequestHandler):
                 if call
                 else {"content": answer}
             )
-            events = [
-                {
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": delta,
-                            "finish_reason": "tool_calls" if call else "stop",
-                        }
-                    ],
-                    "usage": usage,
-                }
-            ]
+            event = {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": delta,
+                        "finish_reason": "tool_calls" if call else "stop",
+                    }
+                ]
+            }
+            if body.get("stream_options", {}).get("include_usage"):
+                event["usage"] = usage
+            events = [event]
             wire = b"".join(
                 b"data: " + json.dumps(e).encode() + b"\n\n" for e in events
             )
@@ -156,6 +186,9 @@ def run_case(
     fail_summary=False,
     tokens=128000,
     isolate=False,
+    ctx_edit=False,
+    partial_summary_retry=False,
+    overflow_once=False,
 ):
     with tempfile.TemporaryDirectory() as home:
         ws = Path(home) / "workspace"
@@ -168,6 +201,9 @@ def run_case(
         server.scenario = scenario
         server.steps = steps
         server.fail_summary = fail_summary
+        server.partial_summary_retry = partial_summary_retry
+        server.overflow_once = overflow_once
+        server.overflow_done = False
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         env = dict(os.environ)
@@ -184,6 +220,10 @@ def run_case(
             TNY_SELF_IMPROVE="0",
             TNY_EXP_COMPACT="1" if enabled else "0",
             TNY_EXP_COMPACT_TOKENS=str(tokens),
+            TNY_EXP_CTX_EDIT="1" if ctx_edit else "0",
+            TNY_EXP_CTX_EDIT_TRIGGER="1000",
+            TNY_EXP_CTX_EDIT_STEP="1000",
+            TNY_EXP_CTX_EDIT_KEEP="1",
         )
         if not isolate:
             env["TNY_ISOLATE"] = "0"
@@ -263,6 +303,20 @@ def run_case(
                     if request["summary"]
                 ],
                 "recorded_compactions": len(session.get("compactions", [])),
+                "latest_prompt_on_final_wire": f"user turn {turns - 1}"
+                in json.dumps(requests[-1]["body"])
+                if scenario == "turns"
+                else None,
+                "context_edits": len(session.get("context_edits", [])),
+                "request_stub_counts": [
+                    json.dumps(r["body"]).count("[cleared:") for r in requests
+                ],
+                "chat_usage_requested": all(
+                    r["body"].get("stream_options", {}).get("include_usage")
+                    for r in requests
+                )
+                if wire == "chat" and enabled
+                else None,
                 "archives_valid": archives_valid,
                 "session": session,
             }
@@ -272,7 +326,7 @@ def run_case(
             thread.join(timeout=5)
 
 
-def compare_main_wire(main_binary):
+def compare_main_wire(main_binary, wire="responses"):
     """Compare complete flag-off HTTP bodies on the same native runner fixture."""
     with tempfile.TemporaryDirectory() as home:
         workspace = Path(home) / "workspace"
@@ -293,7 +347,7 @@ def compare_main_wire(main_binary):
             HOME=home,
             OPENAI_API_KEY="fixture",
             OPENAI_BASE_URL=f"http://127.0.0.1:{server.server_port}/v1",
-            OPENAI_WIRE_API="responses",
+            OPENAI_WIRE_API=wire,
             TNY_TOOLS="terminal",
             TNY_SELF_IMPROVE="0",
             TNY_EXP_COMPACT="0",
@@ -327,6 +381,7 @@ def compare_main_wire(main_binary):
                 "main_binary": str(Path(main_binary).resolve()),
                 "branch_binary": TNY,
                 "default_isolation": True,
+                "wire": wire,
                 "requests": len(branch),
                 "main_request_bytes": [len(raw) for raw in main],
                 "branch_request_bytes": [len(raw) for raw in branch],
@@ -342,23 +397,64 @@ def compare_main_wire(main_binary):
 
 class CompactTests(unittest.TestCase):
     def test_responses_between_turns(self):
-        result = run_case("turns", True, turns=3, tokens=1200)
+        result = run_case("turns", True, turns=3, tokens=1200, isolate=True)
         self.assertGreaterEqual(result["compactions"], 1)
         self.assertEqual(result["summary_positions"][0], 2)
         self.assertTrue(result["archives_valid"])
 
     def test_responses_inside_turn_and_fallback(self):
-        result = run_case("long", True, steps=6, fail_summary=True, tokens=3000)
+        result = run_case(
+            "long", True, steps=6, fail_summary=True, tokens=3000, isolate=True
+        )
         self.assertGreaterEqual(result["compactions"], 2)
         self.assertGreaterEqual(result["recorded_compactions"], 2)
         self.assertTrue(result["archives_valid"])
         self.assertIn("GOAL=continue", result["session"]["compact"]["summary"])
 
     def test_chat_inside_turn(self):
-        result = run_case("long", True, wire="chat", steps=5, tokens=3000)
+        result = run_case("long", True, wire="chat", steps=5, tokens=3000, isolate=True)
         self.assertGreaterEqual(result["compactions"], 1)
         self.assertTrue(result["archives_valid"])
         self.assertIn("GOAL=continue", result["session"]["compact"]["summary"])
+        self.assertTrue(result["chat_usage_requested"])
+
+    def test_summary_retry_discards_partial(self):
+        result = run_case(
+            "long",
+            True,
+            steps=6,
+            tokens=3000,
+            isolate=True,
+            partial_summary_retry=True,
+        )
+        self.assertGreaterEqual(result["compactions"], 2)
+        self.assertNotIn("PARTIALSTART", result["session"]["compact"]["summary"])
+
+    def test_context_overflow_recovers_without_usage(self):
+        result = run_case(
+            "turns", True, turns=2, tokens=128000, isolate=True, overflow_once=True
+        )
+        self.assertEqual(0, result["summary_requests"])
+        self.assertGreaterEqual(result["recorded_compactions"], 1)
+        self.assertTrue(result["latest_prompt_on_final_wire"])
+
+    def test_both_flags_default_isolation(self):
+        result = run_case(
+            "long", True, steps=8, tokens=3000, isolate=True, ctx_edit=True
+        )
+        self.assertGreaterEqual(result["compactions"], 1)
+        self.assertGreaterEqual(result["context_edits"], 1)
+        for index in result["summary_positions"]:
+            if index:
+                self.assertEqual(
+                    result["request_stub_counts"][index - 1],
+                    result["request_stub_counts"][index],
+                )
+            if index + 1 < len(result["request_stub_counts"]):
+                self.assertLessEqual(
+                    result["request_stub_counts"][index + 1],
+                    result["request_stub_counts"][index],
+                )
 
     def test_default_isolation_runner(self):
         for wire in ("responses", "chat"):
@@ -373,7 +469,10 @@ class CompactTests(unittest.TestCase):
 
 if __name__ == "__main__":
     if "--compare-main" in sys.argv:
-        result = compare_main_wire(sys.argv[sys.argv.index("--compare-main") + 1])
+        result = compare_main_wire(
+            sys.argv[sys.argv.index("--compare-main") + 1],
+            "chat" if "--wire-chat" in sys.argv else "responses",
+        )
         print(json.dumps(result, indent=2))
         if not result["identical"]:
             sys.exit(1)

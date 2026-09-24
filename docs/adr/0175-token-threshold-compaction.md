@@ -22,6 +22,20 @@ and include its path in the summary. The summary is byte-stable until the
 next compaction. Session records and extension `pre_compact` / `post_compact`
 events include token estimates. Failed summary requests use the existing
 mechanical summary content and resume the ordinary request.
+Cancellation abandons a pending summary and its cut. Archive-write failure
+degrades to a summary without a file path. A missing usage report retains the
+last input-token count; Chat streaming requests usage explicitly. An overflow
+error uses one mechanical fallback and retries because another request with
+the same oversized prefix could not summarize it. A new summary waits for at
+least four transcript messages and about a quarter-window of growth after the
+previous one. Provider-visible tool screenshots and runtime context carry
+flag-gated source markers in the session, stripped before HTTP serialization,
+so the verbatim budget keeps only actual user prompts.
+
+With context editing enabled, compaction runs first. No result-clearing pass
+is made immediately before or after a summary request; summary usage does
+not set the clearing trigger. Normal later steps can clear older tool results.
+Compaction emits visible status at start and completion.
 
 The flag-off arm keeps the existing turn-count policy and wire bytes. Both
 Responses and Chat Completions use the shared session view. Native subagents
@@ -47,7 +61,7 @@ billing or live model quality.
 | 20 turns | off | 40 | 290,412 | 7,260 | 13 | 12 mechanical |
 | 20 turns | on | 40 | 345,760 | 8,644 | 1 | 0 |
 | 120 tool steps | off | 121 | 56,795,152 | 469,381 | 1 | 0 |
-| 120 tool steps | on | 122 | 30,243,917 | 247,901 | 1 | 1 model |
+| 120 tool steps | on | 122 | 30,243,881 | 247,901 | 1 | 1 model |
 
 The 20-turn on arm sends more total bytes because it retains the complete
 history below the token threshold; it avoids twelve early-summary prefix
@@ -59,7 +73,14 @@ The same mock with `--compare-main` compared all 40 flag-off HTTP request
 bodies to a Release binary built from `main` at `41a3b828`, using one server
 and workspace under default isolation. They matched byte for byte (both
 concatenated SHA-256 values:
-`06ac930ea1ce3b0cf26abae1f497cc714738d8204ae521c5bbd911b672731a48`).
+`55458d972aabf3a66026e8150d8d2d4ea1116046023173e13d9cb57623b45259`).
+The Chat wire also matched all 40 requests (both SHA-256 values:
+`9f1a0986926f0488642868093b8086b8cfeaa9337be369b7a88b1344976949f7`).
+With both experiment flags on in a separate eight-step detached-runner mock,
+the first summary request was request 3, one compaction and five context edits
+were recorded, and the summary and following request had no newly cleared
+tool-result stubs. Request bodies were 4,678, 13,127, 22,172, 21,992,
+30,585, 30,985, 27,145, 31,640, 32,183 and 32,583 bytes.
 
 ## Rollback
 
