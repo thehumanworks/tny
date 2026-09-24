@@ -82,6 +82,7 @@ def check_task(task: Path, tmp_root: Path) -> tuple[bool, bool]:
     if info["id"] != task.name:
         raise AssertionError("task id mismatch")
     repo = task / "repo"
+    long_task = task.parent.name == "tasks-long"
     if sum(p.stat().st_size for p in repo.rglob("*") if p.is_file()) >= 300_000:
         raise AssertionError("initial repo exceeds 300 KB")
     check_answers(task)
@@ -92,10 +93,23 @@ def check_task(task: Path, tmp_root: Path) -> tuple[bool, bool]:
         setup_task(task, workspace, info["timeout_s"], subprocess.PIPE, subprocess.PIPE)
         final = Path(tmp) / "final.txt"
         final.write_text("")
-        before = verify_task(task, workspace, final)
+
+        def verify():
+            if long_task:
+                return subprocess.run(
+                    ["bash", str(task / "verify.sh"), str(workspace), str(final)],
+                    cwd=tmp_root,
+                    text=True,
+                    capture_output=True,
+                    timeout=60,
+                    check=False,
+                )
+            return verify_task(task, workspace, final)
+
+        before = verify()
         apply_solution(task, workspace)
-        after = verify_task(task, workspace, final)
-        repeat = verify_task(task, workspace, final) if after.returncode == 0 else after
+        after = verify()
+        repeat = verify() if after.returncode == 0 else after
         if after.returncode or repeat.returncode:
             print(f"  solved stderr: {after.stderr.strip()[:1200]}")
             print(f"  solved stdout: {after.stdout.strip()[:500]}")

@@ -332,7 +332,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--harness", action="append", choices=ADAPTERS)
     parser.add_argument("--task", action="append", default=[])
-    parser.add_argument("--tasks-dir", type=Path, default=HERE / "tasks")
+    parser.add_argument(
+        "--tasks-dir",
+        type=Path,
+        default=HERE / "tasks",
+        help="task suite directory (default: tasks/)",
+    )
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--model", default="gpt-5.6-luna")
     parser.add_argument("--effort", default="low")

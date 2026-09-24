@@ -43,6 +43,12 @@ uvx --with tiktoken python tests/bench/harness_bench/report.py \
 ```
 
 `--task` and `--harness` repeat. Omit `--task` to select all available tasks.
+Use `--tasks-dir tests/bench/harness_bench/tasks-long` to select the three
+long-horizon tasks; validate them offline first with
+`python tests/bench/harness_bench/validate_tasks.py tests/bench/harness_bench/tasks-long`.
+Their setup generates large files in each copied workspace, so keep `TMPDIR`
+on a disk with enough space and use a distinct run label. No live inference is
+needed for validation.
 `--tasks-dir tests/bench/harness_bench/tasks-heldout` selects the held-out
 set for the final confirmation run.
 Each run writes `result.json`, `stdout.txt`, `stderr.txt`,
