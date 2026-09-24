@@ -53,12 +53,14 @@ the harness uses its mechanical summary and continues the turn. If the archive
 cannot be written, compaction continues without it and says so in the summary.
 Only actual user prompts count toward the verbatim budget; tool screenshots
 and team or swarm context do not displace the latest prompt. Compaction waits
-for new work before triggering again on a still-large retained tail. With
-`TNY_EXP_CTX_EDIT=1` also enabled, compaction takes precedence: tool-result
-clearing pauses for the summary request and resumes only for later work.
-Ephemeral
-sessions compact in memory without writing a transcript file. With the flag
-unset, the existing turn-count compaction and request bytes are unchanged.
+for new work before triggering again on a still-large retained tail.
+The temporary size estimate charges a fixed 1,500 tokens for each image rather
+than its base64 bytes. The first reported usage after compaction becomes the
+growth baseline. With `TNY_EXP_CTX_EDIT=1` also enabled, compaction takes
+precedence: tool-result clearing pauses for the summary request and resumes
+only for later work. Ephemeral sessions compact in memory without writing a
+transcript file. With the flag unset, the existing turn-count compaction and
+request bytes are unchanged.
 
 All `session.json` writes are atomic (write + rename), so readers never
 lock — they always see a complete document.

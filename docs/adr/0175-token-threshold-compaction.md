@@ -31,6 +31,9 @@ least four transcript messages and about a quarter-window of growth after the
 previous one. Provider-visible tool screenshots and runtime context carry
 flag-gated source markers in the session, stripped before HTTP serialization,
 so the verbatim budget keeps only actual user prompts.
+The post-compaction estimate strips base64 image payloads and charges 1,500
+tokens per image. The first real provider usage after compaction replaces that
+estimate as the growth baseline, including when an image remains in the tail.
 
 With context editing enabled, compaction runs first. No result-clearing pass
 is made immediately before or after a summary request; summary usage does
@@ -55,6 +58,8 @@ small tool call in each turn, then one 120-step turn with tool outputs of
 4–20 KiB. The existing terminal-result offload leaves an 8 KiB inline preview
 for larger outputs. Values below are local wire-size measurements, not provider
 billing or live model quality.
+The image regression fixture bills non-image bytes at one token per four bytes
+and each image at 1,500 tokens, matching the hysteresis estimate's image cost.
 
 | Scenario | Flag | Requests | Total input bytes | Mean bytes/request | Distinct first-request prefixes | Compactions |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
@@ -76,11 +81,18 @@ concatenated SHA-256 values:
 `55458d972aabf3a66026e8150d8d2d4ea1116046023173e13d9cb57623b45259`).
 The Chat wire also matched all 40 requests (both SHA-256 values:
 `9f1a0986926f0488642868093b8086b8cfeaa9337be369b7a88b1344976949f7`).
-With both experiment flags on in a separate eight-step detached-runner mock,
-the first summary request was request 3, one compaction and five context edits
-were recorded, and the summary and following request had no newly cleared
-tool-result stubs. Request bodies were 4,678, 13,127, 22,172, 21,992,
-30,585, 30,985, 27,145, 31,640, 32,183 and 32,583 bytes.
+With both experiment flags on in a separate 24-step detached-runner mock,
+two summary requests and nine context edits were recorded. The summary
+requests (positions 20 and 24) had no newly cleared tool-result stubs;
+the following requests likewise did not clear a result. The 27 HTTP bodies
+totalled 590,741 bytes.
+In the image-billing fixture, a 360,473-byte PNG was read every five steps of
+a 65-step turn. The mock billed text at one token per four bytes and each
+image at 1,500 tokens. Five summaries occurred at request positions 13, 25,
+37, 49, and 61, with the last following a compaction that retained an image.
+The largest reported input was 20,237 tokens against a 20,000-token trigger;
+the last re-based hysteresis baseline was 4,441 tokens. These are local
+mock results, not a claim about any provider's image billing.
 
 ## Rollback
 

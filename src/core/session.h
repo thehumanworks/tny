@@ -141,7 +141,10 @@ int session_compact_boundary(tny_session_state *s, const char **summary);
 /* Experimental native compaction. The stored transcript stays complete;
  * only the provider view changes. A summary is immutable until replaced. */
 void session_exp_set_last_tokens(tny_session_state *s, int64_t tokens);
+/* Replace a post-compaction size estimate with the first real provider usage. */
+void session_exp_record_usage(tny_session_state *s, int64_t tokens);
 int64_t session_exp_last_tokens(tny_session_state *s);
+int64_t session_exp_compact_after_tokens(tny_session_state *s);
 bool session_exp_compact_needed(tny_session_state *s);
 int session_exp_compact_cut(tny_session_state *s);
 char *session_exp_archive(tny_session_state *s); /* malloc'd path or NULL */

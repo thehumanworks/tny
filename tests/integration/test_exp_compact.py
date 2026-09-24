@@ -4,14 +4,20 @@
 import hashlib
 import json
 import os
+import random
+import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+IMAGE_URL = re.compile(rb"data:image/[a-z]+;base64,[A-Za-z0-9+/=]+")
 
 TNY = str(
     Path(
@@ -20,6 +26,27 @@ TNY = str(
         else os.environ.get("TNY", "build/tny")
     ).resolve()
 )
+
+
+def write_screenshot(path):
+    """Write a valid, mostly incompressible PNG for image-billing checks."""
+    width, height = 400, 300
+    rng = random.Random(17)
+    pixels = b"".join(b"\0" + rng.randbytes(width * 3) for _ in range(height))
+
+    def chunk(kind, data):
+        payload = kind + data
+        return (
+            struct.pack(">I", len(data))
+            + payload
+            + struct.pack(">I", zlib.crc32(payload) & 0xFFFFFFFF)
+        )
+
+    png = b"\x89PNG\r\n\x1a\n"
+    png += chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    png += chunk(b"IDAT", zlib.compress(pixels, 9)) + chunk(b"IEND", b"")
+    path.write_bytes(png)
+    return len(png)
 
 
 class Provider(BaseHTTPRequestHandler):
@@ -34,7 +61,17 @@ class Provider(BaseHTTPRequestHandler):
         body = json.loads(raw)
         chat = "messages" in body
         summary = body.get("tool_choice") == "none"
-        request = {"bytes": len(raw), "body": body, "summary": summary}
+        image_urls = IMAGE_URL.findall(raw) if server.scenario == "image" else []
+        input_tokens = max(
+            1, (len(raw) - sum(map(len, image_urls))) // 4 + 1500 * len(image_urls)
+        )
+        request = {
+            "bytes": len(raw),
+            "input_tokens": input_tokens,
+            "images": len(image_urls),
+            "body": body,
+            "summary": summary,
+        }
         if getattr(server, "capture_raw", False):
             request["raw"] = raw
         server.requests.append(request)
@@ -91,14 +128,24 @@ class Provider(BaseHTTPRequestHandler):
         if not summary:
             server.normal_count += 1
         usage = {
-            "prompt_tokens" if chat else "input_tokens": max(1, len(raw) // 4),
+            "prompt_tokens" if chat else "input_tokens": input_tokens,
             "completion_tokens" if chat else "output_tokens": 12,
         }
         if call:
             index = server.normal_count
-            size = 4096 + (index % 5) * 4096 if server.scenario == "long" else 32
-            command = f"printf '%{size}s' x"
-            arguments = json.dumps({"command": command})
+            if server.scenario == "image" and index % 5 == 1:
+                name = "read_image"
+                arguments = json.dumps({"path": str(server.image_path)})
+            else:
+                name = "terminal"
+                size = (
+                    6000
+                    if server.scenario == "image"
+                    else 4096 + (index % 5) * 4096
+                    if server.scenario == "long"
+                    else 32
+                )
+                arguments = json.dumps({"command": f"printf '%{size}s' x"})
             call_id = f"call_{index}"
         if chat:
             delta = (
@@ -108,7 +155,7 @@ class Provider(BaseHTTPRequestHandler):
                             "index": 0,
                             "id": call_id,
                             "type": "function",
-                            "function": {"name": "terminal", "arguments": arguments},
+                            "function": {"name": name, "arguments": arguments},
                         }
                     ]
                 }
@@ -141,7 +188,7 @@ class Provider(BaseHTTPRequestHandler):
                         "item": {
                             "type": "function_call",
                             "call_id": call_id,
-                            "name": "terminal",
+                            "name": name,
                             "arguments": arguments,
                         },
                     }
@@ -187,18 +234,22 @@ def run_case(
     tokens=128000,
     isolate=False,
     ctx_edit=False,
+    ctx_trigger=1000,
+    ctx_step=1000,
     partial_summary_retry=False,
     overflow_once=False,
 ):
     with tempfile.TemporaryDirectory() as home:
         ws = Path(home) / "workspace"
         ws.mkdir()
+        image_bytes = write_screenshot(ws / "shot.png") if scenario == "image" else 0
         server = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
         server.requests = []
         server.compactions = 0
         server.normal_count = 0
         server.phase = 0
         server.scenario = scenario
+        server.image_path = ws / "shot.png"
         server.steps = steps
         server.fail_summary = fail_summary
         server.partial_summary_retry = partial_summary_retry
@@ -221,8 +272,8 @@ def run_case(
             TNY_EXP_COMPACT="1" if enabled else "0",
             TNY_EXP_COMPACT_TOKENS=str(tokens),
             TNY_EXP_CTX_EDIT="1" if ctx_edit else "0",
-            TNY_EXP_CTX_EDIT_TRIGGER="1000",
-            TNY_EXP_CTX_EDIT_STEP="1000",
+            TNY_EXP_CTX_EDIT_TRIGGER=str(ctx_trigger),
+            TNY_EXP_CTX_EDIT_STEP=str(ctx_step),
             TNY_EXP_CTX_EDIT_KEEP="1",
         )
         if not isolate:
@@ -234,7 +285,7 @@ def run_case(
                     command += ["--resume", "last"]
                 command += [f"user turn {turn}: preserve this exact request"]
                 result = subprocess.run(
-                    command, env=env, capture_output=True, timeout=120
+                    command, env=env, capture_output=True, timeout=240
                 )
                 assert result.returncode == 0, (
                     result.returncode,
@@ -289,6 +340,20 @@ def run_case(
                 "default_isolation": isolate,
                 "wire": wire,
                 "request_input_bytes": sizes,
+                "normal_input_tokens": [
+                    r["input_tokens"] for r in requests if not r["summary"]
+                ],
+                "image_bytes": image_bytes,
+                "max_real_input_tokens": max(
+                    (r["input_tokens"] for r in requests if not r["summary"]),
+                    default=0,
+                ),
+                "normal_requests_over_limit": sum(
+                    r["input_tokens"] >= tokens for r in requests if not r["summary"]
+                ),
+                "image_requests": sum(r["images"] > 0 for r in requests),
+                "last_compact_after_tokens": session.get("last_compact_after_tokens"),
+                "last_input_tokens": session.get("last_input_tokens"),
                 "total_bytes": sum(sizes),
                 "distinct_first_request_prefixes": len(set(roots)),
                 "compactions": (
@@ -396,6 +461,18 @@ def compare_main_wire(main_binary, wire="responses"):
 
 
 class CompactTests(unittest.TestCase):
+    def test_image_billing_allows_repeated_compaction(self):
+        result = run_case("image", True, steps=65, tokens=20000, isolate=True)
+        self.assertGreater(result["image_bytes"], 300000)
+        self.assertGreater(result["image_requests"], 0)
+        self.assertGreaterEqual(result["compactions"], 5)
+        self.assertLess(result["max_real_input_tokens"], 60000)
+        self.assertFalse(result["session"].get("last_compact_estimated"))
+        self.assertIn(
+            result["last_compact_after_tokens"], result["normal_input_tokens"]
+        )
+        self.assertTrue(result["archives_valid"])
+
     def test_responses_between_turns(self):
         result = run_case("turns", True, turns=3, tokens=1200, isolate=True)
         self.assertGreaterEqual(result["compactions"], 1)
@@ -440,7 +517,14 @@ class CompactTests(unittest.TestCase):
 
     def test_both_flags_default_isolation(self):
         result = run_case(
-            "long", True, steps=8, tokens=3000, isolate=True, ctx_edit=True
+            "long",
+            True,
+            steps=24,
+            tokens=7000,
+            isolate=True,
+            ctx_edit=True,
+            ctx_trigger=3000,
+            ctx_step=3000,
         )
         self.assertGreaterEqual(result["compactions"], 1)
         self.assertGreaterEqual(result["context_edits"], 1)

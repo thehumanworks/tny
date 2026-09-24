@@ -227,7 +227,7 @@ int64_t oa_context_edit_next_trigger(int64_t previous_input, size_t saved_bytes,
 static void record_usage(oa_impl *o) {
     if (tny_alloc_scope_failed()) return;
     if (o->ctx->exp_compact && !o->compacting && !o->usage_recorded && o->usage_input_seen)
-        session_exp_set_last_tokens(o->env.session, o->usage_in);
+        session_exp_record_usage(o->env.session, o->usage_in);
     if (!o->usage_seen || o->usage_recorded) return;
     o->usage_recorded = true;
     o->usage.input_tokens += o->usage_in;
@@ -256,14 +256,9 @@ static void compact_observe(oa_impl *o, tny_openai_control_kind kind, const char
     request.compact_before_tokens = o->compact_before_tokens;
     request.compact_after_tokens = o->compact_before_tokens;
     if (kind == TNY_OPENAI_CONTROL_POST_COMPACT) {
-        yyjson_mut_doc *view = session_exp_provider_view(o->env.session, NULL);
-        char *json = view ? jwrite_mut_val(yyjson_mut_doc_get_root(view)) : NULL;
-        request.compact_after_tokens = 5000 + (int64_t)strlen(json      ? json
-                                                              : summary ? summary
-                                                                        : "") /
-                                                  4;
-        free(json);
-        yyjson_mut_doc_free(view);
+        int64_t after = session_exp_compact_after_tokens(o->env.session);
+        request.compact_after_tokens =
+            after > 0 ? after : 5000 + (int64_t)strlen(summary ? summary : "") / 4;
     }
     request.compact_summary = summary;
     tny_openai_control_response response = control_call(o, &request);

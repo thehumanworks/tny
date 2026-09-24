@@ -1483,6 +1483,18 @@ void session_exp_set_last_tokens(tny_session_state *s, int64_t tokens) {
                        yyjson_mut_sint(s->doc, tokens));
 }
 
+void session_exp_record_usage(tny_session_state *s, int64_t tokens) {
+    if (!s || tokens < 0) return;
+    yyjson_mut_val *root = root_of(s);
+    if (yyjson_mut_is_true(yyjson_mut_obj_get(root, "last_compact_estimated"))) {
+        yyjson_mut_obj_put(root, yyjson_mut_strcpy(s->doc, "last_compact_after_tokens"),
+                           yyjson_mut_sint(s->doc, tokens));
+        yyjson_mut_obj_put(root, yyjson_mut_strcpy(s->doc, "last_compact_estimated"),
+                           yyjson_mut_bool(s->doc, false));
+    }
+    session_exp_set_last_tokens(s, tokens);
+}
+
 static bool exp_real_user_prompt(yyjson_mut_val *message) {
     const char *role = mrole(message);
     return role && strcmp(role, "user") == 0 && !yyjson_mut_obj_get(message, "_tny_source");
@@ -1491,6 +1503,11 @@ static bool exp_real_user_prompt(yyjson_mut_val *message) {
 int64_t session_exp_last_tokens(tny_session_state *s) {
     if (!s) return 0;
     return yyjson_mut_get_sint(yyjson_mut_obj_get(root_of(s), "last_input_tokens"));
+}
+
+int64_t session_exp_compact_after_tokens(tny_session_state *s) {
+    if (!s) return 0;
+    return yyjson_mut_get_sint(yyjson_mut_obj_get(root_of(s), "last_compact_after_tokens"));
 }
 
 int session_exp_compact_cut(tny_session_state *s) {
@@ -1635,9 +1652,34 @@ int session_exp_compact_apply(tny_session_state *s, int cut, const char *summary
     yyjson_mut_doc *view = session_exp_provider_view(s, NULL);
     char *json = view ? jwrite_mut_val(yyjson_mut_doc_get_root(view)) : NULL;
     if (json) {
-        int64_t after = 5000 + (int64_t)strlen(json) / 4;
+        /* Data URLs dominate JSON bytes, but image token cost does not scale
+         * with base64 length. Charge a fixed 1500 tokens per image until usage
+         * from the first post-compaction request replaces this estimate. */
+        size_t image_bytes = 0, images = 0;
+        yyjson_mut_val *messages = yyjson_mut_doc_get_root(view);
+        size_t i, count;
+        yyjson_mut_val *message;
+        yyjson_mut_arr_foreach(messages, i, count, message) {
+            yyjson_mut_val *content = yyjson_mut_obj_get(message, "content");
+            size_t j, parts;
+            yyjson_mut_val *part;
+            yyjson_mut_arr_foreach(content, j, parts, part) {
+                yyjson_mut_val *image = yyjson_mut_obj_get(part, "image_url");
+                const char *url = yyjson_mut_get_str(
+                    yyjson_mut_is_obj(image) ? yyjson_mut_obj_get(image, "url") : image);
+                if (url && strncmp(url, "data:image/", 11) == 0 && strstr(url, ";base64,")) {
+                    image_bytes += strlen(url);
+                    images++;
+                }
+            }
+        }
+        size_t bytes = strlen(json);
+        int64_t after = 5000 + (int64_t)(bytes - (image_bytes <= bytes ? image_bytes : 0)) / 4 +
+                        (int64_t)images * 1500;
         yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "last_compact_after_tokens"),
                            yyjson_mut_sint(s->doc, after));
+        yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "last_compact_estimated"),
+                           yyjson_mut_bool(s->doc, true));
         session_exp_set_last_tokens(s, after);
     }
     free(json);

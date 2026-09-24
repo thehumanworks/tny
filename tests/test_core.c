@@ -2662,6 +2662,57 @@ TEST experimental_compaction_keeps_prompt_before_tool_image(void) {
     PASS();
 }
 
+TEST experimental_compaction_large_image_rebases_hysteresis(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->exp_compact = true;
+    ctx->exp_compact_tokens = 3000;
+    ctx->no_save = true;
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    size_t image_len = 1024 * 1024;
+    uint8_t *blob = malloc(image_len);
+    ASSERT(blob);
+    memcpy(blob, PNG1, sizeof PNG1);
+    memset(blob + sizeof PNG1, 'x', image_len - sizeof PNG1);
+    tny_image_part image = {blob, image_len, "image/png"};
+    char err[128];
+    session_add_text(s, "user", "Keep this real prompt");
+    session_add_assistant(s, NULL,
+                          "[{\"id\":\"c0\",\"type\":\"function\",\"function\":{\"name\":\"read_"
+                          "image\",\"arguments\":\"{}\"}}]");
+    session_add_tool_result(s, "c0", "image follows");
+    ASSERT_EQ(0, session_add_user_loaded_images(s, "screenshot", &image, 1, err, sizeof err));
+    free(blob);
+    ASSERT_EQ(1, session_exp_compact_cut(s));
+    ASSERT_EQ(0, session_exp_compact_apply(s, 1, "handoff", NULL, 3000));
+    int64_t estimated = session_exp_compact_after_tokens(s);
+    ASSERT(estimated > 5000);
+    ASSERT(estimated < 10000); /* raw base64 bytes/4 would exceed 300K */
+    ASSERT_EQ_FMT((long long)estimated, (long long)session_exp_last_tokens(s), "%lld");
+    session_exp_record_usage(s, 3400); /* first post-summary provider report */
+    ASSERT_EQ_FMT(3400LL, (long long)session_exp_compact_after_tokens(s), "%lld");
+    session_exp_record_usage(s, 8000);
+    ASSERT_EQ_FMT(3400LL, (long long)session_exp_compact_after_tokens(s), "%lld");
+    for (int i = 1; i <= 4; i++) {
+        char id[8], calls[160];
+        snprintf(id, sizeof id, "c%d", i);
+        snprintf(calls, sizeof calls,
+                 "[{\"id\":\"%s\",\"type\":\"function\",\"function\":{\"name\":\"read_file\","
+                 "\"arguments\":\"{}\"}}]",
+                 id);
+        session_add_assistant(s, NULL, calls);
+        session_add_tool_result(s, id, "result");
+        if (i < 3) ASSERT_FALSE(session_exp_compact_needed(s));
+    }
+    ASSERT(session_exp_compact_needed(s));
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST image_mime_from_magic(void) {
     ASSERT_STR_EQ("image/png", image_mime(PNG1, sizeof PNG1));
     uint8_t jpeg[12] = {0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -6481,6 +6532,7 @@ SUITE(core_suite) {
     RUN_TEST(session_experimental_compaction_view);
     RUN_TEST(experimental_compaction_real_prompt_and_hysteresis);
     RUN_TEST(experimental_compaction_keeps_prompt_before_tool_image);
+    RUN_TEST(experimental_compaction_large_image_rebases_hysteresis);
     RUN_TEST(session_recovery_roundtrip);
     RUN_TEST(image_mime_from_magic);
     RUN_TEST(image_data_url_roundtrip);
