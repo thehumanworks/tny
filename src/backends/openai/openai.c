@@ -926,7 +926,8 @@ static char *build_request_chat(oa_impl *o, oa_request_owner *request) {
     if (!schema) { return NULL; }
     buf_appendf(b, ",\"tools\":%s,\"tool_choice\":\"%s\"", schema, o->compacting ? "none" : "auto");
     oa_request_take_string(request, OA_BUILD_SCHEMA, NULL);
-    if (o->ctx->output_schema) buf_appendf(b, ",\"response_format\":%s", o->ctx->output_schema);
+    if (o->ctx->output_schema && !o->compacting)
+        buf_appendf(b, ",\"response_format\":%s", o->ctx->output_schema);
     if (o->ctx->max_tokens_field) buf_appendf(b, ",\"%s\":8192", o->ctx->max_tokens_field);
     /* read per request, so /effort applies from the next turn */
     if (o->ctx->reasoning_effort && *o->ctx->reasoning_effort) {
@@ -1054,7 +1055,7 @@ static char *build_request_rsp(oa_impl *o, oa_request_owner *request) {
     oa_request_take_string(request, OA_BUILD_SCHEMA, NULL);
 
     if (provider_oom()) { return NULL; }
-    if (o->ctx->output_schema) {
+    if (o->ctx->output_schema && !o->compacting) {
         const char *fmt = oa_request_take_string(
             request, OA_BUILD_FORMAT, tny_openai_responses_text_format(o->ctx->output_schema));
         if (fmt) {
