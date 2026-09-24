@@ -5746,6 +5746,44 @@ TEST job_wait_cancellation_leaves_live_job_untouched(void) {
     PASS();
 }
 
+TEST context_checkpoint_prefix_flag_is_private_and_optional(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_new_explicit(g_ws, g_home);
+    ASSERT(ctx);
+    yyjson_mut_doc *off = yyjson_mut_doc_new(jallocator());
+    ASSERT(off);
+    yyjson_mut_doc_set_root(off, tny_checkpoint_context(off, ctx));
+    char *off_json = jwrite(off);
+    ASSERT(off_json);
+    ASSERT_FALSE(strstr(off_json, "exp_prefix"));
+    ctx->exp_prefix = true;
+    yyjson_mut_doc *on = yyjson_mut_doc_new(jallocator());
+    ASSERT(on);
+    yyjson_mut_doc_set_root(on, tny_checkpoint_context(on, ctx));
+    char *on_json = jwrite(on);
+    ASSERT(on_json && strstr(on_json, "\"exp_prefix\":true"));
+    yyjson_doc *parsed = jparse(on_json, strlen(on_json));
+    ASSERT(parsed);
+    tny_ctx *restored = tny_checkpoint_context_restore(yyjson_doc_get_root(parsed));
+    ASSERT(restored && restored->exp_prefix);
+    yyjson_mut_doc *pub = yyjson_mut_doc_new(jallocator());
+    ASSERT(pub);
+    yyjson_mut_doc_set_root(pub, tny_checkpoint_public(pub, ctx));
+    char *public_json = jwrite(pub);
+    ASSERT(public_json);
+    ASSERT_FALSE(strstr(public_json, "exp_prefix"));
+    free(public_json);
+    yyjson_mut_doc_free(pub);
+    tny_ctx_free(restored);
+    yyjson_doc_free(parsed);
+    free(on_json);
+    yyjson_mut_doc_free(on);
+    free(off_json);
+    yyjson_mut_doc_free(off);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST context_checkpoint_preserves_resolved_selection(void) {
     ensure_env();
     write_settings("{\"web_search_command\":\"echo {query}\",\"secret_fixture\":\"private-only\"}");
@@ -6077,6 +6115,7 @@ SUITE(core_suite) {
     RUN_TEST(edit_feedback_dispatch_bounds_utf8_snippet);
     RUN_TEST(grep_files_fanout_matches_serial_scan);
     RUN_TEST(semantic_search_fanout_matches_serial_scan);
+    RUN_TEST(context_checkpoint_prefix_flag_is_private_and_optional);
     RUN_TEST(context_checkpoint_preserves_resolved_selection);
     RUN_TEST(session_swarm_definition_restores_snapshot_and_rejects_change);
     RUN_TEST(job_wait_cancellation_leaves_live_job_untouched);

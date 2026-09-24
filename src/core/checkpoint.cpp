@@ -206,6 +206,8 @@ yyjson_mut_val *encode(yyjson_mut_doc *d, const tny_ctx *c, bool public_only) {
     check(memchr(c->swarm_definition_digest, 0, sizeof c->swarm_definition_digest) != nullptr);
     check(yyjson_mut_obj_add_strcpy(d, r, "swarm_definition_digest", c->swarm_definition_digest));
     for (const auto &f : bools) check(yyjson_mut_obj_add_bool(d, r, f.name, c->*(f.member)));
+    // Experimental runner state is private and absent from flag-off packets.
+    if (!public_only && c->exp_prefix) check(yyjson_mut_obj_add_bool(d, r, "exp_prefix", true));
     check(yyjson_mut_obj_add_int(d, r, "backend", c->backend));
     check(yyjson_mut_obj_add_int(d, r, "max_extension_iterations", c->max_extension_iterations));
     check(yyjson_mut_obj_add_int(d, r, "extension_timeout_ms", c->extension_timeout_ms));
@@ -281,6 +283,9 @@ context restore(yyjson_val *r) {
         check(absent(v) || yyjson_is_bool(v));
         c.get()->*(f.member) = yyjson_get_bool(v);
     }
+    auto *prefix = jget(r, "exp_prefix");
+    check(absent(prefix) || yyjson_is_bool(prefix));
+    c->exp_prefix = !absent(prefix) && yyjson_get_bool(prefix);
     restore_number(c->backend, jget(r, "backend"));
     // tny_ctx_load uses -1 until provider resolution. Private snapshots have
     // always round-tripped that sentinel; public recovery still requires OpenAI.

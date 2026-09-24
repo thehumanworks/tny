@@ -45,6 +45,10 @@ Wasm still returns its existing clean errors for unsupported native tools. ACP
 clients retain their owning-runtime MCP bridge schema. Shell
 profiles retain their advertised tools; the flag shortens their prompt wording
 and freezes setup, while the discovery tool is used only by the `all` profile.
+On native builds, the resolved flag is carried through the detached runner's
+private start context. The field is omitted when false and never appears in the
+public checkpoint or saved session. This preserves flag-off packet bytes and
+lets runner restarts keep the experiment setting.
 Rollback is to unset `TNY_EXP_PREFIX`.
 
 ## Prompt audit
@@ -118,6 +122,16 @@ hits or quality.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | flag off | 28,229 | 78 | 6,202 | 28 | 0.45% |
 | flag on | 6,658 | 6,171 | 1,453 | 1,345 | 92.57% |
+
+The same mock was run with default native isolation (no `TNY_ISOLATE` override)
+and one request per turn. Flag on advertised 17 schemas including `tool_search`
+and sent a developer setup item; flag off advertised 41 schemas and did neither.
+For a byte comparison, the script ran the branch-point main binary at
+`968b5d6` against the same server, workspace and synthetic Codex credentials.
+The flag-off request matched all 28,220 raw body bytes, with SHA-256
+`2bc9269d0ad44e8b7d366d4d9c6c4413139e664a327979330ea625180415984d`.
+The private checkpoint unit test also checks that flag-off packets and public
+checkpoints omit the field, while a flagged private checkpoint restores it.
 
 ## Model catalog observation
 

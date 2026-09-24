@@ -353,6 +353,21 @@ class CacheTests(unittest.TestCase):
         )
         self.assertGreater(shared, first.index(b'"prompt_cache_key":'))
 
+    def test_experimental_prefix_reaches_detached_runner(self):
+        self.env.pop("TNY_ISOLATE")
+        self.env["TNY_EXP_PREFIX"] = "1"
+        self.server.max_tool_steps = 1
+        self.ask()
+        on = self.server.requests[0][0]
+        self.assertIn("tool_search", [tool.get("name") for tool in on["tools"]])
+        self.assertEqual(on["input"][0]["role"], "developer")
+        self.assertIn("Deferred built-in tools:", on["input"][0]["content"])
+        self.env.pop("TNY_EXP_PREFIX")
+        self.ask()
+        off = self.server.requests[1][0]
+        self.assertNotIn("tool_search", [tool.get("name") for tool in off["tools"]])
+        self.assertIn(str(self.ws), off["instructions"])
+
     def test_experimental_discovery_loads_schema_on_next_request(self):
         self.env["TNY_EXP_PREFIX"] = "1"
         self.server.tool_sequence = [

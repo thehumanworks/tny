@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure the opt-in request prefix against a local five-request mock turn.
 
-Run: uvx --with tiktoken python tests/bench/measure_prefix.py build/tny
+Run: uvx --with tiktoken python tests/bench/measure_prefix.py build/tny [baseline-tny]
 No provider credentials or network inference are used.
 """
 
@@ -16,6 +16,7 @@ from pathlib import Path
 import tiktoken
 
 binary = str(Path(sys.argv[1] if len(sys.argv) > 1 else "build/tny").resolve())
+baseline_binary = str(Path(sys.argv[2]).resolve()) if len(sys.argv) > 2 else None
 fixture_path = Path(__file__).resolve().parents[1] / "integration/test_prompt_cache.py"
 sys.argv = [str(fixture_path), binary]
 spec = importlib.util.spec_from_file_location("prefix_mock", fixture_path)
@@ -116,6 +117,48 @@ def cross_workspace(enabled):
         case.doCleanups()
 
 
+def isolated_runner(baseline):
+    case = fixture.CacheTests("test_experimental_prefix_reaches_detached_runner")
+    case.setUp()
+    try:
+        case.server.max_tool_steps = 1
+        case.env.pop("TNY_ISOLATE")
+        case.env["TNY_SELF_IMPROVE"] = "0"
+        case.env["TNY_EXP_PREFIX"] = "1"
+        case.ask(provider="codex")
+        on = case.server.requests[-1][0]
+        case.env.pop("TNY_EXP_PREFIX")
+        case.ask(provider="codex")
+        off_wire = case.server.raw_requests[-1]
+        result = {
+            "mode": "default native isolation",
+            "flag_on_tool_search": any(
+                tool.get("name") == "tool_search" for tool in on["tools"]
+            ),
+            "flag_on_setup_developer_item": on["input"][0]["role"] == "developer",
+            "flag_on_schemas": len(on["tools"]),
+            "flag_off_schemas": len(case.server.requests[-1][0]["tools"]),
+            "flag_off_first_request_sha256": hashlib.sha256(off_wire).hexdigest(),
+        }
+        if baseline:
+            previous = fixture.TNY
+            fixture.TNY = baseline
+            try:
+                case.ask(provider="codex")
+            finally:
+                fixture.TNY = previous
+            main_wire = case.server.raw_requests[-1]
+            result.update(
+                baseline_binary=baseline,
+                baseline_first_request_sha256=hashlib.sha256(main_wire).hexdigest(),
+                flag_off_matches_main_request_bytes=off_wire == main_wire,
+                compared_request_bytes=len(off_wire),
+            )
+        return result
+    finally:
+        case.doCleanups()
+
+
 print(
     json.dumps(
         {
@@ -123,6 +166,7 @@ print(
             "flag_on": measure(True),
             "cross_workspace_flag_off": cross_workspace(False),
             "cross_workspace_flag_on": cross_workspace(True),
+            "isolated_runner": isolated_runner(baseline_binary),
         },
         indent=2,
     )
