@@ -78,6 +78,12 @@ checks. Validate both untouched and reference solutions offline with
 The generated traces offer substantial output for the later turns; actual
 context growth depends on the agent's tool use and has not been measured on
 the full tasks.
+For a future task version, make the commerce release traces and settlement
+fixture contain the examples promised by its prompts, or reword those prompts.
+The policy migration trace likewise needs actual tombstone records before a
+prompt can cite it for that check. Keep the current evidence and prompts intact
+when rescoring saved runs.
+
 `--tasks-dir tests/bench/harness_bench/tasks-heldout` selects the held-out
 set for the final confirmation run.
 Each run writes `result.json`, `stdout.txt`, `stderr.txt`,
@@ -105,14 +111,18 @@ requests:
 python tests/bench/harness_bench/rescore.py \
   /home/tomas/.cache/tny-opt/runs/long/long-baseline \
   --tasks-dir tests/bench/harness_bench/tasks-long
+python tests/bench/harness_bench/rescore.py \
+  /home/tomas/.cache/tny-opt/runs/session/pilot \
+  --tasks-dir tests/bench/harness_bench/tasks-session
 ```
 
 The command uses the current `verify.sh` and its task-specific timeout. It
 refuses the entire run set if any task's `repo/` differs from the saved
-workspace's initial Git commit, or if the current prompt is absent from the
-first recorded request. It preserves the first verdict as `pass_original`,
-updates the current verdict and reason, and records `verify_rescored_at` in
-each `result.json`. Each verifier writes `verify.log` beside that result.
+workspace's initial Git commit, or if a current prompt is absent from the
+first recorded request of its turn. It preserves the first verdict as
+`pass_original`, updates the current verdict and reason, and records
+`verify_rescored_at` in each `result.json`. Each verifier writes `verify.log`
+beside that result.
 
 ## Compare two runs
 

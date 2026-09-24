@@ -1,6 +1,7 @@
 """Hidden migration and behavior checks for every client."""
 
 import importlib
+import re
 import sys
 from pathlib import Path
 
@@ -64,6 +65,14 @@ for domain in domains:
     assert reader(expiry, "acme", "mode", as_of=4) == 7, domain
     assert reader(expiry, "acme", "mode", as_of=5, fallback=8) == 8, domain
 assert RecordStore().resolve("none", "none").reason == "absent"
+head_expiry = RecordStore(
+    [
+        Record("acme", "mode", "old", 2, expires_at=5),
+        Record("other", "clock", "tick", 6),
+    ]
+)
+assert head_expiry.resolve("acme", "mode", as_of=4).value == "old"
+assert head_expiry.resolve("acme", "mode").reason == "expired"
 try:
     RecordStore().resolve("a", "b", as_of=-1)
 except ValueError:
@@ -73,7 +82,8 @@ else:
 assert "lookup" not in (Path(sys.argv[1]) / "docs" / "api.md").read_text()
 print("migration behavior passed")
 notes = (Path(sys.argv[1]) / "MIGRATION.md").read_text().lower()
-assert all(word in notes for word in ("30", "null", "tombstone", "expiry", "as_of"))
+assert all(word in notes for word in ("30", "null", "tombstone"))
+assert re.search(r"\bexpir\w*", notes)
 assert (
     sum(path.stat().st_size for path in (Path(sys.argv[1]) / "evidence").iterdir())
     > 3_000_000

@@ -13,7 +13,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from run import HERE, verification_outcome, verify_task
+from run import HERE, task_prompts, verification_outcome, verify_task
 
 
 def git_output(workspace: Path, *args: str) -> bytes:
@@ -98,6 +98,21 @@ def check_prompt(run_dir: Path, result: dict, prompt: str) -> None:
         raise ValueError(f"{run_dir}: task prompt changed or cannot be proven")
 
 
+def check_task_prompts(run_dir: Path, result: dict, task: dict) -> None:
+    prompts = task_prompts(task)
+    if "prompts" not in task:
+        check_prompt(run_dir, result, prompts[0])
+        return
+    if result.get("turns_requested") != len(prompts):
+        raise ValueError(f"{run_dir}: task turn count changed")
+    rows = result.get("request_rows") or []
+    for turn, prompt in enumerate(prompts, 1):
+        first = next((row for row in rows if row.get("turn") == turn), None)
+        if first is None:
+            raise ValueError(f"{run_dir}: turn {turn} has no recorded prompt")
+        check_prompt(run_dir, {"request_rows": [first]}, prompt)
+
+
 def inspect_run(result_file: Path, tasks_dir: Path) -> tuple[Path, Path, dict, dict]:
     run_dir = result_file.parent
     result = json.loads(result_file.read_text())
@@ -116,7 +131,7 @@ def inspect_run(result_file: Path, tasks_dir: Path) -> tuple[Path, Path, dict, d
         raise ValueError(f"{run_dir}: saved workspace or final message is unavailable")
     if saved_repo_manifest(workspace) != current_repo_manifest(task_dir / "repo"):
         raise ValueError(f"{run_dir}: task repo/ changed; refusing to rescore")
-    check_prompt(run_dir, result, task["prompt"])
+    check_task_prompts(run_dir, result, task)
     return task_dir, workspace, result, task
 
 
@@ -133,10 +148,15 @@ def rescored_result(
         result.get("timeout_original") and result.get("exit_code") is None
     )
     adapter_error = str(result.get("reason", "")).startswith("error: adapter")
+    required_turns = len(task_prompts(task))
+    completed_turns = result.get(
+        "turns_completed", required_turns if "prompts" not in task else None
+    )
     passed = (
         verify_status == "pass"
         and result.get("exit_code") == 0
         and not harness_timed_out
+        and completed_turns == required_turns
     )
     if adapter_error:
         passed = False
