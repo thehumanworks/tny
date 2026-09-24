@@ -614,6 +614,11 @@ static const char *exp_reasoning_context(void) {
     return v && strcmp(v, "all_turns") == 0 ? v : NULL;
 }
 
+static bool exp_delegation_off(void) {
+    const char *v = getenv("TNY_EXP_DELEGATION");
+    return v && strcmp(v, "off") == 0;
+}
+
 static const char *model_of(oa_impl *o) {
     return o->ctx->model ? o->ctx->model : OPENAI_DEFAULT_MODEL;
 }
@@ -641,9 +646,12 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
         "- Make reasonable assumptions and carry forward existing authorization.\n"
         "- Use tools to establish facts and perform actions; preserve existing user work.\n"
         "- Resolve blockers independently and finish unblocked work. Ask for required user input "
-        "at the end, with a recommendation and its tradeoff.\n"
-        "- When delegation is available and worthwhile, give independent tasks clear context "
-        "and ownership, then collect their results.\n");
+        "at the end, with a recommendation and its tradeoff.\n");
+    /* TNY_EXP_DELEGATION=off drops the line that invites unprompted
+     * delegation; the subagent tool and explicit team/swarm modes stay. */
+    if (!exp_delegation_off())
+        buf_appends(sys, "- When delegation is available and worthwhile, give independent tasks "
+                         "clear context and ownership, then collect their results.\n");
     /* TNY_EXP_BATCH_HINT=1 (docs/benchmarks/harness-efficiency.md): describe
      * that tool calls in one response run in one step, so independent calls
      * need no extra round trips. Unset keeps today's prompt bytes. */
