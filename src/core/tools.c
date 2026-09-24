@@ -80,11 +80,31 @@ static size_t preview_line_size(const char *data, size_t start, size_t end, size
                                 bool from_tail) {
     bool newline = data[end - 1] == '\n';
     size_t content_end = newline ? end - 1 : end;
-    size_t shown = from_tail ? content_end - preview_tail_cut(data, start, content_end, cap)
-                             : preview_head_cut(data, start, content_end, cap) - start;
+    size_t from = from_tail ? preview_tail_cut(data, start, content_end, cap) : start;
+    size_t to = from_tail ? content_end : preview_head_cut(data, start, content_end, cap);
+    size_t shown = to - from;
     size_t omitted = content_end - start - shown;
     int marker = omitted ? snprintf(NULL, 0, "[... %zu bytes omitted]", omitted) : 0;
-    return shown + (size_t)marker + (newline ? 1u : 0u);
+    size_t escaped = 0;
+    for (size_t i = from; i < to; ++i)
+        if (data[i] == '\0') escaped++;
+    return shown + escaped + (size_t)marker + (newline ? 1u : 0u);
+}
+
+static void preview_append_bytes(buf_t *out, const char *data, size_t from, size_t to) {
+    size_t part = from;
+    for (size_t i = from; i < to; ++i) {
+        if (data[i] != '\0') continue;
+        if (i > part) buf_append(out, data + part, i - part);
+        buf_appends(out, "\\0");
+        part = i + 1;
+    }
+    if (to > part) buf_append(out, data + part, to - part);
+}
+
+static size_t preview_side_cap(size_t cap, size_t budget) {
+    size_t room = budget > 32 ? budget - 32 : 1;
+    return cap < room ? cap : room;
 }
 
 static void preview_append_line(buf_t *out, const char *data, size_t start, size_t end, size_t cap,
@@ -95,16 +115,27 @@ static void preview_append_line(buf_t *out, const char *data, size_t start, size
     size_t to = from_tail ? content_end : preview_head_cut(data, start, content_end, cap);
     size_t omitted = content_end - start - (to - from);
     if (from_tail && omitted) buf_appendf(out, "[... %zu bytes omitted]", omitted);
-    if (to > from) buf_append(out, data + from, to - from);
+    if (to > from) preview_append_bytes(out, data, from, to);
     if (!from_tail && omitted) buf_appendf(out, "[... %zu bytes omitted]", omitted);
     if (newline) buf_appends(out, "\n");
 }
 
-char *tool_bound_result(tools_env *env, const char *data, size_t len) {
+static char *tool_bound_result_mode(tools_env *env, const char *data, size_t len,
+                                    bool command_like) {
     size_t maxb = env->ctx->max_tool_result_bytes;
-    if (env->ctx->exp_spill) {
+    if (command_like && env->ctx->exp_spill) {
         size_t budget = env->ctx->exp_spill_bytes;
-        if (len <= budget) return xstrndup(data, len);
+        if (budget < 64) budget = 64;
+        if (len <= budget) {
+            buf_t plain;
+            buf_init(&plain);
+            preview_append_bytes(&plain, data, 0, len);
+            if (buf_oom(&plain)) {
+                buf_free(&plain);
+                return NULL;
+            }
+            return buf_detach(&plain);
+        }
         char *handle = env->session ? session_store_result(env->session, data, len) : NULL;
         if (handle) {
             size_t lines = 0;
@@ -115,50 +146,62 @@ char *tool_bound_result(tools_env *env, const char *data, size_t len) {
             unsigned head_pct = env->ctx->exp_spill_head_pct;
             if (head_pct > 100) head_pct = 25;
             size_t head_budget = budget * head_pct / 100;
+            size_t head_cap = preview_side_cap(cap, head_budget);
+            size_t tail_cap = preview_side_cap(cap, budget - head_budget);
             size_t head = 0, head_lines = 0, used = 0;
+            size_t last_head_start = 0;
+            bool last_head_clipped = false;
             while (head < len) {
+                size_t start = head;
                 const char *break_at = memchr(data + head, '\n', len - head);
                 size_t end = break_at ? (size_t)(break_at + 1 - data) : len;
-                size_t cost = preview_line_size(data, head, end, cap, false);
+                size_t cost = preview_line_size(data, head, end, head_cap, false);
                 if (cost > head_budget - used) break;
                 head = end;
                 head_lines++;
                 used += cost;
+                last_head_start = start;
+                last_head_clipped = end - start > head_cap + (data[end - 1] == '\n');
             }
             size_t tail = len, tail_lines = 0, tail_used = 0;
-            while (tail > head) {
+            while (head_pct < 100 && tail > head) {
                 size_t start = tail - 1;
                 while (start > head && data[start - 1] != '\n') start--;
-                size_t cost = preview_line_size(data, start, tail, cap, true);
+                size_t cost = preview_line_size(data, start, tail, tail_cap, true);
                 if (cost > budget - used - tail_used) break;
                 tail = start;
                 tail_lines++;
                 tail_used += cost;
             }
             bool same_line_tail = false;
-            if (lines == 1 && head == len && len > cap &&
-                preview_line_size(data, 0, len, cap, true) <= budget - used) {
+            if (head_pct < 100 && head == len && last_head_clipped && budget > used &&
+                preview_line_size(data, last_head_start, len, tail_cap, true) <= budget - used) {
                 same_line_tail = true;
-                tail = 0;
+                tail = last_head_start;
                 tail_lines = 1;
             }
             buf_t b;
             buf_init(&b);
+            char head_range[64], tail_range[64];
+            if (head_lines) snprintf(head_range, sizeof head_range, "1-%zu", head_lines);
+            else snprintf(head_range, sizeof head_range, "none");
+            if (tail_lines)
+                snprintf(tail_range, sizeof tail_range, "%zu-%zu", lines - tail_lines + 1, lines);
+            else snprintf(tail_range, sizeof tail_range, "none");
             if (env->ctx->no_save)
                 buf_appendf(&b,
-                            "[output: %zu bytes, %zu lines; showing lines 1-%zu and %zu-%zu; "
-                            "full output: handle:%s]\n",
-                            len, lines, head_lines, lines - tail_lines + 1, lines, handle);
+                            "[output: %zu bytes, %zu lines; showing lines %s and %s; "
+                            "handle %s (read_tool_result)]\n",
+                            len, lines, head_range, tail_range, handle);
             else
                 buf_appendf(&b,
-                            "[output: %zu bytes, %zu lines; showing lines 1-%zu and %zu-%zu; "
-                            "full output: %s/results/%s.txt]\n",
-                            len, lines, head_lines, lines - tail_lines + 1, lines,
-                            env->session->dir, handle);
+                            "[output: %zu bytes, %zu lines; showing lines %s and %s; "
+                            "full output: %s/results/%s.txt; handle %s (read_tool_result)]\n",
+                            len, lines, head_range, tail_range, env->session->dir, handle, handle);
             for (size_t pos = 0; pos < head;) {
                 const char *break_at = memchr(data + pos, '\n', head - pos);
                 size_t end = break_at ? (size_t)(break_at + 1 - data) : head;
-                preview_append_line(&b, data, pos, end, cap, false);
+                preview_append_line(&b, data, pos, end, head_cap, false);
                 pos = end;
             }
             if (tail < len) {
@@ -166,7 +209,7 @@ char *tool_bound_result(tools_env *env, const char *data, size_t len) {
                 for (size_t pos = tail; pos < len;) {
                     const char *break_at = memchr(data + pos, '\n', len - pos);
                     size_t end = break_at ? (size_t)(break_at + 1 - data) : len;
-                    preview_append_line(&b, data, pos, end, cap, true);
+                    preview_append_line(&b, data, pos, end, tail_cap, true);
                     pos = end;
                 }
             }
@@ -192,6 +235,14 @@ char *tool_bound_result(tools_env *env, const char *data, size_t len) {
                     handle);
     free(handle);
     return buf_detach(&b);
+}
+
+char *tool_bound_result(tools_env *env, const char *data, size_t len) {
+    return tool_bound_result_mode(env, data, len, true);
+}
+
+char *tool_bound_result_prose(tools_env *env, const char *data, size_t len) {
+    return tool_bound_result_mode(env, data, len, false);
 }
 
 /* ---- schema ----

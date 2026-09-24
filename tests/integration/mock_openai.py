@@ -539,7 +539,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         n = int(self.headers.get("Content-Length", "0"))
-        req = json.loads(self.rfile.read(n))
+        payload = self.rfile.read(n)
+        req = json.loads(payload)
+        body_dir = os.environ.get("MOCK_REQUEST_BODY_DIR")
+        if body_dir:
+            from pathlib import Path
+
+            directory = Path(body_dir)
+            directory.mkdir(parents=True, exist_ok=True)
+            index = len(list(directory.glob("*.json")))
+            (directory / f"{index:04d}.json").write_bytes(payload)
         size_log = os.environ.get("MOCK_REQUEST_SIZE_LOG")
         if size_log:
             outputs = [

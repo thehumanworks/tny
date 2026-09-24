@@ -181,6 +181,8 @@ char *tools_path_detail(tools_env *env, const char *path);
 /* Individual tool groups (internal wiring) */
 char *tool_fs_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
 char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
+bool tool_shell_append_output_chunk(buf_t *out, const char *data, size_t got, bool spill,
+                                    bool *truncated);
 char *tool_web_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
 /* Search uses explicit overrides, else a Codex login, else DuckDuckGo. */
 bool tool_web_search_configured(tny_ctx *ctx);
@@ -213,6 +215,9 @@ char *tool_resolve_path(tools_env *env, const char *path, char **err_out);
 /* Bound a result: if len > ctx->max_tool_result_bytes, store blob and return
  * preview + handle notice; else return a copy. */
 char *tool_bound_result(tools_env *env, const char *data, size_t len);
+char *tool_bound_result_prose(tools_env *env, const char *data, size_t len);
+char *tool_read_file_exp_preview(tools_env *env, const char *path, const char *data, size_t len,
+                                 int64_t offset, int64_t limit);
 /* Inject the queued images as one user message, in queue order, exactly once.
  * 0 ok, -1 on error. The whole batch is checked before anything is mutated:
  * on a policy refusal every entry, byte and the count are preserved, and the

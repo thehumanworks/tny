@@ -27,6 +27,7 @@
 #define SHELL_MAX_OUT             (512u * 1024u)
 #define SHELL_PROFILE_PREVIEW_MAX (8u * 1024u)
 #define SHELL_PROFILE_OUTPUT_MAX  (64u * 1024u * 1024u)
+#define SHELL_SPILL_OUTPUT_MAX    (8u * 1024u * 1024u)
 #define SHELL_EXIT_CANCELLED      130 /* the shell's own "interrupted" status */
 
 /* The turn's cooperative cancellation signal (tools.h), read without
@@ -48,6 +49,25 @@ static int write_complete(int fd, const char *data, size_t len) {
         len -= (size_t)n;
     }
     return 0;
+}
+
+bool tool_shell_append_output_chunk(buf_t *out, const char *data, size_t got, bool spill,
+                                    bool *truncated) {
+    size_t limit = spill ? SHELL_SPILL_OUTPUT_MAX : SHELL_MAX_OUT;
+    if (out->len >= limit) {
+        *truncated = true;
+        return true;
+    }
+    if (!spill) {
+        /* The original collector intentionally appends the entire read chunk. */
+        buf_append(out, data, got);
+    } else {
+        size_t remaining = limit - out->len;
+        size_t keep = got < remaining ? got : remaining;
+        buf_append(out, data, keep);
+        if (keep < got) *truncated = true;
+    }
+    return !buf_oom(out);
 }
 
 static char *result_file_open(tools_env *env, int *fd_out) {
@@ -343,18 +363,11 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
             output_bytes += keep;
             if (output_bytes > out.len) truncated = true;
             if (output_limited) break;
-        } else if (out.len < (env->ctx->exp_spill ? SHELL_PROFILE_OUTPUT_MAX : SHELL_MAX_OUT)) {
-            size_t remaining =
-                (env->ctx->exp_spill ? SHELL_PROFILE_OUTPUT_MAX : SHELL_MAX_OUT) - out.len;
-            size_t keep = got < remaining ? got : remaining;
-            buf_append(&out, tmp, keep);
-            if (buf_oom(&out)) {
+        } else {
+            if (!tool_shell_append_output_chunk(&out, tmp, got, env->ctx->exp_spill, &truncated)) {
                 output_oom = true;
                 break;
             }
-            if (keep < got) truncated = true;
-        } else {
-            truncated = true;
         }
     }
     close(pipefd[0]);

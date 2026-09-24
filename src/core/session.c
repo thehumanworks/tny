@@ -1120,6 +1120,15 @@ char *session_store_result(tny_session_state *s, const char *data, size_t len) {
                                                                                    : gen_id();
     if (!handle) return NULL;
     if (s->ctx->no_save) {
+        if (s->ctx->exp_spill) {
+            for (int i = 0; i < s->n_mem_results; i++) {
+                session_mem_result *old = &s->mem_results[i];
+                if (strcmp(old->handle, handle) != 0) continue;
+                if (old->len == len && memcmp(old->data, data, len) == 0) return handle;
+                free(handle);
+                return NULL;
+            }
+        }
         session_mem_result *next =
             realloc(s->mem_results, sizeof(*s->mem_results) * (size_t)(s->n_mem_results + 1));
         if (!next) {

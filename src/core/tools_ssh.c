@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #define R_MAX_OUT             (512u * 1024u)
+#define R_SPILL_MAX_OUT       (8u * 1024u * 1024u)
 #define R_MAX_FILE            (8u * 1024u * 1024u)
 #define R_PROFILE_PREVIEW_MAX (8u * 1024u)
 #define R_PROFILE_OUTPUT_MAX  (64u * 1024u * 1024u)
@@ -254,9 +255,15 @@ static char *r_read_file(tools_env *env, yyjson_val *args) {
         free(path);
         return e;
     }
-    free(path);
     int64_t off = jget_int(args, "offset", 0);
     int64_t lim = jget_int(args, "limit", 0);
+    if (env->ctx->exp_spill) {
+        char *res = tool_read_file_exp_preview(env, path, data.data, data.len, off, lim);
+        buf_free(&data);
+        free(path);
+        return res;
+    }
+    free(path);
     if (off <= 0 && lim <= 0) return bounded_or_empty(env, &data, "");
     buf_t out;
     buf_init(&out);
@@ -770,8 +777,10 @@ static char *r_terminal(tools_env *env, yyjson_val *args) {
     buf_init(&res);
     bool truncated, timed_out;
     int code = ssh_run(env->ctx, cmd, NULL, 0, (int)timeout_s,
-                       tny_tool_profile_is_shell(env->ctx) ? R_PROFILE_OUTPUT_MAX : R_MAX_OUT, &out,
-                       &truncated, &timed_out);
+                       tny_tool_profile_is_shell(env->ctx)
+                           ? R_PROFILE_OUTPUT_MAX
+                           : (env->ctx->exp_spill ? R_SPILL_MAX_OUT : R_MAX_OUT),
+                       &out, &truncated, &timed_out);
     if (tny_tool_profile_is_shell(env->ctx))
         return r_shell_profile_result(env, code, &out, truncated, timed_out, timeout_s);
     if (timed_out)

@@ -573,6 +573,55 @@ TEST intercepted_edit_follows_the_ssh_host(void) {
     PASS();
 }
 
+TEST experimental_spill_remote_read_and_local_handle(void) {
+    tny_ctx *ctx = remote_ctx();
+    ctx->exp_spill = true;
+    ctx->exp_spill_bytes = 512;
+    ctx->exp_read_bytes = 64;
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm_engine *perm = perm_new(ctx);
+    tny_session_state *session = session_new(ctx);
+    ASSERT(perm && session);
+    tools_env env = {.ctx = ctx, .perm = perm, .session = session};
+    char remote_file[700];
+    snprintf(remote_file, sizeof remote_file, "%s/min.js", g_remote);
+    char content[1001];
+    memset(content, 'm', 1000);
+    content[1000] = 0;
+    ASSERT_EQ(0, file_write_atomic(remote_file, content, 1000));
+    char *r = tools_execute(&env, "read_file", "{\"path\":\"min.js\"}");
+    ASSERT(r);
+    ASSERT(strstr(r, "showing line 1 bytes 0-63"));
+    ASSERT(strstr(r, "continue with offset=-64"));
+    free(r);
+    r = tools_execute(&env, "read_file", "{\"path\":\"min.js\",\"offset\":-64}");
+    ASSERT(r && strstr(r, "showing bytes 64-127"));
+    free(r);
+
+    r = tools_execute(&env, "terminal", "{\"command\":\"yes x | head -c 9000\"}");
+    ASSERT(r);
+    ASSERT(strstr(r, "(read_tool_result)"));
+    const char *found = strstr(r, "handle ");
+    ASSERT(found);
+    char handle[65];
+    memcpy(handle, found + 7, 64);
+    handle[64] = 0;
+    size_t n = 0;
+    char *saved = session_read_result(session, handle, 0, 128, &n);
+    ASSERT(saved && n == 128);
+    ASSERT(strstr(saved, "exit code: 0\noutput:\n"));
+    free(saved);
+    free(r);
+    ctx->perm_mode = TNY_MODE_ASK;
+    ASSERT_EQ(PERM_ALLOW, perm_check(perm, "read_tool_result", NULL));
+    ctx->perm_mode = TNY_MODE_AUTO;
+    ASSERT_EQ(PERM_ALLOW, perm_check(perm, "read_tool_result", NULL));
+    session_close(session);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 SUITE(ssh_suite) {
     RUN_TEST(target_parsing);
     RUN_TEST(connect_resolves_cwd_and_argv_shape);
@@ -585,4 +634,5 @@ SUITE(ssh_suite) {
     RUN_TEST(local_when_not_attached);
     RUN_TEST(instructions_follow_the_remote_workspace);
     RUN_TEST(disconnect_sends_control_exit);
+    RUN_TEST(experimental_spill_remote_read_and_local_handle);
 }

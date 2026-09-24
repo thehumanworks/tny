@@ -95,7 +95,7 @@ static char *t_skill(tools_env *env, yyjson_val *args) {
     if (!name) return tool_err("missing name");
     char *body = skills_load(env->ctx, name);
     if (!body) return tool_err("no skill named %s", name);
-    char *res = tool_bound_result(env, body, strlen(body));
+    char *res = tool_bound_result_prose(env, body, strlen(body));
     free(body);
     return res;
 }

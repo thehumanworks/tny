@@ -6132,16 +6132,22 @@ TEST experimental_result_spill_boundaries(void) {
     result = tool_bound_result(&env, exact, 64);
     ASSERT_STR_EQ(exact, result);
     free(result);
+    char over[66];
+    memset(over, 'q', 65);
+    over[65] = 0;
+    result = tool_bound_result(&env, over, 65);
+    ASSERT(result && strstr(result, "[output: 65 bytes"));
+    free(result);
     const char *large = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n"
                         "eleven\ntwelve\nthirteen\nfourteen\nfifteen\nsixteen\n";
     result = tool_bound_result(&env, large, strlen(large));
     ASSERT(result);
-    ASSERT(strstr(result, "showing lines 1-"));
+    ASSERT(strstr(result, "showing lines "));
     ASSERT(strstr(result, "sixteen\n"));
     const char *full = strstr(result, "full output: ");
     ASSERT(full);
     full += strlen("full output: ");
-    const char *close = strchr(full, ']');
+    const char *close = strchr(full, ';');
     ASSERT(close);
     char *full_path = xstrndup(full, (size_t)(close - full));
     ASSERT(full_path);
@@ -6222,9 +6228,9 @@ TEST experimental_result_spill_boundaries(void) {
     env.session = s;
     result = tool_bound_result(&env, large, strlen(large));
     ASSERT(result);
-    const char *memory_handle = strstr(result, "full output: handle:");
+    const char *memory_handle = strstr(result, "handle ");
     ASSERT(memory_handle);
-    memory_handle += strlen("full output: handle:");
+    memory_handle += strlen("handle ");
     char ephemeral_handle[65];
     memcpy(ephemeral_handle, memory_handle, 64);
     ephemeral_handle[64] = 0;
@@ -6235,6 +6241,137 @@ TEST experimental_result_spill_boundaries(void) {
     free(result);
     session_close(s);
     tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST experimental_result_spill_review_edges(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->exp_spill = true;
+    ctx->no_save = true;
+    ctx->exp_spill_bytes = 8192;
+    ctx->exp_spill_line_bytes = 1024;
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    tools_env env = {.ctx = ctx, .session = s};
+    buf_t body;
+    buf_init(&body);
+    buf_appends(&body, "exit code: 1\noutput:\n");
+    for (size_t i = 0; i < 9000; i++) buf_appends(&body, "x");
+    buf_appends(&body, " ERROR: build failed at step 42");
+    char *result = tool_bound_result(&env, body.data, body.len);
+    ASSERT(result);
+    ASSERT(strstr(result, "ERROR: build failed at step 42"));
+    ASSERT(strstr(result, "showing lines 1-3 and 3-3"));
+    ASSERT(strstr(result, "(read_tool_result)"));
+    ASSERT_FALSE(strstr(result, "4-3"));
+    int retained = s->n_mem_results;
+    free(result);
+    result = tool_bound_result(&env, body.data, body.len);
+    ASSERT(result);
+    ASSERT_EQ(retained, s->n_mem_results);
+    free(result);
+
+    ctx->exp_spill_head_pct = 0;
+    result = tool_bound_result(&env, body.data, body.len);
+    ASSERT(result);
+    ASSERT(strstr(result, "showing lines none and 1-3"));
+    ASSERT(strstr(result, "ERROR: build failed at step 42"));
+    free(result);
+    ctx->exp_spill_head_pct = 100;
+    result = tool_bound_result(&env, body.data, body.len);
+    ASSERT(result);
+    ASSERT(strstr(result, "and none"));
+    ASSERT_FALSE(strstr(result, "4-3"));
+    free(result);
+
+    ctx->exp_spill_bytes = 64;
+    ctx->exp_spill_head_pct = 25;
+    ctx->exp_spill_line_bytes = 4096;
+    result = tool_bound_result(&env, body.data, body.len);
+    ASSERT(result);
+    ASSERT_FALSE(strstr(result, "1-0"));
+    ASSERT_FALSE(strstr(result, "4-3"));
+    ASSERT(strstr(result, "bytes omitted"));
+    free(result);
+
+    ctx->exp_spill_bytes = 8192;
+    ctx->exp_spill_line_bytes = 1024;
+    buf_t nul;
+    buf_init(&nul);
+    buf_appends(&nul, "exit code: 1\noutput:\na");
+    buf_append(&nul, "\0", 1);
+    buf_appends(&nul, "b\n");
+    for (size_t i = 0; i < 9000; i++) buf_appends(&nul, "x");
+    buf_appends(&nul, " FAILED");
+    result = tool_bound_result(&env, nul.data, nul.len);
+    ASSERT(result);
+    ASSERT(strstr(result, "a\\0b"));
+    ASSERT(strstr(result, "FAILED"));
+    free(result);
+    buf_free(&nul);
+
+    buf_t utf8;
+    buf_init(&utf8);
+    for (size_t i = 0; i < 3000; i++) buf_appends(&utf8, "\xf0\x9f\x98\x80");
+    result = tool_bound_result(&env, utf8.data, utf8.len);
+    ASSERT(result);
+    ASSERT(utf8_valid_bytes(result, strlen(result)));
+    free(result);
+    buf_free(&utf8);
+
+    ctx->exp_spill_bytes = 8192;
+    buf_t prose;
+    buf_init(&prose);
+    for (size_t i = 0; i < 6000; i++) buf_appends(&prose, "a");
+    buf_appends(&prose, "KEEP_MIDDLE_INSTRUCTION");
+    for (size_t i = 0; i < 6000; i++) buf_appends(&prose, "b");
+    result = tool_bound_result_prose(&env, prose.data, prose.len);
+    ASSERT(result);
+    ASSERT_EQ(prose.len, strlen(result));
+    ASSERT(strstr(result, "KEEP_MIDDLE_INSTRUCTION"));
+    free(result);
+    buf_free(&prose);
+    buf_free(&body);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST experimental_shell_chunk_boundary(void) {
+    char chunk[8192];
+    memset(chunk, 'x', sizeof chunk);
+    buf_t out;
+    buf_init(&out);
+    for (size_t i = 0; i < 512u * 1024u - 1000u; i += sizeof chunk) {
+        size_t take = 512u * 1024u - 1000u - i;
+        if (take > sizeof chunk) take = sizeof chunk;
+        buf_append(&out, chunk, take);
+    }
+    ASSERT_FALSE(buf_oom(&out));
+    bool truncated = false;
+    ASSERT(tool_shell_append_output_chunk(&out, chunk, sizeof chunk, false, &truncated));
+    ASSERT_EQ(512u * 1024u - 1000u + sizeof chunk, out.len);
+    ASSERT_FALSE(truncated);
+    ASSERT(tool_shell_append_output_chunk(&out, chunk, sizeof chunk, false, &truncated));
+    ASSERT(truncated);
+    ASSERT_EQ(512u * 1024u - 1000u + sizeof chunk, out.len);
+    buf_free(&out);
+
+    buf_init(&out);
+    for (size_t i = 0; i < 8u * 1024u * 1024u - 1000u; i += sizeof chunk) {
+        size_t take = 8u * 1024u * 1024u - 1000u - i;
+        if (take > sizeof chunk) take = sizeof chunk;
+        buf_append(&out, chunk, take);
+    }
+    ASSERT_FALSE(buf_oom(&out));
+    truncated = false;
+    ASSERT(tool_shell_append_output_chunk(&out, chunk, sizeof chunk, true, &truncated));
+    ASSERT_EQ(8u * 1024u * 1024u, out.len);
+    ASSERT(truncated);
+    buf_free(&out);
     PASS();
 }
 
@@ -6274,8 +6411,33 @@ TEST experimental_read_file_lines(void) {
     env.session = session;
     result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\"}");
     ASSERT(result);
-    ASSERT(strstr(result, "next line exceeds inline budget"));
-    ASSERT(strstr(result, "read_tool_result for byte ranges"));
+    ASSERT(strstr(result, "showing line 1 bytes 0-63"));
+    ASSERT(strstr(result, "continue with offset=-64 (byte offset)"));
+    ASSERT(strstr(result, "zzzzzzzzzzzzzzzz"));
+    free(result);
+    result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\",\"offset\":-64}");
+    ASSERT(result);
+    ASSERT(strstr(result, "showing bytes 64-127"));
+    ASSERT(strstr(result, "continue with offset=-128"));
+    free(result);
+    result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\",\"offset\":-256}");
+    ASSERT(result);
+    ASSERT(strstr(result, "end of file"));
+    ASSERT_FALSE(strstr(result, "showing bytes"));
+    free(result);
+    result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\",\"offset\":9}");
+    ASSERT(result);
+    ASSERT(strstr(result, "showing lines none; end of file"));
+    free(result);
+    char emoji[260];
+    for (size_t i = 0; i < 256; i += 4) memcpy(emoji + i, "\xf0\x9f\x98\x80", 4);
+    emoji[256] = 0;
+    ASSERT_EQ(0, file_write_atomic(path, emoji, 256));
+    ctx->exp_read_bytes = 65;
+    result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\"}");
+    ASSERT(result);
+    ASSERT(strstr(result, "continue with offset=-64"));
+    ASSERT(utf8_valid_bytes(result, strlen(result)));
     free(result);
     session_close(session);
     unlink(path);
@@ -6288,6 +6450,8 @@ TEST experimental_read_file_lines(void) {
 SUITE(core_suite) {
     RUN_TEST(experimental_result_spill_configuration);
     RUN_TEST(experimental_result_spill_boundaries);
+    RUN_TEST(experimental_result_spill_review_edges);
+    RUN_TEST(experimental_shell_chunk_boundary);
     RUN_TEST(experimental_read_file_lines);
     RUN_TEST(edit_feedback_dispatch_preserves_failure_and_undo);
     RUN_TEST(edit_feedback_dispatch_bounds_utf8_snippet);

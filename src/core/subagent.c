@@ -288,7 +288,7 @@ static char *sa_success(tools_env *env, const char *sid, const char *output) {
     }
     buf_appends(&r, "result:\n");
     buf_appends(&r, output);
-    char *result = r.oom ? NULL : tool_bound_result(env, r.data, r.len);
+    char *result = r.oom ? NULL : tool_bound_result_prose(env, r.data, r.len);
     buf_free(&r);
     return result;
 }
@@ -436,7 +436,7 @@ static char *sa_describe(tools_env *env, sa_action action, tny_session_state *s)
         buf_appends(&r, "\nresult:\n");
         buf_appends(&r, out);
     }
-    char *result = r.oom ? NULL : tool_bound_result(env, r.data, r.len);
+    char *result = r.oom ? NULL : tool_bound_result_prose(env, r.data, r.len);
     buf_free(&r);
     return result;
 }

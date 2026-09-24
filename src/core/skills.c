@@ -341,7 +341,7 @@ char *skills_inject(tny_ctx *ctx, tny_session_state *session, const char *prompt
             tools_env env = {0};
             env.ctx = ctx;
             env.session = session;
-            char *bounded = tool_bound_result(&env, body, len);
+            char *bounded = tool_bound_result_prose(&env, body, len);
             buf_appends(&b, bounded);
             free(bounded);
             buf_appendf(&b, "\nThe `skill` tool or read_file on %s shows the rest.", sf);
