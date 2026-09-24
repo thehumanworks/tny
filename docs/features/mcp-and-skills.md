@@ -34,7 +34,6 @@ Keep tool names stable so task prompts and agent integrations transfer:
 | Images | `read_image` (png/jpeg/gif/webp via magic bytes; `vision` is an alias). A configured-false `image_input` policy hides and refuses this tool and image attachment; image generation remains independent. Tool result is a short text; the pixels are **captured when the tool runs** and go out as a follow-up user `image_url` message ([ADR 0008](../adr/0008-native-loop-images.md), [ADR 0096](../adr/0096-captured-image-queue-and-preview-lifecycle.md)), so rewriting the file later in the same batch cannot change what is sent. `tny ask --image PATH` attaches the same shape on the first user message (max 16 flags; a 17th is exit 1) |
 | Skills | `skill`, `install_skill` |
 | Subagents | `subagent` (`create`, `message`, `inspect`, `lifecycle`; see [Subagents](#subagents)) |
-
 | Team control | `team_control` (`start`, `status`, `collect`, `wait-any`, `cancel`): job-backed async teams with captured parent/member identity and bounded collection. `verify` explicitly refuses; no accepted status is fabricated. Native saved local contexts only. See [team control](../team-control.md) |
 | Team messages | `team_mailbox` (`send`, `inbox`, `read`, `ack`, `retire`): bounded durable collaboration context. Native local only; private member capabilities or the recorded submitting session establish membership, never supplied sender/session IDs. See [mailboxes](../team-mailbox.md) |
 | Task workspaces | `job_workspace_inspect`, `job_workspace_integrate`, `job_workspace_cleanup`: explicit operations with separate permissions on proven-owned, terminal isolated task worktrees. Native local only. See [managed workspaces](../task-workspaces.md) |
@@ -46,13 +45,16 @@ Keep tool names stable so task prompts and agent integrations transfer:
 For local native and wasm searches, `grep_files` always looks for the literal
 substring. It also accepts lines matching a POSIX extended regex when the
 pattern contains recognizable regex syntax and the regex cannot match an empty
-string. Its `case_insensitive` option applies to both forms. An explicit file
+string. Unsupported letter escapes remain literal. Literal matches are returned
+before regex-only matches so broad regex hits cannot crowd them out. Its
+`case_insensitive` option applies to both forms. An explicit file
 path is searched directly. A directory walk keeps hidden files and credential
 files out; a named directory inside `node_modules`, `build`, `dist` or another
-ignored directory searches that subtree. Naming the workspace root or an
+ignored directory, even outside the workspace, searches that subtree. Naming the workspace root or an
 ordinary directory keeps normal ignores. Empty results report the number of
-files scanned and directories skipped. `glob_files` accepts `*`, `?`, and
-`**/` (including zero directories), and matches relative or absolute patterns.
+files scanned and directories skipped. `glob_files` accepts `*`, `?`, `**/`
+(including zero directories), and comma separated braces such as `{a,b}`. It
+matches relative or absolute patterns.
 With an explicit `path`, a pattern may be rooted at that path or relative to it.
 The `--ssh` file tools retain their remote literal grep and pruned glob behavior.
 

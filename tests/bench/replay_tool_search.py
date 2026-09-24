@@ -14,6 +14,7 @@ import glob
 import json
 import os
 import platform
+import re
 import subprocess
 import tempfile
 from collections import Counter
@@ -61,7 +62,7 @@ def compile_arm(source: str, output: Path, selected: Path) -> None:
     run(cmd, cwd=ROOT)
 
 
-def calls(session_root: Path) -> list[tuple[str, dict]]:
+def calls(session_root: Path) -> list[tuple[str, dict, str]]:
     result = []
     for name in glob.glob(str(session_root / "*" / "*" / "session.json")):
         try:
@@ -78,26 +79,41 @@ def calls(session_root: Path) -> list[tuple[str, dict]]:
                 except ValueError:
                     continue
                 if isinstance(args, dict) and isinstance(args.get("pattern"), str):
-                    result.append((fn["name"], args))
+                    result.append((fn["name"], args, str(session.get("workspace", ""))))
     return result
 
 
-def mapped_path(work: Path, original: str) -> Path:
+def mapped_path(work: Path, original: str, workspace: str) -> Path:
+    if original in (".", "./") or (workspace and original == workspace):
+        return work
+    if workspace and Path(original).is_absolute():
+        try:
+            relative = Path(original).relative_to(workspace)
+            return work.joinpath(*relative.parts)
+        except ValueError:
+            pass
     parts = Path(original).parts
+    outside = work.parent / "outside" if Path(original).is_absolute() else work
     if "node_modules" in parts:
         tail = parts[parts.index("node_modules") :]
-        return work.joinpath(
+        return outside.joinpath(
             *(part if part not in (".", "..") else "_parent_" for part in tail)
         )
     if original.endswith((".md", ".js", ".ts", ".c", ".h", ".json", ".py")):
-        return work / Path(original).name
-    return work / "named"
+        return outside / Path(original).name
+    return (
+        outside / Path(original).name
+        if Path(original).is_absolute()
+        else work / "named"
+    )
 
 
-def seed(work: Path, tool: str, args: dict) -> dict:
+def seed(work: Path, tool: str, args: dict, workspace: str = "") -> dict:
     original = args.get("path")
     target = (
-        mapped_path(work, original) if isinstance(original, str) and original else work
+        mapped_path(work, original, workspace)
+        if isinstance(original, str) and original
+        else work
     )
     payload = dict(args)
     if original:
@@ -124,7 +140,12 @@ def seed(work: Path, tool: str, args: dict) -> dict:
         elif pattern.startswith("/"):
             pattern = Path(pattern).name
             payload["pattern"] = str(target) + "/" + pattern
-        filename = pattern.replace("**/", "").replace("*", "fixture").replace("?", "x")
+        filename = re.sub(
+            r"\{([^{}]*,[^{}]*)\}",
+            lambda match: match.group(1).split(",", 1)[0],
+            pattern,
+        )
+        filename = filename.replace("**/", "").replace("*", "fixture").replace("?", "x")
         filename = filename.lstrip("/") or "fixture.txt"
         filename = "/".join(
             part if part not in (".", "..") else "_parent_"
@@ -149,6 +170,10 @@ def main() -> None:
     current = (ROOT / "src/core/tools_fs.c").read_text()
     cases = calls(opt.sessions)
     totals = {arm: Counter() for arm in ("before", "after")}
+    groups = {
+        group: {arm: Counter() for arm in ("before", "after")}
+        for group in ("outside_node_modules", "brace_glob", "tny_worktree")
+    }
     with tempfile.TemporaryDirectory(
         prefix="tny-tool-search-", dir=os.environ.get("TMPDIR")
     ) as td:
@@ -158,11 +183,37 @@ def main() -> None:
             binary = scratch / arm
             compile_arm(source, binary, scratch / f"{arm}.c")
             binaries[arm] = binary
-        for index, (tool, args) in enumerate(cases):
-            work = scratch / "cases" / str(index)
+        for index, (tool, args, workspace) in enumerate(cases):
+            original = args.get("path")
+            outside_node_modules = (
+                tool == "grep_files"
+                and isinstance(original, str)
+                and "node_modules" in Path(original).parts
+                and workspace
+                and not (
+                    original == workspace
+                    or original.startswith(workspace.rstrip("/") + "/")
+                )
+            )
+            case_groups = (
+                (["outside_node_modules"] if outside_node_modules else [])
+                + (
+                    ["brace_glob"]
+                    if tool == "glob_files"
+                    and re.search(r"\{[^{}]*,[^{}]*\}", args["pattern"])
+                    else []
+                )
+                + (["tny_worktree"] if "/.tny/worktrees/" in workspace else [])
+            )
+            case = scratch / "cases" / str(index)
+            work = (
+                case / ".tny" / "worktrees" / "project"
+                if "/.tny/worktrees/" in workspace
+                else case / "workspace"
+            )
             work.mkdir(parents=True)
-            payload = seed(work, tool, args)
-            request = work / "request.json"
+            payload = seed(work, tool, args, workspace)
+            request = case / "request.json"
             request.write_text(json.dumps(payload))
             for arm, binary in binaries.items():
                 proc = subprocess.run(
@@ -181,11 +232,21 @@ def main() -> None:
                     )
                 )
                 totals[arm][f"{tool}_{key}"] += 1
+                for group in case_groups:
+                    groups[group][arm][key] += 1
     report = {
         "source": "saved argument shapes, synthetic local fixture trees",
         "baseline": opt.baseline,
         "recorded_calls": len(cases),
         "fixture_contents": "exact grep pattern as literal text, including special characters",
+        "subgroups": {
+            group: {
+                "calls": sum(counters["before"].values()),
+                "before_no_match": counters["before"]["no_match"],
+                "after_no_match": counters["after"]["no_match"],
+            }
+            for group, counters in groups.items()
+        },
         "before": dict(totals["before"]),
         "after": dict(totals["after"]),
     }

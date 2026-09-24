@@ -89,7 +89,7 @@ static const char *SCHEMA_JSON =
     "root).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}}}}"
     "},"
     "{\"type\":\"function\",\"function\":{\"name\":\"glob_files\",\"description\":\"Find files "
-    "matching a glob pattern (e.g. src/**/*.c) under the "
+    "matching a glob pattern (e.g. src/**/*.{c,h}) under the "
     "workspace; local path may name a file or directory inside an ignored directory. "
     "SSH search prunes ignored directories.\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":"

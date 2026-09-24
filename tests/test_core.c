@@ -6241,6 +6241,93 @@ TEST file_search_root_ignores_secrets_and_literal_code(void) {
     PASS();
 }
 
+TEST file_search_tny_worktree_external_ignored_and_braces(void) {
+    ensure_env();
+    char worktree[900], path[1000], args[2200];
+    snprintf(worktree, sizeof worktree, "%s/.tny/worktrees/project", g_ws);
+    snprintf(path, sizeof path, "%s/src", worktree);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/src/a.c", worktree);
+    ASSERT_EQ(0, file_write_atomic(path, "needle_token\n", 13));
+    tny_ctx *ctx = tny_ctx_load(worktree);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char *result = tools_execute(&env, "grep_files", "{\"pattern\":\"needle_token\"}");
+    ASSERT(result && strstr(result, "src/a.c:1:needle_token"));
+    free(result);
+    result = tools_execute(&env, "glob_files", "{\"pattern\":\"**/*.c\"}");
+    ASSERT(result && strstr(result, "src/a.c"));
+    free(result);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm = perm_new(ctx);
+    env.ctx = ctx;
+    env.perm = perm;
+    char external[900];
+    snprintf(external, sizeof external, "%s/external/node_modules/pkg", g_home);
+    snprintf(path, sizeof path, "%s/build", external);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/build/lib.js", external);
+    ASSERT_EQ(0, file_write_atomic(path, "external_marker\n", 16));
+    snprintf(args, sizeof args, "{\"pattern\":\"external_marker\",\"path\":\"%s\"}", external);
+    result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, "build/lib.js:1:external_marker"));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"**/*.js\",\"path\":\"%s\"}", external);
+    result = tools_execute(&env, "glob_files", args);
+    ASSERT(result && strstr(result, "build/lib.js"));
+    free(result);
+
+    snprintf(path, sizeof path, "%s/AGENTS.md", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "agents\n", 7));
+    snprintf(path, sizeof path, "%s/CLAUDE.md", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "claude\n", 7));
+    result = tools_execute(&env, "glob_files", "{\"pattern\":\"**/{AGENTS.md,CLAUDE.md}\"}");
+    ASSERT(result && strstr(result, "AGENTS.md") && strstr(result, "CLAUDE.md"));
+    free(result);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST grep_literal_priority_and_unsupported_escapes(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char path[900], args[2000];
+    snprintf(path, sizeof path, "%s/regex-noise.txt", g_ws);
+    buf_t contents;
+    buf_init(&contents);
+    for (int i = 0; i < 600; i++) buf_appends(&contents, "DONE noise\n");
+    buf_appends(&contents, "[DONE]\n");
+    ASSERT_EQ(0, file_write_atomic(path, contents.data, contents.len));
+    buf_free(&contents);
+    snprintf(args, sizeof args, "{\"pattern\":\"[DONE]\",\"path\":\"%s\"}", path);
+    char *result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, ":601:[DONE]\n") == result + strlen(path));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"\\\\n\",\"path\":\"%s\"}", path);
+    result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, "(no matches;") == result);
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"\\\\d+\",\"path\":\"%s\"}", path);
+    result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, "(no matches;") == result);
+    free(result);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST semantic_search_fanout_matches_serial_scan(void) {
     ensure_env();
     write_settings("{}");
@@ -6287,6 +6374,8 @@ SUITE(core_suite) {
     RUN_TEST(grep_files_fanout_matches_serial_scan);
     RUN_TEST(file_search_explicit_paths_regex_and_globstar);
     RUN_TEST(file_search_root_ignores_secrets_and_literal_code);
+    RUN_TEST(file_search_tny_worktree_external_ignored_and_braces);
+    RUN_TEST(grep_literal_priority_and_unsupported_escapes);
     RUN_TEST(semantic_search_fanout_matches_serial_scan);
     RUN_TEST(context_checkpoint_preserves_resolved_selection);
     RUN_TEST(session_swarm_definition_restores_snapshot_and_rejects_change);
