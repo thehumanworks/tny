@@ -1,0 +1,1 @@
+{"id":"smoke-hello","category":"smoke","prompt":"Create hello.txt in this repository with exactly this line: Hello from the harness benchmark.","timeout_s":180,"tags":["file-write","smoke"]}
