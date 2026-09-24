@@ -82,9 +82,7 @@ def measure(enabled):
 
 
 def cross_workspace(enabled):
-    case = fixture.CacheTests(
-        "test_experimental_first_request_shares_prefix_across_workspaces"
-    )
+    case = fixture.CacheTests("test_experimental_first_request_keeps_workspace_routing")
     case.setUp()
     try:
         case.server.max_tool_steps = 1
@@ -109,9 +107,7 @@ def cross_workspace(enabled):
             "identical_prefix_bytes": shared_bytes,
             "first_request_tokens_proxy": first_tokens,
             "identical_prefix_tokens_proxy": shared_tokens,
-            "expected_first_request_cached_token_fraction_proxy": round(
-                shared_tokens / first_tokens, 4
-            ),
+            "raw_json_leading_token_fraction": round(shared_tokens / first_tokens, 4),
         }
     finally:
         case.doCleanups()

@@ -13,19 +13,25 @@ execution policy. The default `all` profile advertises frequent tools,
 `read_tool_result`, `ask_user_question`, subagents, and MCP discovery/call tools.
 Team, swarm and job tools remain advertised in collective or team contexts.
 Other built-ins appear by name in the setup message and load when
-`tool_search(query)` matches a name or description. An empty query lists them.
-Schemas append in registry order and remain advertised for the rest of that
-session, including resume. The loaded set is stored as private session metadata.
-Exact direct calls to deferred tools continue through normal validation,
-permissions and execution. The tool's result explains that its schema will be
-present on the next request.
+`tool_search(query)` ranks tools using the MCP AND-keyword matcher, treating
+underscores as spaces. Queries list names and one-line descriptions. An empty
+query lists every deferred tool. Only `tool_search(load=exact_name)` or an
+exact-name query loads a schema. Loaded schemas append after the stable tool
+block in load order and remain advertised for the rest of the session, including
+resume. Private session metadata stores names rather than registry positions.
+A direct call with valid arguments loads its schema and executes through normal
+permissions. An invalid direct call names `tool_search` and the exact tool to
+load. A custom tool named `tool_search` takes precedence, so the built-in is
+omitted from that embedder's schema.
 
-The flagged wire order is tool definitions, stable instructions, a cache
-routing key, a setup message, then conversation. The flag routes compatible
-requests from different workspaces to the same versioned, profile-specific
-group through both `prompt_cache_key` and Codex's `session-id` header. Exact
-prefix matching still decides cache reuse. `TNY_OPENAI_CACHE_SCOPE=session`
-keeps its explicit per-conversation routing override.
+The flagged JSON body order is tool definitions, stable instructions, the cache
+routing key, a setup message, then conversation. Provider rendering and cache
+order are not inferred from JSON member order. The flag retains the workspace
+group routing of [ADR 0077](0077-openai-prompt-cache-routing.md) and
+[ADR 0078](0078-workspace-shared-prompt-cache.md) for both `prompt_cache_key`
+and Codex's `session-id` header. This keeps established task sharing inside a
+workspace and avoids pooling unrelated busy workspaces behind one routing key.
+`TNY_OPENAI_CACHE_SCOPE=session` keeps its explicit per-conversation override.
 Responses uses a developer setup input item; Chat Completions uses a second
 system message. No explicit cache breakpoint is added
 because these OpenAI-compatible profiles use automatic prefix caching and not
@@ -36,8 +42,11 @@ and speech availability within a turn. MCP warm-up can complete between
 requests; learning state changes after tools; capability probes can also change.
 The request builder also retains the first rendered schema array until discovery
 loads another schema, so availability probes cannot silently change the cached
-tool prefix mid-turn. Those changes become visible on the next turn. The intentionally growing tool
-schema set after `tool_search` is the only prefix change within a turn. Provider
+tool prefix mid-turn. Those changes become visible on the next turn. Changes in
+setup facts between turns, including learning counters, MCP warm-up, skill or
+AGENTS.md edits, and permission changes, can still invalidate conversation
+cache reuse. The intentionally growing tool schema set after discovery is the
+only prefix change within a turn. Provider
 reasoning items and tool history are still carried in full.
 
 The experiment shares C11 registry and request builders across native and wasm.
@@ -101,27 +110,31 @@ No live model quality or billing result follows from this size measurement.
 | Setting | Tools | Stable instructions | Setup | Static total | Schemas | Prefix byte-identical across 5 |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | flag off | 5,604 | 548 | 0 | 6,152 | 41 | yes |
-| flag on | 1,093 | 132 | 196 | 1,421 | 17 | yes |
+| flag on | 1,174 | 145 | 196 | 1,515 | 17 | yes |
 
-The flagged request removes 4,731 static tokens (76.9%) from this local
+The flagged request removes 4,637 static tokens (75.4%) from this local
 configuration. A real task that needs deferred schemas pays a discovery turn,
 so the benchmark's price-weighted cost per completed task and success guardrail
 must decide promotion. The mock also exercises actual schema loading and both
 Responses and Chat request construction; it does not estimate provider cache
 hits. The status report records the checks and remaining risks.
 
+The orchestrator later reported a live A/B of the earlier flagged revision on
+36 runs per arm: price-weighted ITE ratio 0.856 (interval 0.765–0.957), with
+36/36 task success in each arm and 32% less context. This result was supplied
+externally, not rerun for the discovery and routing fixes in this revision.
+
 The same script sent the **first** Codex-format request from each of two fixed,
 empty workspaces to the local mock. It compared raw request-body bytes before
-tokenizing with `o200k_base`. The identical leading bytes cover tools, stable
-instructions, the shared routing key, and common setup text; the first
-difference is the workspace path in setup. The token fraction is a local
-first-request cacheability proxy, not a prediction of billed provider cache
-hits or quality.
+tokenizing with `o200k_base`. This is a JSON serialization diagnostic only:
+`prompt_cache_key` differs by workspace and is not prompt content; providers
+may render tools, instructions and input in a different order. The leading
+fraction is not a cacheability or billing estimate.
 
-| Setting | First request bytes | Identical leading bytes | First request tokens | Identical leading tokens | First-request fraction proxy |
+| Setting | Raw JSON bytes | Identical leading JSON bytes | Raw JSON tokens | Leading JSON tokens | Leading JSON token fraction |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | flag off | 28,229 | 78 | 6,202 | 28 | 0.45% |
-| flag on | 6,658 | 6,171 | 1,453 | 1,345 | 92.57% |
+| flag on | 7,102 | 6,072 | 1,558 | 1,315 | 84.40% |
 
 The same mock was run with default native isolation (no `TNY_ISOLATE` override)
 and one request per turn. Flag on advertised 17 schemas including `tool_search`

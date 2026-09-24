@@ -76,7 +76,7 @@ typedef struct {
     tny_learning learning;
     char *prefix_setup;  /* frozen per-turn workspace/capability message */
     char *prefix_schema; /* frozen advertised schemas until discovery changes */
-    uint64_t prefix_schema_loaded;
+    char *prefix_schema_loaded;
     bool learning_initialized;
     uint64_t learning_target;
     uint64_t learning_intent;
@@ -624,10 +624,12 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
                         "required input with a recommendation when independent work is complete.\n"
                         "Give concise progress updates and a final outcome with changes, checks, "
                         "and blockers.\n");
-            if (o->ctx->tool_profile == TNY_TOOLS_ALL)
+            if (o->ctx->tool_profile == TNY_TOOLS_ALL &&
+                !custom_tools_find(o->ctx->custom_tools, "tool_search"))
                 buf_appends(sys,
-                            "Use tool_search(query) to load a deferred built-in tool's schema for "
-                            "this turn. Its catalog is in the setup message.\n");
+                            "Use tool_search(query) to find deferred built-in tools, then "
+                            "tool_search(load=exact_name) to keep one schema for this session, "
+                            "including resume. Its catalog is in the setup message.\n");
             return;
         }
         buf_appends(
@@ -850,7 +852,9 @@ static bool ensure_prefix_setup(oa_impl *o, oa_request_owner *request) {
 
 static char *request_tools_schema(oa_impl *o) {
     if (!o->ctx->exp_prefix || o->ctx->prompt_optimisation) return tools_schema_json(&o->env);
-    if (o->prefix_schema && o->prefix_schema_loaded == o->env.prefix_loaded_tools)
+    if (o->prefix_schema && o->prefix_schema_loaded &&
+        strcmp(o->prefix_schema_loaded,
+               o->env.prefix_loaded_tools ? o->env.prefix_loaded_tools : "") == 0)
         return xstrdup(o->prefix_schema);
     char *schema = tools_schema_json(&o->env);
     if (!schema) return NULL;
@@ -859,9 +863,16 @@ static char *request_tools_schema(oa_impl *o) {
         free(schema);
         return NULL;
     }
+    char *loaded = xstrdup(o->env.prefix_loaded_tools ? o->env.prefix_loaded_tools : "");
+    if (!loaded) {
+        free(copy);
+        free(schema);
+        return NULL;
+    }
     free(o->prefix_schema);
     o->prefix_schema = copy;
-    o->prefix_schema_loaded = o->env.prefix_loaded_tools;
+    free(o->prefix_schema_loaded);
+    o->prefix_schema_loaded = loaded;
     return schema;
 }
 
@@ -982,10 +993,6 @@ static const char *cache_routing_key(const oa_impl *o, char key[64]) {
     const char *scope = getenv("TNY_OPENAI_CACHE_SCOPE");
     if (scope && strcmp(scope, "workspace") != 0) return o->env.session->id;
     const tny_ctx *ctx = o->ctx;
-    if (ctx->exp_prefix && !ctx->prompt_optimisation) {
-        snprintf(key, 64, "tny-prefix-v1-%d", (int)ctx->tool_profile);
-        return key;
-    }
     uint64_t hash = fnv1a(ctx->cwd, strlen(ctx->cwd));
     const char *remote[] = {ctx->ssh_host, ctx->ssh_cwd};
     for (size_t i = 0; i < sizeof remote / sizeof remote[0]; i++) {
@@ -2173,7 +2180,14 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_
     o->prefix_setup = NULL;
     free(o->prefix_schema);
     o->prefix_schema = NULL;
+    free(o->prefix_schema_loaded);
+    o->prefix_schema_loaded = NULL;
+    free(o->env.prefix_loaded_tools);
     o->env.prefix_loaded_tools = session_prefix_loaded_tools(o->env.session);
+    if (!o->env.prefix_loaded_tools) {
+        snprintf(errbuf, errlen, "could not restore deferred tools");
+        return -1;
+    }
     secure_zero(o->turn_state, sizeof o->turn_state);
     o->env.perm_blocked = false;
     pending_perm_clear(o);
@@ -2599,6 +2613,8 @@ static void oa_destroy(tny_backend *b) {
     oa_impl *o = b->impl;
     free(o->prefix_setup);
     free(o->prefix_schema);
+    free(o->prefix_schema_loaded);
+    free(o->env.prefix_loaded_tools);
     oa_connection_free(&o->connection);
     oa_calls_reset(&o->calls);
     pending_perm_clear(o);
@@ -2868,7 +2884,9 @@ yyjson_mut_val *tny_backend_openai_checkpoint(tny_backend *b, yyjson_mut_doc *d)
 
 int tny_backend_openai_restore(tny_backend *b, yyjson_val *r, tny_backend_event_cb cb, void *ud) {
     oa_impl *o = b->impl;
+    free(o->env.prefix_loaded_tools);
     o->env.prefix_loaded_tools = session_prefix_loaded_tools(o->env.session);
+    if (!o->env.prefix_loaded_tools) return -1;
     yyjson_val *calls = jget(r, "calls"), *images = jget(r, "images");
     int64_t index = jget_int(r, "tool_index", -1);
     if (!yyjson_is_arr(calls) || yyjson_arr_size(calls) > OA_MAX_TOOL_CALLS ||

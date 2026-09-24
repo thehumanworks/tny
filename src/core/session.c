@@ -707,17 +707,38 @@ void session_set_meta(tny_session_state *s, const char *backend, const char *mod
     if (model) put_str(s, "model", model);
 }
 
-uint64_t session_prefix_loaded_tools(tny_session_state *s) {
-    if (!s || !s->doc) return 0;
+char *session_prefix_loaded_tools(tny_session_state *s) {
+    buf_t names;
+    buf_init(&names);
+    if (!s || !s->doc) return buf_detach(&names);
     yyjson_mut_val *value = yyjson_mut_obj_get(root_of(s), "prefix_loaded_tools");
-    return yyjson_mut_is_uint(value) ? yyjson_mut_get_uint(value) : 0;
+    if (yyjson_mut_is_arr(value)) {
+        size_t idx, max;
+        yyjson_mut_val *name;
+        yyjson_mut_arr_foreach(value, idx, max, name) {
+            const char *text = yyjson_mut_get_str(name);
+            if (!text || strchr(text, '\n')) continue;
+            buf_appendf(&names, "%s\n", text);
+        }
+    }
+    if (!names.len) buf_appends(&names, "");
+    return buf_detach(&names);
 }
 
-bool session_set_prefix_loaded_tools(tny_session_state *s, uint64_t mask) {
-    if (!s || !s->doc) return false;
+bool session_set_prefix_loaded_tools(tny_session_state *s, const char *names) {
+    if (!s || !s->doc || !names) return false;
+    yyjson_mut_val *array = yyjson_mut_arr(s->doc);
+    if (!array) return false;
+    const char *p = names;
+    while (*p) {
+        const char *end = strchr(p, '\n');
+        if (!end) return false;
+        yyjson_mut_val *name = yyjson_mut_strncpy(s->doc, p, (size_t)(end - p));
+        if (!name || !yyjson_mut_arr_add_val(array, name)) return false;
+        p = end + 1;
+    }
     yyjson_mut_val *key = yyjson_mut_strcpy(s->doc, "prefix_loaded_tools");
-    yyjson_mut_val *value = yyjson_mut_uint(s->doc, mask);
-    return key && value && yyjson_mut_obj_put(root_of(s), key, value);
+    return key && yyjson_mut_obj_put(root_of(s), key, array);
 }
 
 const char *session_backend(tny_session_state *s) {

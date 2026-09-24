@@ -73,10 +73,13 @@ for the measured comparison and its limits.
 ### Native tool profiles
 
 With experimental `TNY_EXP_PREFIX=1`, the default `all` profile advertises its
-frequent tools and `tool_search(query)` first. The setup message lists the
-remaining built-in names. A matching query loads their schemas in registry order
-for subsequent requests in the session; an empty query lists deferred tools.
-The model may also call a deferred tool by its exact name without discovery.
+frequent tools and `tool_search(query, load)` first. The setup message lists the
+remaining built-in names. A keyword query lists matching names and one-line
+descriptions; `load` selects one exact name. An exact-name query also loads that
+one schema. Loaded schemas append in load order for subsequent requests in the
+session, including resume. An empty query lists deferred tools. The model may
+also call a deferred tool by its exact name without discovery; valid arguments
+load its schema, while invalid arguments return a hint naming `tool_search`.
 Team, swarm and job tools stay advertised when the turn runs in a collective or
 team context. Tool availability, permission checks and arguments are unchanged.
 The loaded set is stored in the session and survives resume. The flag also uses shorter core

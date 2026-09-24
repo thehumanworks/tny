@@ -74,8 +74,9 @@ const char *session_title(tny_session_state *s);
 void session_set_title(tny_session_state *s, const char *title);
 void session_set_meta(tny_session_state *s, const char *backend, const char *model);
 /* Experimental deferred built-ins: session-private, never provider transcript. */
-uint64_t session_prefix_loaded_tools(tny_session_state *s);
-bool session_set_prefix_loaded_tools(tny_session_state *s, uint64_t mask);
+/* Newline-separated tool names in load order; returned string is owned. */
+char *session_prefix_loaded_tools(tny_session_state *s);
+bool session_set_prefix_loaded_tools(tny_session_state *s, const char *names);
 const char *session_backend(tny_session_state *s); /* provider that owns the transcript */
 void session_set_host_pointer(tny_session_state *s, const char *ptr);
 const char *session_host_pointer(tny_session_state *s);

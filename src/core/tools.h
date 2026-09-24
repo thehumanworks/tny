@@ -91,7 +91,7 @@ typedef struct tools_env {
     struct mcp_client *mcp;
     /* set true when a PROMPT could not be resolved (ask-mode CLI) */
     bool perm_blocked;
-    uint64_t prefix_loaded_tools; /* deferred schema set, scoped to one native turn */
+    char *prefix_loaded_tools; /* owned names in load order; persists through session resume */
     tny_image_preview_admit preview_admit;
     void *preview_ud;
     /* ONE pending-image queue, flushed as a user-role image_url message after

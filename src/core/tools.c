@@ -12,6 +12,7 @@
 #include "core/intercept.h"
 #include "core/subagent.h"
 #include "lib/custom_tools.h"
+#include "mcp/mcp.h"
 #include "util/alloc.h"
 #include "util/util.h"
 
@@ -490,9 +491,48 @@ static const char *SCHEMA_JSON =
 
 static const char *PREFIX_SEARCH_SCHEMA =
     "{\"type\":\"function\",\"function\":{\"name\":\"tool_search\","
-    "\"description\":\"Find built-in tools by name or purpose; matching schemas load for this "
-    "turn. Empty query lists deferred tools.\",\"parameters\":{\"type\":\"object\","
-    "\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}}}";
+    "\"description\":\"Find deferred built-in tools by keyword. Query lists names and "
+    "one-line descriptions; load selects one exact name and keeps its schema for this "
+    "session, including resume.\",\"parameters\":{\"type\":\"object\","
+    "\"properties\":{\"query\":{\"type\":\"string\"},\"load\":{\"type\":\"string\"}}}}}";
+
+static bool prefix_search_enabled(const tools_env *env) {
+    return env && env->ctx && env->ctx->exp_prefix && env->ctx->backend == TNY_BK_OPENAI &&
+           !env->ctx->prompt_optimisation && env->ctx->tool_profile == TNY_TOOLS_ALL;
+}
+
+static bool prefix_loaded_has(const tools_env *env, const char *name) {
+    if (!env || !env->prefix_loaded_tools || !name) return false;
+    size_t len = strlen(name);
+    const char *p = env->prefix_loaded_tools;
+    while (*p) {
+        const char *end = strchr(p, '\n');
+        if (!end) break;
+        if ((size_t)(end - p) == len && strncmp(p, name, len) == 0) return true;
+        p = end + 1;
+    }
+    return false;
+}
+
+static bool prefix_load(tools_env *env, const char *name) {
+    if (prefix_loaded_has(env, name)) return true;
+    const char *old = env->prefix_loaded_tools ? env->prefix_loaded_tools : "";
+    size_t old_len = strlen(old), name_len = strlen(name);
+    if (name_len > SIZE_MAX - old_len - 2) return false;
+    char *next = malloc(old_len + name_len + 2);
+    if (!next) return false;
+    memcpy(next, old, old_len);
+    memcpy(next + old_len, name, name_len);
+    next[old_len + name_len] = '\n';
+    next[old_len + name_len + 1] = 0;
+    if (env->session && !session_set_prefix_loaded_tools(env->session, next)) {
+        free(next);
+        return false;
+    }
+    free(env->prefix_loaded_tools);
+    env->prefix_loaded_tools = next;
+    return true;
+}
 
 static bool prefix_keep(const tools_env *env, const char *name) {
     static const char *const common[] = {"terminal",
@@ -523,24 +563,29 @@ static bool prefix_keep(const tools_env *env, const char *name) {
 static const char *prefix_description(const char *name) {
     if (strcmp(name, "terminal") == 0)
         return "Run command in workspace (timeout_s defaults to 120); background returns task_id. "
-               "Use task_id with wait_s (0-600) to collect; wait timeout leaves work running.";
+               "Use task_id alone to inspect, or with wait_s (0-600) to collect; do not combine "
+               "task_id with command/background. Wait timeout leaves work running.";
     if (strcmp(name, "read_file") == 0)
-        return "Read text at path, optionally from line offset for limit lines.";
+        return "Read text at path, optionally from line offset for limit lines; use read_image "
+               "for png/jpeg/gif/webp.";
     if (strcmp(name, "edit_file") == 0)
         return "Replace exact old_string at path; replace_all permits multiple matches.";
     if (strcmp(name, "grep_files") == 0)
-        return "Find matching file lines under path; case_insensitive ignores case.";
+        return "Find substring or simple-pattern matches under path, with file:line prefixes; "
+               "case_insensitive ignores case.";
     if (strcmp(name, "write_file") == 0) return "Write content to path, creating or replacing it.";
     if (strcmp(name, "list_files") == 0) return "List entries at path (workspace root by default).";
     if (strcmp(name, "glob_files") == 0) return "Find paths matching pattern under path.";
     if (strcmp(name, "read_image") == 0)
         return "Attach image at path; pixels arrive in the next request.";
     if (strcmp(name, "subagent") == 0)
-        return "Create, message, inspect or manage a durable child session.";
+        return "Durable child: create {action,prompt}; message {action,id,prompt}; inspect or "
+               "lifecycle {action,id}. On message, repeat a different provider to keep it.";
     if (strcmp(name, "read_tool_result") == 0)
         return "Read stored tool output by handle, optional byte offset and length.";
     if (strcmp(name, "mcp_search_tools") == 0)
-        return "Search configured MCP tool names and descriptions.";
+        return "Search configured MCP tools; space-separated keywords must all match, and an "
+               "empty query lists the cached catalog.";
     if (strcmp(name, "mcp_select_tool") == 0) return "Call tool on server with JSON arguments.";
     if (strcmp(name, "team_mailbox") == 0)
         return "Send, publish, receive, acknowledge or wait on durable team messages.";
@@ -658,77 +703,98 @@ static char *append_custom_schema(char *base, custom_tool_registry *registry) {
     return buf_detach(&merged);
 }
 
+static bool prefix_add_schema(yyjson_mut_doc *mut, yyjson_mut_val *out, yyjson_val *item) {
+    const char *name = jget_str(jget(item, "function"), "name");
+    yyjson_mut_val *copy = yyjson_val_mut_copy(mut, item);
+    if (!copy) return false;
+    const char *description = prefix_description(name);
+    if (description) {
+        yyjson_mut_val *function = yyjson_mut_obj_get(copy, "function");
+        if (!yyjson_mut_obj_put(function, yyjson_mut_strcpy(mut, "description"),
+                                yyjson_mut_strcpy(mut, description)))
+            return false;
+    }
+    yyjson_mut_val *properties = yyjson_mut_obj_get(
+        yyjson_mut_obj_get(yyjson_mut_obj_get(copy, "function"), "parameters"), "properties");
+    if (properties) {
+        static const char *const keys[] = {"id", "provider", "model", "effort"};
+        for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) {
+            yyjson_mut_val *value = yyjson_mut_obj_get(properties, keys[i]);
+            const char *shorter = prefix_property_description(name, keys[i]);
+            if (value && shorter &&
+                !yyjson_mut_obj_put(value, yyjson_mut_strcpy(mut, "description"),
+                                    yyjson_mut_strcpy(mut, shorter)))
+                return false;
+        }
+    }
+    return yyjson_mut_arr_add_val(out, copy);
+}
+
 char *tools_schema_json(tools_env *env) {
-    if (env && env->ctx && env->ctx->exp_prefix && env->ctx->backend == TNY_BK_OPENAI &&
-        !env->ctx->prompt_optimisation && env->ctx->tool_profile == TNY_TOOLS_ALL) {
+    if (prefix_search_enabled(env)) {
         yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
         yyjson_doc *search = jparse(PREFIX_SEARCH_SCHEMA, strlen(PREFIX_SEARCH_SCHEMA));
+        char *custom_json = custom_tools_schema_json(env->ctx->custom_tools);
+        yyjson_doc *custom = custom_json ? jparse(custom_json, strlen(custom_json)) : NULL;
         yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
         yyjson_mut_doc *mut = yyjson_mut_doc_new(jallocator());
         yyjson_mut_val *out = mut ? yyjson_mut_arr(mut) : NULL;
-        if (root && search && out) {
+        if (root && search && custom && yyjson_is_arr(yyjson_doc_get_root(custom)) && out) {
             bool complete = true;
             size_t idx, max;
             yyjson_val *item;
             yyjson_arr_foreach(root, idx, max, item) {
                 const char *name = jget_str(jget(item, "function"), "name");
-                if (schema_tool_hidden(env, name)) continue;
-                if (idx >= 64) {
+                if (!schema_tool_hidden(env, name) && prefix_keep(env, name) &&
+                    !prefix_add_schema(mut, out, item)) {
                     complete = false;
                     break;
                 }
-                if (!prefix_keep(env, name) && !(env->prefix_loaded_tools & (UINT64_C(1) << idx)))
-                    continue;
-                yyjson_mut_val *copy = yyjson_val_mut_copy(mut, item);
-                if (!copy) {
-                    complete = false;
-                    break;
-                }
-                const char *description = prefix_description(name);
-                if (description) {
-                    yyjson_mut_val *function = yyjson_mut_obj_get(copy, "function");
-                    if (!yyjson_mut_obj_put(function, yyjson_mut_strcpy(mut, "description"),
-                                            yyjson_mut_strcpy(mut, description))) {
+            }
+            if (complete && !custom_tools_find(env->ctx->custom_tools, "tool_search")) {
+                yyjson_mut_val *search_copy = yyjson_val_mut_copy(mut, yyjson_doc_get_root(search));
+                complete = search_copy && yyjson_mut_arr_add_val(out, search_copy);
+            }
+            if (complete) {
+                yyjson_val *custom_root = yyjson_doc_get_root(custom);
+                yyjson_arr_foreach(custom_root, idx, max, item) {
+                    yyjson_mut_val *copy = yyjson_val_mut_copy(mut, item);
+                    if (!copy || !yyjson_mut_arr_add_val(out, copy)) {
                         complete = false;
                         break;
                     }
                 }
-                yyjson_mut_val *properties = yyjson_mut_obj_get(
-                    yyjson_mut_obj_get(yyjson_mut_obj_get(copy, "function"), "parameters"),
-                    "properties");
-                if (properties) {
-                    static const char *const keys[] = {"id", "provider", "model", "effort"};
-                    for (size_t property_index = 0; property_index < sizeof keys / sizeof keys[0];
-                         property_index++) {
-                        yyjson_mut_val *value =
-                            yyjson_mut_obj_get(properties, keys[property_index]);
-                        const char *shorter =
-                            prefix_property_description(name, keys[property_index]);
-                        if (value && shorter &&
-                            !yyjson_mut_obj_put(value, yyjson_mut_strcpy(mut, "description"),
-                                                yyjson_mut_strcpy(mut, shorter))) {
-                            complete = false;
-                            break;
-                        }
+            }
+            /* Loaded schemas follow the stable block in actual load order. */
+            const char *p = env->prefix_loaded_tools ? env->prefix_loaded_tools : "";
+            while (complete && *p) {
+                const char *end = strchr(p, '\n');
+                if (!end) break;
+                size_t name_len = (size_t)(end - p);
+                yyjson_arr_foreach(root, idx, max, item) {
+                    const char *name = jget_str(jget(item, "function"), "name");
+                    if (name && strlen(name) == name_len && strncmp(name, p, name_len) == 0 &&
+                        !schema_tool_hidden(env, name) && !prefix_keep(env, name)) {
+                        complete = prefix_add_schema(mut, out, item);
+                        break;
                     }
                 }
-                if (!complete || !yyjson_mut_arr_add_val(out, copy)) {
-                    complete = false;
-                    break;
-                }
+                p = end + 1;
             }
-            yyjson_mut_val *search_copy = yyjson_val_mut_copy(mut, yyjson_doc_get_root(search));
-            if (complete && search_copy && yyjson_mut_arr_add_val(out, search_copy) &&
-                !tny_alloc_scope_failed()) {
+            if (complete && !tny_alloc_scope_failed()) {
                 yyjson_mut_doc_set_root(mut, out);
                 char *json = jwrite(mut);
                 yyjson_mut_doc_free(mut);
+                yyjson_doc_free(custom);
+                free(custom_json);
                 yyjson_doc_free(search);
                 yyjson_doc_free(doc);
-                return json ? append_custom_schema(json, env->ctx->custom_tools) : NULL;
+                return json;
             }
         }
         yyjson_mut_doc_free(mut);
+        yyjson_doc_free(custom);
+        free(custom_json);
         yyjson_doc_free(search);
         yyjson_doc_free(doc);
         return NULL;
@@ -787,45 +853,74 @@ char *tools_prefix_catalog(tools_env *env) {
     return buf_detach(&out);
 }
 
-static bool prefix_query_match(const char *haystack, const char *needle) {
-    if (!needle || !*needle) return false;
-    for (const char *start = haystack; *start; start++) {
-        const char *a = start, *b = needle;
-        while (*a && *b && tolower((unsigned char)*a) == tolower((unsigned char)*b)) a++, b++;
-        if (!*b) return true;
-    }
-    return false;
+typedef struct {
+    const char *name;
+    const char *description;
+    int score;
+    size_t order;
+} prefix_candidate;
+
+static int prefix_candidate_cmp(const void *left, const void *right) {
+    const prefix_candidate *a = left, *b = right;
+    if (a->score != b->score) return a->score > b->score ? -1 : 1;
+    return a->order < b->order ? -1 : a->order > b->order;
 }
 
-static char *prefix_search(tools_env *env, const char *query) {
+static char *prefix_search(tools_env *env, const char *query, const char *load) {
     yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
     if (!doc) return NULL;
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    size_t count = yyjson_arr_size(root);
+    prefix_candidate *matches = calloc(count ? count : 1, sizeof *matches);
+    if (!matches) {
+        yyjson_doc_free(doc);
+        return NULL;
+    }
+    size_t found = 0;
     buf_t out;
     buf_init(&out);
     size_t idx, max;
     yyjson_val *item;
-    yyjson_arr_foreach(yyjson_doc_get_root(doc), idx, max, item) {
+    yyjson_arr_foreach(root, idx, max, item) {
         yyjson_val *function = jget(item, "function");
         const char *name = jget_str(function, "name");
         if (schema_tool_hidden(env, name) || prefix_keep(env, name)) continue;
-        if (idx >= 64) continue;
         const char *description = prefix_description(name);
         if (!description) description = jget_str(function, "description");
-        if (query && *query && !prefix_query_match(name, query) &&
-            !prefix_query_match(description ? description : "", query))
-            continue;
-        if (query && *query) env->prefix_loaded_tools |= UINT64_C(1) << idx;
-        buf_appendf(&out, "%s: %.100s\n", name, description ? description : "");
+        int score = query && *query ? mcp_tool_keyword_score(name, description, query) : 1;
+        if (load) score = strcmp(name, load) == 0 ? 1 : 0;
+        if (score) matches[found++] = (prefix_candidate){name, description, score, idx};
     }
+    qsort(matches, found, sizeof *matches, prefix_candidate_cmp);
+    if (load && found == 1) {
+        if (!prefix_load(env, matches[0].name)) {
+            free(matches);
+            yyjson_doc_free(doc);
+            return NULL;
+        }
+    } else if (!load && query && *query) {
+        for (size_t i = 0; i < found; i++)
+            if (strcmp(query, matches[i].name) == 0) {
+                if (!prefix_load(env, matches[i].name)) {
+                    free(matches);
+                    yyjson_doc_free(doc);
+                    return NULL;
+                }
+                load = matches[i].name;
+                break;
+            }
+    }
+    for (size_t i = 0; i < found; i++)
+        buf_appendf(&out, "%s: %.100s\n", matches[i].name,
+                    matches[i].description ? matches[i].description : "");
+    if (!found) {
+        if (load) buf_appendf(&out, "No deferred tool named %s.", load);
+        else buf_appends(&out, "No matching deferred tools.");
+    } else if (load)
+        buf_appendf(&out, "Schema %s loaded for this session, including resume.", load);
+    else buf_appends(&out, "Call tool_search with load set to one exact name to load its schema.");
+    free(matches);
     yyjson_doc_free(doc);
-    if (query && *query && env->session &&
-        !session_set_prefix_loaded_tools(env->session, env->prefix_loaded_tools)) {
-        buf_free(&out);
-        return NULL;
-    }
-    if (!out.len) buf_appends(&out, "No matching deferred tools.");
-    else if (query && *query)
-        buf_appends(&out, "Matching schemas are loaded for the next request.");
     return buf_detach(&out);
 }
 
@@ -922,6 +1017,27 @@ static int validate_call_schema(const char *name, yyjson_val *args, char **error
     return status;
 }
 
+static bool prefix_deferred_builtin(tools_env *env, const char *name) {
+    if (!prefix_search_enabled(env) || schema_tool_hidden(env, name) || prefix_keep(env, name))
+        return false;
+    yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
+    yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+    bool found = false;
+    if (root) {
+        size_t idx, max;
+        yyjson_val *item;
+        yyjson_arr_foreach(root, idx, max, item) {
+            const char *candidate = jget_str(jget(item, "function"), "name");
+            if (candidate && strcmp(candidate, name) == 0) {
+                found = true;
+                break;
+            }
+        }
+    }
+    yyjson_doc_free(doc);
+    return found;
+}
+
 char *tools_path_detail(tools_env *env, const char *p) {
     if (!p) return NULL;
     if (p[0] == '/') return xstrdup(p);
@@ -992,9 +1108,7 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         yyjson_doc_free(schema);
         if (valid != 0) return -1;
     } else {
-        if (strcmp(call->name, "tool_search") == 0 &&
-            (!env->ctx->exp_prefix || env->ctx->backend != TNY_BK_OPENAI ||
-             env->ctx->tool_profile != TNY_TOOLS_ALL || env->ctx->prompt_optimisation)) {
+        if (strcmp(call->name, "tool_search") == 0 && !prefix_search_enabled(env)) {
             call->error = tool_err("unknown tool %s", call->name);
             return -1;
         }
@@ -1006,7 +1120,24 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
             call->error = tool_err("unknown tool %s", call->name);
             return -1;
         }
-        if (validate_call_schema(call->name, call->args, &call->error) != 0) return -1;
+        bool deferred =
+            prefix_deferred_builtin(env, call->name) && !prefix_loaded_has(env, call->name);
+        if (validate_call_schema(call->name, call->args, &call->error) != 0) {
+            if (deferred && call->error) {
+                char *hint = tool_err(
+                    "%s; call tool_search with load=\"%s\" for its schema",
+                    str_starts(call->error, "error: ") ? call->error + 7 : call->error, call->name);
+                if (hint) {
+                    free(call->error);
+                    call->error = hint;
+                }
+            }
+            return -1;
+        }
+        if (deferred && !prefix_load(env, call->name)) {
+            call->error = tool_err("could not load schema for %s", call->name);
+            return -1;
+        }
     }
     if (strcmp(call->name, "mcp_select_tool") == 0) {
         const char *server = jget_str(call->args, "server");
@@ -1117,7 +1248,9 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
             if (!call->permission_tool) return -1;
         }
     }
-    call->verdict = call->custom && !custom_tool_sensitive(call->custom)
+    call->verdict = (call->custom && !custom_tool_sensitive(call->custom)) ||
+                            (!call->custom && strcmp(call->name, "tool_search") == 0 &&
+                             prefix_search_enabled(env))
                         ? PERM_ALLOW
                         : perm_check(env->perm, call->permission_tool, call->detail);
     if (call->detail2) {
@@ -1172,7 +1305,8 @@ char *tools_call_execute(tools_env *env, tools_call *call) {
     const char *name = call->name;
     yyjson_val *args = call->args;
 
-    if (strcmp(name, "tool_search") == 0) return prefix_search(env, jget_str(args, "query"));
+    if (!call->custom && strcmp(name, "tool_search") == 0 && prefix_search_enabled(env))
+        return prefix_search(env, jget_str(args, "query"), jget_str(args, "load"));
 
     if (call->intercept) return tny_intercept_execute(env, call->intercept);
 

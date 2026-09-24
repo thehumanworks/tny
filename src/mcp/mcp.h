@@ -26,6 +26,8 @@ void mcp_catalog_collect(struct tny_ctx *ctx, buf_t *out);
 /* All return malloc'd strings for the tool message. */
 char *mcp_features(tools_env *env);
 char *mcp_search_tools(tools_env *env, const char *query);
+/* Shared AND-keyword matcher. Name hits rank above description hits. */
+int mcp_tool_keyword_score(const char *name, const char *desc, const char *query);
 char *mcp_call_tool(tools_env *env, const char *server, const char *tool, const char *args_json);
 
 /* How one tools/call ended, so `tny mcp call` can pick an exit code. */

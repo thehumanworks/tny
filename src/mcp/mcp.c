@@ -847,27 +847,52 @@ char *mcp_features(tools_env *env) {
     return buf_detach(&out);
 }
 
-/* AND-match every whitespace token of query_lc against the lowercased
- * "name description" haystack. An empty query matches everything. */
-static bool tool_matches(const char *name, const char *desc, const char *query_lc) {
-    buf_t hay;
-    buf_init(&hay);
-    buf_appendf(&hay, "%s %s", name, desc ? desc : "");
-    for (size_t i = 0; i < hay.len; i++) hay.data[i] = (char)tolower((unsigned char)hay.data[i]);
-    bool ok = !buf_oom(&hay);
+/* AND-match whitespace tokens over name and description. Built-in discovery
+ * treats underscores as spaces; MCP's existing match rules retain them. */
+static int tool_keyword_score(const char *name, const char *desc, const char *query,
+                              bool normalise_underscores) {
+    if (!name || !query) return 0;
+    char *name_lc = xstrdup(name), *desc_lc = xstrdup(desc ? desc : "");
+    char *query_lc = xstrdup(query);
+    if (!name_lc || !desc_lc || !query_lc) {
+        free(name_lc);
+        free(desc_lc);
+        free(query_lc);
+        return 0;
+    }
+    for (char *p = name_lc; *p; p++)
+        *p = normalise_underscores && *p == '_' ? ' ' : (char)tolower((unsigned char)*p);
+    for (char *p = desc_lc; *p; p++) *p = (char)tolower((unsigned char)*p);
+    for (char *p = query_lc; *p; p++)
+        *p = normalise_underscores && *p == '_' ? ' ' : (char)tolower((unsigned char)*p);
+    int score = 1;
     const char *p = query_lc;
-    while (ok && *p) {
+    while (*p) {
         while (*p && isspace((unsigned char)*p)) p++;
         if (!*p) break;
         const char *e = p;
         while (*e && !isspace((unsigned char)*e)) e++;
         char *tok = xstrndup(p, (size_t)(e - p));
-        if (!strstr(hay.data, tok)) ok = false;
+        if (!tok) {
+            score = 0;
+            break;
+        }
+        if (strstr(name_lc, tok)) score += 10;
+        else if (strstr(desc_lc, tok)) score += 1;
+        else score = 0;
         free(tok);
+        if (!score) break;
         p = e;
     }
-    buf_free(&hay);
-    return ok;
+    if (score && strcmp(name_lc, query_lc) == 0) score += 100;
+    free(name_lc);
+    free(desc_lc);
+    free(query_lc);
+    return score;
+}
+
+int mcp_tool_keyword_score(const char *name, const char *desc, const char *query) {
+    return tool_keyword_score(name, desc, query, true);
 }
 
 static bool query_is_empty(const char *q) {
@@ -905,12 +930,8 @@ char *mcp_search_tools(tools_env *env, const char *query) {
         return buf_detach(&out);
     }
 
-    char *query_lc = xstrdup(query);
-    for (char *p = query_lc; *p; p++) *p = (char)tolower((unsigned char)*p);
-
     mcp_catalog *prof = load_profile(env);
     if (!prof) {
-        free(query_lc);
         buf_free(&out);
         return xstrdup("no MCP servers configured");
     }
@@ -929,11 +950,10 @@ char *mcp_search_tools(tools_env *env, const char *query) {
             const char *tn = jget_str(t, "name");
             const char *td = jget_str(t, "description");
             if (!tn) continue;
-            if (tool_matches(tn, td, query_lc)) append_tool_line(&out, srv->name, tn, td);
+            if (tool_keyword_score(tn, td, query, false)) append_tool_line(&out, srv->name, tn, td);
         }
     }
     mcp_catalog_free(prof);
-    free(query_lc);
     if (!out.len) buf_appends(&out, "(no matching MCP tools)");
     buf_appends(&out, "\nCall one with mcp_select_tool(server, tool, arguments).");
     return buf_detach(&out);

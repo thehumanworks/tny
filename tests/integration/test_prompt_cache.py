@@ -327,7 +327,7 @@ class CacheTests(unittest.TestCase):
             self.assertEqual(first["tools"], request["tools"])
             self.assertEqual(setup, request["input"][0])
 
-    def test_experimental_first_request_shares_prefix_across_workspaces(self):
+    def test_experimental_first_request_keeps_workspace_routing(self):
         self.env["TNY_EXP_PREFIX"] = "1"
         self.server.max_tool_steps = 1
         self.ask()
@@ -339,19 +339,18 @@ class CacheTests(unittest.TestCase):
         self.assertNotEqual(first, second)
         first_body = self.server.requests[0][0]
         second_body = self.server.requests[1][0]
-        self.assertEqual(
+        self.assertNotEqual(
             first_body["prompt_cache_key"], second_body["prompt_cache_key"]
         )
-        self.assertEqual(
+        self.assertNotEqual(
             self.server.requests[0][1]["session-id"],
             self.server.requests[1][1]["session-id"],
         )
         shared = len(os.path.commonprefix([first, second]))
         self.assertLess(first.index(b'"tools":'), first.index(b'"instructions":'))
-        self.assertLess(
-            first.index(b'"instructions":'), first.index(b'"prompt_cache_key":')
-        )
+        self.assertGreater(shared, first.index(b'"instructions":'))
         self.assertGreater(shared, first.index(b'"prompt_cache_key":'))
+        self.assertLess(shared, first.index(b'"input":'))
 
     def test_experimental_prefix_reaches_detached_runner(self):
         self.env.pop("TNY_ISOLATE")
@@ -381,7 +380,7 @@ class CacheTests(unittest.TestCase):
         second_names = [tool.get("name") for tool in bodies[1]["tools"]]
         self.assertNotIn("file_info", first_names)
         self.assertIn("file_info", second_names)
-        self.assertIn("Matching schemas", json.dumps(bodies[1]["input"]))
+        self.assertIn("Schema file_info loaded", json.dumps(bodies[1]["input"]))
         self.server.requests.clear()
         self.server.raw_requests.clear()
         self.server.tool_sequence = None

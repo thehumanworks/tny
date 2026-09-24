@@ -138,6 +138,26 @@ static size_t tool_schema_count(tools_env *env) {
     return count;
 }
 
+static int tool_schema_position(tools_env *env, const char *wanted) {
+    char *json = tools_schema_json(env);
+    yyjson_doc *doc = json ? jparse(json, strlen(json)) : NULL;
+    int position = -1;
+    if (doc) {
+        size_t idx, max;
+        yyjson_val *item;
+        yyjson_arr_foreach(yyjson_doc_get_root(doc), idx, max, item) {
+            const char *name = jget_str(jget(item, "function"), "name");
+            if (name && strcmp(name, wanted) == 0) {
+                position = (int)idx;
+                break;
+            }
+        }
+    }
+    yyjson_doc_free(doc);
+    free(json);
+    return position;
+}
+
 static tny_bytes test_tool_bytes(const char *s) { return (tny_bytes){s, strlen(s)}; }
 
 static int32_t TNY_CALL profile_custom_tool(void *user_data, tny_tool_call *call,
@@ -3859,7 +3879,7 @@ TEST embedded_tool_schema_has_no_process_spawning_tools(void) {
     PASS();
 }
 
-TEST prefix_defers_and_loads_tools_for_one_turn(void) {
+TEST prefix_discovers_exact_tools_and_appends_in_load_order(void) {
     ensure_env();
     tny_ctx *ctx = tny_ctx_new_explicit(g_ws, g_home);
     ASSERT(ctx);
@@ -3878,6 +3898,15 @@ TEST prefix_defers_and_loads_tools_for_one_turn(void) {
     ASSERT(listing && strstr(listing, "file_info"));
     ASSERT(!tool_schema_has(&env, "file_info"));
     free(listing);
+    listing = tools_execute(&env, "tool_search", "{\"query\":\"delete file\"}");
+    ASSERT(listing && strstr(listing, "delete_file"));
+    ASSERT(!tool_schema_has(&env, "delete_file"));
+    free(listing);
+    listing = tools_execute(&env, "tool_search", "{\"query\":\"file\"}");
+    ASSERT(listing && strstr(listing, "file_info"));
+    ASSERT(!tool_schema_has(&env, "file_info"));
+    ASSERT(!tool_schema_has(&env, "image_contact_sheet"));
+    free(listing);
     char *missing = tools_execute(&env, "tool_search", "{\"query\":\"no-such-tool\"}");
     ASSERT(missing && strstr(missing, "No matching"));
     free(missing);
@@ -3887,13 +3916,26 @@ TEST prefix_defers_and_loads_tools_for_one_turn(void) {
     char *direct_result = tools_execute(&env, "file_info", "{\"path\":\".\"}");
     ASSERT(direct_result && !str_starts(direct_result, "error:"));
     free(direct_result);
-    ASSERT(!tool_schema_has(&env, "file_info"));
-    char *found = tools_execute(&env, "tool_search", "{\"query\":\"file_info\"}");
-    ASSERT(found && strstr(found, "file_info"));
-    free(found);
     ASSERT(tool_schema_has(&env, "file_info"));
+    char *found = tools_execute(&env, "tool_search", "{\"load\":\"delete_file\"}");
+    ASSERT(found && strstr(found, "Schema delete_file loaded"));
+    free(found);
+    ASSERT(tool_schema_has(&env, "delete_file"));
+    ASSERT(tool_schema_position(&env, "tool_search") < tool_schema_position(&env, "file_info"));
+    ASSERT(tool_schema_position(&env, "file_info") < tool_schema_position(&env, "delete_file"));
+    custom_tool_registry *registry = custom_tools_new();
+    ASSERT(registry);
+    tny_tool_registration *registration = register_profile_custom(registry);
+    ASSERT(registration);
+    ctx->custom_tools = registry;
+    ASSERT(tool_schema_position(&env, "custom_profile_tool") <
+           tool_schema_position(&env, "file_info"));
+    ctx->custom_tools = NULL;
+    ASSERT_EQ(TNY_STATUS_OK, custom_tools_unregister(registration));
+    custom_tools_free(registry);
     ASSERT(!tool_schema_has(&env, "image_contact_sheet"));
-    env.prefix_loaded_tools = 0;
+    free(env.prefix_loaded_tools);
+    env.prefix_loaded_tools = NULL;
     ASSERT(!tool_schema_has(&env, "file_info"));
     ctx->tool_profile = TNY_TOOLS_TERMINAL;
     ASSERT(!tool_schema_has(&env, "tool_search"));
@@ -3902,6 +3944,106 @@ TEST prefix_defers_and_loads_tools_for_one_turn(void) {
     char *disabled = tools_execute(&env, "tool_search", "{\"query\":\"file_info\"}");
     ASSERT(disabled && strstr(disabled, "unknown tool"));
     free(disabled);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST prefix_direct_bad_arguments_hint_and_session_names_survive_resume(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_new_explicit(g_ws, g_home);
+    ASSERT(ctx);
+    ctx->exp_prefix = true;
+    ctx->library_mode = false;
+    tny_session_state *session = session_new(ctx);
+    ASSERT(session);
+    perm_engine *perm = perm_new(ctx);
+    ASSERT(perm);
+    tools_env env = {.ctx = ctx, .session = session, .perm = perm};
+    char *bad = tools_execute(&env, "copy_file", "{\"source\":\"a\",\"destination\":\"b\"}");
+    ASSERT(bad && strstr(bad, "tool_search") && strstr(bad, "copy_file"));
+    ASSERT(!tool_schema_has(&env, "copy_file"));
+    free(bad);
+    char *loaded = tools_execute(&env, "tool_search", "{\"query\":\"copy_file\"}");
+    ASSERT(loaded && strstr(loaded, "Schema copy_file loaded"));
+    free(loaded);
+    loaded = tools_execute(&env, "tool_search", "{\"load\":\"rename_file\"}");
+    ASSERT(loaded && strstr(loaded, "Schema rename_file loaded"));
+    free(loaded);
+    ASSERT(tool_schema_position(&env, "copy_file") < tool_schema_position(&env, "rename_file"));
+    ASSERT_EQ(0, session_save(session));
+    char *id = xstrdup(session->id);
+    ASSERT(id);
+    free(env.prefix_loaded_tools);
+    session_close(session);
+    session = session_open(ctx, id);
+    ASSERT(session);
+    env.session = session;
+    env.prefix_loaded_tools = session_prefix_loaded_tools(session);
+    ASSERT(env.prefix_loaded_tools);
+    ASSERT_STR_EQ("copy_file\nrename_file\n", env.prefix_loaded_tools);
+    ASSERT(tool_schema_has(&env, "copy_file"));
+    ASSERT(tool_schema_has(&env, "rename_file"));
+    free(env.prefix_loaded_tools);
+    free(id);
+    session_close(session);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST prefix_custom_tool_search_keeps_custom_dispatch_and_unique_schema(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_new_explicit(g_ws, g_home);
+    ASSERT(ctx);
+    ctx->library_mode = false;
+    custom_tool_registry *registry = custom_tools_new();
+    ASSERT(registry);
+    tny_tool_spec_v1 spec = {0};
+    spec.abi_version = TNY_TOOL_SPEC_ABI_VERSION;
+    spec.struct_size = sizeof spec;
+    spec.name = test_tool_bytes("tool_search");
+    spec.description = test_tool_bytes("custom search");
+    spec.input_schema_json = test_tool_bytes("{\"type\":\"object\",\"properties\":{}}");
+    spec.sensitivity = TNY_TOOL_SENSITIVITY_SAFE;
+    spec.invoke = profile_custom_tool;
+    tny_tool_registration *registration = NULL;
+    ASSERT_EQ(TNY_STATUS_OK, custom_tools_register(registry, NULL, &spec, &registration));
+    ctx->custom_tools = registry;
+    perm_engine *perm = perm_new(ctx);
+    ASSERT(perm);
+    tny_session_state *session = session_new(ctx);
+    ASSERT(session);
+    tools_env env = {.ctx = ctx, .perm = perm, .session = session};
+    ASSERT_FALSE(perm_tool_is_safe("tool_search"));
+    for (int flagged = 0; flagged <= 1; flagged++) {
+        ctx->exp_prefix = flagged != 0;
+        ASSERT_EQ(1, tool_schema_position(&env, "tool_search") >= 0);
+        char *json = tools_schema_json(&env);
+        ASSERT(json);
+        yyjson_doc *doc = jparse(json, strlen(json));
+        ASSERT(doc);
+        int count = 0;
+        size_t idx, max;
+        yyjson_val *item;
+        yyjson_arr_foreach(yyjson_doc_get_root(doc), idx, max, item) {
+            const char *name = jget_str(jget(item, "function"), "name");
+            if (name && strcmp(name, "tool_search") == 0) count++;
+        }
+        ASSERT_EQ(1, count);
+        yyjson_doc_free(doc);
+        free(json);
+        char *result = tools_execute(&env, "tool_search", "{}");
+        ASSERT_STR_EQ("custom ok", result);
+        free(result);
+        ASSERT(env.prefix_loaded_tools == NULL);
+        ASSERT(yyjson_mut_obj_get(yyjson_mut_doc_get_root(session->doc), "prefix_loaded_tools") ==
+               NULL);
+    }
+    ctx->custom_tools = NULL;
+    ASSERT_EQ(TNY_STATUS_OK, custom_tools_unregister(registration));
+    custom_tools_free(registry);
+    session_close(session);
     perm_free(perm);
     tny_ctx_free(ctx);
     PASS();
@@ -6221,7 +6363,9 @@ SUITE(core_suite) {
     RUN_TEST(responses_tools_flatten);
     RUN_TEST(responses_tools_preserve_optional_and_explicit_strict);
     RUN_TEST(embedded_tool_schema_has_no_process_spawning_tools);
-    RUN_TEST(prefix_defers_and_loads_tools_for_one_turn);
+    RUN_TEST(prefix_discovers_exact_tools_and_appends_in_load_order);
+    RUN_TEST(prefix_direct_bad_arguments_hint_and_session_names_survive_resume);
+    RUN_TEST(prefix_custom_tool_search_keeps_custom_dispatch_and_unique_schema);
     RUN_TEST(image_export_tools_are_local_and_gated);
     RUN_TEST(optimisation_tools_are_read_only_even_in_yolo);
     RUN_TEST(subagent_plan_carries_resolved_config_privately);
