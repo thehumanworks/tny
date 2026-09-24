@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
-python3 - "$1" << 'INNER'
+workspace=${1:-$PWD}
+python3 - "$workspace" << 'INNER'
 import json
 import random
 import sys

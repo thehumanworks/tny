@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
-python3 - "$1" << 'INNER'
+workspace=${1:-$PWD}
+python3 - "$workspace" << 'INNER'
 import sqlite3
 import sys
 from pathlib import Path

@@ -2,7 +2,7 @@
   "id": "cli-feature",
   "difficulty": "easy",
   "category": "feature",
-  "prompt": "Add a stats subcommand to journal.py with --since YYYY-MM-DD and --tag TAG filters. Report count and total minutes as JSON, and update README/help.",
+  "prompt": "Add a stats subcommand to journal.py with --since YYYY-MM-DD and --tag TAG filters. Report JSON with exactly count and total_minutes, reject invalid --since dates, and update README/help.",
   "timeout_s": 900,
   "tags": [
     "cli",
