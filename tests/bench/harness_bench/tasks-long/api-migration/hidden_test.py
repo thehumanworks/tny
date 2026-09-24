@@ -64,6 +64,14 @@ for domain in domains:
     assert reader(expiry, "acme", "mode", as_of=4) == 7, domain
     assert reader(expiry, "acme", "mode", as_of=5, fallback=8) == 8, domain
 assert RecordStore().resolve("none", "none").reason == "absent"
+head_expiry = RecordStore(
+    [
+        Record("acme", "mode", "old", 2, expires_at=5),
+        Record("other", "clock", "tick", 6),
+    ]
+)
+assert head_expiry.resolve("acme", "mode", as_of=4).value == "old"
+assert head_expiry.resolve("acme", "mode").reason == "expired"
 try:
     RecordStore().resolve("a", "b", as_of=-1)
 except ValueError:

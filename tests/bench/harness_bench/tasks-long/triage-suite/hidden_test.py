@@ -39,8 +39,9 @@ assert invoice.next_number(["INV-99", "INV-101", "INV-100"]) == "INV-102"
 
 from commerceops import retry
 
-assert retry.should_retry("unavailable", 2, 3)
-assert not retry.should_retry("bad_request", 1, 9)
+assert retry.should_retry("timeout", 2, 3)
+assert not retry.should_retry("timeout", 3, 3)
+assert not retry.should_retry("card_declined", 1, 9)
 
 from commerceops import postcode
 
@@ -97,7 +98,7 @@ assert ledger.net_cents([{"kind": "refund", "cents": 45}]) == -45
 
 from commerceops import scopes
 
-assert scopes.allowed("read:all, write:own", "write:own")
+assert scopes.allowed("read:all,write:own", "write:own")
 assert not scopes.allowed("catalog:read", "log:read")
 
 from commerceops import percentile

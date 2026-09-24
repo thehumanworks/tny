@@ -79,6 +79,24 @@ sends zstd-compressed requests. Without it, the proxy explains the problem
 and responds 415. `tiktoken` is optional; `run.py` and `report.py` label the
 chars/4 estimate when it is absent. The report writes both Markdown and JSON.
 
+## Rescore saved workspaces
+
+After changing only a task verifier, recheck saved workspaces without new model
+requests:
+
+```sh
+python tests/bench/harness_bench/rescore.py \
+  /home/tomas/.cache/tny-opt/runs/long/long-baseline \
+  --tasks-dir tests/bench/harness_bench/tasks-long
+```
+
+The command uses the current `verify.sh` and its task-specific timeout. It
+refuses the entire run set if any task's `repo/` differs from the saved
+workspace's initial Git commit, or if the current prompt is absent from the
+first recorded request. It preserves the first verdict as `pass_original`,
+updates the current verdict and reason, and records `verify_rescored_at` in
+each `result.json`. Each verifier writes `verify.log` beside that result.
+
 ## Compare two runs
 
 This command reads saved run results and request bodies; it makes no model

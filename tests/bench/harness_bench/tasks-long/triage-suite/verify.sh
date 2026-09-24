@@ -1,14 +1,35 @@
 #!/bin/sh
 set -eu
-workspace=$1
-: "$2"
-hidden_dir=$(mktemp -d "${TMPDIR:-/tmp}/harness-hidden.XXXXXX")
+script_dir=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+workspace=$(CDPATH='' cd "$1" && pwd)
+run_dir=$(CDPATH='' cd "$(dirname "$2")" && pwd)
+verify_log=$run_dir/verify.log
+hidden_dir=$(mktemp -d "${TMPDIR:-$run_dir}/harness-hidden.XXXXXX")
 trap 'rm -rf "$hidden_dir"' EXIT
-cp "$(dirname "$0")/hidden_test.py" "$hidden_dir/hidden_test.py"
-if (cd "$workspace" && python3 -m unittest discover -s tests -p 'test_*.py' -v) > "$hidden_dir/visible.log" 2>&1 &&
-    (cd "$workspace" && python3 "$hidden_dir/hidden_test.py" "$workspace") > "$hidden_dir/hidden.log" 2>&1; then
-    echo "pass: visible and hidden suites passed"
+cp "$script_dir/hidden_test.py" "$hidden_dir/hidden_test.py"
+cp -R "$script_dir/repo/tests" "$hidden_dir/pristine_tests"
+: > "$verify_log"
+failed=0
+printf '%s\n' '=== workspace visible tests ===' >> "$verify_log"
+if (cd "$workspace" && python3 -m unittest discover -s tests -p 'test_*.py' -v) >> "$verify_log" 2>&1; then
+    :
 else
-    echo "fail: visible or hidden suite failed"
+    failed=1
+fi
+printf '%s\n' '=== pristine visible tests ===' >> "$verify_log"
+if (cd "$workspace" && python3 -m unittest discover -s "$hidden_dir/pristine_tests" -p 'test_*.py' -v) >> "$verify_log" 2>&1; then
+    :
+else
+    failed=1
+fi
+printf '%s\n' '=== hidden edge checks ===' >> "$verify_log"
+if (cd "$workspace" && python3 "$hidden_dir/hidden_test.py" "$workspace") >> "$verify_log" 2>&1; then
+    :
+else
+    failed=1
+fi
+if [ "$failed" -ne 0 ]; then
+    echo "fail: visible or hidden suite failed; see $verify_log"
     exit 1
 fi
+echo "pass: visible and hidden suites passed"
