@@ -1,0 +1,12 @@
+{
+  "id": "build-fix",
+  "difficulty": "easy",
+  "category": "build",
+  "prompt": "make is broken in this little C project. Fix the build and test failures.",
+  "timeout_s": 900,
+  "tags": [
+    "c",
+    "make",
+    "prototype"
+  ]
+}

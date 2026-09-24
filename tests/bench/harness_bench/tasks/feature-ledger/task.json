@@ -1,0 +1,12 @@
+{
+  "id": "feature-ledger",
+  "difficulty": "hard",
+  "category": "feature",
+  "prompt": "Implement the ledger behavior described in README.md. Make the public test pass and cover the edge cases.",
+  "timeout_s": 900,
+  "tags": [
+    "python",
+    "durability",
+    "concurrency"
+  ]
+}

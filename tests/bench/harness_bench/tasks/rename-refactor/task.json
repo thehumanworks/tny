@@ -1,0 +1,12 @@
+{
+  "id": "rename-refactor",
+  "difficulty": "easy",
+  "category": "refactor",
+  "prompt": "Rename load_profile to read_profile and the config key profile_path to settings_path across this sample app. Keep load_profile as a deprecated working alias.",
+  "timeout_s": 900,
+  "tags": [
+    "rename",
+    "multi-file",
+    "docs"
+  ]
+}

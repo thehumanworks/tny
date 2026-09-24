@@ -1,0 +1,11 @@
+{
+  "id": "bigfile-fix",
+  "difficulty": "medium",
+  "category": "bugfix",
+  "prompt": "make test reports the wrong total. Fix the buggy scan without changing the other generated functions.",
+  "timeout_s": 900,
+  "tags": [
+    "large-file",
+    "c"
+  ]
+}

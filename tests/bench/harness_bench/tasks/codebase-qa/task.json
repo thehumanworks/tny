@@ -1,0 +1,12 @@
+{
+  "id": "codebase-qa",
+  "difficulty": "medium",
+  "category": "answer",
+  "prompt": "Read the vendored picohttpparser code and answer the five questions in QUESTIONS.md. Put the answers in ANSWERS.json.",
+  "timeout_s": 900,
+  "tags": [
+    "code-reading",
+    "c",
+    "answer"
+  ]
+}

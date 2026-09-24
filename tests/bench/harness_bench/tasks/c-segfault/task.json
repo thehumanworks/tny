@@ -1,0 +1,12 @@
+{
+  "id": "c-segfault",
+  "difficulty": "medium",
+  "category": "bugfix",
+  "prompt": "make test crashes while splitting words. Find and fix the tokenizer memory bug.",
+  "timeout_s": 900,
+  "tags": [
+    "c",
+    "crash",
+    "asan"
+  ]
+}
