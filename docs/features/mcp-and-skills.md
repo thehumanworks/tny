@@ -415,7 +415,7 @@ is not a shared run budget. Zero still means no explicit inherited step cap.
 | `inspect` | Generated id or unambiguous label | Stored identity and metadata: title, turns, provider, model, created/updated, status, exit code, liveness, and the stored answer when the last turn finished `done` |
 | `lifecycle` | Generated id or unambiguous label | `status`, `exit_code`, `running`, `resumable` read from the session and its writer lock |
 
-tny still allocates the authoritative 16-lowercase-hex id. An optional `id` on `create` is a display label (1–64 ASCII letters, digits, dot, underscore or hyphen); it cannot be a generated-id-shaped string. The label is stored with the child session and can address that child in the same workspace. A duplicate label is refused on create; ambiguous stored labels are refused on lookup, so a generated id always resolves precisely. A label is recorded after a successful stored child turn; an ephemeral child has no durable label. Relationship/configure actions and on-disk message queues do not exist; each `message` is one synchronous child turn.
+tny still allocates the authoritative 16-lowercase-hex id. An optional `id` on `create` is a display label (1–64 ASCII letters, digits, dot, underscore or hyphen); it cannot be a generated-id-shaped string. The label is stored with the child session and can address that child from the same parent session, including after the parent's session resumes. Different parents may reuse a label. A duplicate label for one parent is refused on create; ambiguous stored labels are refused on lookup, so a generated id always resolves precisely. A label is recorded as soon as the child id is known, including a failed first turn; an ephemeral child has no durable label. Relationship/configure actions and on-disk message queues do not exist; each `message` is one synchronous child turn.
 
 **Provider, model and reasoning effort.** `create` and `message` accept independent
 optional `provider`, `model` and `effort` strings. Omit `provider` to inherit the
@@ -468,7 +468,8 @@ of validation: empty or null `id` is still an argument, not omission.
 | Code | When |
 | --- | --- |
 | `INVALID_ARGUMENT` | Not an object; missing/empty/non-string `action`; unknown field; malformed create label or address; missing, empty or non-UTF-8 `prompt`; a `prompt` or selector on `inspect`/`lifecycle`; invalid selector type, empty string, NUL or UTF-8 |
-| `LABEL_IN_USE`, `LABEL_AMBIGUOUS` | The requested display label already belongs to a stored child, or more than one stored child has it; use a different label or the generated id |
+| `LABEL_IN_USE`, `LABEL_AMBIGUOUS` | The requested display label already belongs to a child of this parent, or more than one of this parent's children has it; use a different label or the generated id |
+| `LABEL_LOOKUP_FAILED` | The stored session directory could not be read; retry or address the child by its generated id |
 | `UNSUPPORTED_ACTION` | Any other action, including `relationship` and `configure` |
 | `UNSUPPORTED_CONTEXT` | Embedded (libtny), prompt optimisation, `terminal` / `terminal+edit` tool profiles, `--ssh`, host parents, a build that cannot start processes (wasm), `message`/`inspect`/`lifecycle` under an ephemeral parent |
 | `SESSION_NOT_FOUND` | No stored session with that id in this workspace |
