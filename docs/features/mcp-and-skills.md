@@ -42,6 +42,22 @@ Keep tool names stable so task prompts and agent integrations transfer:
 | Speech | `speak` (text, optional voice): automatic ephemeral playback using the Codex login, independent of the chat provider; advertised only with credentials and a player. [Speech contract](../speech.md) |
 | Runtime | `ask_user_question`, `memory`, `read_tool_result` |
 
+For local native and wasm searches, `grep_files` always looks for the literal
+substring. It also accepts lines matching a POSIX extended regex when the
+pattern contains recognizable regex syntax and the regex cannot match an empty
+string. Unsupported letter escapes remain literal. Literal matches are returned
+before regex-only matches so broad regex hits cannot crowd them out. Its
+`case_insensitive` option applies to both forms. An explicit file
+path is searched directly. A directory walk keeps hidden files and credential
+files out; a named directory inside `node_modules`, `build`, `dist` or another
+ignored directory, even outside the workspace, searches that subtree. Naming the workspace root or an
+ordinary directory keeps normal ignores. Empty results report the number of
+files scanned and directories skipped. `glob_files` accepts `*`, `?`, `**/`
+(including zero directories), and comma separated braces such as `{a,b}`. It
+matches relative or absolute patterns.
+With an explicit `path`, a pattern may be rooted at that path or relative to it.
+The `--ssh` file tools retain their remote literal grep and pruned glob behavior.
+
 Large results: bounded preview + session handle; `read_tool_result` reads a byte range or literal search. Background commands persist pid, cwd, log path, detected URL.
 
 ### Exact-edit recovery evidence
@@ -396,12 +412,12 @@ is not a shared run budget. Zero still means no explicit inherited step cap.
 
 | Action | Arguments | Result |
 | --- | --- | --- |
-| `create` | `prompt` (nonempty UTF-8), optional `provider`, `model`, `effort`; **omit `id`** | Runs one child turn and returns `subagent ID finished.` with the new durable id and the answer |
-| `message` | `id` returned by `create`, `prompt`, optional `provider`, `model`, `effort` | Appends one turn to that same child session |
-| `inspect` | `id` | Stored identity and metadata: title, turns, provider, model, created/updated, status, exit code, liveness, and the stored answer when the last turn finished `done` |
-| `lifecycle` | `id` | `status`, `exit_code`, `running`, `resumable` read from the session and its writer lock |
+| `create` | `prompt` (nonempty UTF-8), optional `id` display label, `provider`, `model`, `effort` | Runs one child turn and returns the generated durable id, optional label, and answer |
+| `message` | Generated id or unambiguous label, `prompt`, optional `provider`, `model`, `effort` | Appends one turn to that same child session |
+| `inspect` | Generated id or unambiguous label | Stored identity and metadata: title, turns, provider, model, created/updated, status, exit code, liveness, and the stored answer when the last turn finished `done` |
+| `lifecycle` | Generated id or unambiguous label | `status`, `exit_code`, `running`, `resumable` read from the session and its writer lock |
 
-tny allocates the 16-lowercase-hex id; there is no alias namespace. Any `id` on `create` — a name, or even an existing hex id — is rejected before a child starts rather than silently resuming or overwriting. Other strings, including `last`, are not child ids. Relationship/configure actions and on-disk message queues do not exist; each `message` is one synchronous child turn.
+tny still allocates the authoritative 16-lowercase-hex id. An optional `id` on `create` is a display label (1–64 ASCII letters, digits, dot, underscore or hyphen); it cannot be a generated-id-shaped string. The label is stored with the child session and can address that child from the same parent session, including after the parent's session resumes. Different parents may reuse a label. A duplicate label for one parent is refused on create; ambiguous stored labels are refused on lookup, so a generated id always resolves precisely. A label is recorded as soon as the child id is known, including a failed first turn; an ephemeral child has no durable label. Relationship/configure actions and on-disk message queues do not exist; each `message` is one synchronous child turn.
 
 **Provider, model and reasoning effort.** `create` and `message` accept independent
 optional `provider`, `model` and `effort` strings. Omit `provider` to inherit the
@@ -453,7 +469,9 @@ of validation: empty or null `id` is still an argument, not omission.
 
 | Code | When |
 | --- | --- |
-| `INVALID_ARGUMENT` | Not an object; missing/empty/non-string `action`; unknown field; `id` on `create`; missing or malformed `id` for `message`/`inspect`/`lifecycle`; missing, empty or non-UTF-8 `prompt`; a `prompt` or selector on `inspect`/`lifecycle`; invalid selector type, empty string, NUL or UTF-8 |
+| `INVALID_ARGUMENT` | Not an object; missing/empty/non-string `action`; unknown field; malformed create label or address; missing, empty or non-UTF-8 `prompt`; a `prompt` or selector on `inspect`/`lifecycle`; invalid selector type, empty string, NUL or UTF-8 |
+| `LABEL_IN_USE`, `LABEL_AMBIGUOUS` | The requested display label already belongs to a child of this parent, or more than one of this parent's children has it; use a different label or the generated id |
+| `LABEL_LOOKUP_FAILED` | The stored session directory could not be read; retry or address the child by its generated id |
 | `UNSUPPORTED_ACTION` | Any other action, including `relationship` and `configure` |
 | `UNSUPPORTED_CONTEXT` | Embedded (libtny), prompt optimisation, `terminal` / `terminal+edit` tool profiles, `--ssh`, host parents, a build that cannot start processes (wasm), `message`/`inspect`/`lifecycle` under an ephemeral parent |
 | `SESSION_NOT_FOUND` | No stored session with that id in this workspace |

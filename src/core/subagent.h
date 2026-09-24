@@ -63,5 +63,10 @@ void tny_subagent_plan_free(tny_subagent_plan *plan);
  * tests, which drive it with real non-tny children. */
 char *tny_subagent_run(tools_env *env, const char *action, const char *resume_id,
                        char *const argv[], char *const envp[], const char *prompt);
+/* Same process seam with a caller label for a newly stored child; tests use
+ * synthetic child replies to verify durable label lookup without inference. */
+char *tny_subagent_run_labeled(tools_env *env, const char *action, const char *resume_id,
+                               const char *label, char *const argv[], char *const envp[],
+                               const char *prompt);
 
 #endif

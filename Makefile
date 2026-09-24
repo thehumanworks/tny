@@ -568,6 +568,7 @@ debug: $(TEST_BIN)
 
 test-unit: $(TEST_BIN) $(BIN)
 	./$(TEST_BIN)
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/bench/test_replay_tool_search.py
 	# Regression: running from inside a restricted harness must not hide fixture tools.
 	TNY_TOOLS=terminal ./$(TEST_BIN) -s core_suite -t grep_files_fanout_matches_serial_scan
 	TNY_TOOLS=terminal+edit ./$(TEST_BIN) -s web_search_suite -t schema_includes_default_search

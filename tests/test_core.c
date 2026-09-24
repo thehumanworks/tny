@@ -4278,26 +4278,21 @@ TEST subagent_prepare_rejects_with_exact_codes(void) {
     static const struct {
         const char *args, *want;
     } cases[] = {
-        {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":\"wallpaper-SENTINEL\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
-         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
-         "inspect or lifecycle"},
+        {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":\"wallpaper/SENTINEL\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: create id must be a 1-64 character label "
+         "using letters, digits, dot, underscore or hyphen; omit it for no label"},
         {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":\"0123456789abcdef\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
-         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
-         "inspect or lifecycle"},
+         "error: SUBAGENT_INVALID_ARGUMENT: create id must be a 1-64 character label "
+         "using letters, digits, dot, underscore or hyphen; omit it for no label"},
         {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":\"\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
-         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
-         "inspect or lifecycle"},
+         "error: SUBAGENT_INVALID_ARGUMENT: create id must be a 1-64 character label "
+         "using letters, digits, dot, underscore or hyphen; omit it for no label"},
         {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":null}",
-         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
-         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
-         "inspect or lifecycle"},
+         "error: SUBAGENT_INVALID_ARGUMENT: create id must be a 1-64 character label "
+         "using letters, digits, dot, underscore or hyphen; omit it for no label"},
         {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":7}",
-         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
-         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
-         "inspect or lifecycle"},
+         "error: SUBAGENT_INVALID_ARGUMENT: create id must be a 1-64 character label "
+         "using letters, digits, dot, underscore or hyphen; omit it for no label"},
         {"{\"prompt\":\"SENTINEL\"}",
          "error: SUBAGENT_INVALID_ARGUMENT: action must be create, message, inspect or "
          "lifecycle. Example: " SA_CREATE_EXAMPLE},
@@ -4329,23 +4324,23 @@ TEST subagent_prepare_rejects_with_exact_codes(void) {
          "error: SUBAGENT_INVALID_ARGUMENT: create needs a nonempty UTF-8 prompt. "
          "Example: " SA_CREATE_EXAMPLE},
         {"{\"action\":\"message\",\"id\":\"x; touch SENTINEL; true\",\"prompt\":\"p\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: message needs the 16-character lowercase hex id "
-         "returned by create. Example: "
+         "error: SUBAGENT_INVALID_ARGUMENT: message needs the id returned by create or its "
+         "unambiguous label. Example: "
          "{\"action\":\"message\",\"id\":\"<id from create>\",\"prompt\":\"...\"}"},
-        {"{\"action\":\"message\",\"id\":\"last\",\"prompt\":\"p\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: message needs the 16-character lowercase hex id "
-         "returned by create. Example: "
+        {"{\"action\":\"message\",\"id\":\"bad/id\",\"prompt\":\"p\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: message needs the id returned by create or its "
+         "unambiguous label. Example: "
          "{\"action\":\"message\",\"id\":\"<id from create>\",\"prompt\":\"...\"}"},
         {"{\"action\":\"message\",\"id\":\"0123456789ABCDEF\",\"prompt\":\"p\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: message needs the 16-character lowercase hex id "
-         "returned by create. Example: "
+         "error: SUBAGENT_INVALID_ARGUMENT: message needs the id returned by create or its "
+         "unambiguous label. Example: "
          "{\"action\":\"message\",\"id\":\"<id from create>\",\"prompt\":\"...\"}"},
         {"{\"action\":\"message\",\"id\":\"0123456789abcdef\"}",
          "error: SUBAGENT_INVALID_ARGUMENT: message needs a nonempty UTF-8 prompt. Example: "
          "{\"action\":\"message\",\"id\":\"<id from create>\",\"prompt\":\"...\"}"},
         {"{\"action\":\"inspect\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: inspect needs the 16-character lowercase hex id "
-         "returned by create. Example: " SA_ID_EXAMPLE("inspect")},
+         "error: SUBAGENT_INVALID_ARGUMENT: inspect needs the id returned by create or its "
+         "unambiguous label. Example: " SA_ID_EXAMPLE("inspect")},
         {"{\"action\":\"lifecycle\",\"id\":\"0123456789abcdef\",\"prompt\":\"SENTINEL\"}",
          "error: SUBAGENT_INVALID_ARGUMENT: lifecycle takes no prompt. "
          "Example: " SA_ID_EXAMPLE("lifecycle")},
@@ -4361,7 +4356,8 @@ TEST subagent_prepare_rejects_with_exact_codes(void) {
         "{\"action\":\"create\",\"prompt\":\"do x\"}",
         "{\"action\":\"message\",\"id\":\"0123456789abcdef\",\"prompt\":\"more\"}",
         "{\"action\":\"inspect\",\"id\":\"0123456789abcdef\"}",
-        "{\"action\":\"lifecycle\",\"id\":\"0123456789abcdef\"}"};
+        "{\"action\":\"lifecycle\",\"id\":\"0123456789abcdef\"}",
+        "{\"action\":\"create\",\"prompt\":\"do x\",\"id\":\"wallpaper-1\"}"};
     for (size_t i = 0; i < sizeof valid / sizeof *valid; i++)
         ASSERT_EQ(NULL, subagent_prepare(&env, valid[i]));
 
@@ -4476,6 +4472,109 @@ static char *subagent_stored_session(tny_ctx *ctx) {
     char *id = xstrdup(s->id);
     session_close(s);
     return id;
+}
+
+TEST subagent_label_resolves_durable_child(void) {
+    tny_ctx *ctx = subagent_ctx();
+    ASSERT(ctx);
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char *id = subagent_stored_session(ctx);
+    ASSERT(id);
+    char script[512];
+    snprintf(script, sizeof script,
+             "printf '{\"output\":\"CHILD-OK\",\"exit_code\":0,\"session_id\":\"%s\"}'", id);
+    char *argv[] = {"/bin/sh", "-c", script, NULL};
+    char *result =
+        tny_subagent_run_labeled(&env, "create", NULL, "wallpaper-1", argv, environ, "p");
+    ASSERT(result && strstr(result, "label: wallpaper-1"));
+    free(result);
+    result = tools_execute(&env, "subagent", "{\"action\":\"inspect\",\"id\":\"wallpaper-1\"}");
+    ASSERT(result && strstr(result, id) && strstr(result, "turns:"));
+    free(result);
+    result = tools_execute(&env, "subagent", "{\"action\":\"lifecycle\",\"id\":\"wallpaper-1\"}");
+    ASSERT(result && strstr(result, id));
+    free(result);
+    result = tools_execute(&env, "subagent",
+                           "{\"action\":\"message\",\"id\":\"wallpaper-1\",\"prompt\":\"p\"}");
+    ASSERT(result && strstr(result, "SUBAGENT_AUTH_UNAVAILABLE"));
+    free(result);
+    result = tools_execute(&env, "subagent",
+                           "{\"action\":\"create\",\"id\":\"wallpaper-1\",\"prompt\":\"p\"}");
+    ASSERT(result && strstr(result, "SUBAGENT_LABEL_IN_USE"));
+    free(result);
+    char *second = subagent_stored_session(ctx);
+    ASSERT(second);
+    tny_session_state *stored = session_open(ctx, second);
+    ASSERT(stored);
+    char *label_file = path_join(stored->dir, "subagent-label");
+    ASSERT(label_file);
+    ASSERT_EQ(0, file_write_atomic(label_file, "\nwallpaper-1", strlen("\nwallpaper-1")));
+    free(label_file);
+    session_close(stored);
+    result = tools_execute(&env, "subagent", "{\"action\":\"inspect\",\"id\":\"wallpaper-1\"}");
+    ASSERT(result && strstr(result, "SUBAGENT_LABEL_AMBIGUOUS"));
+    free(result);
+    free(second);
+    free(id);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST subagent_label_is_parent_scoped_and_survives_failed_first_turn(void) {
+    tny_ctx *ctx = subagent_ctx();
+    ASSERT(ctx);
+    perm_engine *perm = perm_new(ctx);
+    tny_session_state *parent_a = session_new(ctx);
+    tny_session_state *parent_b = session_new(ctx);
+    ASSERT(parent_a && parent_b);
+    ASSERT_EQ(0, session_save(parent_a));
+    ASSERT_EQ(0, session_save(parent_b));
+    tools_env env = {.ctx = ctx, .perm = perm, .session = parent_a};
+    char *failed_id = subagent_stored_session(ctx);
+    ASSERT(failed_id);
+    char script[512];
+    snprintf(script, sizeof script,
+             "printf '{\"output\":\"FAILED\",\"exit_code\":1,\"session_id\":\"%s\"}'", failed_id);
+    char *argv[] = {"/bin/sh", "-c", script, NULL};
+    char *result = tny_subagent_run_labeled(&env, "create", NULL, "worker-1", argv, environ, "p");
+    ASSERT(result && strstr(result, "SUBAGENT_CHILD_FAILED"));
+    free(result);
+    result = tools_execute(&env, "subagent", "{\"action\":\"inspect\",\"id\":\"worker-1\"}");
+    ASSERT(result && strstr(result, failed_id));
+    free(result);
+    result = tools_execute(&env, "subagent",
+                           "{\"action\":\"message\",\"id\":\"worker-1\",\"prompt\":\"p\"}");
+    ASSERT(result && strstr(result, "SUBAGENT_AUTH_UNAVAILABLE") &&
+           !strstr(result, "SESSION_NOT_FOUND"));
+    free(result);
+
+    env.session = parent_b;
+    result = tools_execute(&env, "subagent", "{\"action\":\"inspect\",\"id\":\"worker-1\"}");
+    ASSERT(result && strstr(result, "SUBAGENT_SESSION_NOT_FOUND"));
+    free(result);
+    char *other_id = subagent_stored_session(ctx);
+    ASSERT(other_id);
+    snprintf(script, sizeof script,
+             "printf '{\"output\":\"CHILD-OK\",\"exit_code\":0,\"session_id\":\"%s\"}'", other_id);
+    result = tny_subagent_run_labeled(&env, "create", NULL, "worker-1", argv, environ, "p");
+    ASSERT(result && strstr(result, "label: worker-1"));
+    free(result);
+    result = tools_execute(&env, "subagent", "{\"action\":\"inspect\",\"id\":\"worker-1\"}");
+    ASSERT(result && strstr(result, other_id) && !strstr(result, failed_id));
+    free(result);
+    env.session = parent_a;
+    result = tools_execute(&env, "subagent", "{\"action\":\"inspect\",\"id\":\"worker-1\"}");
+    ASSERT(result && strstr(result, failed_id) && !strstr(result, other_id));
+    free(result);
+    free(other_id);
+    free(failed_id);
+    session_close(parent_a);
+    session_close(parent_b);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
 }
 
 /* The process seam with real children: the prompt arrives on stdin, the
@@ -5975,11 +6074,256 @@ TEST grep_files_fanout_matches_serial_scan(void) {
     snprintf(args, sizeof args, "{\"pattern\":\"absent-token\",\"path\":\"%s\"}", root);
     threaded = fanout_run(&env, "grep_files", args, NULL);
     ASSERT(threaded);
-    ASSERT_STR_EQ("(no matches)", threaded);
+    ASSERT(strstr(threaded, "(no matches; files scanned: ") == threaded);
+    ASSERT(strstr(threaded, "; directories skipped: 0)"));
     free(threaded);
 
     perm_free(p);
     session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST file_search_explicit_paths_regex_and_globstar(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char package[700], dist[760], file[820], readme[700], args[2000];
+    snprintf(package, sizeof package, "%s/node_modules/@earendil-works/pi-coding-agent", g_ws);
+    snprintf(dist, sizeof dist, "%s/dist/core", package);
+    snprintf(file, sizeof file, "%s/agent-session.js", dist);
+    snprintf(readme, sizeof readme, "%s/README.md", g_ws);
+    ASSERT_EQ(0, mkdir_p(dist));
+    const char *source = "registerTool();\nclass DefaultResourceLoader {}\n";
+    const char *intro = "message-board and canvas\n";
+    ASSERT_EQ(0, file_write_atomic(file, source, strlen(source)));
+    ASSERT_EQ(0, file_write_atomic(readme, intro, strlen(intro)));
+
+    snprintf(args, sizeof args, "{\"pattern\":\"registerTool\",\"path\":\"%s\"}", file);
+    char *result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, "agent-session.js:1:registerTool"));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"class DefaultResourceLoader\",\"path\":\"%s\"}",
+             package);
+    result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, "dist/core/agent-session.js:2:"));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"message-board|canvas\",\"path\":\"%s\"}", readme);
+    result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, "README.md:1:message-board and canvas"));
+    free(result);
+    result = tools_execute(&env, "grep_files", "{\"pattern\":\"registerTool-absent\"}");
+    ASSERT(result && strstr(result, "files scanned:") && strstr(result, "directories skipped:"));
+    free(result);
+
+    snprintf(args, sizeof args, "{\"pattern\":\"**/*.js\",\"path\":\"%s\"}", package);
+    result = tools_execute(&env, "glob_files", args);
+    ASSERT(result && strstr(result, "dist/core/agent-session.js"));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"%s\",\"path\":\"%s\"}", file, file);
+    result = tools_execute(&env, "glob_files", args);
+    ASSERT(result && strstr(result, "agent-session.js"));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"**/*.md\",\"path\":\"%s\"}", g_ws);
+    result = tools_execute(&env, "glob_files", args);
+    ASSERT(result && strstr(result, "README.md"));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"%s/**/*.js\",\"path\":\"%s\"}", package, package);
+    result = tools_execute(&env, "glob_files", args);
+    ASSERT(result && strstr(result, "dist/core/agent-session.js"));
+    free(result);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST file_search_root_ignores_secrets_and_literal_code(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char path[900], args[2000];
+    snprintf(path, sizeof path, "%s/node_modules/pkg", g_ws);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/node_modules/pkg/hidden.js", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/build", g_ws);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/build/generated.js", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/ordinary/node_modules", g_ws);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/ordinary/node_modules/dependency.js", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/.git", g_ws);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/.git/config", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/.tny", g_ws);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/.tny/codex-auth.json", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/.env", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/.npmrc", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/visible.txt", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PUBLIC_MARKER\n", 14));
+
+    char *default_result = tools_execute(&env, "grep_files", "{\"pattern\":\"PRIVATE_MARKER\"}");
+    snprintf(args, sizeof args, "{\"pattern\":\"PRIVATE_MARKER\",\"path\":\"%s\"}", g_ws);
+    char *root_result = tools_execute(&env, "grep_files", args);
+    ASSERT(default_result && root_result && strcmp(default_result, root_result) == 0);
+    ASSERT(strstr(root_result, "(no matches;") == root_result);
+    free(default_result);
+    free(root_result);
+    snprintf(args, sizeof args, "{\"pattern\":\"**/*.js\",\"path\":\"%s\"}", g_ws);
+    root_result = tools_execute(&env, "glob_files", args);
+    ASSERT(root_result && !strstr(root_result, "hidden.js") &&
+           !strstr(root_result, "generated.js") && !strstr(root_result, "dependency.js"));
+    free(root_result);
+    snprintf(args, sizeof args, "{\"pattern\":\"PRIVATE_MARKER\",\"path\":\"%s/ordinary\"}", g_ws);
+    root_result = tools_execute(&env, "grep_files", args);
+    ASSERT(root_result && strstr(root_result, "(no matches;") == root_result);
+    free(root_result);
+    snprintf(args, sizeof args, "{\"pattern\":\"PRIVATE_MARKER\",\"path\":\"%s/.tny\"}", g_ws);
+    root_result = tools_execute(&env, "grep_files", args);
+    ASSERT(root_result && strstr(root_result, "(no matches;") == root_result);
+    free(root_result);
+    snprintf(args, sizeof args, "{\"pattern\":\"*\",\"path\":\"%s/.tny\"}", g_ws);
+    root_result = tools_execute(&env, "glob_files", args);
+    ASSERT(root_result && !strstr(root_result, "codex-auth.json"));
+    free(root_result);
+    snprintf(args, sizeof args,
+             "{\"pattern\":\"PRIVATE_MARKER\",\"path\":\"%s/.tny/codex-auth.json\"}", g_ws);
+    root_result = tools_execute(&env, "grep_files", args);
+    ASSERT(root_result && strstr(root_result, "codex-auth.json:1:PRIVATE_MARKER"));
+    free(root_result);
+
+    const char *code = "free(abs)\nargv[0]\n$(CC)\nuser?.name\n"
+                       "join(this.agentDir, \"extensions\")\na || b\nType.Union\n";
+    snprintf(path, sizeof path, "%s/literal.txt", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, code, strlen(code)));
+    static const char *patterns[] = {
+        "free(abs)", "argv[0]", "$(CC)", "user?.name", "join(this.agentDir, \"extensions\")",
+        "a || b"};
+    for (size_t i = 0; i < sizeof patterns / sizeof *patterns; i++) {
+        yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+        yyjson_mut_val *obj = yyjson_mut_obj(doc);
+        yyjson_mut_doc_set_root(doc, obj);
+        yyjson_mut_obj_add_str(doc, obj, "pattern", patterns[i]);
+        yyjson_mut_obj_add_str(doc, obj, "path", path);
+        size_t len = 0;
+        char *json = yyjson_mut_write(doc, 0, &len);
+        ASSERT(json);
+        char *result = tools_execute(&env, "grep_files", json);
+        ASSERT(result && strstr(result, patterns[i]));
+        if (strcmp(patterns[i], "a || b") == 0) ASSERT(!strstr(result, "free(abs)"));
+        free(result);
+        free(json);
+        yyjson_mut_doc_free(doc);
+    }
+    snprintf(args, sizeof args, "{\"pattern\":\"x?\",\"path\":\"%s\"}", path);
+    root_result = tools_execute(&env, "grep_files", args);
+    ASSERT(root_result && strstr(root_result, "(no matches;") == root_result);
+    free(root_result);
+    snprintf(args, sizeof args, "{\"pattern\":\"Type\\\\.Union\",\"path\":\"%s\"}", path);
+    root_result = tools_execute(&env, "grep_files", args);
+    ASSERT(root_result && strstr(root_result, "Type.Union"));
+    free(root_result);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST file_search_tny_worktree_external_ignored_and_braces(void) {
+    ensure_env();
+    char worktree[900], path[1000], args[2200];
+    snprintf(worktree, sizeof worktree, "%s/.tny/worktrees/project", g_ws);
+    snprintf(path, sizeof path, "%s/src", worktree);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/src/a.c", worktree);
+    ASSERT_EQ(0, file_write_atomic(path, "needle_token\n", 13));
+    tny_ctx *ctx = tny_ctx_load(worktree);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char *result = tools_execute(&env, "grep_files", "{\"pattern\":\"needle_token\"}");
+    ASSERT(result && strstr(result, "src/a.c:1:needle_token"));
+    free(result);
+    result = tools_execute(&env, "glob_files", "{\"pattern\":\"**/*.c\"}");
+    ASSERT(result && strstr(result, "src/a.c"));
+    free(result);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm = perm_new(ctx);
+    env.ctx = ctx;
+    env.perm = perm;
+    char external[900];
+    snprintf(external, sizeof external, "%s/external/node_modules/pkg", g_home);
+    snprintf(path, sizeof path, "%s/build", external);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/build/lib.js", external);
+    ASSERT_EQ(0, file_write_atomic(path, "external_marker\n", 16));
+    snprintf(args, sizeof args, "{\"pattern\":\"external_marker\",\"path\":\"%s\"}", external);
+    result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, "build/lib.js:1:external_marker"));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"**/*.js\",\"path\":\"%s\"}", external);
+    result = tools_execute(&env, "glob_files", args);
+    ASSERT(result && strstr(result, "build/lib.js"));
+    free(result);
+
+    snprintf(path, sizeof path, "%s/AGENTS.md", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "agents\n", 7));
+    snprintf(path, sizeof path, "%s/CLAUDE.md", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "claude\n", 7));
+    result = tools_execute(&env, "glob_files", "{\"pattern\":\"**/{AGENTS.md,CLAUDE.md}\"}");
+    ASSERT(result && strstr(result, "AGENTS.md") && strstr(result, "CLAUDE.md"));
+    free(result);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST grep_literal_priority_and_unsupported_escapes(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char path[900], args[2000];
+    snprintf(path, sizeof path, "%s/regex-noise.txt", g_ws);
+    buf_t contents;
+    buf_init(&contents);
+    for (int i = 0; i < 600; i++) buf_appends(&contents, "DONE noise\n");
+    buf_appends(&contents, "[DONE]\n");
+    ASSERT_EQ(0, file_write_atomic(path, contents.data, contents.len));
+    buf_free(&contents);
+    snprintf(args, sizeof args, "{\"pattern\":\"[DONE]\",\"path\":\"%s\"}", path);
+    char *result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, ":601:[DONE]\n") == result + strlen(path));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"\\\\n\",\"path\":\"%s\"}", path);
+    result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, "(no matches;") == result);
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"\\\\d+\",\"path\":\"%s\"}", path);
+    result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, "(no matches;") == result);
+    free(result);
+    perm_free(perm);
     tny_ctx_free(ctx);
     PASS();
 }
@@ -6028,6 +6372,10 @@ SUITE(core_suite) {
     RUN_TEST(edit_feedback_dispatch_preserves_failure_and_undo);
     RUN_TEST(edit_feedback_dispatch_bounds_utf8_snippet);
     RUN_TEST(grep_files_fanout_matches_serial_scan);
+    RUN_TEST(file_search_explicit_paths_regex_and_globstar);
+    RUN_TEST(file_search_root_ignores_secrets_and_literal_code);
+    RUN_TEST(file_search_tny_worktree_external_ignored_and_braces);
+    RUN_TEST(grep_literal_priority_and_unsupported_escapes);
     RUN_TEST(semantic_search_fanout_matches_serial_scan);
     RUN_TEST(context_checkpoint_preserves_resolved_selection);
     RUN_TEST(session_swarm_definition_restores_snapshot_and_rejects_change);
@@ -6139,6 +6487,8 @@ SUITE(core_suite) {
     RUN_TEST(subagent_plan_carries_resolved_config_privately);
     RUN_TEST(subagent_selector_validation);
     RUN_TEST(subagent_prepare_rejects_with_exact_codes);
+    RUN_TEST(subagent_label_resolves_durable_child);
+    RUN_TEST(subagent_label_is_parent_scoped_and_survives_failed_first_turn);
     RUN_TEST(subagent_process_outcomes_are_classified);
     RUN_TEST(subagent_child_wind_down_completes_before_forced_kill);
     RUN_TEST(subagent_stored_state_and_session_guards);

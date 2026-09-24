@@ -10,11 +10,13 @@
  * environment. inspect/lifecycle read the stored session and its writer
  * lock; they never start a process. */
 #include "core/subagent.h"
+#include "util/alloc.h"
 #include "util/process.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
 
 #include <errno.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
@@ -44,6 +46,96 @@ static bool sa_valid_id(const char *id, size_t len) {
     for (size_t i = 0; i < len; i++)
         if (!((id[i] >= '0' && id[i] <= '9') || (id[i] >= 'a' && id[i] <= 'f'))) return false;
     return true;
+}
+
+static bool sa_valid_label(const char *label, size_t len) {
+    if (!label || !len || len > 64 || strlen(label) != len || sa_valid_id(label, len) ||
+        (len == 1 && label[0] == '.') || (len == 2 && strcmp(label, "..") == 0))
+        return false;
+    bool hex_shaped = len == 16;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)label[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+            hex_shaped = false;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+              c == '-' || c == '_' || c == '.'))
+            return false;
+    }
+    return !hex_shaped;
+}
+
+/* Labels are scoped to the parent session. A sessionless caller uses the
+ * empty scope, which also keeps the direct unit/process seam deterministic. */
+static const char *sa_parent_id(const tools_env *env) {
+    return env->session && env->session->id ? env->session->id : "";
+}
+
+/* Labels live beside the durable child session. A duplicate within one
+ * parent is ambiguous, never guessed. -1 is allocation failure, -2 is I/O. */
+static int sa_lookup_label(tools_env *env, const char *label, char **resolved) {
+    *resolved = NULL;
+    tny_ctx *ctx = env->ctx;
+    const char *parent = sa_parent_id(env);
+    size_t parent_len = strlen(parent), label_len = strlen(label);
+    char *sessions = path_join(ctx->tny_dir, "sessions");
+    char *ws = sessions ? path_join(sessions, ctx->ws_hash) : NULL;
+    free(sessions);
+    if (!ws) return -1;
+    DIR *dir = opendir(ws);
+    if (!dir) {
+        int saved_errno = errno;
+        free(ws);
+        return saved_errno == ENOENT ? 0 : -2;
+    }
+    int matches = 0;
+    struct dirent *entry;
+    while ((entry = readdir(dir))) {
+        if (!sa_valid_id(entry->d_name, strlen(entry->d_name))) continue;
+        char *child = path_join(ws, entry->d_name);
+        char *file = child ? path_join(child, "subagent-label") : NULL;
+        free(child);
+        if (!file) {
+            matches = -1;
+            break;
+        }
+        size_t len = 0;
+        char *stored = file_slurp(file, &len);
+        free(file);
+        if (stored && len == parent_len + 1 + label_len &&
+            memcmp(stored, parent, parent_len) == 0 && stored[parent_len] == '\n' &&
+            memcmp(stored + parent_len + 1, label, label_len) == 0) {
+            tny_session_state *child_session = session_open(ctx, entry->d_name);
+            if (child_session) {
+                matches++;
+                if (matches == 1) *resolved = xstrdup(entry->d_name);
+                if (!*resolved) matches = -1;
+                session_close(child_session);
+            }
+        }
+        free(stored);
+        if (matches < 0 || matches > 1) break;
+    }
+    closedir(dir);
+    free(ws);
+    if (matches != 1) {
+        free(*resolved);
+        *resolved = NULL;
+    }
+    return matches;
+}
+
+static bool sa_store_label(tools_env *env, const char *id, const char *label) {
+    tny_session_state *child = session_open(env->ctx, id);
+    if (!child) return false;
+    char *file = path_join(child->dir, "subagent-label");
+    buf_t value;
+    buf_init(&value);
+    buf_appendf(&value, "%s\n%s", sa_parent_id(env), label);
+    bool ok = file && !buf_oom(&value) && file_write_atomic(file, value.data, value.len) == 0;
+    buf_free(&value);
+    free(file);
+    session_close(child);
+    return ok;
 }
 
 static sa_action sa_parse_action(yyjson_val *args, char **err) {
@@ -117,14 +209,15 @@ char *tny_subagent_prepare_error(const tools_env *env, yyjson_val *args) {
         }
     }
     yyjson_val *id = jget(args, "id");
-    if (action == SA_CREATE && id)
-        return tool_err("SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. "
-                        "Valid: %s, then pass the returned id to message, inspect or lifecycle",
-                        SA_EXAMPLES[SA_CREATE]);
+    if (action == SA_CREATE && id &&
+        (!yyjson_is_str(id) || !sa_valid_label(yyjson_get_str(id), yyjson_get_len(id))))
+        return tool_err("SUBAGENT_INVALID_ARGUMENT: create id must be a 1-64 character label "
+                        "using letters, digits, dot, underscore or hyphen; omit it for no label");
     if (action != SA_CREATE &&
-        (!yyjson_is_str(id) || !sa_valid_id(yyjson_get_str(id), yyjson_get_len(id))))
-        return tool_err("SUBAGENT_INVALID_ARGUMENT: %s needs the 16-character lowercase hex id "
-                        "returned by create. Example: %s",
+        (!yyjson_is_str(id) || (!sa_valid_id(yyjson_get_str(id), yyjson_get_len(id)) &&
+                                !sa_valid_label(yyjson_get_str(id), yyjson_get_len(id)))))
+        return tool_err("SUBAGENT_INVALID_ARGUMENT: %s needs the id returned by create or its "
+                        "unambiguous label. Example: %s",
                         SA_NAMES[action], SA_EXAMPLES[action]);
     yyjson_val *prompt = jget(args, "prompt");
     bool wants_prompt = action == SA_CREATE || action == SA_MESSAGE;
@@ -277,12 +370,13 @@ static bool sa_session_stored(tny_ctx *ctx, const char *id) {
     return s != NULL;
 }
 
-static char *sa_success(tools_env *env, const char *sid, const char *output) {
+static char *sa_success(tools_env *env, const char *sid, const char *label, const char *output) {
     buf_t r;
     buf_init(&r);
     if (sid) {
         buf_appendf(&r, "subagent %s finished.\n", sid);
         buf_appendf(&r, "id: %s (use action=message id=%s to continue)\n", sid, sid);
+        if (label) buf_appendf(&r, "label: %s (also accepted as id)\n", label);
     } else {
         buf_appends(&r, "ephemeral subagent finished; no resumable id was stored.\n");
     }
@@ -293,7 +387,8 @@ static char *sa_success(tools_env *env, const char *sid, const char *output) {
     return result;
 }
 
-static char *sa_outcome(tools_env *env, sa_action action, const char *resume_id, sa_proc *p) {
+static char *sa_outcome(tools_env *env, sa_action action, const char *resume_id, const char *label,
+                        sa_proc *p) {
     if (p->spawn_error == ENOTSUP)
         return tool_err("SUBAGENT_UNSUPPORTED_CONTEXT: subagent needs a native tny build; this "
                         "build cannot start child processes");
@@ -314,12 +409,19 @@ static char *sa_outcome(tools_env *env, sa_action action, const char *resume_id,
     const char *known = action == SA_MESSAGE ? resume_id : NULL;
     if (!known && !ctx->no_save && sa_valid_id(sid, sid_len) && sa_session_stored(ctx, sid))
         known = sid;
+    bool label_stored = label && action == SA_CREATE && known && sa_store_label(env, known, label);
+    if (tny_alloc_scope_failed()) {
+        yyjson_doc_free(doc);
+        return NULL;
+    }
     bool reported = output && yyjson_is_int(code);
     bool reported_ok = reported && yyjson_get_int(code) == 0 && !(cerr && *cerr);
     char *result = NULL;
     if (exited0 && reported_ok) {
-        if (ctx->no_save) result = sa_success(env, NULL, output);
-        else if (known && sid && strcmp(known, sid) == 0) result = sa_success(env, known, output);
+        if (ctx->no_save) result = sa_success(env, NULL, NULL, output);
+        else if (known && sid && strcmp(known, sid) == 0) {
+            result = sa_success(env, known, label_stored ? label : NULL, output);
+        }
     }
     if (!result && p->cancelled) {
         result = known ? tool_err("SUBAGENT_CANCELLED: the turn was cancelled and child %s was "
@@ -358,8 +460,9 @@ static char *sa_outcome(tools_env *env, sa_action action, const char *resume_id,
     return result;
 }
 
-char *tny_subagent_run(tools_env *env, const char *action, const char *resume_id,
-                       char *const argv[], char *const envp[], const char *prompt) {
+char *tny_subagent_run_labeled(tools_env *env, const char *action, const char *resume_id,
+                               const char *label, char *const argv[], char *const envp[],
+                               const char *prompt) {
     if (env && env->ctx && env->ctx->swarm_cap)
         return tool_err("SWARM_ADMISSION: use parent-owned team tasks, not isolated subagents");
     const char *enrolled = getenv("TNY_ADMISSION_ENROLLED");
@@ -368,10 +471,16 @@ char *tny_subagent_run(tools_env *env, const char *action, const char *resume_id
                         "job is unsupported; submit the dependency in the parent DAG instead");
     sa_proc p;
     sa_proc_run(env, argv, envp, prompt, &p);
-    char *result = sa_outcome(
-        env, action && strcmp(action, "message") == 0 ? SA_MESSAGE : SA_CREATE, resume_id, &p);
+    char *result =
+        sa_outcome(env, action && strcmp(action, "message") == 0 ? SA_MESSAGE : SA_CREATE,
+                   resume_id, label, &p);
     buf_free(&p.out);
     return result;
+}
+
+char *tny_subagent_run(tools_env *env, const char *action, const char *resume_id,
+                       char *const argv[], char *const envp[], const char *prompt) {
+    return tny_subagent_run_labeled(env, action, resume_id, NULL, argv, envp, prompt);
 }
 
 /* ---- stored state: inspect / lifecycle ---- */
@@ -458,44 +567,79 @@ char *tny_subagent_execute(tools_env *env, yyjson_val *args) {
     sa_action action = sa_parse_action(args, &err);
     if (action == SA_NONE) return err; /* not reached: validated above */
     tny_ctx *ctx = env->ctx;
-    const char *id = action == SA_CREATE ? NULL : jget_str(args, "id");
+    const char *label = action == SA_CREATE ? jget_str(args, "id") : NULL;
+    const char *requested = action == SA_CREATE ? label : jget_str(args, "id");
+    char *resolved = NULL;
+    const char *id = action == SA_CREATE ? NULL : requested;
+    if (requested && (action == SA_CREATE || !sa_valid_id(requested, strlen(requested)))) {
+        int matches = sa_lookup_label(env, requested, &resolved);
+        if (matches == -1) return NULL;
+        if (matches == -2)
+            return tool_err("SUBAGENT_LABEL_LOOKUP_FAILED: could not read stored child labels; "
+                            "retry or use a generated child id");
+        if (matches > 1)
+            return tool_err("SUBAGENT_LABEL_AMBIGUOUS: multiple stored children use that label; "
+                            "use a generated child id");
+        if (action == SA_CREATE && matches) {
+            free(resolved);
+            return tool_err("SUBAGENT_LABEL_IN_USE: a stored child already uses that label; "
+                            "choose another label or use its generated id");
+        }
+        if (action != SA_CREATE && !matches)
+            return tool_err("SUBAGENT_SESSION_NOT_FOUND: no stored child session has that label "
+                            "in this workspace; use the id returned by create");
+        if (action != SA_CREATE) id = resolved;
+    }
     tny_session_state *child = NULL;
     if (id) {
         if (action == SA_MESSAGE && env->session && env->session->id &&
-            strcmp(id, env->session->id) == 0)
+            strcmp(id, env->session->id) == 0) {
+            free(resolved);
             return tool_err("SUBAGENT_SESSION_BUSY: that id is this parent session, which is "
                             "running this turn; message only ids returned by create");
+        }
         child = session_open(ctx, id);
-        if (!child)
+        if (!child) {
+            free(resolved);
             return tool_err("SUBAGENT_SESSION_NOT_FOUND: no stored child session has that id in "
                             "this workspace; create one with %s and use the id it returns",
                             SA_EXAMPLES[SA_CREATE]);
+        }
         if (action == SA_INSPECT || action == SA_LIFECYCLE) {
             char *described = sa_describe(env, action, child);
             session_close(child);
+            free(resolved);
             return described;
         }
         session_close(child);
-        if (session_is_running(ctx, id))
-            return tool_err("SUBAGENT_SESSION_BUSY: that child is running a turn; check "
-                            "{\"action\":\"lifecycle\",\"id\":\"%s\"} and retry after it "
-                            "finishes",
-                            id);
+        if (session_is_running(ctx, id)) {
+            char *busy = tool_err("SUBAGENT_SESSION_BUSY: that child is running a turn; check "
+                                  "{\"action\":\"lifecycle\",\"id\":\"%s\"} and retry after it "
+                                  "finishes",
+                                  id);
+            free(resolved);
+            return busy;
+        }
     }
     const char *provider = jget_str(args, "provider");
     bool parent_provider = tny_subagent_provider_is_parent(ctx, provider);
     if (parent_provider && ctx->backend == TNY_BK_OPENAI && !(ctx->api_key && *ctx->api_key) &&
-        !str_starts(ctx->base_url ? ctx->base_url : "", "http://"))
+        !str_starts(ctx->base_url ? ctx->base_url : "", "http://")) {
+        free(resolved);
         return tool_err("SUBAGENT_AUTH_UNAVAILABLE: the parent provider has no resolved "
                         "credential to hand a child; configure its key (for example "
                         "--api-key-env NAME, tny login or tny provider setup) and retry");
+    }
     tny_subagent_plan plan = {0};
     if (tny_subagent_plan_build_selected(env, id, args, &plan) != 0) {
         sa_proc failed = {.spawn_error = errno == ENOTSUP ? ENOTSUP : ENOENT};
-        return sa_outcome(env, action, id, &failed);
+        char *failure = sa_outcome(env, action, id, label, &failed);
+        free(resolved);
+        return failure;
     }
-    char *result =
-        tny_subagent_run(env, SA_NAMES[action], id, plan.argv, plan.envp, jget_str(args, "prompt"));
+    char *result = tny_subagent_run_labeled(env, SA_NAMES[action], id, label, plan.argv, plan.envp,
+                                            jget_str(args, "prompt"));
     tny_subagent_plan_free(&plan);
+    free(resolved);
     return result;
 }
