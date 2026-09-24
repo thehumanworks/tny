@@ -598,6 +598,11 @@ static const char *exp_text_verbosity(void) {
     return NULL;
 }
 
+static bool exp_batch_hint(void) {
+    const char *v = getenv("TNY_EXP_BATCH_HINT");
+    return v && strcmp(v, "1") == 0;
+}
+
 static const char *model_of(oa_impl *o) {
     return o->ctx->model ? o->ctx->model : OPENAI_DEFAULT_MODEL;
 }
@@ -627,7 +632,15 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
         "- Resolve blockers independently and finish unblocked work. Ask for required user input "
         "at the end, with a recommendation and its tradeoff.\n"
         "- When delegation is available and worthwhile, give independent tasks clear context "
-        "and ownership, then collect their results.\n"
+        "and ownership, then collect their results.\n");
+    /* TNY_EXP_BATCH_HINT=1 (docs/benchmarks/harness-efficiency.md): describe
+     * that tool calls in one response run in one step, so independent calls
+     * need no extra round trips. Unset keeps today's prompt bytes. */
+    if (exp_batch_hint())
+        buf_appends(sys, "- Tool calls in one response run in the same step and return together. "
+                         "Issue independent reads, searches, and commands in one response.\n");
+    buf_appends(
+        sys,
         "\n# Instructions\n"
         "- Follow applicable project instructions; load relevant skills and tool schemas as "
         "needed.\n"
