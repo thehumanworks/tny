@@ -616,8 +616,6 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
         "- Use tools to establish facts and perform actions; preserve existing user work.\n"
         "- Resolve blockers independently and finish unblocked work. Ask for required user input "
         "at the end, with a recommendation and its tradeoff.\n"
-        "- When delegation is available and worthwhile, give independent tasks clear context "
-        "and ownership, then collect their results.\n"
         "\n# Instructions\n"
         "- Follow applicable project instructions; load relevant skills and tool schemas as "
         "needed.\n"
