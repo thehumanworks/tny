@@ -99,7 +99,6 @@ def isolated_env(run_dir, proxy_url):
         XDG_DATA_HOME=str(home / ".local" / "share"),
         XDG_CACHE_HOME=str(home / ".cache"),
         TNY_CODEX_BASE_URL=proxy_url + "/v1",
-        TNY_PROVIDER_RETRIES="0",
         OPENAI_API_KEY=token,
     )
     node = _binary("node")
