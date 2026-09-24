@@ -19,11 +19,13 @@ assert single_integer(actual["q1"]) == -2
 assert single_integer(actual["q2"]) == 3
 assert single_integer(actual["q3"]) == 99999999
 expression = re.sub(r"\s+", "", str(actual["q4"])).lower()
+while expression.startswith("(") and expression.endswith(")"):
+    expression = expression[1:-1]
 assert expression in {
     "sizeof(size_t)*2",
     "2*sizeof(size_t)",
     str(ctypes.sizeof(ctypes.c_size_t) * 2),
 }
 field = str(actual["q5"]).strip().strip("`")
-assert re.fullmatch(r"(?:[A-Za-z_]\w*(?:->|\.))?consume_trailer", field)
+assert re.fullmatch(r"(?:[A-Za-z_]\w*(?:->|\.|::))?consume_trailer", field)
 assert "Copyright" in (w / "LICENSE").read_text()

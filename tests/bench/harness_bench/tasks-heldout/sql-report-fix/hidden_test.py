@@ -11,9 +11,9 @@ from report import customer_report
 
 with sqlite3.connect(w / "report.db") as conn:
     assert customer_report(conn, 1) == {
-        "billed_cents": 900,
-        "paid_cents": 400,
-        "due_cents": 500,
+        "billed_cents": 1200,
+        "paid_cents": 550,
+        "due_cents": 650,
     }
     assert customer_report(conn, 2) == {
         "billed_cents": 900,
@@ -33,9 +33,9 @@ cli = subprocess.run(
     check=True,
 )
 assert json.loads(cli.stdout) == {
-    "billed_cents": 900,
-    "paid_cents": 400,
-    "due_cents": 500,
+    "billed_cents": 1200,
+    "paid_cents": 550,
+    "due_cents": 650,
 }
 with tempfile.TemporaryDirectory() as tmp:
     with sqlite3.connect(Path(tmp) / "extra.db") as conn:
@@ -43,13 +43,20 @@ with tempfile.TemporaryDirectory() as tmp:
         conn.executemany("INSERT INTO orders VALUES (?,?)", [(1, 7), (2, 7), (3, 8)])
         conn.executemany(
             "INSERT INTO order_lines VALUES (?,?,?,?)",
-            [(1, 1, 3, 17), (2, 1, 2, 25), (3, 2, 1, 49), (4, 3, 1, 999)],
+            [
+                (1, 1, 3, 17),
+                (2, 1, 2, 25),
+                (3, 2, 1, 49),
+                (4, 3, 1, 999),
+                (5, 1, 2, 25),
+            ],
         )
         conn.executemany(
-            "INSERT INTO payments VALUES (?,?,?)", [(1, 1, 31), (2, 1, 20), (3, 2, 10)]
+            "INSERT INTO payments VALUES (?,?,?)",
+            [(1, 1, 31), (2, 1, 20), (3, 2, 10), (4, 1, 20)],
         )
         assert customer_report(conn, 7) == {
-            "billed_cents": 150,
-            "paid_cents": 61,
-            "due_cents": 89,
+            "billed_cents": 200,
+            "paid_cents": 81,
+            "due_cents": 119,
         }
