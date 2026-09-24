@@ -1,0 +1,12 @@
+{
+  "id": "trace-analysis",
+  "difficulty": "hard",
+  "category": "answer",
+  "prompt": "Which endpoint used the most total exclusive request time among failed root spans in trace.ndjson? Write endpoint=..., failed_count=..., exclusive_us=... to ANSWER.txt.",
+  "timeout_s": 900,
+  "tags": [
+    "large-output",
+    "aggregation",
+    "trace"
+  ]
+}

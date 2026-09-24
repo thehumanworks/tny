@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shutil
@@ -40,6 +41,7 @@ def apply_solution(task: Path, workspace: Path) -> None:
                 target = workspace / source.relative_to(overlay)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
+                target.touch()
         for cache in workspace.rglob("__pycache__"):
             shutil.rmtree(cache)
     elif patch.is_file():
@@ -111,12 +113,26 @@ def check_task(task: Path, tmp_root: Path) -> tuple[bool, bool]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("tasks_dir", nargs="?", type=Path)
+    parser.add_argument("--tasks-dir", dest="tasks_dir_option", type=Path)
+    args = parser.parse_args()
+    tasks_dir = (args.tasks_dir_option or args.tasks_dir or ROOT).resolve()
+    if not tasks_dir.is_dir():
+        parser.error(f"tasks directory does not exist: {tasks_dir}")
+    names = (
+        IDS
+        if tasks_dir.resolve() == ROOT.resolve()
+        else tuple(sorted(path.parent.name for path in tasks_dir.glob("*/task.json")))
+    )
+    if not names:
+        parser.error(f"no tasks found in {tasks_dir}")
     tmp_root = Path(os.environ.get("TMPDIR", tempfile.gettempdir()))
     tmp_root.mkdir(parents=True, exist_ok=True)
     results = []
     print(f"{'task':24} {'untouched fails':16} reference passes")
-    for name in IDS:
-        task = ROOT / name
+    for name in names:
+        task = tasks_dir / name
         try:
             before, after = check_task(task, tmp_root)
             results.append(before and after)
@@ -125,8 +141,8 @@ def main() -> int:
             results.append(False)
             print(f"{name:24} ERROR {type(exc).__name__}: {exc}")
     count = sum(results)
-    print(f"{count}/{len(IDS)} tasks fail before and pass after reference solution")
-    return 0 if count == len(IDS) else 1
+    print(f"{count}/{len(names)} tasks fail before and pass after reference solution")
+    return 0 if count == len(names) else 1
 
 
 if __name__ == "__main__":

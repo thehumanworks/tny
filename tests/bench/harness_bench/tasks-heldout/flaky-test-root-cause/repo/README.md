@@ -1,0 +1,1 @@
+replay(events) normalizes messages with strip().lower() and returns records in exactly the input order, including equal sequence numbers. Parsing happens concurrently for throughput; completion order may differ from input order. Do not mutate events. Run python3 -m unittest discover -s tests.

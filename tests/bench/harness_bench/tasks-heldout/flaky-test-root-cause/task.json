@@ -1,0 +1,12 @@
+{
+  "id": "flaky-test-root-cause",
+  "difficulty": "medium",
+  "category": "bugfix",
+  "prompt": "The replay tests dump pages of output and fail inconsistently on ordering. Fix the root cause in the replay helper.",
+  "timeout_s": 900,
+  "tags": [
+    "verbose-tests",
+    "ordering",
+    "concurrency"
+  ]
+}
