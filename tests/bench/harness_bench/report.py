@@ -99,7 +99,21 @@ def aggregate(results):
     count, token_method = _counter()
     by_harness = defaultdict(list)
     tasks = defaultdict(dict)
+    errors = []
     for result in results:
+        status = result.get("status", "pass" if result["pass"] else "fail")
+        if status not in {"pass", "fail", "error"}:
+            raise ValueError(f"invalid run status: {status}")
+        result["_status"] = status
+        if status == "error":
+            errors.append(
+                {
+                    "harness": result["harness"],
+                    "task": result["task"],
+                    "rep": result.get("rep"),
+                    "reason": result.get("reason", "error: unspecified"),
+                }
+            )
         costs = [
             request_cost(row, result["model"]) for row in result.get("request_rows", [])
         ]
@@ -119,49 +133,60 @@ def aggregate(results):
     headline = []
     breakdown = []
     for (harness, model), rows in sorted(by_harness.items()):
-        costs = [row["ite"] for row in rows if row.get("ite") is not None]
-        dollars = [row["usd"] for row in rows if row.get("usd") is not None]
+        eligible = [row for row in rows if row["_status"] != "error"]
+        costs = [row["ite"] for row in eligible if row.get("ite") is not None]
+        dollars = [row["usd"] for row in eligible if row.get("usd") is not None]
         input_total = sum(
-            row["input_tokens"] for row in rows if row.get("input_tokens") is not None
+            row["input_tokens"]
+            for row in eligible
+            if row.get("input_tokens") is not None
         )
         cached_total = sum(
             row["cached_input_tokens"]
-            for row in rows
+            for row in eligible
             if row.get("cached_input_tokens") is not None
         )
-        successes = sum(row["pass"] for row in rows)
+        successes = sum(row["pass"] for row in eligible)
         headline.append(
             {
                 "harness": harness,
                 "model": model,
                 "runs": len(rows),
-                "pass_rate": successes / len(rows),
-                "pass_rate_ci95": _wilson(successes, len(rows)),
-                "ite_per_task": _mean(costs) if len(costs) == len(rows) else None,
+                "evaluated_runs": len(eligible),
+                "error_runs": len(rows) - len(eligible),
+                "pass_rate": successes / len(eligible) if eligible else None,
+                "pass_rate_ci95": _wilson(successes, len(eligible))
+                if eligible
+                else [None, None],
+                "ite_per_task": _mean(costs) if len(costs) == len(eligible) else None,
                 "ite_sd": statistics.stdev(costs)
-                if len(costs) == len(rows) and len(costs) > 1
+                if len(costs) == len(eligible) and len(costs) > 1
                 else None,
                 "ite_per_passed_task": sum(costs) / successes
-                if successes and len(costs) == len(rows)
+                if successes and len(costs) == len(eligible)
                 else None,
-                "usd_per_task": _mean(dollars) if len(dollars) == len(rows) else None,
+                "usd_per_task": _mean(dollars)
+                if len(dollars) == len(eligible)
+                else None,
                 "usd_per_passed_task": sum(dollars) / successes
-                if successes and len(dollars) == len(rows)
+                if successes and len(dollars) == len(eligible)
                 else None,
-                "requests_per_task": _mean([row["requests"] for row in rows]),
+                "requests_per_task": _mean([row["requests"] for row in eligible]),
                 "cache_hit": cached_total / input_total
                 if input_total
-                and all(row.get("cached_input_tokens") is not None for row in rows)
+                and all(row.get("cached_input_tokens") is not None for row in eligible)
                 else None,
                 "mean_context_tokens": input_total
-                / sum(row["requests"] for row in rows)
+                / sum(row["requests"] for row in eligible)
                 if input_total
-                and all(row.get("input_tokens") is not None for row in rows)
+                and all(row.get("input_tokens") is not None for row in eligible)
                 else None,
                 "static_prefix_tokens": _mean(
-                    [row["_sections"].get("static_prefix", 0) for row in rows]
+                    [row["_sections"].get("static_prefix", 0) for row in eligible]
                 ),
-                "p50_wall_s": statistics.median(row["wall_s"] for row in rows),
+                "p50_wall_s": statistics.median(row["wall_s"] for row in eligible)
+                if eligible
+                else None,
             }
         )
         breakdown.append(
@@ -169,15 +194,19 @@ def aggregate(results):
                 "harness": harness,
                 "model": model,
                 **{
-                    key: sum(row["_sections"].get(key, 0) for row in rows)
-                    / max(1, sum(row["requests"] for row in rows))
+                    key: sum(row["_sections"].get(key, 0) for row in eligible)
+                    / max(1, sum(row["requests"] for row in eligible))
                     for key in ("instructions", "tools", "history", "tool_outputs")
                 },
             }
         )
     matrix = {
         task: {
-            harness: {"passed": sum(row["pass"] for row in rows), "runs": len(rows)}
+            harness: {
+                "passed": sum(row["pass"] for row in rows if row["_status"] != "error"),
+                "runs": sum(row["_status"] != "error" for row in rows),
+                "errors": sum(row["_status"] == "error" for row in rows),
+            }
             for harness, rows in harnesses.items()
         }
         for task, harnesses in sorted(tasks.items())
@@ -187,6 +216,7 @@ def aggregate(results):
         "price_date": PRICE_DATE,
         "headline": headline,
         "pass_matrix": matrix,
+        "errors": errors,
         "section_breakdown_per_request": breakdown,
     }
 
@@ -197,8 +227,8 @@ def markdown(report):
         "",
         f"Token method: {report['token_method']}. Standard list prices as of {report['price_date']}; subscription dollars are comparison units, not a bill.",
         "",
-        "| Harness | Model | Pass rate (95% CI) | ITE/task (SD) | ITE/passed | USD/task | USD/passed | Requests/task | Cache hit | Mean context tokens | Static prefix | p50 wall |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Harness | Model | Pass rate (95% CI) | Errors | ITE/task (SD) | ITE/passed | USD/task | USD/passed | Requests/task | Cache hit | Mean context tokens | Static prefix | p50 wall |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in report["headline"]:
         lines.append(
@@ -207,7 +237,10 @@ def markdown(report):
                 (
                     row["harness"],
                     row["model"],
-                    f"{row['pass_rate']:.0%} ({row['pass_rate_ci95'][0]:.0%}–{row['pass_rate_ci95'][1]:.0%})",
+                    f"{row['pass_rate']:.0%} ({row['pass_rate_ci95'][0]:.0%}–{row['pass_rate_ci95'][1]:.0%})"
+                    if row["pass_rate"] is not None
+                    else "n/a",
+                    str(row["error_runs"]),
                     f"{_fmt(row['ite_per_task'])} ({_fmt(row['ite_sd'])})",
                     _fmt(row["ite_per_passed_task"]),
                     _fmt(row["usd_per_task"], 4),
@@ -218,7 +251,9 @@ def markdown(report):
                     else "n/a",
                     _fmt(row["mean_context_tokens"]),
                     _fmt(row["static_prefix_tokens"]),
-                    _fmt(row["p50_wall_s"], 1) + "s",
+                    _fmt(row["p50_wall_s"], 1) + "s"
+                    if row["p50_wall_s"] is not None
+                    else "n/a",
                 )
             )
             + " |"
@@ -233,11 +268,24 @@ def markdown(report):
             + task
             + " | "
             + " | ".join(
-                f"{values[h]['passed']}/{values[h]['runs']}" if h in values else "—"
+                f"{values[h]['passed']}/{values[h]['runs']}"
+                + (f" (+{values[h]['errors']} error)" if values[h]["errors"] else "")
+                if h in values
+                else "—"
                 for h in harnesses
             )
             + " |"
         )
+    lines += ["", "## Verification and environment errors", ""]
+    if report["errors"]:
+        lines += ["| Harness | Task | Rep | Reason |", "| --- | --- | ---: | --- |"]
+        for row in report["errors"]:
+            lines.append(
+                f"| {row['harness']} | {row['task']} | {row['rep'] or '—'} | "
+                f"{row['reason'].replace('|', '/')} |"
+            )
+    else:
+        lines.append("None.")
     lines += [
         "",
         "## Request section breakdown",

@@ -82,7 +82,6 @@ def check_task(task: Path, tmp_root: Path) -> tuple[bool, bool]:
     if info["id"] != task.name:
         raise AssertionError("task id mismatch")
     repo = task / "repo"
-    long_task = task.parent.name == "tasks-long"
     if sum(p.stat().st_size for p in repo.rglob("*") if p.is_file()) >= 300_000:
         raise AssertionError("initial repo exceeds 300 KB")
     check_answers(task)
@@ -95,16 +94,9 @@ def check_task(task: Path, tmp_root: Path) -> tuple[bool, bool]:
         final.write_text("")
 
         def verify():
-            if long_task:
-                return subprocess.run(
-                    ["bash", str(task / "verify.sh"), str(workspace), str(final)],
-                    cwd=tmp_root,
-                    text=True,
-                    capture_output=True,
-                    timeout=60,
-                    check=False,
-                )
-            return verify_task(task, workspace, final)
+            return verify_task(
+                task, workspace, final, info.get("verify_timeout_s", 120)
+            )
 
         before = verify()
         apply_solution(task, workspace)

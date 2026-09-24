@@ -106,6 +106,8 @@ default `all` tool profile, empty project): system instructions 373 tokens;
   provider's own `response.completed` event. Harness self-reports are not
   trusted.
 - Verification is hidden from the agent and runs after the harness exits.
+- Verifier prerequisite failures and verification timeouts are environment
+  errors. Report them separately from task failures and rerun before comparison.
 - Each (harness, task) runs at least 3 times; report mean and spread.
 
 ### Evaluation rules
@@ -147,7 +149,8 @@ bodies. See the benchmark README for the metric definitions and an example.
 
 ```
 tests/bench/harness_bench/tasks/<id>/
-  task.json   {"id", "category", "difficulty", "prompt", "timeout_s", "tags": [...]}
+  task.json   {"id", "category", "difficulty", "prompt", "timeout_s", "tags": [...],
+               optional "verify_timeout_s": seconds, default 120}
   repo/       initial workspace (copied, then git init + commit)
   setup.sh    optional, deterministic; run as bash setup.sh with cwd=workspace
               and no argument before the agent; optional $1 may name workspace
@@ -160,11 +163,15 @@ tests/bench/harness_bench/tasks/<id>/
 Prompts are short and phrased the way users write them. Tasks stress the
 harness paths that dominate real cost: large command output, large files,
 verbose test failures, multi-file edits, and codebase questions.
+The default `tasks/` directory contains 12 scored tasks. The smoke task is in
+`tests/bench/harness_bench/tasks-smoke/` and requires `--tasks-dir`; it is
+never included by default `--task all`.
 
 The optional `tests/bench/harness_bench/tasks-long/` suite has three longer
 tasks: a 20-regression Python triage suite, a 30-client versioned API migration,
 and an incident investigation whose setup generates over 90 MB of logs and
-metrics. Each task has a 2,400-second timeout. Its `setup.sh` runs with the
+metrics. Each task has a 2,400-second agent timeout and a 300-second verifier
+timeout. Its `setup.sh` runs with the
 workspace as cwd and no arguments; `verify.sh` accepts the workspace and final
 message paths and works from any cwd. The hidden oracle and reference solution
 stay outside `repo/`.

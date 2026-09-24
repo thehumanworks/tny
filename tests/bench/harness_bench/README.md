@@ -4,15 +4,24 @@ This is an opt-in live benchmark. It runs the same synthetic task in a fresh Git
 repository for each harness and repetition. A loopback proxy forwards Responses
 requests to the ChatGPT subscription endpoint and records provider usage. The
 verifier runs afterward from the task directory; the agent never sees it.
-An active workspace lives in a randomized private temporary directory and is
-moved into its run directory after verification. This removes the predictable
-sibling-run layout while the agent is working.
+An active workspace lives under its own randomized `ws-*` directory inside
+its run directory and is moved to `workspace/` after verification. A new run
+clears stale artifacts for that exact harness/task/repetition before starting.
+No hidden verifier files or `verify.log` exist there while the harness turn is
+active. Verification begins only after the harness process exits. The agent
+can still walk up the host filesystem to other runs or the benchmark source,
+including hidden tests: this runner is not an OS sandbox. Keep benchmark task
+sources and run directories inaccessible to untrusted agent processes when
+hidden-oracle secrecy is required.
 
 Fixture setup runs as `bash setup.sh` with the workspace as cwd and no
 argument; scripts may also accept an optional workspace path for manual use.
 Verification runs as `bash verify.sh WORKSPACE FINAL_MESSAGE_FILE` with the
 task directory as cwd. A failed oracle keeps `verify.log` beside the final
-message, outside the agent workspace.
+message, outside the agent workspace. The verification timeout is
+`task.json`'s `verify_timeout_s` or 120 seconds by default; the long tasks use
+300 seconds. A verifier prerequisite failure or timeout is recorded as
+`status: error` with an `error:` reason, separately from a failed task.
 
 The ledger and workflow fixtures derive from the repository's earlier public
 swarm cases. Treat them as task completion checks, not as blind held-out
@@ -43,6 +52,9 @@ uvx --with tiktoken python tests/bench/harness_bench/report.py \
 ```
 
 `--task` and `--harness` repeat. Omit `--task` to select all available tasks.
+The default `tasks/` directory contains exactly the 12 scored benchmark tasks;
+`--task all` selects those 12. For a wiring check, select
+`--tasks-dir tests/bench/harness_bench/tasks-smoke --task smoke-hello`.
 Use `--tasks-dir tests/bench/harness_bench/tasks-long` to select the three
 long-horizon tasks; validate them offline first with
 `python tests/bench/harness_bench/validate_tasks.py tests/bench/harness_bench/tasks-long`.
@@ -98,6 +110,10 @@ cost; a request lacking usage makes that run's cost unavailable.
 matches, requests, and runs in the saved decompressed request JSON for each
 arm. A zero-pass bootstrap sample makes the upper per-completed cost bound
 unbounded.
+The standard report lists verification or environment errors separately and
+excludes them from pass-rate and cost denominators. Paired comparison refuses
+an arm containing such a run until it is rerun, so a broken verifier cannot
+be counted as a task failure.
 
 For Unreal Agent, build its Go runner into
 `/home/tomas/.cache/tny-opt/bin/unreal-agent-runner` from the cloned source:

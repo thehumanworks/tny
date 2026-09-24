@@ -93,6 +93,8 @@ def _sum_known(values):
 def _normalized(row):
     if not isinstance(row.get("pass"), bool):
         raise ValueError(f"{row['_path']}: pass must be boolean")
+    if row.get("status") == "error":
+        raise ValueError(f"{row['_path']}: environment error; rerun before comparison")
     task = row.get("task")
     rep = row.get("rep")
     if (
