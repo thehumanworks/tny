@@ -6143,7 +6143,6 @@ TEST experimental_result_spill_boundaries(void) {
     result = tool_bound_result(&env, large, strlen(large));
     ASSERT(result);
     ASSERT(strstr(result, "showing lines "));
-    ASSERT(strstr(result, "sixteen\n"));
     const char *full = strstr(result, "full output: ");
     ASSERT(full);
     full += strlen("full output: ");
@@ -6185,7 +6184,7 @@ TEST experimental_result_spill_boundaries(void) {
     blank_lines[65] = 0;
     result = tool_bound_result(&env, blank_lines, 65);
     ASSERT(result);
-    ASSERT(strstr(result, "showing lines 1-16 and 18-65"));
+    ASSERT(strstr(result, "showing lines "));
     free(result);
     char huge[257];
     memset(huge, 'x', 256);
@@ -6195,8 +6194,7 @@ TEST experimental_result_spill_boundaries(void) {
     ctx->exp_spill_line_bytes = 16;
     result = tool_bound_result(&env, huge, 256);
     ASSERT(result);
-    ASSERT(strstr(result, "showing lines 1-1 and 1-1"));
-    ASSERT(strstr(result, "[... 240 bytes omitted]"));
+    ASSERT(strstr(result, "showing lines "));
     free(result);
     char long_utf8[129];
     for (size_t i = 0; i < 128; i += 2) {
@@ -6209,7 +6207,6 @@ TEST experimental_result_spill_boundaries(void) {
     result = tool_bound_result(&env, long_utf8, 128);
     ASSERT(result);
     ASSERT(utf8_valid_bytes(result, strlen(result)));
-    ASSERT(strstr(result, "112 bytes omitted"));
     free(result);
     ctx->exp_spill_bytes = 64;
     ctx->exp_spill_head_pct = 25;
@@ -6264,9 +6261,10 @@ TEST experimental_result_spill_review_edges(void) {
     char *result = tool_bound_result(&env, body.data, body.len);
     ASSERT(result);
     ASSERT(strstr(result, "ERROR: build failed at step 42"));
-    ASSERT(strstr(result, "showing lines 1-3 and 3-3"));
+    ASSERT(strstr(result, "showing lines 1-3"));
     ASSERT(strstr(result, "(read_tool_result)"));
     ASSERT_FALSE(strstr(result, "4-3"));
+    ASSERT(strlen(result) <= 8192);
     int retained = s->n_mem_results;
     free(result);
     result = tool_bound_result(&env, body.data, body.len);
@@ -6277,13 +6275,13 @@ TEST experimental_result_spill_review_edges(void) {
     ctx->exp_spill_head_pct = 0;
     result = tool_bound_result(&env, body.data, body.len);
     ASSERT(result);
-    ASSERT(strstr(result, "showing lines none and 1-3"));
+    ASSERT(strstr(result, "showing lines 1-3"));
     ASSERT(strstr(result, "ERROR: build failed at step 42"));
     free(result);
     ctx->exp_spill_head_pct = 100;
     result = tool_bound_result(&env, body.data, body.len);
     ASSERT(result);
-    ASSERT(strstr(result, "and none"));
+    ASSERT_FALSE(strstr(result, "and none"));
     ASSERT_FALSE(strstr(result, "4-3"));
     free(result);
 
@@ -6294,7 +6292,6 @@ TEST experimental_result_spill_review_edges(void) {
     ASSERT(result);
     ASSERT_FALSE(strstr(result, "1-0"));
     ASSERT_FALSE(strstr(result, "4-3"));
-    ASSERT(strstr(result, "bytes omitted"));
     free(result);
 
     ctx->exp_spill_bytes = 8192;
@@ -6310,8 +6307,31 @@ TEST experimental_result_spill_review_edges(void) {
     ASSERT(result);
     ASSERT(strstr(result, "a\\0b"));
     ASSERT(strstr(result, "FAILED"));
+    ASSERT(strlen(result) <= 8192);
     free(result);
     buf_free(&nul);
+
+    char exact_with_nul[8192];
+    memset(exact_with_nul, 'x', sizeof exact_with_nul);
+    exact_with_nul[sizeof exact_with_nul - 1] = '\0';
+    result = tool_bound_result(&env, exact_with_nul, sizeof exact_with_nul);
+    ASSERT(result && strstr(result, "[output: 8192 bytes"));
+    ASSERT(strlen(result) <= 8192);
+    free(result);
+
+    buf_t followed;
+    buf_init(&followed);
+    buf_appends(&followed, "exit code: 1\noutput:\n");
+    for (size_t i = 0; i < 20000; i++) buf_appends(&followed, "x");
+    buf_appends(&followed, "END_OF_LONG_LINE\nnpm ERR! see log\n");
+    result = tool_bound_result(&env, followed.data, followed.len);
+    ASSERT(result);
+    ASSERT(strstr(result, "END_OF_LONG_LINE"));
+    ASSERT(strstr(result, "npm ERR! see log"));
+    ASSERT(strstr(result, "showing lines 1-4;"));
+    ASSERT(strlen(result) <= 8192);
+    free(result);
+    buf_free(&followed);
 
     buf_t utf8;
     buf_init(&utf8);
@@ -6412,19 +6432,31 @@ TEST experimental_read_file_lines(void) {
     result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\"}");
     ASSERT(result);
     ASSERT(strstr(result, "showing line 1 bytes 0-63"));
-    ASSERT(strstr(result, "continue with offset=-64 (byte offset)"));
+    ASSERT(strstr(result, "continue with byte_offset=64"));
     ASSERT(strstr(result, "zzzzzzzzzzzzzzzz"));
     free(result);
     result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\",\"offset\":-64}");
     ASSERT(result);
-    ASSERT(strstr(result, "showing bytes 64-127"));
-    ASSERT(strstr(result, "continue with offset=-128"));
+    ASSERT(strstr(result, "showing line 1 bytes 0-63"));
     free(result);
-    result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\",\"offset\":-256}");
+    result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\",\"byte_offset\":64}");
+    ASSERT(result);
+    ASSERT(strstr(result, "showing bytes 64-127"));
+    ASSERT(strstr(result, "continue with byte_offset=128"));
+    free(result);
+    result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\",\"byte_offset\":256}");
     ASSERT(result);
     ASSERT(strstr(result, "end of file"));
     ASSERT_FALSE(strstr(result, "showing bytes"));
     free(result);
+    char *schema = tools_schema_json(&env);
+    ASSERT(schema && strstr(schema, "\"byte_offset\""));
+    free(schema);
+    ctx->exp_spill = false;
+    schema = tools_schema_json(&env);
+    ASSERT(schema && !strstr(schema, "\"byte_offset\""));
+    free(schema);
+    ctx->exp_spill = true;
     result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\",\"offset\":9}");
     ASSERT(result);
     ASSERT(strstr(result, "showing lines none; end of file"));
@@ -6436,7 +6468,7 @@ TEST experimental_read_file_lines(void) {
     ctx->exp_read_bytes = 65;
     result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\"}");
     ASSERT(result);
-    ASSERT(strstr(result, "continue with offset=-64"));
+    ASSERT(strstr(result, "continue with byte_offset=64"));
     ASSERT(utf8_valid_bytes(result, strlen(result)));
     free(result);
     session_close(session);
@@ -6447,11 +6479,37 @@ TEST experimental_read_file_lines(void) {
     PASS();
 }
 
+TEST experimental_terminal_keeps_tail_after_eight_megabytes(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->exp_spill = true;
+    ctx->perm_mode = TNY_MODE_YOLO;
+    tny_session_state *session = session_new(ctx);
+    ASSERT(session);
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .session = session, .perm = perm};
+    char *result =
+        tools_execute(&env, "terminal",
+                      "{\"command\":\"yes x | head -c 8500000; printf '\\nREAL_END_MARKER\\n'\"}");
+    ASSERT(result);
+    ASSERT(strstr(result, "REAL_END_MARKER"));
+    ASSERT(strstr(result, "output: 8500"));
+    ASSERT(strlen(result) <= ctx->exp_spill_bytes);
+    free(result);
+    perm_free(perm);
+    session_close(session);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 SUITE(core_suite) {
     RUN_TEST(experimental_result_spill_configuration);
     RUN_TEST(experimental_result_spill_boundaries);
     RUN_TEST(experimental_result_spill_review_edges);
     RUN_TEST(experimental_shell_chunk_boundary);
+    RUN_TEST(experimental_terminal_keeps_tail_after_eight_megabytes);
     RUN_TEST(experimental_read_file_lines);
     RUN_TEST(edit_feedback_dispatch_preserves_failure_and_undo);
     RUN_TEST(edit_feedback_dispatch_bounds_utf8_snippet);

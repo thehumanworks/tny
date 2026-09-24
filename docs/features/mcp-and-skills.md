@@ -51,8 +51,9 @@ the path of the full result under the session's `results/` directory, and a
 `--ssh`; the printed path is local to the tny session, not the SSH host.
 `TNY_EXP_SPILL_HEAD_PCT` sets the head share (default 25; 0–100), and
 `TNY_EXP_SPILL_LINE_BYTES` caps source bytes shown per line (default 1024).
-A capped line carries an omitted-byte count; the head keeps its start and the
-tail keeps its end, including when the final output line is very long. NUL
+A capped line carries an omitted-byte count and keeps both its start and end,
+including when later output lines follow it. The header counts toward the
+inline budget. NUL
 bytes in the preview are escaped as `\\0`. `TNY_EXP_SPILL_BYTES=16384` selects a
 16 KiB preview arm.
 The file name is a content digest, so repeated output has the same path within
@@ -60,16 +61,17 @@ one session and carries no raw output text. `read_tool_result` accepts its
 digest as a handle. Ephemeral sessions keep the result in memory and show a
 handle instead of a path and deduplicate repeated results. A failed spill
 falls back to the ordinary bounded preview. In the `all` profile, terminal
-capture rises from 512 KiB to 8 MiB while this flag is set; larger output is
-marked truncated. Skill bodies and sub-agent reports keep their existing 32
+output streams to a temporary file under this flag so the real tail is retained
+past 8 MiB. Skill bodies and sub-agent reports keep their existing 32
 KiB whole-text bound, preserving instructions and report middles.
 
 `read_file` has its own `TNY_EXP_READ_BYTES` budget (default 16384) under the
 same flag. It shows complete lines from the requested starting line, with a
 header naming the next `offset`; `limit` still caps the number of lines. A
 single line larger than the budget returns a UTF-8-safe byte slice. Its header
-gives a negative `offset` for the next byte position, for example
-`offset=-16384`; positive offsets still select one-based lines. The same
+gives a nonnegative `byte_offset` for the next byte position, for example
+`byte_offset=16384`; `offset` continues to select one-based lines, and negative
+line offsets still start at the first line. The same
 preview and continuation apply to `--ssh` reads up to the remote 8 MiB file
 limit. Headers say `end of file` after the last slice.
 Set `TNY_EXP_READ_LINENO=10` to mark every tenth line with `N|`. With the flag

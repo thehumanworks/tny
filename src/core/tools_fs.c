@@ -480,17 +480,17 @@ static size_t read_byte_cut(const char *data, size_t pos, size_t len, size_t bud
 }
 
 char *tool_read_file_exp_preview(tools_env *env, const char *path, const char *data, size_t len,
-                                 int64_t offset, int64_t limit) {
+                                 int64_t offset, int64_t limit, int64_t byte_offset) {
     const tny_ctx *ctx = env->ctx;
     size_t budget = ctx->exp_read_bytes < 64 ? 64 : ctx->exp_read_bytes;
     size_t lines = 0;
     for (size_t i = 0; i < len; i++)
         if (data[i] == '\n') lines++;
     if (len && data[len - 1] != '\n') lines++;
-    if (!offset && !limit && len <= budget && !ctx->exp_read_lineno) return xstrndup(data, len);
-    if (offset < 0) {
-        uint64_t absolute = (uint64_t)(-(offset + 1)) + 1;
-        size_t pos = absolute > len ? len : (size_t)absolute;
+    if (byte_offset < 0 && offset <= 0 && limit <= 0 && len <= budget && !ctx->exp_read_lineno)
+        return xstrndup(data, len);
+    if (byte_offset >= 0) {
+        size_t pos = (uint64_t)byte_offset > len ? len : (size_t)byte_offset;
         while (pos < len && ((unsigned char)data[pos] & 0xc0u) == 0x80u) pos++;
         if (pos == len) {
             buf_t end;
@@ -505,7 +505,7 @@ char *tool_read_file_exp_preview(tools_env *env, const char *path, const char *d
         if (pos + take < len)
             buf_appendf(&result,
                         "[%s: %zu lines, %zu bytes; showing bytes %zu-%zu; continue with "
-                        "offset=-%zu (byte offset)]\n",
+                        "byte_offset=%zu]\n",
                         path, lines, len, pos, pos + take - 1, pos + take);
         else
             buf_appendf(&result,
@@ -558,7 +558,7 @@ char *tool_read_file_exp_preview(tools_env *env, const char *path, const char *d
         buf_init(&result);
         buf_appendf(&result,
                     "[%s: %zu lines, %zu bytes; showing line %zu bytes %zu-%zu; continue with "
-                    "offset=-%zu (byte offset)]\n",
+                    "byte_offset=%zu]\n",
                     path, lines, len, line, pos, pos + take - 1, pos + take);
         if (take) buf_append(&result, data + pos, take);
         buf_free(&body);
@@ -605,9 +605,12 @@ static char *t_read_file(tools_env *env, yyjson_val *args) {
     }
     int64_t off = jget_int(args, "offset", 0);
     int64_t lim = jget_int(args, "limit", 0);
+    int64_t byte_off = jget_int(args, "byte_offset", -1);
     char *res;
     if (env->ctx->exp_spill) {
-        res = tool_read_file_exp_preview(env, abs, data, len, off, lim);
+        if (jget(args, "byte_offset") && byte_off < 0)
+            res = tool_err("byte_offset must be nonnegative");
+        else res = tool_read_file_exp_preview(env, abs, data, len, off, lim, byte_off);
         if (res) tools_learning_read_result(env, TNY_LEARN_READ, abs, len > 0);
     } else if (off > 0 || lim > 0) {
         buf_t out;

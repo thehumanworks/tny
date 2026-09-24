@@ -258,7 +258,11 @@ static char *r_read_file(tools_env *env, yyjson_val *args) {
     int64_t off = jget_int(args, "offset", 0);
     int64_t lim = jget_int(args, "limit", 0);
     if (env->ctx->exp_spill) {
-        char *res = tool_read_file_exp_preview(env, path, data.data, data.len, off, lim);
+        int64_t byte_off = jget_int(args, "byte_offset", -1);
+        char *res =
+            jget(args, "byte_offset") && byte_off < 0
+                ? tool_err("byte_offset must be nonnegative")
+                : tool_read_file_exp_preview(env, path, data.data, data.len, off, lim, byte_off);
         buf_free(&data);
         free(path);
         return res;

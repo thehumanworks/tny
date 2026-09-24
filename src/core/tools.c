@@ -76,19 +76,32 @@ static size_t preview_tail_cut(const char *data, size_t start, size_t end, size_
     return cut;
 }
 
-static size_t preview_line_size(const char *data, size_t start, size_t end, size_t cap,
-                                bool from_tail) {
+static void preview_line_cuts(const char *data, size_t start, size_t end, size_t cap,
+                              size_t *head_end, size_t *tail_start) {
+    if (end - start <= cap) {
+        *head_end = end;
+        *tail_start = end;
+        return;
+    }
+    *head_end = preview_head_cut(data, start, end, cap / 2);
+    *tail_start = preview_tail_cut(data, start, end, cap - cap / 2);
+    if (*tail_start < *head_end) *tail_start = *head_end;
+}
+
+static size_t preview_line_size(const char *data, size_t start, size_t end, size_t cap) {
     bool newline = data[end - 1] == '\n';
     size_t content_end = newline ? end - 1 : end;
-    size_t from = from_tail ? preview_tail_cut(data, start, content_end, cap) : start;
-    size_t to = from_tail ? content_end : preview_head_cut(data, start, content_end, cap);
-    size_t shown = to - from;
-    size_t omitted = content_end - start - shown;
+    size_t head_end, tail_start;
+    preview_line_cuts(data, start, content_end, cap, &head_end, &tail_start);
+    size_t omitted = tail_start - head_end;
     int marker = omitted ? snprintf(NULL, 0, "[... %zu bytes omitted]", omitted) : 0;
     size_t escaped = 0;
-    for (size_t i = from; i < to; ++i)
+    for (size_t i = start; i < head_end; ++i)
         if (data[i] == '\0') escaped++;
-    return shown + escaped + (size_t)marker + (newline ? 1u : 0u);
+    for (size_t i = tail_start; i < content_end; ++i)
+        if (data[i] == '\0') escaped++;
+    return head_end - start + content_end - tail_start + escaped + (size_t)marker +
+           (newline ? 1u : 0u);
 }
 
 static void preview_append_bytes(buf_t *out, const char *data, size_t from, size_t to) {
@@ -107,16 +120,15 @@ static size_t preview_side_cap(size_t cap, size_t budget) {
     return cap < room ? cap : room;
 }
 
-static void preview_append_line(buf_t *out, const char *data, size_t start, size_t end, size_t cap,
-                                bool from_tail) {
+static void preview_append_line(buf_t *out, const char *data, size_t start, size_t end,
+                                size_t cap) {
     bool newline = data[end - 1] == '\n';
     size_t content_end = newline ? end - 1 : end;
-    size_t from = from_tail ? preview_tail_cut(data, start, content_end, cap) : start;
-    size_t to = from_tail ? content_end : preview_head_cut(data, start, content_end, cap);
-    size_t omitted = content_end - start - (to - from);
-    if (from_tail && omitted) buf_appendf(out, "[... %zu bytes omitted]", omitted);
-    if (to > from) preview_append_bytes(out, data, from, to);
-    if (!from_tail && omitted) buf_appendf(out, "[... %zu bytes omitted]", omitted);
+    size_t head_end, tail_start;
+    preview_line_cuts(data, start, content_end, cap, &head_end, &tail_start);
+    if (head_end > start) preview_append_bytes(out, data, start, head_end);
+    if (tail_start > head_end) buf_appendf(out, "[... %zu bytes omitted]", tail_start - head_end);
+    if (content_end > tail_start) preview_append_bytes(out, data, tail_start, content_end);
     if (newline) buf_appends(out, "\n");
 }
 
@@ -126,7 +138,11 @@ static char *tool_bound_result_mode(tools_env *env, const char *data, size_t len
     if (command_like && env->ctx->exp_spill) {
         size_t budget = env->ctx->exp_spill_bytes;
         if (budget < 64) budget = 64;
-        if (len <= budget) {
+        size_t escaped_len = len;
+        if (escaped_len <= budget)
+            for (size_t i = 0; i < len; i++)
+                if (data[i] == '\0' && ++escaped_len > budget) break;
+        if (escaped_len <= budget) {
             buf_t plain;
             buf_init(&plain);
             preview_append_bytes(&plain, data, 0, len);
@@ -145,40 +161,47 @@ static char *tool_bound_result_mode(tools_env *env, const char *data, size_t len
             size_t cap = env->ctx->exp_spill_line_bytes;
             unsigned head_pct = env->ctx->exp_spill_head_pct;
             if (head_pct > 100) head_pct = 25;
-            size_t head_budget = budget * head_pct / 100;
+            /* Reserve the largest possible header and separator before selecting
+             * lines, so the complete inline result stays within the budget. */
+            int digits = snprintf(NULL, 0, "%zu", lines);
+            int range_digits = digits > 4 ? digits : 4;
+            size_t header_reserve = (size_t)snprintf(
+                NULL, 0,
+                "[output: %zu bytes, %zu lines; showing lines %*s-%*s and %*s-%*s; "
+                "full output: %s/results/%s.txt; handle %s (read_tool_result)]\n",
+                len, lines, range_digits, "", range_digits, "", range_digits, "", range_digits, "",
+                env->ctx->no_save ? "" : env->session->dir, handle, handle);
+            /* The ephemeral header omits the path and one copy of the handle. */
+            if (env->ctx->no_save)
+                header_reserve = (size_t)snprintf(
+                    NULL, 0,
+                    "[output: %zu bytes, %zu lines; showing lines %*s-%*s and %*s-%*s; "
+                    "handle %s (read_tool_result)]\n",
+                    len, lines, range_digits, "", range_digits, "", range_digits, "", range_digits,
+                    "", handle);
+            size_t available = budget > header_reserve + 5 ? budget - header_reserve - 5 : 0;
+            size_t head_budget = available * head_pct / 100;
             size_t head_cap = preview_side_cap(cap, head_budget);
-            size_t tail_cap = preview_side_cap(cap, budget - head_budget);
+            size_t tail_cap = preview_side_cap(cap, available - head_budget);
             size_t head = 0, head_lines = 0, used = 0;
-            size_t last_head_start = 0;
-            bool last_head_clipped = false;
             while (head < len) {
-                size_t start = head;
                 const char *break_at = memchr(data + head, '\n', len - head);
                 size_t end = break_at ? (size_t)(break_at + 1 - data) : len;
-                size_t cost = preview_line_size(data, head, end, head_cap, false);
+                size_t cost = preview_line_size(data, head, end, head_cap);
                 if (cost > head_budget - used) break;
                 head = end;
                 head_lines++;
                 used += cost;
-                last_head_start = start;
-                last_head_clipped = end - start > head_cap + (data[end - 1] == '\n');
             }
             size_t tail = len, tail_lines = 0, tail_used = 0;
             while (head_pct < 100 && tail > head) {
                 size_t start = tail - 1;
                 while (start > head && data[start - 1] != '\n') start--;
-                size_t cost = preview_line_size(data, start, tail, tail_cap, true);
-                if (cost > budget - used - tail_used) break;
+                size_t cost = preview_line_size(data, start, tail, tail_cap);
+                if (cost > available - used - tail_used) break;
                 tail = start;
                 tail_lines++;
                 tail_used += cost;
-            }
-            bool same_line_tail = false;
-            if (head_pct < 100 && head == len && last_head_clipped && budget > used &&
-                preview_line_size(data, last_head_start, len, tail_cap, true) <= budget - used) {
-                same_line_tail = true;
-                tail = last_head_start;
-                tail_lines = 1;
             }
             buf_t b;
             buf_init(&b);
@@ -188,32 +211,40 @@ static char *tool_bound_result_mode(tools_env *env, const char *data, size_t len
             if (tail_lines)
                 snprintf(tail_range, sizeof tail_range, "%zu-%zu", lines - tail_lines + 1, lines);
             else snprintf(tail_range, sizeof tail_range, "none");
+            const char *shown = head_lines && tail_lines ? " and " : "";
             if (env->ctx->no_save)
                 buf_appendf(&b,
-                            "[output: %zu bytes, %zu lines; showing lines %s and %s; "
+                            "[output: %zu bytes, %zu lines; showing lines %s%s%s; "
                             "handle %s (read_tool_result)]\n",
-                            len, lines, head_range, tail_range, handle);
+                            len, lines,
+                            head_lines   ? head_range
+                            : tail_lines ? ""
+                                         : "none",
+                            shown, tail_lines ? tail_range : "", handle);
             else
                 buf_appendf(&b,
-                            "[output: %zu bytes, %zu lines; showing lines %s and %s; "
+                            "[output: %zu bytes, %zu lines; showing lines %s%s%s; "
                             "full output: %s/results/%s.txt; handle %s (read_tool_result)]\n",
-                            len, lines, head_range, tail_range, env->session->dir, handle, handle);
+                            len, lines,
+                            head_lines   ? head_range
+                            : tail_lines ? ""
+                                         : "none",
+                            shown, tail_lines ? tail_range : "", env->session->dir, handle, handle);
             for (size_t pos = 0; pos < head;) {
                 const char *break_at = memchr(data + pos, '\n', head - pos);
                 size_t end = break_at ? (size_t)(break_at + 1 - data) : head;
-                preview_append_line(&b, data, pos, end, head_cap, false);
+                preview_append_line(&b, data, pos, end, head_cap);
                 pos = end;
             }
             if (tail < len) {
-                if (head && (tail > head || same_line_tail)) buf_appends(&b, "\n...\n");
+                if (head && tail > head) buf_appends(&b, "\n...\n");
                 for (size_t pos = tail; pos < len;) {
                     const char *break_at = memchr(data + pos, '\n', len - pos);
                     size_t end = break_at ? (size_t)(break_at + 1 - data) : len;
-                    preview_append_line(&b, data, pos, end, tail_cap, true);
+                    preview_append_line(&b, data, pos, end, tail_cap);
                     pos = end;
                 }
             }
-            if (!head && tail == len) buf_appends(&b, "[no capped line fits inline]\n");
             free(handle);
             if (buf_oom(&b)) {
                 buf_free(&b);
@@ -745,8 +776,8 @@ static char *append_custom_schema(char *base, custom_tool_registry *registry) {
 
 char *tools_schema_json(tools_env *env) {
     if (env && env->ctx &&
-        (env->ctx->prompt_optimisation || env->ctx->mcp_disabled || env->ctx->library_mode ||
-         (env->ctx->workspace_read_only && getenv("TNY_SWARM_NAME")) ||
+        (env->ctx->exp_spill || env->ctx->prompt_optimisation || env->ctx->mcp_disabled ||
+         env->ctx->library_mode || (env->ctx->workspace_read_only && getenv("TNY_SWARM_NAME")) ||
          env->ctx->tool_profile != TNY_TOOLS_ALL ||
          (!tool_web_search_configured(env->ctx) || tool_web_search_native(env->ctx)) ||
          !tny_speech_available(env->ctx, NULL, true, NULL, 0) || env->ctx->ssh_host ||
@@ -762,7 +793,17 @@ char *tools_schema_json(tools_env *env) {
             yyjson_arr_foreach(root, idx, max, item) {
                 const char *name = jget_str(jget(item, "function"), "name");
                 if (schema_tool_hidden(env, name)) continue;
-                yyjson_mut_arr_add_val(out, yyjson_val_mut_copy(mut, item));
+                yyjson_mut_val *copy = yyjson_val_mut_copy(mut, item);
+                if (env->ctx->exp_spill && name && strcmp(name, "read_file") == 0) {
+                    yyjson_mut_val *fn = yyjson_mut_obj_get(copy, "function");
+                    yyjson_mut_val *parameters = yyjson_mut_obj_get(fn, "parameters");
+                    yyjson_mut_val *properties = yyjson_mut_obj_get(parameters, "properties");
+                    yyjson_mut_val *byte_offset = yyjson_mut_obj(mut);
+                    yyjson_mut_obj_add_str(mut, byte_offset, "type", "integer");
+                    yyjson_mut_obj_add_int(mut, byte_offset, "minimum", 0);
+                    yyjson_mut_obj_add_val(mut, properties, "byte_offset", byte_offset);
+                }
+                yyjson_mut_arr_add_val(out, copy);
             }
             yyjson_mut_doc_set_root(mut, out);
             char *json = jwrite(mut);

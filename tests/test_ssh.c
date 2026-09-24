@@ -592,9 +592,9 @@ TEST experimental_spill_remote_read_and_local_handle(void) {
     char *r = tools_execute(&env, "read_file", "{\"path\":\"min.js\"}");
     ASSERT(r);
     ASSERT(strstr(r, "showing line 1 bytes 0-63"));
-    ASSERT(strstr(r, "continue with offset=-64"));
+    ASSERT(strstr(r, "continue with byte_offset=64"));
     free(r);
-    r = tools_execute(&env, "read_file", "{\"path\":\"min.js\",\"offset\":-64}");
+    r = tools_execute(&env, "read_file", "{\"path\":\"min.js\",\"byte_offset\":64}");
     ASSERT(r && strstr(r, "showing bytes 64-127"));
     free(r);
 

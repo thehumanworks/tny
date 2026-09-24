@@ -14,7 +14,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MOCK = ROOT / "tests/integration/mock_openai.py"
-SCENARIOS = ("log", "failure", "read_file", "straddle", "progress", "minified")
+SCENARIOS = (
+    "log",
+    "failure",
+    "read_file",
+    "straddle",
+    "progress",
+    "minified",
+    "long_nonfinal",
+    "huge_tail",
+)
 RANDOM_HANDLE = re.compile(rb'Full output stored as handle \\"[0-9a-f]{16}\\"')
 
 
@@ -60,6 +69,14 @@ def measure(binary, scenario, enabled, root):
     elif scenario == "minified":
         (ws / "fixture.txt").write_text("x" * 40000)
         tool, arguments = "read_file", {"path": "fixture.txt"}
+    elif scenario == "long_nonfinal":
+        (ws / "fixture.txt").write_text(
+            "x" * 20000 + "END_OF_LONG_LINE\nnpm ERR! see log\n"
+        )
+        tool, arguments = "terminal", {"command": "cat fixture.txt"}
+    elif scenario == "huge_tail":
+        (ws / "fixture.txt").write_text("log entry\n" * 850000 + "REAL_END_MARKER\n")
+        tool, arguments = "terminal", {"command": "cat fixture.txt"}
     else:
         (ws / "fixture.txt").write_text(
             "".join(f"source {i:05d}: a line of content\n" for i in range(12000))
@@ -155,7 +172,9 @@ def off_artifacts(root):
 def verify_outputs(root):
     for scenario, fragment in (
         ("progress", "ERROR: build failed at step 42"),
-        ("minified", "continue with offset=-16384"),
+        ("minified", "continue with byte_offset=16384"),
+        ("long_nonfinal", "END_OF_LONG_LINE"),
+        ("huge_tail", "REAL_END_MARKER"),
     ):
         request = json.loads((root / f"{scenario}-on/requests/0001.json").read_text())
         outputs = [

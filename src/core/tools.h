@@ -217,7 +217,7 @@ char *tool_resolve_path(tools_env *env, const char *path, char **err_out);
 char *tool_bound_result(tools_env *env, const char *data, size_t len);
 char *tool_bound_result_prose(tools_env *env, const char *data, size_t len);
 char *tool_read_file_exp_preview(tools_env *env, const char *path, const char *data, size_t len,
-                                 int64_t offset, int64_t limit);
+                                 int64_t offset, int64_t limit, int64_t byte_offset);
 /* Inject the queued images as one user message, in queue order, exactly once.
  * 0 ok, -1 on error. The whole batch is checked before anything is mutated:
  * on a policy refusal every entry, byte and the count are preserved, and the

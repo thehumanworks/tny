@@ -434,18 +434,25 @@ bool sha256(const uint8_t *in, size_t n, uint8_t out[32]) {
         0xc67178f2};
     uint32_t h[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
                      0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+    if (n > SIZE_MAX - 72) return false;
     uint64_t ml = (uint64_t)n * 8;
     size_t total = ((n + 8) / 64 + 1) * 64;
-    uint8_t *msg = calloc(1, total);
+    /* Keep one allocation (and its failure contract) while hashing large
+     * result files one block at a time instead of copying the full input. */
+    uint8_t *msg = calloc(1, 64);
     if (!msg) return false;
-    memcpy(msg, in, n);
-    msg[n] = 0x80;
-    for (int i = 0; i < 8; i++) msg[total - 1 - i] = (uint8_t)(ml >> (8 * i));
     for (size_t off = 0; off < total; off += 64) {
+        memset(msg, 0, 64);
+        size_t copied = off < n ? n - off : 0;
+        if (copied > 64) copied = 64;
+        if (copied) memcpy(msg, in + off, copied);
+        if (off <= n && n < off + 64) msg[n - off] = 0x80;
+        if (off + 64 == total)
+            for (int i = 0; i < 8; i++) msg[63 - i] = (uint8_t)(ml >> (8 * i));
         uint32_t w[64];
         for (int i = 0; i < 16; i++)
-            w[i] = ((uint32_t)msg[off + 4 * i] << 24) | ((uint32_t)msg[off + 4 * i + 1] << 16) |
-                   ((uint32_t)msg[off + 4 * i + 2] << 8) | msg[off + 4 * i + 3];
+            w[i] = ((uint32_t)msg[4 * i] << 24) | ((uint32_t)msg[4 * i + 1] << 16) |
+                   ((uint32_t)msg[4 * i + 2] << 8) | msg[4 * i + 3];
         for (int i = 16; i < 64; i++) {
             uint32_t s0 = ror(w[i - 15], 7) ^ ror(w[i - 15], 18) ^ (w[i - 15] >> 3);
             uint32_t s1 = ror(w[i - 2], 17) ^ ror(w[i - 2], 19) ^ (w[i - 2] >> 10);

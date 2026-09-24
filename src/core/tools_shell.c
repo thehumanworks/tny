@@ -18,6 +18,7 @@
 #include <signal.h>
 #include <poll.h>
 #include <sys/wait.h>
+#include <sys/mman.h>
 #include <fcntl.h>
 
 #ifndef TNY_SHELL_PATH
@@ -302,10 +303,12 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     buf_t out;
     buf_init(&out);
     bool shell_profile = tny_tool_profile_is_shell(env->ctx);
+    bool spill_stream = env->ctx->exp_spill && !shell_profile;
     size_t preview_max = env->ctx->max_tool_result_bytes;
     if (preview_max > SHELL_PROFILE_PREVIEW_MAX) preview_max = SHELL_PROFILE_PREVIEW_MAX;
     int result_fd = -1;
-    char *result_path = shell_profile ? result_file_open(env, &result_fd) : NULL;
+    char *result_path = shell_profile || spill_stream ? result_file_open(env, &result_fd) : NULL;
+    spill_stream = spill_stream && result_fd >= 0;
     size_t output_bytes = 0;
     int64_t deadline = now_ms() + timeout_s * 1000;
     bool truncated = false, timed_out = false, output_limited = false, cancelled = false;
@@ -340,9 +343,9 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
         if (n == 0) break;
         if (n < 0) break;
         size_t got = (size_t)n;
-        if (shell_profile) {
+        if (shell_profile || spill_stream) {
             size_t keep = got;
-            if (keep > SHELL_PROFILE_OUTPUT_MAX - output_bytes) {
+            if (shell_profile && keep > SHELL_PROFILE_OUTPUT_MAX - output_bytes) {
                 keep = SHELL_PROFILE_OUTPUT_MAX - output_bytes;
                 output_limited = true;
             }
@@ -352,6 +355,10 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
                 unlink(result_path);
                 free(result_path);
                 result_path = NULL;
+                if (spill_stream) {
+                    output_oom = true;
+                    break;
+                }
             }
             size_t preview = keep;
             if (preview > preview_max - out.len) preview = preview_max - out.len;
@@ -449,14 +456,36 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     buf_appendf(&res, "exit code: %d\n", code);
     if (out.len) {
         buf_appends(&res, "output:\n");
-        buf_append(&res, out.data, out.len);
-        if (truncated) buf_appends(&res, "\n…(output truncated)");
+        if (spill_stream && output_bytes) {
+            int fd = open(result_path, O_RDONLY | O_CLOEXEC);
+            void *all =
+                fd >= 0 ? mmap(NULL, output_bytes, PROT_READ, MAP_PRIVATE, fd, 0) : MAP_FAILED;
+            if (fd >= 0) close(fd);
+            if (all == MAP_FAILED) {
+                unlink(result_path);
+                free(result_path);
+                free(denied_path);
+                buf_free(&out);
+                buf_free(&res);
+                return NULL;
+            }
+            buf_append(&res, all, output_bytes);
+            munmap(all, output_bytes);
+        } else {
+            buf_append(&res, out.data, out.len);
+            if (truncated) buf_appends(&res, "\n…(output truncated)");
+        }
     } else {
         buf_appends(&res, "(no output)");
     }
     free(denied_path);
+    if (spill_stream && result_path) unlink(result_path);
     free(result_path);
     buf_free(&out);
+    if (buf_oom(&res)) {
+        buf_free(&res);
+        return NULL;
+    }
     char *bounded = tool_bound_result(env, res.data, res.len);
     buf_free(&res);
     return bounded;
