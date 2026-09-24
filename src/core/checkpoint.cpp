@@ -79,6 +79,7 @@ constexpr bool_field bools[] = {
     {"model_from_flag", &tny_ctx::model_from_flag},
     {"json_out", &tny_ctx::json_out},
     {"no_save", &tny_ctx::no_save},
+    {"exp_spill", &tny_ctx::exp_spill},
     {"no_self_improve", &tny_ctx::no_self_improve},
     {"no_color", &tny_ctx::no_color},
     {"force_color", &tny_ctx::force_color},
@@ -216,6 +217,11 @@ yyjson_mut_val *encode(yyjson_mut_doc *d, const tny_ctx *c, bool public_only) {
     check(yyjson_mut_obj_add_int(d, r, "tool_profile", c->tool_profile));
     check(yyjson_mut_obj_add_int(d, r, "image_input", c->image_input));
     check(yyjson_mut_obj_add_uint(d, r, "max_tool_result_bytes", c->max_tool_result_bytes));
+    check(yyjson_mut_obj_add_uint(d, r, "exp_spill_bytes", c->exp_spill_bytes));
+    check(yyjson_mut_obj_add_uint(d, r, "exp_spill_head_pct", c->exp_spill_head_pct));
+    check(yyjson_mut_obj_add_uint(d, r, "exp_spill_line_bytes", c->exp_spill_line_bytes));
+    check(yyjson_mut_obj_add_uint(d, r, "exp_read_bytes", c->exp_read_bytes));
+    check(yyjson_mut_obj_add_uint(d, r, "exp_read_lineno", c->exp_read_lineno));
     check(yyjson_mut_obj_add_uint(d, r, "mcp_import_mask", c->mcp_import_mask));
     encode_array(d, r, "extra_dirs", c->extra_dirs, c->n_extra_dirs);
     encode_array(d, r, "instruction_paths", c->instruction_paths, c->n_instruction_paths);
@@ -303,6 +309,11 @@ context restore(yyjson_val *r) {
     restore_enum(c->image_input, jget(r, "image_input"), TNY_IMAGE_INPUT_UNKNOWN,
                  TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED);
     restore_number(c->max_tool_result_bytes, jget(r, "max_tool_result_bytes"), size_t{32768});
+    restore_number(c->exp_spill_bytes, jget(r, "exp_spill_bytes"), size_t{8192});
+    restore_number(c->exp_spill_head_pct, jget(r, "exp_spill_head_pct"), 25u);
+    restore_number(c->exp_spill_line_bytes, jget(r, "exp_spill_line_bytes"), size_t{1024});
+    restore_number(c->exp_read_bytes, jget(r, "exp_read_bytes"), size_t{16384});
+    restore_number(c->exp_read_lineno, jget(r, "exp_read_lineno"), 0u);
     restore_number(c->mcp_import_mask, jget(r, "mcp_import_mask"));
     restore_array(c->extra_dirs, c->n_extra_dirs, jget(r, "extra_dirs"));
     restore_array(c->instruction_paths, c->n_instruction_paths, jget(r, "instruction_paths"));
@@ -378,6 +389,11 @@ bool public_key(const char *name) {
         "instructions_digest",
         "swarm_definition_digest",
         "max_tool_result_bytes",
+        "exp_spill_bytes",
+        "exp_spill_head_pct",
+        "exp_spill_line_bytes",
+        "exp_read_bytes",
+        "exp_read_lineno",
         "mcp_import_mask",
         "extra_dirs",
         "instruction_paths",

@@ -6024,7 +6024,210 @@ TEST semantic_search_fanout_matches_serial_scan(void) {
     PASS();
 }
 
+TEST experimental_result_spill_configuration(void) {
+    ensure_env();
+    write_settings("{}");
+    setenv("TNY_EXP_SPILL", "1", 1);
+    setenv("TNY_EXP_SPILL_BYTES", "16384", 1);
+    setenv("TNY_EXP_SPILL_HEAD_PCT", "50", 1);
+    setenv("TNY_EXP_SPILL_LINE_BYTES", "768", 1);
+    setenv("TNY_EXP_READ_BYTES", "8192", 1);
+    setenv("TNY_EXP_READ_LINENO", "10", 1);
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    unsetenv("TNY_EXP_SPILL");
+    unsetenv("TNY_EXP_SPILL_BYTES");
+    unsetenv("TNY_EXP_SPILL_HEAD_PCT");
+    unsetenv("TNY_EXP_SPILL_LINE_BYTES");
+    unsetenv("TNY_EXP_READ_BYTES");
+    unsetenv("TNY_EXP_READ_LINENO");
+    ASSERT(ctx);
+    ASSERT(ctx->exp_spill);
+    ASSERT_EQ(16384, ctx->exp_spill_bytes);
+    ASSERT_EQ(50, ctx->exp_spill_head_pct);
+    ASSERT_EQ(768, ctx->exp_spill_line_bytes);
+    ASSERT_EQ(8192, ctx->exp_read_bytes);
+    ASSERT_EQ(10, ctx->exp_read_lineno);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST experimental_result_spill_boundaries(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->exp_spill = true;
+    ctx->exp_spill_bytes = 64;
+    ctx->max_tool_result_bytes = 32;
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    tools_env env = {.ctx = ctx, .session = s};
+    char *result = tool_bound_result(&env, "", 0);
+    ASSERT_STR_EQ("", result);
+    free(result);
+    char exact[65];
+    memset(exact, 'a', 64);
+    exact[64] = 0;
+    result = tool_bound_result(&env, exact, 64);
+    ASSERT_STR_EQ(exact, result);
+    free(result);
+    const char *large = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n"
+                        "eleven\ntwelve\nthirteen\nfourteen\nfifteen\nsixteen\n";
+    result = tool_bound_result(&env, large, strlen(large));
+    ASSERT(result);
+    ASSERT(strstr(result, "showing lines 1-"));
+    ASSERT(strstr(result, "sixteen\n"));
+    const char *full = strstr(result, "full output: ");
+    ASSERT(full);
+    full += strlen("full output: ");
+    const char *close = strchr(full, ']');
+    ASSERT(close);
+    char *full_path = xstrndup(full, (size_t)(close - full));
+    ASSERT(full_path);
+    char *saved = file_slurp(full_path, NULL);
+    ASSERT(saved);
+    ASSERT_STR_EQ(large, saved);
+    free(saved);
+    const char *filename = strrchr(full_path, '/');
+    ASSERT(filename && strlen(filename) == 69); /* slash, digest, .txt */
+    char handle[65];
+    memcpy(handle, filename + 1, 64);
+    handle[64] = 0;
+    size_t got = 0;
+    saved = session_read_result(s, handle, 0, strlen(large), &got);
+    ASSERT(saved);
+    ASSERT_EQ(strlen(large), got);
+    ASSERT_STR_EQ(large, saved);
+    free(saved);
+    free(full_path);
+    char *same = tool_bound_result(&env, large, strlen(large));
+    ASSERT_STR_EQ(result, same);
+    free(same);
+    free(result);
+    const char *utf8 = "\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n"
+                       "\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n"
+                       "\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n"
+                       "\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n"
+                       "\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n\xc3\xa9\n";
+    result = tool_bound_result(&env, utf8, strlen(utf8));
+    ASSERT(result);
+    ASSERT(utf8_valid_bytes(result, strlen(result)));
+    free(result);
+    char blank_lines[66];
+    memset(blank_lines, '\n', 65);
+    blank_lines[65] = 0;
+    result = tool_bound_result(&env, blank_lines, 65);
+    ASSERT(result);
+    ASSERT(strstr(result, "showing lines 1-16 and 18-65"));
+    free(result);
+    char huge[257];
+    memset(huge, 'x', 256);
+    huge[256] = 0;
+    ctx->exp_spill_bytes = 128;
+    ctx->exp_spill_head_pct = 50;
+    ctx->exp_spill_line_bytes = 16;
+    result = tool_bound_result(&env, huge, 256);
+    ASSERT(result);
+    ASSERT(strstr(result, "showing lines 1-1 and 1-1"));
+    ASSERT(strstr(result, "[... 240 bytes omitted]"));
+    free(result);
+    char long_utf8[129];
+    for (size_t i = 0; i < 128; i += 2) {
+        long_utf8[i] = '\xc3';
+        long_utf8[i + 1] = '\xa9';
+    }
+    long_utf8[128] = 0;
+    ctx->exp_spill_bytes = 96;
+    ctx->exp_spill_line_bytes = 17;
+    result = tool_bound_result(&env, long_utf8, 128);
+    ASSERT(result);
+    ASSERT(utf8_valid_bytes(result, strlen(result)));
+    ASSERT(strstr(result, "112 bytes omitted"));
+    free(result);
+    ctx->exp_spill_bytes = 64;
+    ctx->exp_spill_head_pct = 25;
+    ctx->exp_spill_line_bytes = 1024;
+    char *dir = s->dir;
+    s->dir = "/dev/null/no-results";
+    result = tool_bound_result(&env, large, strlen(large));
+    ASSERT(result);
+    ASSERT(strstr(result, "[truncated:"));
+    free(result);
+    s->dir = dir;
+    session_close(s);
+    ctx->no_save = true;
+    s = session_new(ctx);
+    ASSERT(s);
+    env.session = s;
+    result = tool_bound_result(&env, large, strlen(large));
+    ASSERT(result);
+    const char *memory_handle = strstr(result, "full output: handle:");
+    ASSERT(memory_handle);
+    memory_handle += strlen("full output: handle:");
+    char ephemeral_handle[65];
+    memcpy(ephemeral_handle, memory_handle, 64);
+    ephemeral_handle[64] = 0;
+    saved = session_read_result(s, ephemeral_handle, 0, strlen(large), &got);
+    ASSERT(saved);
+    ASSERT_STR_EQ(large, saved);
+    free(saved);
+    free(result);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST experimental_read_file_lines(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->exp_spill = true;
+    ctx->exp_read_bytes = 64;
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char *path = path_join(g_ws, "spill-read.txt");
+    ASSERT(path);
+    const char *body = "line-1\nline-2\nline-3\nline-4\nline-5\nline-6\n"
+                       "line-7\nline-8\nline-9\nline-10\nline-11\nline-12\n";
+    ASSERT_EQ(0, file_write_atomic(path, body, strlen(body)));
+    char *result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\"}");
+    ASSERT(result);
+    ASSERT(strstr(result, "continue with offset=10"));
+    ASSERT_FALSE(strstr(result, "line-10"));
+    free(result);
+    ctx->exp_read_lineno = 10;
+    result =
+        tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\",\"offset\":10,\"limit\":2}");
+    ASSERT(result);
+    ASSERT(strstr(result, "10|line-10"));
+    ASSERT(strstr(result, "offset=12"));
+    free(result);
+    char huge[257];
+    memset(huge, 'z', 256);
+    huge[256] = 0;
+    ASSERT_EQ(0, file_write_atomic(path, huge, 256));
+    tny_session_state *session = session_new(ctx);
+    ASSERT(session);
+    env.session = session;
+    result = tools_execute(&env, "read_file", "{\"path\":\"spill-read.txt\"}");
+    ASSERT(result);
+    ASSERT(strstr(result, "next line exceeds inline budget"));
+    ASSERT(strstr(result, "read_tool_result for byte ranges"));
+    free(result);
+    session_close(session);
+    unlink(path);
+    free(path);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 SUITE(core_suite) {
+    RUN_TEST(experimental_result_spill_configuration);
+    RUN_TEST(experimental_result_spill_boundaries);
+    RUN_TEST(experimental_read_file_lines);
     RUN_TEST(edit_feedback_dispatch_preserves_failure_and_undo);
     RUN_TEST(edit_feedback_dispatch_bounds_utf8_snippet);
     RUN_TEST(grep_files_fanout_matches_serial_scan);

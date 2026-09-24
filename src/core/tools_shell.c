@@ -289,6 +289,7 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     size_t output_bytes = 0;
     int64_t deadline = now_ms() + timeout_s * 1000;
     bool truncated = false, timed_out = false, output_limited = false, cancelled = false;
+    bool output_oom = false;
     for (;;) {
         if (env->control_pump) env->control_pump(env->control_pump_ud, 0);
         if (shell_cancelled(env)) {
@@ -335,11 +336,23 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
             size_t preview = keep;
             if (preview > preview_max - out.len) preview = preview_max - out.len;
             if (preview) buf_append(&out, tmp, preview);
+            if (buf_oom(&out)) {
+                output_oom = true;
+                break;
+            }
             output_bytes += keep;
             if (output_bytes > out.len) truncated = true;
             if (output_limited) break;
-        } else if (out.len < SHELL_MAX_OUT) {
-            buf_append(&out, tmp, got);
+        } else if (out.len < (env->ctx->exp_spill ? SHELL_PROFILE_OUTPUT_MAX : SHELL_MAX_OUT)) {
+            size_t remaining =
+                (env->ctx->exp_spill ? SHELL_PROFILE_OUTPUT_MAX : SHELL_MAX_OUT) - out.len;
+            size_t keep = got < remaining ? got : remaining;
+            buf_append(&out, tmp, keep);
+            if (buf_oom(&out)) {
+                output_oom = true;
+                break;
+            }
+            if (keep < got) truncated = true;
         } else {
             truncated = true;
         }
@@ -350,7 +363,7 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     /* A child that closed its stdout can still be running, so the wait after
      * EOF keeps the deadline and the cancellation signal live instead of
      * blocking in waitpid(2) until the command decides to exit. */
-    while (!cancelled && !timed_out && !output_limited) {
+    while (!cancelled && !timed_out && !output_limited && !output_oom) {
         pid_t done = waitpid(pid, &status, WNOHANG);
         if (done == pid) {
             reaped = true;
@@ -366,9 +379,16 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     }
     /* The unreaped child pins its pid, so the sweep below owns exactly this
      * command and its descendants — never an unrelated process. */
-    if (!reaped && (cancelled || timed_out || output_limited)) tny_process_kill_tree(pid);
+    if (!reaped && (cancelled || timed_out || output_limited || output_oom))
+        tny_process_kill_tree(pid);
     while (!reaped && waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
     if (result_fd >= 0) close(result_fd);
+    if (output_oom) {
+        if (result_path) unlink(result_path);
+        free(result_path);
+        buf_free(&out);
+        return NULL;
+    }
     buf_t res;
     buf_init(&res);
     int code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);

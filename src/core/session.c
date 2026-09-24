@@ -4,6 +4,7 @@
 #include "util/util.h"
 #include "util/process.h"
 #include "util/alloc.h"
+#include "util/image_io.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1114,7 +1115,9 @@ void session_record_tool_audit(tny_session_state *s, const char *tool_call_id,
 
 char *session_store_result(tny_session_state *s, const char *data, size_t len) {
     if (!s || !data) return NULL;
-    char *handle = gen_id();
+    char digest[65];
+    char *handle = s->ctx->exp_spill && tny_image_io_sha256_hex(data, len, digest) ? xstrdup(digest)
+                                                                                   : gen_id();
     if (!handle) return NULL;
     if (s->ctx->no_save) {
         session_mem_result *next =

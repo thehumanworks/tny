@@ -540,6 +540,25 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("Content-Length", "0"))
         req = json.loads(self.rfile.read(n))
+        size_log = os.environ.get("MOCK_REQUEST_SIZE_LOG")
+        if size_log:
+            outputs = [
+                item.get("output", "")
+                for item in req.get("input", [])
+                if isinstance(item, dict) and item.get("type") == "function_call_output"
+            ]
+            with open(size_log, "a", encoding="utf-8") as log:
+                log.write(
+                    json.dumps(
+                        {
+                            "request_bytes": n,
+                            "inline_tool_result_bytes": sum(
+                                len(output.encode("utf-8")) for output in outputs
+                            ),
+                        }
+                    )
+                    + "\n"
+                )
         for name, value in EXPECT_HEADERS:
             got = self.headers.get(name)
             if got != value:

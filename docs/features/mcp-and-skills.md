@@ -44,6 +44,30 @@ Keep tool names stable so task prompts and agent integrations transfer:
 
 Large results: bounded preview + session handle; `read_tool_result` reads a byte range or literal search. Background commands persist pid, cwd, log path, detected URL.
 
+With `TNY_EXP_SPILL=1`, results above `TNY_EXP_SPILL_BYTES` (default 8192)
+show lines from the beginning and end, and a header with byte and line counts
+plus the path of the full result under the session's `results/` directory.
+`TNY_EXP_SPILL_HEAD_PCT` sets the head share (default 25; 0–100), and
+`TNY_EXP_SPILL_LINE_BYTES` caps source bytes shown per line (default 1024).
+A capped line carries an omitted-byte count; the head keeps its start and the
+tail keeps its end. `TNY_EXP_SPILL_BYTES=16384` selects a 16 KiB preview arm.
+The file name is a content digest, so repeated output has the same path within
+one session and carries no raw output text. `read_tool_result` accepts its
+digest as a handle. Ephemeral sessions keep the result in memory and show a
+handle instead of a path. A failed spill falls back to the ordinary bounded
+preview. In the `all` profile, terminal capture rises from 512 KiB to the
+existing 64 MiB shell collection cap while this flag is set.
+
+`read_file` has its own `TNY_EXP_READ_BYTES` budget (default 16384) under the
+same flag. It shows complete lines from the requested starting line, with a
+header naming the next `offset`; `limit` still caps the number of lines. A
+single line larger than the budget is identified without silently skipping it;
+with a session, its full file is available through a `read_tool_result` handle.
+Set `TNY_EXP_READ_LINENO=10` to mark every tenth line with `N|`. With the flag
+unset, result and file-reading behavior is unchanged. Native and wasm share the
+file preview code; wasm retains its existing clean error for `terminal` and
+uses in-memory handles for ephemeral sessions.
+
 ### Exact-edit recovery evidence
 
 Local `edit_file` still requires an exact, unambiguous `old_string` (or explicit

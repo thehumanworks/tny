@@ -12,6 +12,31 @@
 #include <sys/stat.h>
 #include <limits.h>
 
+static size_t exp_budget(const char *name, size_t fallback) {
+    const char *s = getenv(name);
+    if (!s || !*s) return fallback;
+    char *end = NULL;
+    unsigned long value = strtoul(s, &end, 10);
+    return end && !*end && value >= 1 && value <= (1u << 20) ? (size_t)value : fallback;
+}
+
+static void exp_spill_config(tny_ctx *ctx) {
+    const char *flag = getenv("TNY_EXP_SPILL");
+    ctx->exp_spill = flag && strcmp(flag, "1") == 0;
+    ctx->exp_spill_bytes = exp_budget("TNY_EXP_SPILL_BYTES", 8192);
+    ctx->exp_spill_line_bytes = exp_budget("TNY_EXP_SPILL_LINE_BYTES", 1024);
+    ctx->exp_spill_head_pct = 25;
+    const char *head = getenv("TNY_EXP_SPILL_HEAD_PCT");
+    if (head && *head) {
+        char *end = NULL;
+        unsigned long value = strtoul(head, &end, 10);
+        if (end && !*end && value <= 100) ctx->exp_spill_head_pct = (unsigned)value;
+    }
+    ctx->exp_read_bytes = exp_budget("TNY_EXP_READ_BYTES", 16384);
+    const char *s = getenv("TNY_EXP_READ_LINENO");
+    ctx->exp_read_lineno = s && strcmp(s, "10") == 0 ? 10 : 0;
+}
+
 const char *tny_perm_mode_name(tny_perm_mode m) {
     switch (m) {
     case TNY_MODE_AUTO: return "auto";
@@ -662,6 +687,7 @@ static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
     ctx->max_extension_iterations = 0; /* unlimited by default */
     ctx->extension_timeout_ms = 5000;
     ctx->max_tool_result_bytes = 32768;
+    exp_spill_config(ctx);
     ctx->context_enabled = true;
     ctx->task_explicit = false;
     ctx->sandbox_mode = xstrdup("auto");
@@ -828,6 +854,7 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     ctx->max_extension_iterations = 0;
     ctx->extension_timeout_ms = 5000;
     ctx->max_tool_result_bytes = 32768;
+    exp_spill_config(ctx);
     ctx->context_enabled = true;
     ctx->mcp_disabled = true;
     ctx->library_mode = true;

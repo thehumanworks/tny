@@ -473,6 +473,72 @@ static char *t_grep_files(tools_env *env, yyjson_val *args) {
     return res;
 }
 
+static char *read_file_exp_preview(tools_env *env, const char *path, const char *data, size_t len,
+                                   int64_t offset, int64_t limit) {
+    const tny_ctx *ctx = env->ctx;
+    size_t lines = 0;
+    for (size_t i = 0; i < len; i++)
+        if (data[i] == '\n') lines++;
+    if (len && data[len - 1] != '\n') lines++;
+    if (!offset && !limit && len <= ctx->exp_read_bytes && !ctx->exp_read_lineno)
+        return xstrndup(data, len);
+    size_t first = offset > 0 ? (size_t)offset : 1;
+    size_t pos = 0, line = 1;
+    while (pos < len && line < first) {
+        const char *end = memchr(data + pos, '\n', len - pos);
+        if (!end) {
+            pos = len;
+            break;
+        }
+        pos = (size_t)(end + 1 - data);
+        line++;
+    }
+    buf_t body;
+    buf_init(&body);
+    size_t shown = 0;
+    while (pos < len && (limit <= 0 || shown < (size_t)limit)) {
+        const char *end = memchr(data + pos, '\n', len - pos);
+        size_t line_len = end ? (size_t)(end + 1 - (data + pos)) : len - pos;
+        char marker[32];
+        size_t marker_len = 0;
+        if (ctx->exp_read_lineno && line % ctx->exp_read_lineno == 0)
+            marker_len = (size_t)snprintf(marker, sizeof marker, "%zu|", line);
+        if (line_len + marker_len > ctx->exp_read_bytes - body.len) break;
+        if (marker_len) buf_append(&body, marker, marker_len);
+        buf_append(&body, data + pos, line_len);
+        if (buf_oom(&body)) {
+            buf_free(&body);
+            return NULL;
+        }
+        pos += line_len;
+        line++;
+        shown++;
+    }
+    buf_t result;
+    buf_init(&result);
+    buf_appendf(&result,
+                "[%s: %zu lines, %zu bytes; showing lines %zu-%zu; continue with "
+                "offset=%zu]\n",
+                path, lines, len, first, shown ? first + shown - 1 : first - 1, first + shown);
+    if (!shown && pos < len) {
+        char *handle = env->session ? session_store_result(env->session, data, len) : NULL;
+        if (handle) {
+            buf_appendf(&result,
+                        "[next line exceeds inline budget; full file: handle:%s; "
+                        "use read_tool_result for byte ranges]\n",
+                        handle);
+            free(handle);
+        } else buf_appends(&result, "[next line exceeds inline budget]\n");
+    }
+    if (body.len) buf_append(&result, body.data, body.len);
+    buf_free(&body);
+    if (buf_oom(&result)) {
+        buf_free(&result);
+        return NULL;
+    }
+    return buf_detach(&result);
+}
+
 static char *t_read_file(tools_env *env, yyjson_val *args) {
     char *err = NULL;
     char *abs = tool_resolve_path(env, jget_str(args, "path"), &err);
@@ -494,7 +560,10 @@ static char *t_read_file(tools_env *env, yyjson_val *args) {
     int64_t off = jget_int(args, "offset", 0);
     int64_t lim = jget_int(args, "limit", 0);
     char *res;
-    if (off > 0 || lim > 0) {
+    if (env->ctx->exp_spill) {
+        res = read_file_exp_preview(env, abs, data, len, off, lim);
+        if (res) tools_learning_read_result(env, TNY_LEARN_READ, abs, len > 0);
+    } else if (off > 0 || lim > 0) {
         buf_t out;
         buf_init(&out);
         size_t start = 0;

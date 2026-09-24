@@ -166,6 +166,12 @@ typedef struct tny_ctx {
                                    * from --max-steps, /max-steps, or the
                                    * repo's .tny.json "steps" */
     size_t max_tool_result_bytes; /* default 32768 */
+    bool exp_spill;               /* TNY_EXP_SPILL: line-aware tool previews */
+    size_t exp_spill_bytes;       /* inline command output budget */
+    unsigned exp_spill_head_pct;  /* share of inline budget reserved for head */
+    size_t exp_spill_line_bytes;  /* maximum source bytes shown per line */
+    size_t exp_read_bytes;        /* inline file read budget */
+    unsigned exp_read_lineno;     /* optional line marker interval */
     bool context_enabled;         /* AGENTS.md loading */
     char *instructions_snapshot;  /* cached request/event snapshot */
     char **instruction_paths;
