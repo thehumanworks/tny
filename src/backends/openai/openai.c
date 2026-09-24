@@ -588,6 +588,16 @@ static void note_repairs(oa_impl *o, int repairs) {
     emit_text(o, TNY_EV_STATUS, note, strlen(note));
 }
 
+/* TNY_EXP_VERBOSITY=low|medium|high sets Responses text.verbosity for the
+ * harness-efficiency benchmark (docs/benchmarks/harness-efficiency.md).
+ * Unset or any other value keeps the provider default and today's bytes. */
+static const char *exp_text_verbosity(void) {
+    const char *v = getenv("TNY_EXP_VERBOSITY");
+    if (!v) return NULL;
+    if (strcmp(v, "low") == 0 || strcmp(v, "medium") == 0 || strcmp(v, "high") == 0) return v;
+    return NULL;
+}
+
 static const char *model_of(oa_impl *o) {
     return o->ctx->model ? o->ctx->model : OPENAI_DEFAULT_MODEL;
 }
@@ -951,14 +961,23 @@ static char *build_request_rsp(oa_impl *o, oa_request_owner *request) {
     oa_request_take_string(request, OA_BUILD_SCHEMA, NULL);
 
     if (provider_oom()) { return NULL; }
+    const char *verbosity = exp_text_verbosity();
+    bool text_open = false;
     if (o->ctx->output_schema) {
         const char *fmt = oa_request_take_string(
             request, OA_BUILD_FORMAT, tny_openai_responses_text_format(o->ctx->output_schema));
         if (fmt) {
-            buf_appendf(b, ",\"text\":{\"format\":%s}", fmt);
+            buf_appendf(b, ",\"text\":{\"format\":%s", fmt);
+            text_open = true;
             oa_request_take_string(request, OA_BUILD_FORMAT, NULL);
         }
     }
+    if (verbosity) {
+        buf_appends(b, text_open ? "," : ",\"text\":{");
+        buf_appendf(b, "\"verbosity\":\"%s\"", verbosity);
+        text_open = true;
+    }
+    if (text_open) buf_appends(b, "}");
     if (provider_oom()) { return NULL; }
     /* max_tokens_field set means the user wants a completion cap; the
      * Responses wire spells it max_output_tokens whatever the chat quirk */
