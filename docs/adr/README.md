@@ -177,3 +177,4 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0168: Desktop model picker and visual language](0168-desktop-model-picker-and-visual-language.md) — composer provider/model picker with lazy catalogs; flat, shadow-elevated UI with tooltips.
 - [0169: Desktop effort picker, working folder, Markdown replies and proven turn status](0169-desktop-effort-folder-markdown-and-verified-turn-status.md) — Lean 4 proofs of the GUI state machines, replayed by Rust tests.
 - [0170: Codex catalog discovery version](0170-codex-catalog-discovery-version.md) — live model queries avoid Codex CLI minimum-version filtering.
+- [0176: Search explicit paths and preserve subagent display labels](0176-tool-search-and-subagent-labels.md) — file-tool recovery and durable, unambiguous child labels.

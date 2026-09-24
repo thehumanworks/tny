@@ -11,6 +11,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <dirent.h>
+#include <regex.h>
 #include <stdatomic.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -32,7 +33,8 @@ typedef bool (*walk_cb)(const char *abs, const char *rel, void *ud);
 
 /* Return false after allocator exhaustion. The caller must propagate NULL so
  * the public next_event boundary can publish its reserved OOM terminal pair. */
-static bool walk(const char *root, const char *rel, int *budget, walk_cb cb, void *ud) {
+static bool walk(const char *root, const char *rel, int *budget, int *skipped, bool honor_ignores,
+                 walk_cb cb, void *ud) {
     if (*budget <= 0) return true;
     char *dir = rel[0] ? path_join(root, rel) : xstrdup(root);
     if (!dir) return false;
@@ -44,7 +46,18 @@ static bool walk(const char *root, const char *rel, int *budget, walk_cb cb, voi
     bool ok = true;
     struct dirent *e;
     while ((e = readdir(d)) && *budget > 0) {
-        if (e->d_name[0] == '.') continue;
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        if (honor_ignores && e->d_name[0] == '.') {
+            char *hidden = path_join(dir, e->d_name);
+            if (!hidden) {
+                ok = false;
+                break;
+            }
+            struct stat hidden_st;
+            if (lstat(hidden, &hidden_st) == 0 && S_ISDIR(hidden_st.st_mode)) (*skipped)++;
+            free(hidden);
+            continue;
+        }
         char *nrel = rel[0] ? path_join(rel, e->d_name) : xstrdup(e->d_name);
         if (!nrel) {
             ok = false;
@@ -59,7 +72,8 @@ static bool walk(const char *root, const char *rel, int *budget, walk_cb cb, voi
         struct stat st;
         if (lstat(nabs, &st) == 0) {
             if (S_ISDIR(st.st_mode)) {
-                if (!skip_dir(e->d_name) && !walk(root, nrel, budget, cb, ud)) ok = false;
+                if (honor_ignores && skip_dir(e->d_name)) (*skipped)++;
+                else if (!walk(root, nrel, budget, skipped, honor_ignores, cb, ud)) ok = false;
             } else if (S_ISREG(st.st_mode)) {
                 (*budget)--;
                 if (!cb(nabs, nrel, ud)) ok = false;
@@ -139,7 +153,8 @@ TNY_TOOLS_TEST_VISIBLE int tny_tools_test_walk(const char *root) {
     tny_alloc_scope_begin("tools_fs_walk");
     int budget = WALK_MAX_FILES;
     int files = 0;
-    if (!walk(root, "", &budget, walk_test_cb, &files)) return -1;
+    int skipped = 0;
+    if (!walk(root, "", &budget, &skipped, true, walk_test_cb, &files)) return -1;
     return files;
 }
 #undef TNY_TOOLS_TEST_VISIBLE
@@ -260,12 +275,32 @@ struct glob_ud {
     int hits;
 };
 
+/* A double-star followed by slash also matches zero directories; ordinary
+ * star keeps the historical cross-directory match. */
+static bool glob_path_match(const char *pat, const char *rel) {
+    if (!strstr(pat, "**/")) return glob_match(pat, rel);
+    if (strncmp(pat, "**/", 3) == 0) {
+        if (glob_path_match(pat + 3, rel)) return true;
+        for (const char *p = rel; *p; p++)
+            if (*p == '/' && glob_path_match(pat + 3, p + 1)) return true;
+        return false;
+    }
+    if (*pat == '*') {
+        for (const char *p = rel;; p++) {
+            if (glob_path_match(pat + 1, p)) return true;
+            if (!*p) return false;
+        }
+    }
+    if (*pat == '?') return *rel && glob_path_match(pat + 1, rel + 1);
+    return *pat == *rel && (*pat == 0 || glob_path_match(pat + 1, rel + 1));
+}
+
 static bool glob_cb(const char *abs, const char *rel, void *ud) {
     (void)abs;
     struct glob_ud *g = ud;
     if (g->hits >= 1000) return true;
     /* support ** loosely: our glob's '*' already crosses '/' */
-    if (glob_match(g->pattern, rel)) {
+    if (glob_path_match(g->pattern, rel)) {
         buf_appendf(g->out, "%s\n", rel);
         g->hits++;
     }
@@ -279,32 +314,43 @@ static char *t_glob_files(tools_env *env, yyjson_val *args) {
     char *err = NULL;
     char *abs = tool_resolve_path(env, p && *p ? p : ".", &err);
     if (!abs) return err;
-    /* normalize ** to * (our matcher crosses '/') */
-    buf_t np;
-    buf_init(&np);
-    for (const char *q = pat; *q; q++) {
-        if (*q == '*' && q[1] == '*') {
-            buf_appends(&np, "*");
-            q++;
-        } else buf_append(&np, q, 1);
-    }
-    if (buf_oom(&np)) {
-        free(abs);
-        buf_free(&np);
-        return NULL;
-    }
+    /* Absolute patterns and patterns rooted at path match the same files as
+     * workspace-relative patterns. */
+    const char *match_pat = pat;
+    if (pat[0] == '/' && strncmp(pat, abs, strlen(abs)) == 0 && pat[strlen(abs)] == '/')
+        match_pat = pat + strlen(abs) + 1;
+    else if (p && *p && strcmp(p, ".") != 0 && strncmp(pat, p, strlen(p)) == 0 &&
+             pat[strlen(p)] == '/')
+        match_pat = pat + strlen(p) + 1;
     buf_t out;
     buf_init(&out);
-    struct glob_ud g = {np.data, &out, 0};
+    struct glob_ud g = {match_pat, &out, 0};
     int budget = WALK_MAX_FILES;
-    bool walked = walk(abs, "", &budget, glob_cb, &g);
+    int skipped = 0;
+    struct stat st;
+    bool walked;
+    if (stat(abs, &st) != 0) {
+        char *e = tool_err("cannot search %s", abs);
+        free(abs);
+        buf_free(&out);
+        return e;
+    }
+    if (S_ISREG(st.st_mode)) {
+        const char *base = strrchr(abs, '/');
+        if (strcmp(pat, abs) == 0 || (p && strcmp(pat, p) == 0)) g.pattern = base ? base + 1 : abs;
+        walked = glob_cb(abs, base ? base + 1 : abs, &g);
+        budget--;
+    } else if (S_ISDIR(st.st_mode))
+        walked = walk(abs, "", &budget, &skipped, !p || !*p || strcmp(p, ".") == 0, glob_cb, &g);
+    else walked = true;
     free(abs);
-    buf_free(&np);
     if (!walked || buf_oom(&out) || tny_alloc_scope_failed()) {
         buf_free(&out);
         return NULL;
     }
-    if (!out.len) buf_appends(&out, "(no matches)");
+    if (!out.len)
+        buf_appendf(&out, "(no matches; files scanned: %d; directories skipped: %d)",
+                    WALK_MAX_FILES - budget, skipped);
     if (buf_oom(&out)) {
         buf_free(&out);
         return NULL;
@@ -324,6 +370,7 @@ struct grep_job {
     const walk_entry *files;
     const char *pat;
     bool ci;
+    const regex_t *regex;
     struct grep_hits *slots;
     /* Hits from every finished scan. Indices are claimed in increasing order,
      * so once this reaches the cap every unclaimed file sits behind enough
@@ -352,11 +399,11 @@ static bool line_contains(const char *line, size_t len, const char *pat, bool ci
 /* Allocator exhaustion is not reported here: the caller reads the scope
  * oracle and the slot's sticky oom flag once every scan has joined. */
 static void grep_scan(const char *abs, const char *rel, const char *pat, bool ci,
-                      struct grep_hits *g) {
+                      const regex_t *regex, bool explicit_file, struct grep_hits *g) {
     size_t len = 0;
     char *data = file_slurp(abs, &len);
     if (!data) return;
-    if (len > GREP_MAX_FILE || memchr(data, 0, len < 4096 ? len : 4096)) {
+    if ((!explicit_file && len > GREP_MAX_FILE) || memchr(data, 0, len < 4096 ? len : 4096)) {
         free(data);
         return; /* binary or huge */
     }
@@ -365,7 +412,12 @@ static void grep_scan(const char *abs, const char *rel, const char *pat, bool ci
     for (size_t i = 0; i <= len && g->hits < GREP_MAX_HITS; i++) {
         if (i == len || data[i] == '\n') {
             size_t ll = i - start;
-            if (line_contains(data + start, ll, pat, ci)) {
+            char end = data[i];
+            data[i] = 0;
+            bool matched = regex ? regexec(regex, data + start, 0, NULL, 0) == 0
+                                 : line_contains(data + start, ll, pat, ci);
+            data[i] = end;
+            if (matched) {
                 if (ll > 300) ll = 300;
                 buf_appendf(&g->out, "%s:%d:", rel, lineno);
                 buf_append(&g->out, data + start, ll);
@@ -382,7 +434,7 @@ static void grep_scan(const char *abs, const char *rel, const char *pat, bool ci
 static void grep_item(size_t i, void *ud) {
     struct grep_job *j = ud;
     if (atomic_load_explicit(&j->found, memory_order_relaxed) >= GREP_MAX_HITS) return;
-    grep_scan(j->files[i].abs, j->files[i].rel, j->pat, j->ci, &j->slots[i]);
+    grep_scan(j->files[i].abs, j->files[i].rel, j->pat, j->ci, j->regex, false, &j->slots[i]);
     atomic_fetch_add_explicit(&j->found, j->slots[i].hits, memory_order_relaxed);
 }
 
@@ -405,10 +457,11 @@ static void grep_fold(buf_t *out, const struct grep_hits *g, int *total) {
 
 /* Walk first, then scan the files in bounded rounds. Output order and the
  * GREP_MAX_HITS cap match a serial scan exactly; only the reads overlap. */
-static bool grep_tree(const char *root, const char *pat, bool ci, buf_t *out) {
+static bool grep_tree(const char *root, const char *pat, bool ci, const regex_t *regex,
+                      bool honor_ignores, buf_t *out, int *scanned, int *skipped) {
     walk_list files = {0};
     int budget = WALK_MAX_FILES;
-    if (!walk(root, "", &budget, collect_cb, &files)) {
+    if (!walk(root, "", &budget, skipped, honor_ignores, collect_cb, &files)) {
         walk_list_free(&files);
         return false;
     }
@@ -422,7 +475,8 @@ static bool grep_tree(const char *root, const char *pat, bool ci, buf_t *out) {
             break;
         }
         for (size_t i = 0; i < n; i++) buf_init(&slots[i].out);
-        struct grep_job job = {.files = files.items + done, .pat = pat, .ci = ci, .slots = slots};
+        struct grep_job job = {
+            .files = files.items + done, .pat = pat, .ci = ci, .regex = regex, .slots = slots};
         atomic_init(&job.found, 0);
         tny_parallel_for(n, grep_item, &job);
         for (size_t i = 0; i < n; i++) {
@@ -433,6 +487,7 @@ static bool grep_tree(const char *root, const char *pat, bool ci, buf_t *out) {
         free(slots);
         if (tny_alloc_scope_failed()) ok = false;
     }
+    *scanned = WALK_MAX_FILES - budget;
     walk_list_free(&files);
     return ok;
 }
@@ -445,25 +500,50 @@ static char *t_grep_files(tools_env *env, yyjson_val *args) {
     char *abs = tool_resolve_path(env, p && *p ? p : ".", &err);
     if (!abs) return err;
     bool ci = jget_bool(args, "case_insensitive", false);
+    bool use_regex = strpbrk(pat, "|()[]+?^${}") != NULL || strstr(pat, ".*") != NULL;
+    regex_t regex;
+    if (use_regex && regcomp(&regex, pat, REG_EXTENDED | REG_NOSUB | (ci ? REG_ICASE : 0)) != 0)
+        use_regex = false; /* punctuation in code can also be a literal search */
     buf_t out;
     buf_init(&out);
     bool ok;
+    int scanned = 0, skipped = 0;
     struct stat st;
-    if (stat(abs, &st) == 0 && S_ISREG(st.st_mode)) {
+    if (stat(abs, &st) != 0) {
+        if (use_regex) regfree(&regex);
+        char *e = tool_err("cannot search %s", abs);
+        free(abs);
+        buf_free(&out);
+        return e;
+    }
+    if (S_ISREG(st.st_mode)) {
         struct grep_hits one = {.hits = 0};
         buf_init(&one.out);
-        grep_scan(abs, p, pat, ci, &one);
+        grep_scan(abs, p && *p ? p : ".", pat, ci, use_regex ? &regex : NULL, true, &one);
+        scanned = 1;
         ok = !one.out.oom;
         int total = 0;
         if (ok) grep_fold(&out, &one, &total);
         buf_free(&one.out);
-    } else ok = grep_tree(abs, pat, ci, &out);
+    } else if (S_ISDIR(st.st_mode))
+        ok = grep_tree(abs, pat, ci, use_regex ? &regex : NULL, !p || !*p || strcmp(p, ".") == 0,
+                       &out, &scanned, &skipped);
+    else {
+        if (use_regex) regfree(&regex);
+        char *e = tool_err("cannot search %s", abs);
+        free(abs);
+        buf_free(&out);
+        return e;
+    }
     free(abs);
+    if (use_regex) regfree(&regex);
     if (!ok || buf_oom(&out) || tny_alloc_scope_failed()) {
         buf_free(&out);
         return NULL;
     }
-    if (!out.len) buf_appends(&out, "(no matches)");
+    if (!out.len)
+        buf_appendf(&out, "(no matches; files scanned: %d; directories skipped: %d)", scanned,
+                    skipped);
     if (buf_oom(&out)) {
         buf_free(&out);
         return NULL;
@@ -750,7 +830,8 @@ static char *t_semantic_search(tools_env *env, yyjson_val *args) {
     if (!s.nterms) return tool_err("query has no searchable terms");
     walk_list files = {0};
     int budget = WALK_MAX_FILES;
-    bool ok = walk(env->ctx->cwd, "", &budget, collect_cb, &files);
+    int skipped = 0;
+    bool ok = walk(env->ctx->cwd, "", &budget, &skipped, true, collect_cb, &files);
     int *scores = NULL;
     if (ok && files.n) {
         scores = calloc(files.n, sizeof *scores);

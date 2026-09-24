@@ -35,9 +35,8 @@ INJECTION_ID = "x; touch injected-canary; true"
 ID_RE = re.compile(r"subagent ([0-9a-f]{16}) finished")
 CREATE_EXAMPLE = '{"action":"create","prompt":"..."}'
 E_CREATE_ID = (
-    "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. "
-    f"Valid: {CREATE_EXAMPLE}, then pass the returned id to message, inspect or "
-    "lifecycle"
+    "error: SUBAGENT_INVALID_ARGUMENT: create id must be a 1-64 character label "
+    "using letters, digits, dot, underscore or hyphen; omit it for no label"
 )
 
 
@@ -609,7 +608,7 @@ def scenario_rejected_ids(provider, home, workspace, existing):
             {
                 "action": "create",
                 "prompt": "child-task:named x",
-                "id": "wallpaper-blue",
+                "id": "wallpaper/blue",
             },
         ),
         (
@@ -629,8 +628,8 @@ def scenario_rejected_ids(provider, home, workspace, existing):
     check(results[0] == E_CREATE_ID and results[1] == E_CREATE_ID, results)
     check(
         results[2]
-        == "error: SUBAGENT_INVALID_ARGUMENT: message needs the 16-character lowercase "
-        "hex id returned by create. Example: "
+        == "error: SUBAGENT_INVALID_ARGUMENT: message needs the id returned by create or its "
+        "unambiguous label. Example: "
         '{"action":"message","id":"<id from create>","prompt":"..."}',
         results[2],
     )

@@ -4278,26 +4278,21 @@ TEST subagent_prepare_rejects_with_exact_codes(void) {
     static const struct {
         const char *args, *want;
     } cases[] = {
-        {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":\"wallpaper-SENTINEL\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
-         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
-         "inspect or lifecycle"},
+        {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":\"wallpaper/SENTINEL\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: create id must be a 1-64 character label "
+         "using letters, digits, dot, underscore or hyphen; omit it for no label"},
         {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":\"0123456789abcdef\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
-         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
-         "inspect or lifecycle"},
+         "error: SUBAGENT_INVALID_ARGUMENT: create id must be a 1-64 character label "
+         "using letters, digits, dot, underscore or hyphen; omit it for no label"},
         {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":\"\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
-         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
-         "inspect or lifecycle"},
+         "error: SUBAGENT_INVALID_ARGUMENT: create id must be a 1-64 character label "
+         "using letters, digits, dot, underscore or hyphen; omit it for no label"},
         {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":null}",
-         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
-         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
-         "inspect or lifecycle"},
+         "error: SUBAGENT_INVALID_ARGUMENT: create id must be a 1-64 character label "
+         "using letters, digits, dot, underscore or hyphen; omit it for no label"},
         {"{\"action\":\"create\",\"prompt\":\"p\",\"id\":7}",
-         "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. Valid: "
-         "{\"action\":\"create\",\"prompt\":\"...\"}, then pass the returned id to message, "
-         "inspect or lifecycle"},
+         "error: SUBAGENT_INVALID_ARGUMENT: create id must be a 1-64 character label "
+         "using letters, digits, dot, underscore or hyphen; omit it for no label"},
         {"{\"prompt\":\"SENTINEL\"}",
          "error: SUBAGENT_INVALID_ARGUMENT: action must be create, message, inspect or "
          "lifecycle. Example: " SA_CREATE_EXAMPLE},
@@ -4329,23 +4324,23 @@ TEST subagent_prepare_rejects_with_exact_codes(void) {
          "error: SUBAGENT_INVALID_ARGUMENT: create needs a nonempty UTF-8 prompt. "
          "Example: " SA_CREATE_EXAMPLE},
         {"{\"action\":\"message\",\"id\":\"x; touch SENTINEL; true\",\"prompt\":\"p\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: message needs the 16-character lowercase hex id "
-         "returned by create. Example: "
+         "error: SUBAGENT_INVALID_ARGUMENT: message needs the id returned by create or its "
+         "unambiguous label. Example: "
          "{\"action\":\"message\",\"id\":\"<id from create>\",\"prompt\":\"...\"}"},
-        {"{\"action\":\"message\",\"id\":\"last\",\"prompt\":\"p\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: message needs the 16-character lowercase hex id "
-         "returned by create. Example: "
+        {"{\"action\":\"message\",\"id\":\"bad/id\",\"prompt\":\"p\"}",
+         "error: SUBAGENT_INVALID_ARGUMENT: message needs the id returned by create or its "
+         "unambiguous label. Example: "
          "{\"action\":\"message\",\"id\":\"<id from create>\",\"prompt\":\"...\"}"},
         {"{\"action\":\"message\",\"id\":\"0123456789ABCDEF\",\"prompt\":\"p\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: message needs the 16-character lowercase hex id "
-         "returned by create. Example: "
+         "error: SUBAGENT_INVALID_ARGUMENT: message needs the id returned by create or its "
+         "unambiguous label. Example: "
          "{\"action\":\"message\",\"id\":\"<id from create>\",\"prompt\":\"...\"}"},
         {"{\"action\":\"message\",\"id\":\"0123456789abcdef\"}",
          "error: SUBAGENT_INVALID_ARGUMENT: message needs a nonempty UTF-8 prompt. Example: "
          "{\"action\":\"message\",\"id\":\"<id from create>\",\"prompt\":\"...\"}"},
         {"{\"action\":\"inspect\"}",
-         "error: SUBAGENT_INVALID_ARGUMENT: inspect needs the 16-character lowercase hex id "
-         "returned by create. Example: " SA_ID_EXAMPLE("inspect")},
+         "error: SUBAGENT_INVALID_ARGUMENT: inspect needs the id returned by create or its "
+         "unambiguous label. Example: " SA_ID_EXAMPLE("inspect")},
         {"{\"action\":\"lifecycle\",\"id\":\"0123456789abcdef\",\"prompt\":\"SENTINEL\"}",
          "error: SUBAGENT_INVALID_ARGUMENT: lifecycle takes no prompt. "
          "Example: " SA_ID_EXAMPLE("lifecycle")},
@@ -4361,7 +4356,8 @@ TEST subagent_prepare_rejects_with_exact_codes(void) {
         "{\"action\":\"create\",\"prompt\":\"do x\"}",
         "{\"action\":\"message\",\"id\":\"0123456789abcdef\",\"prompt\":\"more\"}",
         "{\"action\":\"inspect\",\"id\":\"0123456789abcdef\"}",
-        "{\"action\":\"lifecycle\",\"id\":\"0123456789abcdef\"}"};
+        "{\"action\":\"lifecycle\",\"id\":\"0123456789abcdef\"}",
+        "{\"action\":\"create\",\"prompt\":\"do x\",\"id\":\"wallpaper-1\"}"};
     for (size_t i = 0; i < sizeof valid / sizeof *valid; i++)
         ASSERT_EQ(NULL, subagent_prepare(&env, valid[i]));
 
@@ -4476,6 +4472,54 @@ static char *subagent_stored_session(tny_ctx *ctx) {
     char *id = xstrdup(s->id);
     session_close(s);
     return id;
+}
+
+TEST subagent_label_resolves_durable_child(void) {
+    tny_ctx *ctx = subagent_ctx();
+    ASSERT(ctx);
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char *id = subagent_stored_session(ctx);
+    ASSERT(id);
+    char script[512];
+    snprintf(script, sizeof script,
+             "printf '{\"output\":\"CHILD-OK\",\"exit_code\":0,\"session_id\":\"%s\"}'", id);
+    char *argv[] = {"/bin/sh", "-c", script, NULL};
+    char *result =
+        tny_subagent_run_labeled(&env, "create", NULL, "wallpaper-1", argv, environ, "p");
+    ASSERT(result && strstr(result, "label: wallpaper-1"));
+    free(result);
+    result = tools_execute(&env, "subagent", "{\"action\":\"inspect\",\"id\":\"wallpaper-1\"}");
+    ASSERT(result && strstr(result, id) && strstr(result, "turns:"));
+    free(result);
+    result = tools_execute(&env, "subagent", "{\"action\":\"lifecycle\",\"id\":\"wallpaper-1\"}");
+    ASSERT(result && strstr(result, id));
+    free(result);
+    result = tools_execute(&env, "subagent",
+                           "{\"action\":\"message\",\"id\":\"wallpaper-1\",\"prompt\":\"p\"}");
+    ASSERT(result && strstr(result, "SUBAGENT_AUTH_UNAVAILABLE"));
+    free(result);
+    result = tools_execute(&env, "subagent",
+                           "{\"action\":\"create\",\"id\":\"wallpaper-1\",\"prompt\":\"p\"}");
+    ASSERT(result && strstr(result, "SUBAGENT_LABEL_IN_USE"));
+    free(result);
+    char *second = subagent_stored_session(ctx);
+    ASSERT(second);
+    tny_session_state *stored = session_open(ctx, second);
+    ASSERT(stored);
+    char *label_file = path_join(stored->dir, "subagent-label");
+    ASSERT(label_file);
+    ASSERT_EQ(0, file_write_atomic(label_file, "wallpaper-1", strlen("wallpaper-1")));
+    free(label_file);
+    session_close(stored);
+    result = tools_execute(&env, "subagent", "{\"action\":\"inspect\",\"id\":\"wallpaper-1\"}");
+    ASSERT(result && strstr(result, "SUBAGENT_LABEL_AMBIGUOUS"));
+    free(result);
+    free(second);
+    free(id);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
 }
 
 /* The process seam with real children: the prompt arrives on stdin, the
@@ -5975,11 +6019,68 @@ TEST grep_files_fanout_matches_serial_scan(void) {
     snprintf(args, sizeof args, "{\"pattern\":\"absent-token\",\"path\":\"%s\"}", root);
     threaded = fanout_run(&env, "grep_files", args, NULL);
     ASSERT(threaded);
-    ASSERT_STR_EQ("(no matches)", threaded);
+    ASSERT(strstr(threaded, "(no matches; files scanned: ") == threaded);
+    ASSERT(strstr(threaded, "; directories skipped: 0)"));
     free(threaded);
 
     perm_free(p);
     session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST file_search_explicit_paths_regex_and_globstar(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char package[700], dist[760], file[820], readme[700], args[2000];
+    snprintf(package, sizeof package, "%s/node_modules/@earendil-works/pi-coding-agent", g_ws);
+    snprintf(dist, sizeof dist, "%s/dist/core", package);
+    snprintf(file, sizeof file, "%s/agent-session.js", dist);
+    snprintf(readme, sizeof readme, "%s/README.md", g_ws);
+    ASSERT_EQ(0, mkdir_p(dist));
+    const char *source = "registerTool();\nclass DefaultResourceLoader {}\n";
+    const char *intro = "message-board and canvas\n";
+    ASSERT_EQ(0, file_write_atomic(file, source, strlen(source)));
+    ASSERT_EQ(0, file_write_atomic(readme, intro, strlen(intro)));
+
+    snprintf(args, sizeof args, "{\"pattern\":\"registerTool\",\"path\":\"%s\"}", file);
+    char *result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, "agent-session.js:1:registerTool"));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"class DefaultResourceLoader\",\"path\":\"%s\"}",
+             package);
+    result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, "dist/core/agent-session.js:2:"));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"message-board|canvas\",\"path\":\"%s\"}", readme);
+    result = tools_execute(&env, "grep_files", args);
+    ASSERT(result && strstr(result, "README.md:1:message-board and canvas"));
+    free(result);
+    result = tools_execute(&env, "grep_files", "{\"pattern\":\"registerTool-absent\"}");
+    ASSERT(result && strstr(result, "files scanned:") && strstr(result, "directories skipped:"));
+    free(result);
+
+    snprintf(args, sizeof args, "{\"pattern\":\"**/*.js\",\"path\":\"%s\"}", package);
+    result = tools_execute(&env, "glob_files", args);
+    ASSERT(result && strstr(result, "dist/core/agent-session.js"));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"%s\",\"path\":\"%s\"}", file, file);
+    result = tools_execute(&env, "glob_files", args);
+    ASSERT(result && strstr(result, "agent-session.js"));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"**/*.md\",\"path\":\"%s\"}", g_ws);
+    result = tools_execute(&env, "glob_files", args);
+    ASSERT(result && strstr(result, "README.md"));
+    free(result);
+    snprintf(args, sizeof args, "{\"pattern\":\"%s/**/*.js\",\"path\":\"%s\"}", package, package);
+    result = tools_execute(&env, "glob_files", args);
+    ASSERT(result && strstr(result, "dist/core/agent-session.js"));
+    free(result);
+    perm_free(perm);
     tny_ctx_free(ctx);
     PASS();
 }
@@ -6028,6 +6129,7 @@ SUITE(core_suite) {
     RUN_TEST(edit_feedback_dispatch_preserves_failure_and_undo);
     RUN_TEST(edit_feedback_dispatch_bounds_utf8_snippet);
     RUN_TEST(grep_files_fanout_matches_serial_scan);
+    RUN_TEST(file_search_explicit_paths_regex_and_globstar);
     RUN_TEST(semantic_search_fanout_matches_serial_scan);
     RUN_TEST(context_checkpoint_preserves_resolved_selection);
     RUN_TEST(session_swarm_definition_restores_snapshot_and_rejects_change);
@@ -6139,6 +6241,7 @@ SUITE(core_suite) {
     RUN_TEST(subagent_plan_carries_resolved_config_privately);
     RUN_TEST(subagent_selector_validation);
     RUN_TEST(subagent_prepare_rejects_with_exact_codes);
+    RUN_TEST(subagent_label_resolves_durable_child);
     RUN_TEST(subagent_process_outcomes_are_classified);
     RUN_TEST(subagent_child_wind_down_completes_before_forced_kill);
     RUN_TEST(subagent_stored_state_and_session_guards);

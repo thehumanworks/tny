@@ -59,8 +59,8 @@ E_PROMPT = (
     f"Example: {CREATE_EXAMPLE}"
 )
 E_MESSAGE_ID = (
-    "error: SUBAGENT_INVALID_ARGUMENT: message needs the 16-character lowercase hex "
-    f"id returned by create. Example: {MESSAGE_EXAMPLE}"
+    "error: SUBAGENT_INVALID_ARGUMENT: message needs the id returned by create or its "
+    f"unambiguous label. Example: {MESSAGE_EXAMPLE}"
 )
 E_NO_PROMPT = (
     "error: SUBAGENT_INVALID_ARGUMENT: inspect takes no prompt. Example: "
@@ -174,7 +174,7 @@ def diag_rejections(provider, home, workspace, log):
     s = "rejections"
     calls = [
         (
-            {"action": "create", "prompt": "child-task:r1 x", "id": "wallpaper-blue"},
+            {"action": "create", "prompt": "child-task:r1 x", "id": "wallpaper/blue"},
             fx.E_CREATE_ID,
         ),
         (
@@ -188,7 +188,7 @@ def diag_rejections(provider, home, workspace, log):
         ({"action": "relationship", "id": "wallpaper-blue"}, E_UNSUPPORTED),
         ({"action": "configure"}, E_UNSUPPORTED),
         (
-            {"action": "message", "id": "last", "prompt": "child-task:r5 x"},
+            {"action": "message", "id": "bad/id", "prompt": "child-task:r5 x"},
             E_MESSAGE_ID,
         ),
         ({"action": "message", "id": 42, "prompt": "child-task:r6 x"}, E_MESSAGE_ID),

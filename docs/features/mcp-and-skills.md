@@ -34,6 +34,17 @@ Keep tool names stable so task prompts and agent integrations transfer:
 | Images | `read_image` (png/jpeg/gif/webp via magic bytes; `vision` is an alias). A configured-false `image_input` policy hides and refuses this tool and image attachment; image generation remains independent. Tool result is a short text; the pixels are **captured when the tool runs** and go out as a follow-up user `image_url` message ([ADR 0008](../adr/0008-native-loop-images.md), [ADR 0096](../adr/0096-captured-image-queue-and-preview-lifecycle.md)), so rewriting the file later in the same batch cannot change what is sent. `tny ask --image PATH` attaches the same shape on the first user message (max 16 flags; a 17th is exit 1) |
 | Skills | `skill`, `install_skill` |
 | Subagents | `subagent` (`create`, `message`, `inspect`, `lifecycle`; see [Subagents](#subagents)) |
+
+`grep_files` searches a literal substring unless the pattern contains POSIX
+extended regex syntax such as `|`, `[]`, `+`, `?`, anchors, or `.*`. Its
+`case_insensitive` option applies to both forms. An explicit file path is
+searched directly; an explicit directory includes descendants that a workspace
+root walk normally ignores, such as `node_modules` and `dist`. Empty results
+report the number of files scanned and directories skipped by ignore rules.
+`glob_files` accepts `*`, `?`, and `**/` (including zero directories), and
+matches workspace relative or absolute patterns. With an explicit `path`, a
+pattern may be rooted at that path or relative to it; named ignored directories
+are searched. These file tools run in native and wasm builds.
 | Team control | `team_control` (`start`, `status`, `collect`, `wait-any`, `cancel`): job-backed async teams with captured parent/member identity and bounded collection. `verify` explicitly refuses; no accepted status is fabricated. Native saved local contexts only. See [team control](../team-control.md) |
 | Team messages | `team_mailbox` (`send`, `inbox`, `read`, `ack`, `retire`): bounded durable collaboration context. Native local only; private member capabilities or the recorded submitting session establish membership, never supplied sender/session IDs. See [mailboxes](../team-mailbox.md) |
 | Task workspaces | `job_workspace_inspect`, `job_workspace_integrate`, `job_workspace_cleanup`: explicit operations with separate permissions on proven-owned, terminal isolated task worktrees. Native local only. See [managed workspaces](../task-workspaces.md) |
@@ -396,12 +407,12 @@ is not a shared run budget. Zero still means no explicit inherited step cap.
 
 | Action | Arguments | Result |
 | --- | --- | --- |
-| `create` | `prompt` (nonempty UTF-8), optional `provider`, `model`, `effort`; **omit `id`** | Runs one child turn and returns `subagent ID finished.` with the new durable id and the answer |
-| `message` | `id` returned by `create`, `prompt`, optional `provider`, `model`, `effort` | Appends one turn to that same child session |
-| `inspect` | `id` | Stored identity and metadata: title, turns, provider, model, created/updated, status, exit code, liveness, and the stored answer when the last turn finished `done` |
-| `lifecycle` | `id` | `status`, `exit_code`, `running`, `resumable` read from the session and its writer lock |
+| `create` | `prompt` (nonempty UTF-8), optional `id` display label, `provider`, `model`, `effort` | Runs one child turn and returns the generated durable id, optional label, and answer |
+| `message` | Generated id or unambiguous label, `prompt`, optional `provider`, `model`, `effort` | Appends one turn to that same child session |
+| `inspect` | Generated id or unambiguous label | Stored identity and metadata: title, turns, provider, model, created/updated, status, exit code, liveness, and the stored answer when the last turn finished `done` |
+| `lifecycle` | Generated id or unambiguous label | `status`, `exit_code`, `running`, `resumable` read from the session and its writer lock |
 
-tny allocates the 16-lowercase-hex id; there is no alias namespace. Any `id` on `create` — a name, or even an existing hex id — is rejected before a child starts rather than silently resuming or overwriting. Other strings, including `last`, are not child ids. Relationship/configure actions and on-disk message queues do not exist; each `message` is one synchronous child turn.
+tny still allocates the authoritative 16-lowercase-hex id. An optional `id` on `create` is a display label (1–64 ASCII letters, digits, dot, underscore or hyphen); it cannot be a generated-id-shaped string. The label is stored with the child session and can address that child in the same workspace. A duplicate label is refused on create; ambiguous stored labels are refused on lookup, so a generated id always resolves precisely. A label is recorded after a successful stored child turn; an ephemeral child has no durable label. Relationship/configure actions and on-disk message queues do not exist; each `message` is one synchronous child turn.
 
 **Provider, model and reasoning effort.** `create` and `message` accept independent
 optional `provider`, `model` and `effort` strings. Omit `provider` to inherit the
@@ -453,7 +464,8 @@ of validation: empty or null `id` is still an argument, not omission.
 
 | Code | When |
 | --- | --- |
-| `INVALID_ARGUMENT` | Not an object; missing/empty/non-string `action`; unknown field; `id` on `create`; missing or malformed `id` for `message`/`inspect`/`lifecycle`; missing, empty or non-UTF-8 `prompt`; a `prompt` or selector on `inspect`/`lifecycle`; invalid selector type, empty string, NUL or UTF-8 |
+| `INVALID_ARGUMENT` | Not an object; missing/empty/non-string `action`; unknown field; malformed create label or address; missing, empty or non-UTF-8 `prompt`; a `prompt` or selector on `inspect`/`lifecycle`; invalid selector type, empty string, NUL or UTF-8 |
+| `LABEL_IN_USE`, `LABEL_AMBIGUOUS` | The requested display label already belongs to a stored child, or more than one stored child has it; use a different label or the generated id |
 | `UNSUPPORTED_ACTION` | Any other action, including `relationship` and `configure` |
 | `UNSUPPORTED_CONTEXT` | Embedded (libtny), prompt optimisation, `terminal` / `terminal+edit` tool profiles, `--ssh`, host parents, a build that cannot start processes (wasm), `message`/`inspect`/`lifecycle` under an ephemeral parent |
 | `SESSION_NOT_FOUND` | No stored session with that id in this workspace |
