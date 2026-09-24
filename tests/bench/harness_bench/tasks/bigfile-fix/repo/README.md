@@ -1,1 +1,1 @@
-setup.sh generates aggregates.c with hundreds of similar scan functions.
+aggregates.c and aggregates.h were generated for this workspace. Each scan_N sums n integers.

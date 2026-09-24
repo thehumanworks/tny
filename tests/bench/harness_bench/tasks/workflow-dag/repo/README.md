@@ -21,7 +21,8 @@ Advance to the next completion time; stop when all tasks are terminal.
 
 Return {"makespan": integer, "tasks": {ID: {"state": "succeeded"|"failed"|"skipped",
 "attempts": integer, "finish": integer}}, "events": [...]}. finish is time of
-terminal success/failure/skip. A skipped task has attempts 0. Each event has exactly
+terminal success/failure/skip. A skipped task has attempts 0. Retry and failed events carry the attempt number that just ended.
+Each event has exactly
 {"time": integer, "task": ID, "attempt": integer, "type": TYPE}; TYPE is start,
 succeeded, retry, failed, or skipped. Skipped event attempt is 0. Emit completions
 (retry/succeeded/failed), then skip waves, then starts, in the specified order.

@@ -45,9 +45,14 @@ with tempfile.TemporaryDirectory() as tmp:
         text=True,
         capture_output=True,
     )
-    flags = ["-std=c11", "-Wall", "-Wextra", "-Werror"]
-    if probe.returncode == 0:
-        flags.append("-fsanitize=address")
+    if probe.returncode != 0:
+        raise RuntimeError("ASan compiler support is required for this task")
+    runtime = subprocess.run(
+        [str(Path(tmp) / "probe")], capture_output=True, check=False
+    )
+    if runtime.returncode != 0:
+        raise RuntimeError("ASan runtime is unavailable for this task")
+    flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-fsanitize=address"]
     subprocess.run(
         ["cc", *flags, "-I", str(w), str(w / "arena.c"), str(check), "-o", str(binary)],
         check=True,

@@ -4,9 +4,12 @@
 import argparse
 import gzip
 import json
+import os
 import shutil
+import signal
 import statistics
 import subprocess
+import tempfile
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -45,6 +48,56 @@ def _git_init(workspace):
         ],
     ):
         subprocess.run(command, cwd=workspace, check=True, capture_output=True)
+
+
+def setup_task(task_dir, workspace, timeout_s, stdout=None, stderr=None):
+    """Run a fixture's optional setup with the same cwd and argv as the harness."""
+    setup = task_dir / "setup.sh"
+    if setup.exists():
+        return subprocess.run(
+            ["bash", str(setup)],
+            cwd=workspace,
+            check=True,
+            stdout=stdout,
+            stderr=stderr,
+            timeout=timeout_s,
+        )
+    return None
+
+
+def verify_task(task_dir, workspace, message_file, timeout_s=30):
+    """Run hidden verification from the task directory after the harness exits."""
+    command = [
+        "bash",
+        str(task_dir / "verify.sh"),
+        str(workspace),
+        str(message_file),
+    ]
+    process = subprocess.Popen(
+        command,
+        cwd=task_dir,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        stdout, stderr = process.communicate()
+        for leftover in message_file.parent.glob(".harness-hidden.*"):
+            shutil.rmtree(leftover, ignore_errors=True)
+        return subprocess.CompletedProcess(
+            command,
+            124,
+            stdout or "fail: verification timed out; see verify.log\n",
+            stderr,
+        )
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def _summarize(rows, run_dir, model):
@@ -145,21 +198,18 @@ def run_one(args, task_dir, harness, rep):
     if result_file.exists():
         return json.loads(result_file.read_text())
     run_dir.mkdir(parents=True, exist_ok=True)
-    workspace = run_dir / "workspace"
-    if workspace.exists():
-        shutil.rmtree(workspace)
+    published_workspace = run_dir / "workspace"
+    if published_workspace.exists():
+        shutil.rmtree(published_workspace)
+    private_workspace = tempfile.TemporaryDirectory(prefix="tny-bench-")
+    workspace = Path(private_workspace.name) / "workspace"
     shutil.copytree(task_dir / "repo", workspace)
     _git_init(workspace)
-    setup = task_dir / "setup.sh"
-    if setup.exists():
-        subprocess.run(
-            ["bash", str(setup)],
-            cwd=workspace,
-            check=True,
-            stdout=(run_dir / "setup.stdout").open("w"),
-            stderr=(run_dir / "setup.stderr").open("w"),
-            timeout=task["timeout_s"],
-        )
+    with (
+        (run_dir / "setup.stdout").open("w") as setup_out,
+        (run_dir / "setup.stderr").open("w") as setup_err,
+    ):
+        setup_task(task_dir, workspace, task["timeout_s"], setup_out, setup_err)
     started = time.monotonic()
     exit_code = None
     timed_out = False
@@ -215,16 +265,11 @@ def run_one(args, task_dir, harness, rep):
     message = final_message(harness, stdout)
     message_file = run_dir / "final_message.txt"
     message_file.write_text(message)
-    verify = subprocess.run(
-        ["bash", str(task_dir / "verify.sh"), str(workspace), str(message_file)],
-        cwd=task_dir,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    verify = verify_task(task_dir, workspace, message_file)
     reason = (
         verify.stdout.strip().splitlines() or verify.stderr.strip().splitlines() or [""]
     )[0]
+    verify_timed_out = verify.returncode == 124
     passed = verify.returncode == 0 and exit_code == 0 and not timed_out
     measurement_valid = bool(rows) and all(
         row.get(key) is not None
@@ -241,6 +286,8 @@ def run_one(args, task_dir, harness, rep):
         reason = adapter_error
     elif timed_out:
         reason = "task timed out"
+    elif verify_timed_out:
+        reason = "verification timed out"
     elif exit_code != 0:
         reason = f"harness exit {exit_code}: {reason}"
     elif not rows:
@@ -252,6 +299,8 @@ def run_one(args, task_dir, harness, rep):
     elif not model_effort_valid:
         passed = False
         reason = "wire model or reasoning effort differs from requested setting"
+    shutil.move(str(workspace), str(published_workspace))
+    private_workspace.cleanup()
     result = {
         "schema_version": 1,
         "label": args.label,
@@ -268,7 +317,7 @@ def run_one(args, task_dir, harness, rep):
         "reason": reason,
         "wall_s": wall_s,
         "exit_code": exit_code,
-        "timeout": timed_out,
+        "timeout": timed_out or verify_timed_out,
         "requests": len(rows),
         "request_rows": rows,
         **_summarize(rows, run_dir, args.model),
@@ -310,11 +359,12 @@ def main():
             "reps/concurrency must be positive; label must be one path component"
         )
     args.out = args.out.resolve()
+    args.tasks_dir = args.tasks_dir.resolve()
     if not args.tasks_dir.is_dir():
         parser.error(f"tasks directory does not exist: {args.tasks_dir}")
     tasks = {
         path.name: path
-        for path in args.tasks_dir.resolve().iterdir()
+        for path in args.tasks_dir.iterdir()
         if path.is_dir() and (path / "task.json").exists()
     }
     selected = list(tasks) if not args.task or "all" in args.task else args.task

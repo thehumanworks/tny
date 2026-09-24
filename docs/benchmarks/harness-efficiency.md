@@ -147,11 +147,14 @@ bodies. See the benchmark README for the metric definitions and an example.
 
 ```
 tests/bench/harness_bench/tasks/<id>/
-  task.json   {"id", "category", "prompt", "timeout_s", "tags": [...]}
+  task.json   {"id", "category", "difficulty", "prompt", "timeout_s", "tags": [...]}
   repo/       initial workspace (copied, then git init + commit)
-  setup.sh    optional, deterministic; run in the workspace before the agent
-  verify.sh   verify.sh <workspace> <final_message_file>; exit 0 = pass;
-              prints a one-line reason; hidden tests live beside it
+  setup.sh    optional, deterministic; run as bash setup.sh with cwd=workspace
+              and no argument before the agent; optional $1 may name workspace
+  verify.sh   run as bash verify.sh <workspace> <final_message_file> with
+              cwd=task directory; exit 0 = pass and print a one-line reason;
+              hidden tests live beside it and failures keep verify.log by
+              <final_message_file>, outside the agent workspace
 ```
 
 Prompts are short and phrased the way users write them. Tasks stress the

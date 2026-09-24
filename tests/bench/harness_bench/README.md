@@ -4,6 +4,19 @@ This is an opt-in live benchmark. It runs the same synthetic task in a fresh Git
 repository for each harness and repetition. A loopback proxy forwards Responses
 requests to the ChatGPT subscription endpoint and records provider usage. The
 verifier runs afterward from the task directory; the agent never sees it.
+An active workspace lives in a randomized private temporary directory and is
+moved into its run directory after verification. This removes the predictable
+sibling-run layout while the agent is working.
+
+Fixture setup runs as `bash setup.sh` with the workspace as cwd and no
+argument; scripts may also accept an optional workspace path for manual use.
+Verification runs as `bash verify.sh WORKSPACE FINAL_MESSAGE_FILE` with the
+task directory as cwd. A failed oracle keeps `verify.log` beside the final
+message, outside the agent workspace.
+
+The ledger and workflow fixtures derive from the repository's earlier public
+swarm cases. Treat them as task completion checks, not as blind held-out
+evidence for anyone who has worked with those cases.
 
 The proxy reads the current `tokens.access_token` and `tokens.account_id` from
 `~/.codex/auth.json` for **each** request. Harnesses receive an isolated `HOME`
@@ -36,6 +49,8 @@ long-horizon tasks; validate them offline first with
 Their setup generates large files in each copied workspace, so keep `TMPDIR`
 on a disk with enough space and use a distinct run label. No live inference is
 needed for validation.
+`--tasks-dir tests/bench/harness_bench/tasks-heldout` selects the held-out
+set for the final confirmation run.
 Each run writes `result.json`, `stdout.txt`, `stderr.txt`,
 `final_message.txt`, `workspace/`, and `proxy/requests.jsonl` plus compressed
 request bodies. Existing `result.json` files are skipped, so rerun the same
