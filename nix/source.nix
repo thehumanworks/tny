@@ -89,7 +89,9 @@ let
     # No new external fixture directory or package is needed.
     # Instruction-evolution replay benchmark and its in-memory Python mutation
     # checks use these existing tests/ and python/ trees, with stdlib only.
-    ../tests # includes quick-ask PTY, cache-routing fixtures, and optional cache benchmark
+    ../tests # includes quick-ask PTY, cache-routing fixtures, optional cache benchmark,
+    # and tests/bench/harness_bench/tasks/smoke-hello; the live harness benchmark
+    # is opt-in and is not a sandbox test.
     # test_terminal_background.py imports test_terminal_cancel.py and runs the
     # native binary against stdlib loopback fixtures; both are included above.
     # runner_restart_fault.c uses the existing stdenv C compiler for a private
