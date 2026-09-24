@@ -1384,7 +1384,7 @@ char *session_exp_mechanical_summary(tny_session_state *s, int cut) {
     if (previous) buf_appendf(&out, "%s\n", previous);
     buf_appends(&out, "Earlier in this session:\n");
     yyjson_mut_val *msgs = session_messages(s);
-    for (int i = old; i < cut && out.len < 32000; i++) {
+    for (int i = old; i < cut; i++) {
         yyjson_mut_val *m = yyjson_mut_arr_get(msgs, (size_t)i);
         const char *role = yyjson_mut_get_str(yyjson_mut_obj_get(m, "role"));
         const char *content = yyjson_mut_get_str(yyjson_mut_obj_get(m, "content"));
