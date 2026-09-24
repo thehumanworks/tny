@@ -948,6 +948,13 @@ TEST stall_window_parses_and_clamps(void) {
     PASS();
 }
 
+TEST context_edit_hysteresis_uses_post_clear_size(void) {
+    ASSERT_EQ(64000, oa_context_edit_next_trigger(48000, 0, 16000));
+    ASSERT_EQ(48000, oa_context_edit_next_trigger(48000, 64000, 16000));
+    ASSERT_EQ(32000, oa_context_edit_next_trigger(10000, 80000, 32000));
+    PASS();
+}
+
 /* SI-3/SI-4: the continuation request trails the shown partial as an
  * assistant message and one user turn, on both wires, verbatim. */
 TEST continuation_trails_partial_then_user_turn(void) {
@@ -2159,5 +2166,6 @@ SUITE(openai_suite) {
     RUN_TEST(openai_selected_preview_terminal_cleanup_and_recovery);
     RUN_TEST(stream_complete_needs_a_terminal_event);
     RUN_TEST(stall_window_parses_and_clamps);
+    RUN_TEST(context_edit_hysteresis_uses_post_clear_size);
     RUN_TEST(continuation_trails_partial_then_user_turn);
 }

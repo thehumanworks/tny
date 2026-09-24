@@ -141,6 +141,9 @@ bool oa_stream_complete(bool stream_done, bool wire_chat, const char *finish_rea
 /* TNY_PROVIDER_STALL_SECS parsing: NULL/empty is the 300s default, a
  * non-positive value disables the stall clock, values cap at one hour. */
 int oa_stall_secs(const char *value);
+/* The next batch waits for one STEP of growth above the estimated context
+ * after a clear; no-op passes wait one step above the observed input size. */
+int64_t oa_context_edit_next_trigger(int64_t previous_input, size_t saved_bytes, int64_t step);
 /* Append the continuation pair to a provider view: the partial the user
  * already saw as a trailing assistant message, then the ephemeral user
  * turn asking the model to carry on from it. */

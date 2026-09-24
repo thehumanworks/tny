@@ -117,6 +117,15 @@ char *session_store_result(tny_session_state *s, const char *data, size_t len);
 char *session_read_result(tny_session_state *s, const char *handle, size_t off, size_t maxlen,
                           size_t *out_len);
 
+/* Replace eligible older tool contents in the current turn after storing each
+ * original. Returns the number cleared, or -1 on storage/allocation failure.
+ * The caller persists the changed session before making the next request. */
+int session_context_edit(tny_session_state *s, int turn_first, int keep, size_t *bytes_saved,
+                         size_t *affected_bytes);
+bool session_record_context_edit(tny_session_state *s, int64_t before_tokens, int64_t after_tokens,
+                                 int cleared, size_t affected_bytes, size_t removed_bytes,
+                                 double payback_requests);
+
 /* Compaction: after 8 completed turns keep latest 4 verbatim; force=true
  * condenses everything before the latest turn. Summary is mechanical
  * (requests, files, commands, outcomes). */

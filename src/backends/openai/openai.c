@@ -123,6 +123,8 @@ typedef struct {
     tny_stop_reason final_stop; /* provider terminal reason for this step */
     char finish_reason[32];
     int64_t usage_in, usage_out;
+    int ctx_edit_first;
+    int64_t ctx_edit_next_trigger;
     int64_t usage_cached, usage_cache_write;
     bool usage_seen, usage_recorded;
     tny_openai_usage usage;
@@ -203,6 +205,12 @@ static void emit_error(oa_impl *o, tny_event_error_kind code, const char *text, 
     ev.text = text;
     ev.text_len = len;
     emit(o, &ev);
+}
+
+int64_t oa_context_edit_next_trigger(int64_t previous_input, size_t saved_bytes, int64_t step) {
+    int64_t saved_tokens = saved_bytes / 4 > INT64_MAX ? INT64_MAX : (int64_t)(saved_bytes / 4);
+    int64_t after = previous_input > saved_tokens ? previous_input - saved_tokens : 0;
+    return after > INT64_MAX - step ? INT64_MAX : after + step;
 }
 
 static void record_usage(oa_impl *o) {
@@ -1002,6 +1010,37 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     if (tny_alloc_scope_failed()) {
         tny_alloc_provider_failed();
         return -2;
+    }
+    if (!retry && o->ctx->ctx_edit_enabled && o->step > 0 && o->usage_seen &&
+        o->usage_in > o->ctx_edit_next_trigger) {
+        size_t bytes_saved = 0, affected_bytes = 0;
+        int cleared = session_context_edit(o->env.session, o->ctx_edit_first, o->ctx->ctx_edit_keep,
+                                           &bytes_saved, &affected_bytes);
+        if (cleared < 0) {
+            snprintf(errbuf, errlen, "could not store context edit originals");
+            return -1;
+        }
+        if (cleared > 0) {
+            int64_t saved_tokens = (int64_t)(bytes_saved / 4);
+            int64_t after = o->usage_in > saved_tokens ? o->usage_in - saved_tokens : 0;
+            double payback = bytes_saved ? 11.5 * (double)affected_bytes / (double)bytes_saved : 0;
+            if (!session_record_context_edit(o->env.session, o->usage_in, after, cleared,
+                                             affected_bytes, bytes_saved, payback) ||
+                session_save(o->env.session) != 0) {
+                snprintf(errbuf, errlen, "could not persist context edit");
+                return -1;
+            }
+            char notice[160];
+            snprintf(notice, sizeof notice,
+                     "context_edit: cleared %d results; context %lld to %lld tokens; payback %.1f "
+                     "requests",
+                     cleared, (long long)o->usage_in, (long long)after, payback);
+            emit_text(o, TNY_EV_STATUS, notice, strlen(notice));
+            o->ctx_edit_next_trigger =
+                oa_context_edit_next_trigger(o->usage_in, bytes_saved, o->ctx->ctx_edit_step);
+        } else
+            o->ctx_edit_next_trigger =
+                oa_context_edit_next_trigger(o->usage_in, 0, o->ctx->ctx_edit_step);
     }
     if (retry) o->provider_attempt++;
     else {
@@ -2013,6 +2052,8 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_
     o->ud = ud;
     o->background_armed = o->background_boundary = false;
     o->step = 0;
+    o->ctx_edit_first = session_message_count(o->env.session);
+    o->ctx_edit_next_trigger = o->ctx->ctx_edit_trigger;
     o->cancelled = false;
     o->turn_open = true;
     o->usage_in = o->usage_out = 0;
@@ -2664,6 +2705,10 @@ yyjson_mut_val *tny_backend_openai_checkpoint(tny_backend *b, yyjson_mut_doc *d)
     if (o->state != ST_CHECKPOINT || o->turn->permission.id || o->turn->custom.id) return NULL;
     yyjson_mut_val *r = yyjson_mut_obj(d);
     yyjson_mut_obj_add_int(d, r, "step", o->step);
+    yyjson_mut_obj_add_int(d, r, "ctx_edit_first", o->ctx_edit_first);
+    yyjson_mut_obj_add_int(d, r, "ctx_edit_next_trigger", o->ctx_edit_next_trigger);
+    yyjson_mut_obj_add_int(d, r, "previous_input_tokens", o->usage_in);
+    yyjson_mut_obj_add_bool(d, r, "previous_usage_seen", o->usage_seen);
     yyjson_mut_obj_add_int(d, r, "tool_index", o->tool_index);
     yyjson_mut_obj_add_int(d, r, "tool_batch_failed", o->tool_batch_failed);
     yyjson_mut_obj_add_int(d, r, "max_retries", o->max_retries);
@@ -2744,6 +2789,10 @@ int tny_backend_openai_restore(tny_backend *b, yyjson_val *r, tny_backend_event_
     o->cb = cb;
     o->ud = ud;
     o->step = (int)jget_int(r, "step", 0);
+    o->ctx_edit_first = (int)jget_int(r, "ctx_edit_first", session_message_count(o->env.session));
+    o->ctx_edit_next_trigger = jget_int(r, "ctx_edit_next_trigger", o->ctx->ctx_edit_trigger);
+    o->usage_in = jget_int(r, "previous_input_tokens", 0);
+    o->usage_seen = jget_bool(r, "previous_usage_seen", false);
     o->tool_index = (int)jget_int(r, "tool_index", 0);
     o->tool_batch_failed = (int)jget_int(r, "tool_batch_failed", 0);
     o->max_retries = (int)jget_int(r, "max_retries", 0);

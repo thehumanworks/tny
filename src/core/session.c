@@ -1205,6 +1205,177 @@ char *session_read_result(tny_session_state *s, const char *handle, size_t off, 
     return out;
 }
 
+static const char *context_tool_name(yyjson_mut_val *msgs, size_t first, size_t result_index,
+                                     const char *id) {
+    if (!id) return NULL;
+    for (size_t j = result_index; j > first; j--) {
+        yyjson_mut_val *m = yyjson_mut_arr_get(msgs, j - 1);
+        const char *role = mrole(m);
+        if (!role || strcmp(role, "assistant") != 0) continue;
+        yyjson_mut_val *calls = yyjson_mut_obj_get(m, "tool_calls");
+        size_t i, n;
+        yyjson_mut_val *call;
+        yyjson_mut_arr_foreach(calls, i, n, call) {
+            const char *call_id = yyjson_mut_get_str(yyjson_mut_obj_get(call, "id"));
+            if (call_id && strcmp(call_id, id) == 0) {
+                yyjson_mut_val *fn = yyjson_mut_obj_get(call, "function");
+                const char *name = yyjson_mut_get_str(yyjson_mut_obj_get(fn, "name"));
+                return name;
+            }
+        }
+    }
+    return NULL;
+}
+
+static bool context_was_cleared(tny_session_state *s, size_t index) {
+    yyjson_mut_val *items = yyjson_mut_obj_get(root_of(s), "context_edit_items");
+    size_t i, n;
+    yyjson_mut_val *item;
+    yyjson_mut_arr_foreach(items, i, n, item) {
+        if (yyjson_mut_is_uint(item) && yyjson_mut_get_uint(item) == index) return true;
+    }
+    return false;
+}
+
+typedef struct {
+    yyjson_mut_val *message;
+    yyjson_mut_val *replacement;
+    yyjson_mut_val *marker;
+} context_edit_pending;
+
+int session_context_edit(tny_session_state *s, int turn_first, int keep, size_t *bytes_saved,
+                         size_t *affected_bytes) {
+    if (bytes_saved) *bytes_saved = 0;
+    if (affected_bytes) *affected_bytes = 0;
+    if (!s || !s->doc || keep < 0 || turn_first < 0) return -1;
+    yyjson_mut_val *msgs = session_messages(s);
+    size_t total = yyjson_mut_arr_size(msgs);
+    size_t first = (size_t)turn_first;
+    if (first >= total) return 0;
+    size_t retained = 0, saved = 0, candidate_bytes = 0, candidate_count = 0;
+    size_t earliest = total;
+    for (size_t i = total; i > first; i--) {
+        yyjson_mut_val *m = yyjson_mut_arr_get(msgs, i - 1);
+        const char *role = mrole(m);
+        if (!role || strcmp(role, "tool") != 0) continue;
+        if (retained++ < (size_t)keep) continue;
+        yyjson_mut_val *content = yyjson_mut_obj_get(m, "content");
+        if (!yyjson_mut_is_str(content)) continue;
+        size_t bytes = yyjson_mut_get_len(content);
+        if (bytes <= 1024 || context_was_cleared(s, i - 1)) continue;
+        const char *id = yyjson_mut_get_str(yyjson_mut_obj_get(m, "tool_call_id"));
+        if (!context_tool_name(msgs, first, i - 1, id)) continue;
+        if (bytes > SIZE_MAX - candidate_bytes || candidate_count == SIZE_MAX) return -1;
+        earliest = i - 1;
+        candidate_bytes += bytes;
+        candidate_count++;
+    }
+    if (!candidate_count) return 0;
+    size_t affected = 0;
+    for (size_t i = earliest; i < total; i++) {
+        char *json = jwrite_mut_val(yyjson_mut_arr_get(msgs, i));
+        if (!json) return -1;
+        size_t n = strlen(json);
+        if (n > SIZE_MAX - affected) {
+            free(json);
+            return -1;
+        }
+        affected += n;
+        free(json);
+    }
+    /* Account conservatively for stubs before committing any transcript
+     * change. One cache miss is expensive when the old suffix is large. */
+    size_t estimated_saved =
+        candidate_count <= SIZE_MAX / 256 && candidate_bytes > candidate_count * 256
+            ? candidate_bytes - candidate_count * 256
+            : 0;
+    if (estimated_saved < affected / 4) return 0;
+    context_edit_pending *pending = calloc(candidate_count, sizeof *pending);
+    if (!pending) return -1;
+    retained = 0;
+    size_t prepared = 0;
+    for (size_t i = total; i > first; i--) {
+        yyjson_mut_val *m = yyjson_mut_arr_get(msgs, i - 1);
+        const char *role = mrole(m);
+        if (!role || strcmp(role, "tool") != 0) continue;
+        if (retained++ < (size_t)keep) continue;
+        yyjson_mut_val *content = yyjson_mut_obj_get(m, "content");
+        if (!yyjson_mut_is_str(content)) continue;
+        const char *original = yyjson_mut_get_str(content);
+        size_t bytes = yyjson_mut_get_len(content);
+        if (bytes <= 1024 || context_was_cleared(s, i - 1)) continue;
+        const char *id = yyjson_mut_get_str(yyjson_mut_obj_get(m, "tool_call_id"));
+        const char *name = context_tool_name(msgs, first, i - 1, id);
+        if (!name) continue;
+        size_t lines = bytes && original[bytes - 1] != '\n' ? 1 : 0;
+        for (size_t k = 0; k < bytes; k++)
+            if (original[k] == '\n') lines++;
+        char *handle = session_store_result(s, original, bytes);
+        if (!handle) goto failed;
+        buf_t stub;
+        buf_init(&stub);
+        buf_appendf(&stub, "[cleared: %s output, %zu bytes, %zu lines; full: ", name, bytes, lines);
+        if (s->ctx->no_save) buf_appendf(&stub, "read_tool_result(handle=%s)", handle);
+        else buf_appendf(&stub, "%s/results/%s.txt", s->dir, handle);
+        buf_appends(&stub, "]");
+        free(handle);
+        if (buf_oom(&stub)) {
+            buf_free(&stub);
+            goto failed;
+        }
+        yyjson_mut_val *replacement = yyjson_mut_strncpy(s->doc, stub.data, stub.len);
+        yyjson_mut_val *marker = yyjson_mut_uint(s->doc, i - 1);
+        size_t new_bytes = stub.len;
+        buf_free(&stub);
+        if (!replacement || !marker) goto failed;
+        pending[prepared++] =
+            (context_edit_pending){.message = m, .replacement = replacement, .marker = marker};
+        saved += bytes > new_bytes ? bytes - new_bytes : 0;
+    }
+    yyjson_mut_val *items = yyjson_mut_obj_get(root_of(s), "context_edit_items");
+    if (!items) {
+        items = yyjson_mut_arr(s->doc);
+        if (!items || !yyjson_mut_obj_add_val(s->doc, root_of(s), "context_edit_items", items))
+            goto failed;
+    }
+    yyjson_mut_val *key = yyjson_mut_str(s->doc, "content");
+    if (!key) goto failed;
+    for (size_t i = 0; i < prepared; i++) {
+        if (!yyjson_mut_obj_replace(pending[i].message, key, pending[i].replacement) ||
+            !yyjson_mut_arr_add_val(items, pending[i].marker))
+            goto failed;
+    }
+    free(pending);
+    if (bytes_saved) *bytes_saved = saved;
+    if (affected_bytes) *affected_bytes = affected;
+    return (int)prepared;
+failed:
+    free(pending);
+    return -1;
+}
+
+bool session_record_context_edit(tny_session_state *s, int64_t before_tokens, int64_t after_tokens,
+                                 int cleared, size_t affected_bytes, size_t removed_bytes,
+                                 double payback_requests) {
+    yyjson_mut_val *events = yyjson_mut_obj_get(root_of(s), "context_edits");
+    if (!events) {
+        events = yyjson_mut_arr(s->doc);
+        if (!events || !yyjson_mut_obj_add_val(s->doc, root_of(s), "context_edits", events))
+            return false;
+    }
+    yyjson_mut_val *entry = yyjson_mut_obj(s->doc);
+    yyjson_mut_val *payback = yyjson_mut_real(s->doc, payback_requests);
+    return entry && yyjson_mut_obj_add_strcpy(s->doc, entry, "type", "context_edit") &&
+           yyjson_mut_obj_add_int(s->doc, entry, "schema_version", 1) &&
+           yyjson_mut_obj_add_int(s->doc, entry, "before_tokens", before_tokens) &&
+           yyjson_mut_obj_add_int(s->doc, entry, "after_tokens", after_tokens) &&
+           yyjson_mut_obj_add_int(s->doc, entry, "cleared_items", cleared) &&
+           yyjson_mut_obj_add_uint(s->doc, entry, "affected_bytes", affected_bytes) &&
+           yyjson_mut_obj_add_uint(s->doc, entry, "removed_bytes", removed_bytes) && payback &&
+           yyjson_mut_obj_add_val(s->doc, entry, "payback_requests", payback) &&
+           yyjson_mut_arr_add_val(events, entry);
+}
+
 /* ---- compaction ---- */
 
 int session_compact_boundary(tny_session_state *s, const char **summary) {
