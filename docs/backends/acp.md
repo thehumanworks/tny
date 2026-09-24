@@ -39,6 +39,13 @@ The requested model must appear in the adapter's session catalog. tny confirms
 acknowledgement) before sending the prompt. Unknown, unavailable, rejected or
 unconfirmed models fail explicitly. Use an exact advertised ID such as
 `sonnet`; an account's default model can be different and more expensive.
+`tny --provider acp --agent claude-agent-acp models` lists the adapter's
+catalog, not Claude Code's CLI catalog. If Claude Code shows a newer model
+but tny does not, check `claude-agent-acp --version` and update the adapter
+(e.g. `mise install 'npm:@agentclientprotocol/claude-agent-acp@latest'` when
+installed with mise). Then run `tny ... models` again. Updating Claude Code
+alone does not update the adapter or its bundled Claude Agent SDK. Model names
+may change while selectable IDs remain aliases (for example, `opus[1m]`).
 Reasoning effort is selectable only when the agent advertises a compatible
 `thought_level` option and confirms it. Fast service tier is not an ACP field.
 
