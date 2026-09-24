@@ -72,6 +72,21 @@ for the measured comparison and its limits.
 
 ### Native tool profiles
 
+With experimental `TNY_EXP_PREFIX=1`, the default `all` profile advertises its
+frequent tools and `tool_search(query)` first. The setup message lists the
+remaining built-in names. A matching query loads their schemas in registry order
+for subsequent requests in the session; an empty query lists deferred tools.
+The model may also call a deferred tool by its exact name without discovery.
+Team, swarm and job tools stay advertised when the turn runs in a collective or
+team context. Tool availability, permission checks and arguments are unchanged.
+The loaded set is stored in the session and survives resume. The flag also uses shorter core
+instructions and holds workspace instructions, skills, the MCP catalog,
+learning guidance, and capability facts in one stable setup message for the
+turn. The advertised schema array is held stable during a turn unless discovery
+loads another schema. Without the flag, request bytes and tool advertisement stay unchanged.
+Native and wasm builds use the same registry. Wasm keeps its existing clean
+errors for tools requiring native processes.
+
 The user setting `tools` and higher-precedence `TNY_TOOLS` select what the
 native OpenAI-compatible loop both advertises and accepts ([ADR
 0062](../adr/0062-native-tool-profiles-advertise-and-enforce.md)):

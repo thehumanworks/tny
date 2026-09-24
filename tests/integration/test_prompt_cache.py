@@ -28,7 +28,8 @@ class Provider(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
-        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        wire = self.rfile.read(int(self.headers["Content-Length"]))
+        body = json.loads(wire)
         chat = "messages" in body
         items = body.get("messages", body.get("input", []))
         users = [i for i, item in enumerate(items) if item.get("role") == "user"]
@@ -38,6 +39,7 @@ class Provider(BaseHTTPRequestHandler):
         )
         server = self.server
         server.requests.append((body, dict(self.headers)))
+        server.raw_requests.append(wire)
         if server.retry and step == 1 and not server.retried:
             server.retried = True
             error = b'{"error":{"message":"retry fixture","type":"server_error"}}'
@@ -46,7 +48,10 @@ class Provider(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(error)
             return
-        details = {"cached_tokens": (0, 128, 256)[step], "cache_write_tokens": 0}
+        details = {
+            "cached_tokens": (0, 128, 256)[min(step, 2)],
+            "cache_write_tokens": 0,
+        }
         usage = {
             "prompt_tokens" if chat else "input_tokens": 100 * (step + 1),
             "completion_tokens" if chat else "output_tokens": 10 * (step + 1),
@@ -56,12 +61,17 @@ class Provider(BaseHTTPRequestHandler):
         if server.empty_usage:
             usage.clear()
         call_id = f"call_{len(users)}_{step}"
-        if step < 2:
+        if step < server.max_tool_steps - 1:
+            tool_name, tool_args = (
+                server.tool_sequence[step]
+                if server.tool_sequence
+                else ("list_files", '{"path":"."}')
+            )
             item = {
                 "type": "function_call",
                 "call_id": call_id,
-                "name": "list_files",
-                "arguments": '{"path":"."}',
+                "name": tool_name,
+                "arguments": tool_args,
             }
             delta = {
                 "tool_calls": [
@@ -69,7 +79,7 @@ class Provider(BaseHTTPRequestHandler):
                         "index": 0,
                         "id": call_id,
                         "type": "function",
-                        "function": {"name": "list_files", "arguments": '{"path":"."}'},
+                        "function": {"name": tool_name, "arguments": tool_args},
                     }
                 ]
             }
@@ -93,7 +103,9 @@ class Provider(BaseHTTPRequestHandler):
                         {
                             "index": 0,
                             "delta": delta,
-                            "finish_reason": "tool_calls" if step < 2 else "stop",
+                            "finish_reason": "tool_calls"
+                            if step < server.max_tool_steps - 1
+                            else "stop",
                         }
                     ],
                     "usage": usage,
@@ -103,7 +115,7 @@ class Provider(BaseHTTPRequestHandler):
             events = [
                 {"type": "response.output_item.done", "output_index": 0, "item": item}
             ]
-            if step == 2:
+            if step == server.max_tool_steps - 1:
                 events.append(
                     {"type": "response.output_text.delta", "delta": "CACHE-OK"}
                 )
@@ -166,6 +178,9 @@ class CacheTests(unittest.TestCase):
         self.ws.mkdir()
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
         self.server.requests = []
+        self.server.raw_requests = []
+        self.server.max_tool_steps = 3
+        self.server.tool_sequence = None
         for flag in [
             "retry",
             "retried",
@@ -196,7 +211,7 @@ class CacheTests(unittest.TestCase):
             TNY_ISOLATE="0",
         )
 
-    def ask(self, *flags, provider="codex", expected=0, prompt="first"):
+    def ask(self, *flags, provider="codex", wire=None, expected=0, prompt="first"):
         result = subprocess.run(
             [
                 TNY,
@@ -204,6 +219,7 @@ class CacheTests(unittest.TestCase):
                 str(self.ws),
                 "--provider",
                 provider,
+                *(["--wire-api", wire] if wire else []),
                 "ask",
                 "--json",
                 *flags,
@@ -292,6 +308,91 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(data["usage"]["in"], 1200)
         self.assertEqual(data["usage"]["cached_in"], 768)
         self.assertNotIn("affinity-", session.read_text())
+
+    def test_experimental_prefix_is_stable_for_five_requests(self):
+        self.server.max_tool_steps = 5
+        self.env["TNY_EXP_PREFIX"] = "1"
+        self.ask()
+        requests = [body for body, _headers in self.server.requests]
+        self.assertEqual(len(requests), 5)
+        first = requests[0]
+        names = [tool.get("name") for tool in first["tools"]]
+        self.assertIn("tool_search", names)
+        self.assertNotIn("image_contact_sheet", names)
+        self.assertEqual(first["input"][0]["role"], "developer")
+        setup = first["input"][0]
+        self.assertIn("Deferred built-in tools:", setup["content"])
+        for request in requests[1:]:
+            self.assertEqual(first["instructions"], request["instructions"])
+            self.assertEqual(first["tools"], request["tools"])
+            self.assertEqual(setup, request["input"][0])
+
+    def test_experimental_first_request_shares_prefix_across_workspaces(self):
+        self.env["TNY_EXP_PREFIX"] = "1"
+        self.server.max_tool_steps = 1
+        self.ask()
+        first = self.server.raw_requests[0]
+        self.ws = self.home / "other-workspace"
+        self.ws.mkdir()
+        self.ask()
+        second = self.server.raw_requests[1]
+        self.assertNotEqual(first, second)
+        first_body = self.server.requests[0][0]
+        second_body = self.server.requests[1][0]
+        self.assertEqual(
+            first_body["prompt_cache_key"], second_body["prompt_cache_key"]
+        )
+        self.assertEqual(
+            self.server.requests[0][1]["session-id"],
+            self.server.requests[1][1]["session-id"],
+        )
+        shared = len(os.path.commonprefix([first, second]))
+        self.assertLess(first.index(b'"tools":'), first.index(b'"instructions":'))
+        self.assertLess(
+            first.index(b'"instructions":'), first.index(b'"prompt_cache_key":')
+        )
+        self.assertGreater(shared, first.index(b'"prompt_cache_key":'))
+
+    def test_experimental_discovery_loads_schema_on_next_request(self):
+        self.env["TNY_EXP_PREFIX"] = "1"
+        self.server.tool_sequence = [
+            ("tool_search", '{"query":"file_info"}'),
+            ("file_info", '{"path":"."}'),
+        ]
+        first_turn = self.ask()
+        bodies = [body for body, _headers in self.server.requests]
+        self.assertEqual(len(bodies), 3)
+        first_names = [tool.get("name") for tool in bodies[0]["tools"]]
+        second_names = [tool.get("name") for tool in bodies[1]["tools"]]
+        self.assertNotIn("file_info", first_names)
+        self.assertIn("file_info", second_names)
+        self.assertIn("Matching schemas", json.dumps(bodies[1]["input"]))
+        self.server.requests.clear()
+        self.server.raw_requests.clear()
+        self.server.tool_sequence = None
+        self.ask("--resume", first_turn["session_id"], prompt="second")
+        resumed_names = [
+            tool.get("name") for tool in self.server.requests[0][0]["tools"]
+        ]
+        self.assertIn("file_info", resumed_names)
+
+    def test_experimental_chat_wire_uses_frozen_setup(self):
+        self.env["TNY_EXP_PREFIX"] = "1"
+        self.env["OPENAI_BASE_URL"] = f"http://127.0.0.1:{self.server.server_port}/v1"
+        self.env["OPENAI_API_KEY"] = "synthetic-prefix-fixture"
+        self.ask(provider="openai", wire="chat")
+        bodies = [body for body, _headers in self.server.requests]
+        self.assertEqual(len(bodies), 3)
+        first = bodies[0]
+        self.assertEqual(first["messages"][1]["role"], "system")
+        self.assertIn("Deferred built-in tools:", first["messages"][1]["content"])
+        for body in bodies[1:]:
+            self.assertEqual(first["tools"], body["tools"])
+            self.assertEqual(first["messages"][:2], body["messages"][:2])
+        self.assertLess(
+            self.server.raw_requests[0].index(b'"tools":'),
+            self.server.raw_requests[0].index(b'"messages":'),
+        )
 
     def test_raw_missing_details_and_incomplete_usage(self):
         self.server.raw = self.server.missing = self.server.incomplete = True

@@ -634,6 +634,8 @@ static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
     ctx->backend = -1;
     ctx->perm_mode = TNY_MODE_YOLO;
     ctx->tool_profile = TNY_TOOLS_ALL;
+    const char *prefix_env = getenv("TNY_EXP_PREFIX");
+    ctx->exp_prefix = prefix_env && strcmp(prefix_env, "1") == 0;
     yyjson_val *learning = jget(sroot, "self_improve");
     const char *learning_env = getenv("TNY_SELF_IMPROVE");
     if ((learning && !yyjson_is_bool(learning)) ||

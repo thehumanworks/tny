@@ -87,6 +87,10 @@ SSH host/cwd also participate in the routing ID. ChatGPT's `session-id`
 header uses this routing group; `thread-id` always remains the individual
 conversation ID. `TNY_OPENAI_CACHE_SCOPE=session` restores conversation-only
 routing; unknown scope values conservatively use session scope.
+With `TNY_EXP_PREFIX=1`, the routing group uses a stable version and tool
+profile instead of the workspace path, so workspaces with the same leading
+tools and instructions can reach the same cache group. The provider still
+matches request content before reuse. Session scope still takes precedence.
 The first valid `x-codex-turn-state` response header is replayed
 for the remainder of that user turn, then cleared. It never enters the
 transcript, logs, or the next turn. Values at the HTTP transport's truncation

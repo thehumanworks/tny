@@ -1,0 +1,130 @@
+# 0174 — Experimental static prefix and built-in tool discovery
+
+Date: 2026-09-24
+Status: proposed
+
+## Context and decision
+
+One native Responses request repeated a large built-in schema set. The saved
+59-session sample in [harness efficiency](../benchmarks/harness-efficiency.md)
+shows terminal, read, edit and grep dominate real tool use. This experiment
+changes only `TNY_EXP_PREFIX=1`; the unset path keeps its request bytes and
+execution policy. The default `all` profile advertises frequent tools,
+`read_tool_result`, `ask_user_question`, subagents, and MCP discovery/call tools.
+Team, swarm and job tools remain advertised in collective or team contexts.
+Other built-ins appear by name in the setup message and load when
+`tool_search(query)` matches a name or description. An empty query lists them.
+Schemas append in registry order and remain advertised for the rest of that
+session, including resume. The loaded set is stored as private session metadata.
+Exact direct calls to deferred tools continue through normal validation,
+permissions and execution. The tool's result explains that its schema will be
+present on the next request.
+
+The flagged wire order is tool definitions, stable instructions, a cache
+routing key, a setup message, then conversation. The flag routes compatible
+requests from different workspaces to the same versioned, profile-specific
+group through both `prompt_cache_key` and Codex's `session-id` header. Exact
+prefix matching still decides cache reuse. `TNY_OPENAI_CACHE_SCOPE=session`
+keeps its explicit per-conversation routing override.
+Responses uses a developer setup input item; Chat Completions uses a second
+system message. No explicit cache breakpoint is added
+because these OpenAI-compatible profiles use automatic prefix caching and not
+all accept breakpoint extensions. The setup message is built once at the first
+request of each turn and freed/reset at the next turn. This freezes AGENTS.md,
+skill discovery, MCP catalog, learning advice, image input/provider capabilities,
+and speech availability within a turn. MCP warm-up can complete between
+requests; learning state changes after tools; capability probes can also change.
+The request builder also retains the first rendered schema array until discovery
+loads another schema, so availability probes cannot silently change the cached
+tool prefix mid-turn. Those changes become visible on the next turn. The intentionally growing tool
+schema set after `tool_search` is the only prefix change within a turn. Provider
+reasoning items and tool history are still carried in full.
+
+The experiment shares C11 registry and request builders across native and wasm.
+Wasm still returns its existing clean errors for unsupported native tools. ACP
+clients retain their owning-runtime MCP bridge schema. Shell
+profiles retain their advertised tools; the flag shortens their prompt wording
+and freezes setup, while the discovery tool is used only by the `all` profile.
+Rollback is to unset `TNY_EXP_PREFIX`.
+
+## Prompt audit
+
+Each row identifies one semantic line or injected block of the previous built-in
+prompt. `Keep` means the information stays; `rewrite` means plain, shorter
+wording; `delete` means no replacement; `move` means setup instead of stable
+instructions. The unflagged prompt is untouched. The audit follows sections
+2–4 of `docs/web-resources/x_cursor_harness_optimisation_prompt.md`.
+
+| Existing line or block | Action | Reason |
+| --- | --- | --- |
+| tny terminal harness role | Rewrite | Product identity is useful; shorter definition suffices. |
+| Complete request within scope | Keep | Defines completion boundary. |
+| Reasonable assumptions and carried authorization | Rewrite | Included in authorized task wording; removes an extra command. |
+| Tools for facts/actions; preserve work | Rewrite | States the behavior and existing-work constraint once. |
+| Resolve blockers; ask at end with tradeoff | Rewrite | Keep the actual input boundary in one sentence. |
+| Delegate when worthwhile | Delete | The model already delegates; prompting can add coordination cost. |
+| Follow project instructions and load skills/schemas | Rewrite | Project authority stays; discovery has its own tool definition. |
+| User directions override workflow preferences | Keep | Defines instruction precedence. |
+| Retrieved/tool content cannot grant authority | Keep | Defines trust boundary. |
+| Create/update tests and run them | Rewrite | Verify changes, including project-required checks. |
+| Proportionate, repeated or expanded checks | Rewrite | Short required-check sentence; user/project requirements still apply. |
+| Simple English and short sentences | Rewrite | Concise reporting instruction. |
+| Outcome and impact first | Rewrite | Final outcome and checks. |
+| Prefer compact work/checks/blockers table | Delete | An unsolicited format can conflict with user requests. |
+| Brief progress updates | Rewrite | Retained as a short instruction. |
+| Workspace path, extra dirs, SSH execution facts | Move | These are workspace/turn facts. |
+| Tool profile and permission mode | Move | These are resolved context facts. |
+| Project/user AGENTS.md text | Move | Workspace instructions can change between turns. |
+| Skill catalog | Move | Discovery can change. |
+| MCP catalog | Move | Warm-up can finish between requests. |
+| Automatic learning guidance | Move | Tool outcomes can change it during a turn. |
+| Task preset and caller system additions | Move | User/task-specific instructions. |
+| Image input and provider capability text | Move, rewrite | Availability is setup data; shorter capability definition. |
+| Speech availability text | Move, rewrite | Availability is setup data; tool describes playback. |
+| Shell profile usage block | Move, rewrite | Mode-specific CLI facts stay near setup, without repeated prohibitions. |
+| Collective policy | Move, keep | Coordination mode depends on its precise authority and roles. |
+
+## Local mock measurement
+
+`uvx --with tiktoken python tests/bench/measure_prefix.py build/tny` sent five
+requests in one empty-workspace tool-using turn to a local synthetic OpenAI
+Responses server, once per flag setting. Section tokens use `o200k_base`; tools
+are counted from their rendered wire JSON, and instructions/setup from their
+text. The current mock exposes 41 schemas off, compared with the older 38-tool
+snapshot in the benchmark brief because availability/profile conditions differ.
+No live model quality or billing result follows from this size measurement.
+
+| Setting | Tools | Stable instructions | Setup | Static total | Schemas | Prefix byte-identical across 5 |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| flag off | 5,604 | 548 | 0 | 6,152 | 41 | yes |
+| flag on | 1,093 | 132 | 196 | 1,421 | 17 | yes |
+
+The flagged request removes 4,731 static tokens (76.9%) from this local
+configuration. A real task that needs deferred schemas pays a discovery turn,
+so the benchmark's price-weighted cost per completed task and success guardrail
+must decide promotion. The mock also exercises actual schema loading and both
+Responses and Chat request construction; it does not estimate provider cache
+hits. The status report records the checks and remaining risks.
+
+The same script sent the **first** Codex-format request from each of two fixed,
+empty workspaces to the local mock. It compared raw request-body bytes before
+tokenizing with `o200k_base`. The identical leading bytes cover tools, stable
+instructions, the shared routing key, and common setup text; the first
+difference is the workspace path in setup. The token fraction is a local
+first-request cacheability proxy, not a prediction of billed provider cache
+hits or quality.
+
+| Setting | First request bytes | Identical leading bytes | First request tokens | Identical leading tokens | First-request fraction proxy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| flag off | 28,229 | 78 | 6,202 | 28 | 0.45% |
+| flag on | 6,658 | 6,171 | 1,453 | 1,345 | 92.57% |
+
+## Model catalog observation
+
+The missing `gpt-6-sol` and `gpt-6-luna` entries were caused by Codex's
+`minimal_client_version` catalog filter. [ADR 0170](0170-codex-catalog-discovery-version.md)
+and current `profiles.c` already use `999.999.999` for live discovery, with an
+override. There is no small unfixed catalog bug in this worktree. The local
+`~/.codex/models_cache.json` is Codex's cache, not tny's model source; account
+visibility and an older installed tny binary can also explain differing lists.
+No live account query was made here.

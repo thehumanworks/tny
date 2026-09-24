@@ -91,6 +91,7 @@ typedef struct tools_env {
     struct mcp_client *mcp;
     /* set true when a PROMPT could not be resolved (ask-mode CLI) */
     bool perm_blocked;
+    uint64_t prefix_loaded_tools; /* deferred schema set, scoped to one native turn */
     tny_image_preview_admit preview_admit;
     void *preview_ud;
     /* ONE pending-image queue, flushed as a user-role image_url message after
@@ -142,6 +143,8 @@ const char *tools_call_label(const tools_call *call);
  * promoted here; they ride the system-prompt catalog (docs/adr/0049).
  * malloc'd. */
 char *tools_schema_json(tools_env *env);
+/* One-line catalog and deferred schema selection for the experimental prefix. */
+char *tools_prefix_catalog(tools_env *env);
 
 /* Execute one call. Returns a malloc'd string for the role:"tool" message.
  * `all` bounds large output behind a session handle; shell profiles give

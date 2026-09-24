@@ -66,6 +66,7 @@ typedef struct tny_ctx {
                            * saved models */
     tny_perm_mode perm_mode;
     tny_tool_profile tool_profile; /* native-loop built-ins advertised/accepted */
+    bool exp_prefix;               /* TNY_EXP_PREFIX=1: deferred built-ins and stable turn setup */
     bool json_out;
     bool no_save;
     bool no_self_improve;     /* default-on bounded workflow learning; explicit opt-out */

@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <ctype.h>
 
 char *tool_err(const char *fmt, ...) {
     buf_t b;
@@ -487,6 +488,85 @@ static const char *SCHEMA_JSON =
     "\"string\"}},\"required\":[\"question\"]}}}"
     "]";
 
+static const char *PREFIX_SEARCH_SCHEMA =
+    "{\"type\":\"function\",\"function\":{\"name\":\"tool_search\","
+    "\"description\":\"Find built-in tools by name or purpose; matching schemas load for this "
+    "turn. Empty query lists deferred tools.\",\"parameters\":{\"type\":\"object\","
+    "\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}}}";
+
+static bool prefix_keep(const tools_env *env, const char *name) {
+    static const char *const common[] = {"terminal",
+                                         "read_file",
+                                         "edit_file",
+                                         "grep_files",
+                                         "write_file",
+                                         "skill",
+                                         "list_files",
+                                         "glob_files",
+                                         "web_fetch",
+                                         "web_search",
+                                         "read_image",
+                                         "subagent",
+                                         "read_tool_result",
+                                         "ask_user_question",
+                                         "mcp_search_tools",
+                                         "mcp_select_tool",
+                                         NULL};
+    for (int i = 0; common[i]; i++)
+        if (strcmp(name, common[i]) == 0) return true;
+    bool coordinated =
+        env->ctx->swarm_cap || getenv("TNY_TEAM_COLLECTIVE") || getenv("TNY_TEAM_RUN");
+    return coordinated && (str_starts(name, "team_") || str_starts(name, "swarm_") ||
+                           str_starts(name, "job_") || str_starts(name, "job_workspace_"));
+}
+
+static const char *prefix_description(const char *name) {
+    if (strcmp(name, "terminal") == 0)
+        return "Run command in workspace (timeout_s defaults to 120); background returns task_id. "
+               "Use task_id with wait_s (0-600) to collect; wait timeout leaves work running.";
+    if (strcmp(name, "read_file") == 0)
+        return "Read text at path, optionally from line offset for limit lines.";
+    if (strcmp(name, "edit_file") == 0)
+        return "Replace exact old_string at path; replace_all permits multiple matches.";
+    if (strcmp(name, "grep_files") == 0)
+        return "Find matching file lines under path; case_insensitive ignores case.";
+    if (strcmp(name, "write_file") == 0) return "Write content to path, creating or replacing it.";
+    if (strcmp(name, "list_files") == 0) return "List entries at path (workspace root by default).";
+    if (strcmp(name, "glob_files") == 0) return "Find paths matching pattern under path.";
+    if (strcmp(name, "read_image") == 0)
+        return "Attach image at path; pixels arrive in the next request.";
+    if (strcmp(name, "subagent") == 0)
+        return "Create, message, inspect or manage a durable child session.";
+    if (strcmp(name, "read_tool_result") == 0)
+        return "Read stored tool output by handle, optional byte offset and length.";
+    if (strcmp(name, "mcp_search_tools") == 0)
+        return "Search configured MCP tool names and descriptions.";
+    if (strcmp(name, "mcp_select_tool") == 0) return "Call tool on server with JSON arguments.";
+    if (strcmp(name, "team_mailbox") == 0)
+        return "Send, publish, receive, acknowledge or wait on durable team messages.";
+    if (strcmp(name, "team_control") == 0)
+        return "Start, inspect, collect, wait for or cancel a durable team.";
+    if (strcmp(name, "swarm_message") == 0) return "Send a message to a swarm participant or lead.";
+    if (strcmp(name, "job_submit") == 0)
+        return "Start durable ask or image work; returns a job id and item logs.";
+    if (strcmp(name, "job_status") == 0)
+        return "Inspect, wait for, list or read logs of durable jobs.";
+    if (strcmp(name, "job_control") == 0) return "Cancel, retry or remove a durable job.";
+    return NULL;
+}
+
+static const char *prefix_property_description(const char *name, const char *key) {
+    if (strcmp(name, "subagent") != 0) return NULL;
+    if (strcmp(key, "id") == 0) return "Child id from create; omit on create.";
+    if (strcmp(key, "provider") == 0)
+        return "create/message: native HTTP profile; omit to inherit parent.";
+    if (strcmp(key, "model") == 0)
+        return "create/message: child model; omit to inherit when provider matches.";
+    if (strcmp(key, "effort") == 0)
+        return "create/message: reasoning effort; omit to inherit when provider matches.";
+    return NULL;
+}
+
 static bool schema_tool_disabled(const tools_env *env, const char *name) {
     if (!env || !env->ctx || !name) return false;
     if (env->ctx->prompt_optimisation)
@@ -579,6 +659,78 @@ static char *append_custom_schema(char *base, custom_tool_registry *registry) {
 }
 
 char *tools_schema_json(tools_env *env) {
+    if (env && env->ctx && env->ctx->exp_prefix && env->ctx->backend == TNY_BK_OPENAI &&
+        !env->ctx->prompt_optimisation && env->ctx->tool_profile == TNY_TOOLS_ALL) {
+        yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
+        yyjson_doc *search = jparse(PREFIX_SEARCH_SCHEMA, strlen(PREFIX_SEARCH_SCHEMA));
+        yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+        yyjson_mut_doc *mut = yyjson_mut_doc_new(jallocator());
+        yyjson_mut_val *out = mut ? yyjson_mut_arr(mut) : NULL;
+        if (root && search && out) {
+            bool complete = true;
+            size_t idx, max;
+            yyjson_val *item;
+            yyjson_arr_foreach(root, idx, max, item) {
+                const char *name = jget_str(jget(item, "function"), "name");
+                if (schema_tool_hidden(env, name)) continue;
+                if (idx >= 64) {
+                    complete = false;
+                    break;
+                }
+                if (!prefix_keep(env, name) && !(env->prefix_loaded_tools & (UINT64_C(1) << idx)))
+                    continue;
+                yyjson_mut_val *copy = yyjson_val_mut_copy(mut, item);
+                if (!copy) {
+                    complete = false;
+                    break;
+                }
+                const char *description = prefix_description(name);
+                if (description) {
+                    yyjson_mut_val *function = yyjson_mut_obj_get(copy, "function");
+                    if (!yyjson_mut_obj_put(function, yyjson_mut_strcpy(mut, "description"),
+                                            yyjson_mut_strcpy(mut, description))) {
+                        complete = false;
+                        break;
+                    }
+                }
+                yyjson_mut_val *properties = yyjson_mut_obj_get(
+                    yyjson_mut_obj_get(yyjson_mut_obj_get(copy, "function"), "parameters"),
+                    "properties");
+                if (properties) {
+                    size_t property_index, property_count;
+                    yyjson_mut_val *key, *value;
+                    yyjson_mut_obj_foreach(properties, property_index, property_count, key, value) {
+                        const char *shorter =
+                            prefix_property_description(name, yyjson_mut_get_str(key));
+                        if (shorter &&
+                            !yyjson_mut_obj_put(value, yyjson_mut_strcpy(mut, "description"),
+                                                yyjson_mut_strcpy(mut, shorter))) {
+                            complete = false;
+                            break;
+                        }
+                    }
+                }
+                if (!complete || !yyjson_mut_arr_add_val(out, copy)) {
+                    complete = false;
+                    break;
+                }
+            }
+            yyjson_mut_val *search_copy = yyjson_val_mut_copy(mut, yyjson_doc_get_root(search));
+            if (complete && search_copy && yyjson_mut_arr_add_val(out, search_copy) &&
+                !tny_alloc_scope_failed()) {
+                yyjson_mut_doc_set_root(mut, out);
+                char *json = jwrite(mut);
+                yyjson_mut_doc_free(mut);
+                yyjson_doc_free(search);
+                yyjson_doc_free(doc);
+                return json ? append_custom_schema(json, env->ctx->custom_tools) : NULL;
+            }
+        }
+        yyjson_mut_doc_free(mut);
+        yyjson_doc_free(search);
+        yyjson_doc_free(doc);
+        return NULL;
+    }
     if (env && env->ctx &&
         (env->ctx->prompt_optimisation || env->ctx->mcp_disabled || env->ctx->library_mode ||
          (env->ctx->workspace_read_only && getenv("TNY_SWARM_NAME")) ||
@@ -611,6 +763,68 @@ char *tools_schema_json(tools_env *env) {
     }
     return append_custom_schema(xstrdup(SCHEMA_JSON),
                                 env && env->ctx ? env->ctx->custom_tools : NULL);
+}
+
+char *tools_prefix_catalog(tools_env *env) {
+    if (!env || !env->ctx || !env->ctx->exp_prefix || env->ctx->backend != TNY_BK_OPENAI ||
+        env->ctx->tool_profile != TNY_TOOLS_ALL)
+        return xstrdup("");
+    yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
+    if (!doc) return NULL;
+    buf_t out;
+    buf_init(&out);
+    size_t idx, max;
+    yyjson_val *item;
+    yyjson_arr_foreach(yyjson_doc_get_root(doc), idx, max, item) {
+        const char *name = jget_str(jget(item, "function"), "name");
+        if (schema_tool_hidden(env, name) || prefix_keep(env, name)) continue;
+        if (out.len) buf_appends(&out, ", ");
+        buf_appends(&out, name);
+    }
+    yyjson_doc_free(doc);
+    return buf_detach(&out);
+}
+
+static bool prefix_query_match(const char *haystack, const char *needle) {
+    if (!needle || !*needle) return false;
+    for (const char *start = haystack; *start; start++) {
+        const char *a = start, *b = needle;
+        while (*a && *b && tolower((unsigned char)*a) == tolower((unsigned char)*b)) a++, b++;
+        if (!*b) return true;
+    }
+    return false;
+}
+
+static char *prefix_search(tools_env *env, const char *query) {
+    yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
+    if (!doc) return NULL;
+    buf_t out;
+    buf_init(&out);
+    size_t idx, max;
+    yyjson_val *item;
+    yyjson_arr_foreach(yyjson_doc_get_root(doc), idx, max, item) {
+        yyjson_val *function = jget(item, "function");
+        const char *name = jget_str(function, "name");
+        if (schema_tool_hidden(env, name) || prefix_keep(env, name)) continue;
+        if (idx >= 64) continue;
+        const char *description = prefix_description(name);
+        if (!description) description = jget_str(function, "description");
+        if (query && *query && !prefix_query_match(name, query) &&
+            !prefix_query_match(description ? description : "", query))
+            continue;
+        if (query && *query) env->prefix_loaded_tools |= UINT64_C(1) << idx;
+        buf_appendf(&out, "%s: %.100s\n", name, description ? description : "");
+    }
+    yyjson_doc_free(doc);
+    if (query && *query && env->session &&
+        !session_set_prefix_loaded_tools(env->session, env->prefix_loaded_tools)) {
+        buf_free(&out);
+        return NULL;
+    }
+    if (!out.len) buf_appends(&out, "No matching deferred tools.");
+    else if (query && *query)
+        buf_appends(&out, "Matching schemas are loaded for the next request.");
+    return buf_detach(&out);
 }
 
 static bool json_type_matches(yyjson_val *value, const char *type) {
@@ -679,9 +893,11 @@ static int validate_parameters(const char *name, yyjson_val *args, yyjson_val *p
 }
 
 static int validate_call_schema(const char *name, yyjson_val *args, char **error) {
-    yyjson_doc *schemas = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
+    const char *source = strcmp(name, "tool_search") == 0 ? PREFIX_SEARCH_SCHEMA : SCHEMA_JSON;
+    yyjson_doc *schemas = jparse(source, strlen(source));
     yyjson_val *root = schemas ? yyjson_doc_get_root(schemas) : NULL;
     yyjson_val *parameters = NULL;
+    if (strcmp(name, "tool_search") == 0) parameters = jget(jget(root, "function"), "parameters");
     if (root && yyjson_is_arr(root)) {
         size_t idx, max;
         yyjson_val *item;
@@ -774,6 +990,12 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         yyjson_doc_free(schema);
         if (valid != 0) return -1;
     } else {
+        if (strcmp(call->name, "tool_search") == 0 &&
+            (!env->ctx->exp_prefix || env->ctx->backend != TNY_BK_OPENAI ||
+             env->ctx->tool_profile != TNY_TOOLS_ALL || env->ctx->prompt_optimisation)) {
+            call->error = tool_err("unknown tool %s", call->name);
+            return -1;
+        }
         if (schema_tool_disabled(env, call->name)) {
             call->error = tool_err("tool %s is unavailable in this runtime", call->name);
             return -1;
@@ -947,6 +1169,8 @@ char *tools_call_execute(tools_env *env, tools_call *call) {
     env->learning_fact = (tools_learning_fact){0};
     const char *name = call->name;
     yyjson_val *args = call->args;
+
+    if (strcmp(name, "tool_search") == 0) return prefix_search(env, jget_str(args, "query"));
 
     if (call->intercept) return tny_intercept_execute(env, call->intercept);
 

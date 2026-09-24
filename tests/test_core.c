@@ -3859,6 +3859,54 @@ TEST embedded_tool_schema_has_no_process_spawning_tools(void) {
     PASS();
 }
 
+TEST prefix_defers_and_loads_tools_for_one_turn(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_new_explicit(g_ws, g_home);
+    ASSERT(ctx);
+    ctx->library_mode = false;
+    ctx->exp_prefix = true;
+    perm_engine *perm = perm_new(ctx);
+    ASSERT(perm);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    ASSERT(tool_schema_has(&env, "terminal"));
+    ASSERT(tool_schema_has(&env, "tool_search"));
+    ASSERT(!tool_schema_has(&env, "file_info"));
+    char *catalog = tools_prefix_catalog(&env);
+    ASSERT(catalog && strstr(catalog, "file_info"));
+    free(catalog);
+    char *listing = tools_execute(&env, "tool_search", "{\"query\":\"\"}");
+    ASSERT(listing && strstr(listing, "file_info"));
+    ASSERT(!tool_schema_has(&env, "file_info"));
+    free(listing);
+    char *missing = tools_execute(&env, "tool_search", "{\"query\":\"no-such-tool\"}");
+    ASSERT(missing && strstr(missing, "No matching"));
+    free(missing);
+    tools_call direct;
+    ASSERT_EQ(0, tools_call_prepare(&env, "file_info", "{\"path\":\".\"}", &direct));
+    tools_call_free(&direct);
+    char *direct_result = tools_execute(&env, "file_info", "{\"path\":\".\"}");
+    ASSERT(direct_result && !str_starts(direct_result, "error:"));
+    free(direct_result);
+    ASSERT(!tool_schema_has(&env, "file_info"));
+    char *found = tools_execute(&env, "tool_search", "{\"query\":\"file_info\"}");
+    ASSERT(found && strstr(found, "file_info"));
+    free(found);
+    ASSERT(tool_schema_has(&env, "file_info"));
+    ASSERT(!tool_schema_has(&env, "image_contact_sheet"));
+    env.prefix_loaded_tools = 0;
+    ASSERT(!tool_schema_has(&env, "file_info"));
+    ctx->tool_profile = TNY_TOOLS_TERMINAL;
+    ASSERT(!tool_schema_has(&env, "tool_search"));
+    ctx->tool_profile = TNY_TOOLS_ALL;
+    ctx->exp_prefix = false;
+    char *disabled = tools_execute(&env, "tool_search", "{\"query\":\"file_info\"}");
+    ASSERT(disabled && strstr(disabled, "unknown tool"));
+    free(disabled);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 /* Local exports depend on the host, not on an image provider: they stay
  * advertised without any credentials, and a denied grant converts nothing and
  * writes nothing (docs/adr/0094). */
@@ -6134,6 +6182,7 @@ SUITE(core_suite) {
     RUN_TEST(responses_tools_flatten);
     RUN_TEST(responses_tools_preserve_optional_and_explicit_strict);
     RUN_TEST(embedded_tool_schema_has_no_process_spawning_tools);
+    RUN_TEST(prefix_defers_and_loads_tools_for_one_turn);
     RUN_TEST(image_export_tools_are_local_and_gated);
     RUN_TEST(optimisation_tools_are_read_only_even_in_yolo);
     RUN_TEST(subagent_plan_carries_resolved_config_privately);
