@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from run import _git_init, setup_task, verify_task
+
 ROOT = Path(__file__).parent / "tasks"
 IDS = (
     "log-triage",
@@ -61,8 +63,16 @@ def check_answers(task: Path) -> None:
             continue
         expected = answer.read_text().strip()
         for source in repo.rglob("*"):
-            if source.is_file() and expected in source.read_text(errors="replace"):
+            if not source.is_file():
+                continue
+            initial = source.read_text(errors="replace")
+            if expected in initial:
                 raise AssertionError(f"{source} embeds complete answer")
+            if name == "ANSWER.txt":
+                for line in expected.splitlines():
+                    value = line.partition("=")[2].strip()
+                    if value and value in initial:
+                        raise AssertionError(f"{source} embeds answer value")
         if (repo / name).exists():
             raise AssertionError(f"{name} present in initial workspace")
 
@@ -78,38 +88,23 @@ def check_task(task: Path, tmp_root: Path) -> tuple[bool, bool]:
     with tempfile.TemporaryDirectory(prefix=f"task-{task.name}-", dir=tmp_root) as tmp:
         workspace = Path(tmp) / "workspace"
         shutil.copytree(repo, workspace)
-        for args in (
-            ("git", "init", "-q"),
-            ("git", "add", "."),
-            (
-                "git",
-                "-c",
-                "user.name=Harness Benchmark",
-                "-c",
-                "user.email=benchmark@example.invalid",
-                "commit",
-                "-qm",
-                "initial",
-            ),
-        ):
-            result = run(*args, cwd=workspace)
-            if result.returncode:
-                raise AssertionError(f"git setup: {result.stderr}")
-        setup = task / "setup.sh"
-        if setup.exists():
-            result = run(str(setup), str(workspace), cwd=workspace)
-            if result.returncode:
-                raise AssertionError(f"setup failed: {result.stderr}")
+        _git_init(workspace)
+        setup_task(task, workspace, info["timeout_s"], subprocess.PIPE, subprocess.PIPE)
         final = Path(tmp) / "final.txt"
         final.write_text("")
-        verify = task / "verify.sh"
-        before = run(str(verify), str(workspace), str(final), cwd=workspace)
+        before = verify_task(task, workspace, final)
         apply_solution(task, workspace)
-        after = run(str(verify), str(workspace), str(final), cwd=workspace)
-        if after.returncode:
+        after = verify_task(task, workspace, final)
+        repeat = verify_task(task, workspace, final) if after.returncode == 0 else after
+        if after.returncode or repeat.returncode:
             print(f"  solved stderr: {after.stderr.strip()[:1200]}")
             print(f"  solved stdout: {after.stdout.strip()[:500]}")
-        return before.returncode != 0, after.returncode == 0
+            log = final.parent / "verify.log"
+            if log.exists():
+                print(
+                    f"  solved verify.log: {' '.join(log.read_text().splitlines()[-20:])[:1200]}"
+                )
+        return before.returncode != 0, after.returncode == 0 and repeat.returncode == 0
 
 
 def main() -> int:

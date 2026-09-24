@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
-python3 - "$1" << 'INNER'
+workspace=${1:-$PWD}
+python3 - "$workspace" << 'INNER'
 from pathlib import Path
 import sys
 w=Path(sys.argv[1])

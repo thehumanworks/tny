@@ -1,6 +1,6 @@
 {
   "id": "bugfix-multimodule",
-  "difficulty": "hard",
+  "difficulty": "easy",
   "category": "bugfix",
   "prompt": "The EUR invoice total is off by a cent for some carts. Fix the calculation and keep the public API.",
   "timeout_s": 900,
