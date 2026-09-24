@@ -121,7 +121,8 @@ def model_options(current=None):
         "name": "Model",
         "type": "select",
         "currentValue": current or MODEL,
-        "options": [
+        "options": json.loads(os.environ.get("ACP_FIXTURE_CATALOG", "null"))
+        or [
             {"value": "default-model", "name": "Default"},
             {"value": "selected-model", "name": "Selected"},
         ],

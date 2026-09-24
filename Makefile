@@ -324,6 +324,10 @@ endif
 
 # Measure shipped artifacts without a fixed product size ceiling.
 
+.PHONY: verify-formal
+verify-formal:
+	python3 tests/formal/check.py
+
 .PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-sdk-examples test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
 all: release
@@ -1019,7 +1023,7 @@ test-libtny-tsan:
 	@exit 2
 endif
 
-test: dictation-fixture test-unit test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
+test: verify-formal dictation-fixture test-unit test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
 	tests/integration/run.sh
 
 size: release

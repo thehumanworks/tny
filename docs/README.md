@@ -49,6 +49,7 @@ reproducible offline evidence from unmeasured live-model improvement.
 | [libtny.md](libtny.md) | Experimental headless C embedding ABI |
 | [sdks.md](sdks.md) | Python/cffi and TypeScript/Node-API SDK contracts |
 | [verification/stream-interruption.md](verification/stream-interruption.md) | Verification contract for interrupted provider streams (ADR 0087): requirement ids and the tests that prove them |
+| [adr/0171-formal-verification-smt-lib.md](adr/0171-formal-verification-smt-lib.md) | SMT-LIB/Z3 formal verification boundary and runnable proof gate |
 | [sdk-toolkit.md](sdk-toolkit.md) | Standalone SDK image, audio, and prompt optimisation APIs |
 | [extensions.md](extensions.md) | Trusted Python event hooks, actions, ordering, provider limits |
 

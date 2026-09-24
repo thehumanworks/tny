@@ -537,6 +537,40 @@ class AcpClientTest(unittest.TestCase):
         )
         self.assertEqual(answer["result"]["tools"], self.state_json()["tools"])
 
+    def test_acp_catalog_provenance_newer_and_stale_adapter(self):
+        # The same client must preserve advertised IDs/names, not guess a
+        # newer Claude Code release from a stale adapter's generic alias.
+        for advertised in ("Opus (1M context)", "Opus 5.5"):
+            catalog = [
+                {"value": "default", "name": "Default"},
+                {"value": "opus[1m]", "name": advertised},
+            ]
+            result = subprocess.run(
+                [
+                    str(TNY),
+                    "--cwd",
+                    str(self.workspace),
+                    "--provider",
+                    "acp",
+                    "--agent",
+                    str(AGENT),
+                    "models",
+                    "--json",
+                ],
+                env={**self.env, "ACP_FIXTURE_CATALOG": json.dumps(catalog)},
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                json.loads(result.stdout)["models"],
+                [
+                    {"id": "default", "name": "Default"},
+                    {"id": "opus[1m]", "name": advertised},
+                ],
+            )
+
     def test_models_catalog_and_negotiated_effort(self):
         result = subprocess.run(
             [

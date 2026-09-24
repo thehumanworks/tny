@@ -55,6 +55,8 @@ let
     ../.clang-format
     ../.clang-tidy
     ../docs
+    # tests/formal is included by the ../tests fileset below; make test reads
+    # its SMT-LIB obligations and checker with the Z3 input from nix/tests.nix.
     ../examples # tests/extensions/test_examples.py loads every shipped example
     ../flake.nix
     ../default.nix

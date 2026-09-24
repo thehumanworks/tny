@@ -1,0 +1,50 @@
+; ACP catalog boundary (abstracts parsed JSON into indexed ID/name arrays).
+; Solver answers must be UNSAT: each block negates an invariant.
+(set-logic AUFLIA)
+(declare-const primary Bool) ; valid select config wins over legacy models
+(declare-const config-len Int)
+(declare-const legacy-len Int)
+(declare-const config-id (Array Int Int))
+(declare-const config-name (Array Int Int))
+(declare-const legacy-id (Array Int Int))
+(declare-const legacy-name (Array Int Int))
+(define-fun count () Int (ite primary config-len legacy-len))
+(define-fun id ((i Int)) Int (ite primary (select config-id i) (select legacy-id i)))
+(define-fun name ((i Int)) Int (ite primary (select config-name i) (select legacy-name i)))
+(assert (>= config-len 0))
+(assert (>= legacy-len 0))
+; No invented row, rewritten alias, or substituted display name.
+(push 1)
+(assert (exists ((i Int)) (and (<= 0 i) (< i count)
+    (or (not (= (id i) (ite primary (select config-id i) (select legacy-id i))))
+        (not (= (name i) (ite primary (select config-name i) (select legacy-name i))))))))
+(check-sat)
+(pop 1)
+; Changing only the legacy catalog cannot change output if a select config exists.
+(push 1)
+(assert primary)
+; A different unused legacy catalog has no effect while primary is selected.
+(assert (exists ((i Int)) (and (<= 0 i) (< i count)
+  (or (not (= (id i) (select config-id i)))
+      (not (= (name i) (select config-name i)))))))
+(check-sat)
+(pop 1)
+; A model absent from the chosen adapter catalog cannot be made selectable.
+(push 1)
+(declare-const requested Int)
+(assert (forall ((i Int)) (=> (and (<= 0 i) (< i count)) (not (= (id i) requested)))))
+(assert (exists ((i Int)) (and (<= 0 i) (< i count) (= (id i) requested))))
+(check-sat)
+(pop 1)
+; A fresh adapter can change a label without changing the selectable alias.
+; Its new label is observable; a stale adapter alone cannot supply that label.
+(push 1)
+(declare-const new-config-name (Array Int Int))
+(declare-const selected Int)
+(assert primary)
+(assert (<= 0 selected))
+(assert (< selected count))
+(assert (not (= (select config-name selected) (select new-config-name selected))))
+(assert (= (name selected) (select new-config-name selected)))
+(check-sat)
+(pop 1)
