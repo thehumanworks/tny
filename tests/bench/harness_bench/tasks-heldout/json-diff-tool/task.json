@@ -1,0 +1,12 @@
+{
+  "id": "json-diff-tool",
+  "difficulty": "medium",
+  "category": "feature",
+  "prompt": "Add JSON diff output to jdiff.py. I need stable JSON Pointer paths, an --ignore path option, and --summary counts; the README has the output shape.",
+  "timeout_s": 900,
+  "tags": [
+    "cli",
+    "nested-data",
+    "multi-file"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "sql-report-fix",
+  "difficulty": "medium",
+  "category": "bugfix",
+  "prompt": "Customer balances in the SQLite report are wrong when an order has several items and payments. Fix the report and make the tests pass.",
+  "timeout_s": 900,
+  "tags": [
+    "sqlite",
+    "multi-file",
+    "aggregation"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "id": "verbose-test-failure",
+  "difficulty": "medium",
+  "category": "bugfix",
+  "prompt": "The tests are failing loudly. Fix the money parsing bug and get them passing.",
+  "timeout_s": 900,
+  "tags": [
+    "verbose-tests",
+    "python"
+  ]
+}

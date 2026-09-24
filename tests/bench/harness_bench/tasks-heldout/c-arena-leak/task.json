@@ -1,0 +1,12 @@
+{
+  "id": "c-arena-leak",
+  "difficulty": "hard",
+  "category": "bugfix",
+  "prompt": "The arena test reports live allocations after reset. Fix the memory lifetime bug and keep the allocator usable after reset.",
+  "timeout_s": 900,
+  "tags": [
+    "c",
+    "memory",
+    "asan"
+  ]
+}

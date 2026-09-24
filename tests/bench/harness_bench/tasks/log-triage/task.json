@@ -1,0 +1,11 @@
+{
+  "id": "log-triage",
+  "difficulty": "medium",
+  "category": "answer",
+  "prompt": "Production fell over around 13:42. Find the request ID and UTC timestamp of the event that started the outage; put them in ANSWER.txt as request_id=... and timestamp=... on separate lines.",
+  "timeout_s": 900,
+  "tags": [
+    "large-output",
+    "search"
+  ]
+}

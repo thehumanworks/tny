@@ -1,0 +1,12 @@
+{
+  "id": "workflow-dag",
+  "difficulty": "hard",
+  "category": "feature",
+  "prompt": "Implement the workflow behavior described in README.md. Make the public test pass and cover the edge cases.",
+  "timeout_s": 900,
+  "tags": [
+    "python",
+    "dag",
+    "scheduling"
+  ]
+}

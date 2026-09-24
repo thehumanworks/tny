@@ -1,0 +1,11 @@
+{
+  "id": "perf-fix",
+  "difficulty": "medium",
+  "category": "performance",
+  "prompt": "dedupe_records gets very slow on large imports. Speed it up without changing returned rows or accepted input.",
+  "timeout_s": 900,
+  "tags": [
+    "performance",
+    "python"
+  ]
+}

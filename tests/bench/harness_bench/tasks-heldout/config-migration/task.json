@@ -1,0 +1,12 @@
+{
+  "id": "config-migration",
+  "difficulty": "easy",
+  "category": "refactor",
+  "prompt": "We've renamed cache_dir to state_dir. Update the sample INI configs, docs and loader; old cache_dir configs must still load.",
+  "timeout_s": 900,
+  "tags": [
+    "rename",
+    "config",
+    "multi-file"
+  ]
+}

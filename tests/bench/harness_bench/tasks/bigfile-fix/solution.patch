@@ -1,0 +1,8 @@
+diff --git a/aggregates.c b/aggregates.c
+--- a/aggregates.c
++++ b/aggregates.c
+@@ -7190,3 +7190,3 @@
+-    for(i=0;i+1<n;++i) {
++    for(i=0;i<n;++i) {
+         total+=v[i];
+     }
