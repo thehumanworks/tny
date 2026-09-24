@@ -1,0 +1,1 @@
+{"id":"api-migration","category":"long-horizon-hard","prompt":"Migrate the versioned tenant record API across the repository. Follow README.md for the new resolve contract, update all clients and docs, remove the old lookup API, and make visible and hidden tests pass.","timeout_s":2400,"tags":["python","api-migration","multi-module","long-horizon"]}

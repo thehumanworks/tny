@@ -72,6 +72,7 @@ def check_task(task: Path, tmp_root: Path) -> tuple[bool, bool]:
     if info["id"] != task.name:
         raise AssertionError("task id mismatch")
     repo = task / "repo"
+    long_task = task.parent.name == "tasks-long"
     if sum(p.stat().st_size for p in repo.rglob("*") if p.is_file()) >= 300_000:
         raise AssertionError("initial repo exceeds 300 KB")
     check_answers(task)
@@ -97,15 +98,17 @@ def check_task(task: Path, tmp_root: Path) -> tuple[bool, bool]:
                 raise AssertionError(f"git setup: {result.stderr}")
         setup = task / "setup.sh"
         if setup.exists():
-            result = run(str(setup), str(workspace), cwd=workspace)
+            setup_args = () if long_task else (str(workspace),)
+            result = run(str(setup), *setup_args, cwd=workspace)
             if result.returncode:
                 raise AssertionError(f"setup failed: {result.stderr}")
         final = Path(tmp) / "final.txt"
         final.write_text("")
         verify = task / "verify.sh"
-        before = run(str(verify), str(workspace), str(final), cwd=workspace)
+        verify_cwd = tmp_root if long_task else workspace
+        before = run(str(verify), str(workspace), str(final), cwd=verify_cwd)
         apply_solution(task, workspace)
-        after = run(str(verify), str(workspace), str(final), cwd=workspace)
+        after = run(str(verify), str(workspace), str(final), cwd=verify_cwd)
         if after.returncode:
             print(f"  solved stderr: {after.stderr.strip()[:1200]}")
             print(f"  solved stdout: {after.stdout.strip()[:500]}")

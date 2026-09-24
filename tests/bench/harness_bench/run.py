@@ -283,6 +283,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--harness", action="append", choices=ADAPTERS)
     parser.add_argument("--task", action="append", default=[])
+    parser.add_argument(
+        "--tasks-dir",
+        type=Path,
+        default=HERE / "tasks",
+        help="task suite directory (default: tasks/)",
+    )
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--model", default="gpt-5.6-luna")
     parser.add_argument("--effort", default="low")
@@ -304,9 +310,11 @@ def main():
             "reps/concurrency must be positive; label must be one path component"
         )
     args.out = args.out.resolve()
+    if not args.tasks_dir.is_dir():
+        parser.error(f"tasks directory does not exist: {args.tasks_dir}")
     tasks = {
         path.name: path
-        for path in (HERE / "tasks").iterdir()
+        for path in args.tasks_dir.resolve().iterdir()
         if path.is_dir() and (path / "task.json").exists()
     }
     selected = list(tasks) if not args.task or "all" in args.task else args.task

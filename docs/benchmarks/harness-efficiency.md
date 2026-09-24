@@ -158,6 +158,25 @@ Prompts are short and phrased the way users write them. Tasks stress the
 harness paths that dominate real cost: large command output, large files,
 verbose test failures, multi-file edits, and codebase questions.
 
+The optional `tests/bench/harness_bench/tasks-long/` suite has three longer
+tasks: a 20-regression Python triage suite, a 30-client versioned API migration,
+and an incident investigation whose setup generates over 90 MB of logs and
+metrics. Each task has a 2,400-second timeout. Its `setup.sh` runs with the
+workspace as cwd and no arguments; `verify.sh` accepts the workspace and final
+message paths and works from any cwd. The hidden oracle and reference solution
+stay outside `repo/`.
+
+Validate both the untouched and reference workspaces offline with:
+
+```sh
+python tests/bench/harness_bench/validate_tasks.py \
+  tests/bench/harness_bench/tasks-long
+```
+
+To run live evaluations separately from the short tasks, pass
+`--tasks-dir tests/bench/harness_bench/tasks-long` to `run.py`. Long runs need
+a fresh output label. The offline validator does not make model requests.
+
 ### Per-run record
 
 pass/fail, wall seconds, model requests, tool calls, tool errors, input /

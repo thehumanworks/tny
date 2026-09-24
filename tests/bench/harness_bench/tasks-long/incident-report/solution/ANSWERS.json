@@ -1,0 +1,8 @@
+{
+  "root_cause": "Default pool capacity took precedence over the premium tier override, routing premium bursts to the undersized 20-slot pool.",
+  "first_failing_request": "req-120000",
+  "first_failure_utc": "2026-06-14T10:20:00Z",
+  "affected_tenants": 6,
+  "peak_5m_start_utc": "2026-06-14T10:30:00Z",
+  "total_503": 27000
+}
