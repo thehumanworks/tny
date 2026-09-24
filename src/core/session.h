@@ -118,10 +118,13 @@ char *session_read_result(tny_session_state *s, const char *handle, size_t off, 
                           size_t *out_len);
 
 /* Replace eligible older tool contents in the current turn after storing each
- * original. Returns the number cleared, or -1 on storage/allocation failure.
- * The caller persists the changed session before making the next request. */
-int session_context_edit(tny_session_state *s, int turn_first, int keep, size_t *bytes_saved,
-                         size_t *affected_bytes);
+ * original. seen_until is the message count in the last submitted request;
+ * results at or beyond it have not been seen by the model. Returns the count
+ * cleared, -1 on preparation/storage failure, or -2 on a direct allocation
+ * failure. The
+ * caller persists the changed session before making the next request. */
+int session_context_edit(tny_session_state *s, int turn_first, int seen_until, int keep,
+                         size_t *bytes_saved, size_t *affected_bytes);
 bool session_record_context_edit(tny_session_state *s, int64_t before_tokens, int64_t after_tokens,
                                  int cleared, size_t affected_bytes, size_t removed_bytes,
                                  double payback_requests);

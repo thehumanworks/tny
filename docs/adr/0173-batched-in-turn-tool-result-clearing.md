@@ -16,23 +16,30 @@ reuse.
 
 `TNY_EXP_CTX_EDIT=1` enables clearing in the native OpenAI-compatible loop.
 The unset flag leaves existing request bytes and behavior unchanged. The flag
-is read into `tny_ctx` once. This applies to both Responses and Chat
+is read into `tny_ctx` once and carried in the private session-runner start
+packet only when enabled. It is absent from public recovery snapshots and
+flag-off continuation records. This applies to both Responses and Chat
 Completions, including native subagents. ACP clients own their context and are
 not changed. It uses the same session code on native and wasm. An ephemeral
 session keeps originals in the existing in-memory result store, accessible
 through `read_tool_result`; a saved session writes them as private
-`<session>/results/<handle>.txt` files.
+`<session>/results/<handle>.txt` files. Explicit libtny contexts do not read
+environment switches and leave this experiment disabled.
 
 Before a new model request in a turn, the preceding response's reported
 `input_tokens` must exceed `TNY_EXP_CTX_EDIT_TRIGGER` (default 48,000). Results
 larger than 1,024 bytes and older than the latest `TNY_EXP_CTX_EDIT_KEEP`
-(default 8) tool results in that turn are eligible. Each is saved before its
-content is replaced with a stub recording tool name, byte and line counts,
-and the full-output location. Tool call IDs, calls, assistant text, and all
-reasoning items remain in place. The changed transcript is persisted before
-the next request, so resume and transcript inspection reflect what the model
-saw. A failed store or session save fails the request rather than losing the
-only copy of an output.
+(default 8) tool results in that turn are eligible only after they were included
+in a successfully submitted earlier request. A new parallel batch is preserved
+even when it exceeds `KEEP`. Each eligible result is saved before its content
+is replaced with a stub recording tool name, byte and line counts, and a
+`read_tool_result` handle (plus a local path for saved sessions). Tool call IDs,
+calls, assistant text, and all reasoning items remain in place. The changed
+transcript is persisted before the next request, so resume and transcript
+inspection reflect what the model
+saw. An edit is staged on a copy of the session; a failed store or save skips
+the edit, preserving the active transcript and turn. Allocation failure still
+ends the turn as OOM. An unsent image preview also defers the edit.
 
 Before writing any originals, the pass estimates the affected suffix from
 the earliest eligible result to the end of the transcript. It proceeds only
@@ -44,7 +51,8 @@ count plus `TNY_EXP_CTX_EDIT_STEP` (default 32,000). The estimate subtracts
 one token per four bytes removed from the preceding provider-reported input
 count. A pass with no eligible results waits for another step of growth. A
 retry does not repeat the pass. This groups prefix changes into batches;
-the provider remains the authority for actual token usage. Each batch adds
+the provider remains the authority for actual token usage. Flag-on Chat
+requests ask for streaming usage. Each batch adds
 a `context_edit` record under `session.json` `context_edits` with estimated
 before/after tokens, cleared item count, and an estimated payback in later
 requests, and emits a status event. With the verified gpt-6 input price ratio
@@ -61,19 +69,20 @@ the current turn.
 `python3 tests/bench/bench_ctx_edit.py` runs a 60-tool-step Responses turn
 against a loopback mock; `--wire chat` repeats it on Chat Completions. It
 produces 2–30 KiB file results and reports usage as one input token per four
-request bytes. This measures request size and prefix stability, not live model
+request bytes. Both runs use default detached session-runner isolation. This
+measures request size and prefix stability, not live model
 quality or provider cache hits.
 
 | Metric | Responses off | Responses on | Chat off | Chat on |
 | --- | ---: | ---: | ---: | ---: |
 | Model requests | 61 | 61 | 61 | 61 |
-| Serialized history bytes | 30,252,173 | 11,295,187 | 30,450,972 | 11,493,986 |
+| Serialized history bytes | 30,252,173 | 11,352,174 | 30,450,972 | 11,550,973 |
 | Distinct historical prefixes | 1 | 6 | 1 | 6 |
 | Clearing batches | 0 | 5 | 0 | 5 |
 
-The on-flag reduced serialized history bytes by 62.7% for Responses and
-62.3% for Chat. The five additional prefixes coincide with the five batches.
-Estimated payback ranged from 19.6 to 27.8 later requests per batch. Per-request
+The on-flag reduced serialized history bytes by 62.5% for Responses and
+62.1% for Chat. The five additional prefixes coincide with the five batches.
+Estimated payback ranged from 19.6 to 27.9 later requests per batch. Per-request
 sizes are reported by the script and in the worker status file. These numbers
 exclude system instructions and tool schemas, which are unchanged between
 runs. No live inference was run.

@@ -1243,11 +1243,11 @@ typedef struct {
     yyjson_mut_val *marker;
 } context_edit_pending;
 
-int session_context_edit(tny_session_state *s, int turn_first, int keep, size_t *bytes_saved,
-                         size_t *affected_bytes) {
+int session_context_edit(tny_session_state *s, int turn_first, int seen_until, int keep,
+                         size_t *bytes_saved, size_t *affected_bytes) {
     if (bytes_saved) *bytes_saved = 0;
     if (affected_bytes) *affected_bytes = 0;
-    if (!s || !s->doc || keep < 0 || turn_first < 0) return -1;
+    if (!s || !s->doc || keep < 0 || turn_first < 0 || seen_until < 0) return -1;
     yyjson_mut_val *msgs = session_messages(s);
     size_t total = yyjson_mut_arr_size(msgs);
     size_t first = (size_t)turn_first;
@@ -1259,6 +1259,7 @@ int session_context_edit(tny_session_state *s, int turn_first, int keep, size_t 
         const char *role = mrole(m);
         if (!role || strcmp(role, "tool") != 0) continue;
         if (retained++ < (size_t)keep) continue;
+        if (i - 1 >= (size_t)seen_until) continue;
         yyjson_mut_val *content = yyjson_mut_obj_get(m, "content");
         if (!yyjson_mut_is_str(content)) continue;
         size_t bytes = yyjson_mut_get_len(content);
@@ -1291,7 +1292,7 @@ int session_context_edit(tny_session_state *s, int turn_first, int keep, size_t 
             : 0;
     if (estimated_saved < affected / 4) return 0;
     context_edit_pending *pending = calloc(candidate_count, sizeof *pending);
-    if (!pending) return -1;
+    if (!pending) return -2;
     retained = 0;
     size_t prepared = 0;
     for (size_t i = total; i > first; i--) {
@@ -1299,6 +1300,7 @@ int session_context_edit(tny_session_state *s, int turn_first, int keep, size_t 
         const char *role = mrole(m);
         if (!role || strcmp(role, "tool") != 0) continue;
         if (retained++ < (size_t)keep) continue;
+        if (i - 1 >= (size_t)seen_until) continue;
         yyjson_mut_val *content = yyjson_mut_obj_get(m, "content");
         if (!yyjson_mut_is_str(content)) continue;
         const char *original = yyjson_mut_get_str(content);
@@ -1315,8 +1317,8 @@ int session_context_edit(tny_session_state *s, int turn_first, int keep, size_t 
         buf_t stub;
         buf_init(&stub);
         buf_appendf(&stub, "[cleared: %s output, %zu bytes, %zu lines; full: ", name, bytes, lines);
-        if (s->ctx->no_save) buf_appendf(&stub, "read_tool_result(handle=%s)", handle);
-        else buf_appendf(&stub, "%s/results/%s.txt", s->dir, handle);
+        buf_appendf(&stub, "read_tool_result(handle=%s)", handle);
+        if (!s->ctx->no_save) buf_appendf(&stub, "; path: %s/results/%s.txt", s->dir, handle);
         buf_appends(&stub, "]");
         free(handle);
         if (buf_oom(&stub)) {

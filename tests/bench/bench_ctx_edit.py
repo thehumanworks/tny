@@ -173,10 +173,10 @@ def run(flag, workspace, root, wire):
         OPENAI_API_KEY="synthetic",
         OPENAI_WIRE_API=wire,
         TNY_SELF_IMPROVE="0",
-        TNY_ISOLATE="0",
         TNY_EXP_CTX_EDIT="1" if flag else "0",
         TNY_TOOLS="all",
     )
+    env.pop("TNY_ISOLATE", None)
     try:
         result = subprocess.run(
             [str(TNY), "--cwd", str(workspace), "ask", "--json", "run mock turn"],
@@ -191,6 +191,11 @@ def run(flag, workspace, root, wire):
         output = json.loads(result.stdout)
         assert "MOCK-OK" in output["output"], output
         assert len(server.requests) == STEPS + 1, len(server.requests)
+        if wire == "chat":
+            assert all(
+                bool(request.get("stream_options", {}).get("include_usage")) == flag
+                for request in server.requests
+            )
         report = measure(server.requests, wire)
         report["context_edits"] = 0
         sessions = list((home / ".tny" / "sessions").glob("*/*/session.json"))
@@ -208,6 +213,10 @@ def run(flag, workspace, root, wire):
                 event["affected_bytes"] for event in edits
             ]
         assert report["distinct_prefixes"] == report["context_edits"] + 1, report
+        if flag:
+            assert report["context_edits"] > 0, (
+                "default runner did not receive context-edit flag"
+            )
         return report
     finally:
         server.shutdown()
