@@ -174,6 +174,15 @@ class ComparisonTest(unittest.TestCase):
         report = compare_runs(self.arm_a, self.arm_b)
         self.assertEqual(report["paired_runs"], 2)
 
+    def test_environment_error_requires_rerun_before_comparison(self):
+        path = self.arm_b / "tny" / "x" / "rep-01" / "result.json"
+        row = json.loads(path.read_text())
+        row["status"] = "error"
+        row["reason"] = "error: verifier timed out"
+        path.write_text(json.dumps(row))
+        with self.assertRaisesRegex(ValueError, "environment error; rerun"):
+            compare_runs(self.arm_a, self.arm_b)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -65,7 +65,7 @@ def setup_task(task_dir, workspace, timeout_s, stdout=None, stderr=None):
     return None
 
 
-def verify_task(task_dir, workspace, message_file, timeout_s=30):
+def verify_task(task_dir, workspace, message_file, timeout_s=120):
     """Run hidden verification from the task directory after the harness exits."""
     command = [
         "bash",
@@ -73,14 +73,22 @@ def verify_task(task_dir, workspace, message_file, timeout_s=30):
         str(workspace),
         str(message_file),
     ]
-    process = subprocess.Popen(
-        command,
-        cwd=task_dir,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-    )
+    verify_temp = Path(tempfile.mkdtemp(prefix=".verify-tmp-", dir=message_file.parent))
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=task_dir,
+            env={**os.environ, "TMPDIR": str(verify_temp)},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+    except OSError as error:
+        shutil.rmtree(verify_temp, ignore_errors=True)
+        return subprocess.CompletedProcess(
+            command, 125, f"error: verifier could not start: {error}\n", ""
+        )
     try:
         stdout, stderr = process.communicate(timeout=timeout_s)
     except subprocess.TimeoutExpired:
@@ -89,15 +97,50 @@ def verify_task(task_dir, workspace, message_file, timeout_s=30):
         except ProcessLookupError:
             pass
         stdout, stderr = process.communicate()
-        for leftover in message_file.parent.glob(".harness-hidden.*"):
-            shutil.rmtree(leftover, ignore_errors=True)
-        return subprocess.CompletedProcess(
-            command,
-            124,
-            stdout or "fail: verification timed out; see verify.log\n",
-            stderr,
+        result = subprocess.CompletedProcess(
+            command, 124, f"error: verification timed out after {timeout_s}s\n", stderr
         )
-    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+    else:
+        result = subprocess.CompletedProcess(
+            command, process.returncode, stdout, stderr
+        )
+    for leftover in message_file.parent.glob(".harness-hidden.*"):
+        shutil.rmtree(leftover, ignore_errors=True)
+    shutil.rmtree(verify_temp, ignore_errors=True)
+    return result
+
+
+def verification_outcome(verify, message_file):
+    """Distinguish an unmet task from a broken verification environment."""
+    lines = verify.stdout.strip().splitlines() or verify.stderr.strip().splitlines()
+    reason = (
+        lines[0] if lines else f"verifier exited {verify.returncode} without a reason"
+    )
+    if reason.startswith("error:"):
+        return "error", reason
+    if verify.returncode == 124:
+        return "error", f"error: {reason}"
+    log = message_file.parent / "verify.log"
+    detail = log.read_text(errors="replace") if log.exists() else ""
+    evidence = "\n".join((verify.stdout, verify.stderr, detail))
+    for marker in (
+        "ASan compiler support is required",
+        "ASan runtime is unavailable",
+        "AddressSanitizer is unavailable",
+    ):
+        if marker in evidence:
+            return "error", f"error: {marker}"
+    for command in ("cc", "make", "python3"):
+        if ("FileNotFoundError:" in evidence and f"'{command}'" in evidence) or any(
+            marker in evidence
+            for marker in (f"{command}: command not found", f"{command}: not found")
+        ):
+            return "error", f"error: verifier prerequisite {command} is missing"
+    if verify.returncode == 0:
+        return "pass", reason
+    if not lines:
+        return "error", f"error: {reason}"
+    return "fail", reason
 
 
 def _summarize(rows, run_dir, model):
@@ -197,12 +240,12 @@ def run_one(args, task_dir, harness, rep):
     result_file = run_dir / "result.json"
     if result_file.exists():
         return json.loads(result_file.read_text())
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     published_workspace = run_dir / "workspace"
-    if published_workspace.exists():
-        shutil.rmtree(published_workspace)
-    private_workspace = tempfile.TemporaryDirectory(prefix="tny-bench-")
-    workspace = Path(private_workspace.name) / "workspace"
+    workspace_root = Path(tempfile.mkdtemp(prefix="ws-", dir=run_dir))
+    workspace = workspace_root / "workspace"
     shutil.copytree(task_dir / "repo", workspace)
     _git_init(workspace)
     with (
@@ -265,12 +308,11 @@ def run_one(args, task_dir, harness, rep):
     message = final_message(harness, stdout)
     message_file = run_dir / "final_message.txt"
     message_file.write_text(message)
-    verify = verify_task(task_dir, workspace, message_file)
-    reason = (
-        verify.stdout.strip().splitlines() or verify.stderr.strip().splitlines() or [""]
-    )[0]
+    verify_timeout_s = task.get("verify_timeout_s", 120)
+    verify = verify_task(task_dir, workspace, message_file, verify_timeout_s)
+    verify_status, reason = verification_outcome(verify, message_file)
     verify_timed_out = verify.returncode == 124
-    passed = verify.returncode == 0 and exit_code == 0 and not timed_out
+    passed = verify_status == "pass" and exit_code == 0 and not timed_out
     measurement_valid = bool(rows) and all(
         row.get(key) is not None
         for row in rows
@@ -283,11 +325,11 @@ def run_one(args, task_dir, harness, rep):
     )
     model_effort_valid = _wire_settings_valid(rows, run_dir, args.model, args.effort)
     if adapter_error:
-        reason = adapter_error
+        reason = f"error: adapter {adapter_error}"
+    elif verify_status == "error":
+        passed = False
     elif timed_out:
         reason = "task timed out"
-    elif verify_timed_out:
-        reason = "verification timed out"
     elif exit_code != 0:
         reason = f"harness exit {exit_code}: {reason}"
     elif not rows:
@@ -300,7 +342,12 @@ def run_one(args, task_dir, harness, rep):
         passed = False
         reason = "wire model or reasoning effort differs from requested setting"
     shutil.move(str(workspace), str(published_workspace))
-    private_workspace.cleanup()
+    shutil.rmtree(workspace_root)
+    status = (
+        "error"
+        if adapter_error or verify_status == "error"
+        else ("pass" if passed else "fail")
+    )
     result = {
         "schema_version": 1,
         "label": args.label,
@@ -312,6 +359,7 @@ def run_one(args, task_dir, harness, rep):
         "model": args.model,
         "effort": args.effort,
         "pass": passed,
+        "status": status,
         "measurement_valid": measurement_valid,
         "model_effort_valid": model_effort_valid,
         "reason": reason,
@@ -384,6 +432,8 @@ def main():
             task, harness, rep = futures[future]
             try:
                 row = future.result()
+                if row.get("status") == "error":
+                    errors += 1
                 print(
                     json.dumps(
                         {
@@ -391,6 +441,9 @@ def main():
                             "task": task.name,
                             "rep": rep,
                             "pass": row["pass"],
+                            "status": row.get(
+                                "status", "pass" if row["pass"] else "fail"
+                            ),
                             "reason": row["reason"],
                             "requests": row["requests"],
                         }
