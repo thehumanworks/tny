@@ -1,0 +1,10 @@
+{
+  "id": "session-resume",
+  "category": "smoke",
+  "prompts": [
+    "Create session.txt with exactly one line: cedar",
+    "In the same session, append a second line to session.txt: birch"
+  ],
+  "timeout_s": 180,
+  "tags": ["multi-turn", "resume", "smoke"]
+}

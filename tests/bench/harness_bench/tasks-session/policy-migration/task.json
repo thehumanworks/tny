@@ -1,0 +1,26 @@
+{
+  "id": "policy-migration",
+  "category": "session-hard",
+  "prompts": [
+    "Start the tenant record migration. Implement the new resolve contract in ledgerapi/store.py using README.md.",
+    "Now migrate billing, shipping, and catalog readers. Keep historical as_of and explicit null values intact.",
+    "Apply that reader migration to inventory, fraud, and returns; use the fixture trace to check tombstones.",
+    "Next handle notifications, tax, and discounts. Preserve each domain default only when resolution is missing.",
+    "Continue with fulfillment, identity, and search; rerun the client suite to see what remains.",
+    "Migrate recommendations, payments, and invoicing. Keep the public reader signatures.",
+    "Now update subscriptions, support, and analytics. Watch historical reads and expiry behavior.",
+    "Do the experiment, localization, and compliance clients with the same semantics.",
+    "The audit, routing, and quota callers are next. Check their snapshots and summaries too.",
+    "Finish rate_limits, webhooks, exports, imports, scheduling, and settlements. Remove every old lookup call.",
+    "Update docs/api.md and write MIGRATION.md explaining nulls, tombstones, expiry, and all 30 clients.",
+    "Run the full verbose suite, fix anything it finds, and check that no old API remains in code or docs."
+  ],
+  "timeout_s": 900,
+  "verify_timeout_s": 300,
+  "tags": [
+    "python",
+    "multi-turn",
+    "session",
+    "long-context"
+  ]
+}

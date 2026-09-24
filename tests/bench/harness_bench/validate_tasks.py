@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from run import _git_init, setup_task, verify_task
+from run import _git_init, setup_task, task_prompts, verify_task
 
 ROOT = Path(__file__).parent / "tasks"
 IDS = (
@@ -81,6 +81,7 @@ def check_task(task: Path, tmp_root: Path) -> tuple[bool, bool]:
     info = json.loads((task / "task.json").read_text())
     if info["id"] != task.name:
         raise AssertionError("task id mismatch")
+    task_prompts(info)
     repo = task / "repo"
     if sum(p.stat().st_size for p in repo.rglob("*") if p.is_file()) >= 300_000:
         raise AssertionError("initial repo exceeds 300 KB")

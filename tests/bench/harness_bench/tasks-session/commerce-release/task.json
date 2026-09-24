@@ -1,0 +1,26 @@
+{
+  "id": "commerce-release",
+  "category": "session-hard",
+  "prompts": [
+    "Start the release triage in commerceops. Fix tax and discount; use the failing tests and settlement fixture.",
+    "Now handle inventory and coupon. Keep the reservation atomic and the boundary behavior consistent with the earlier fixes.",
+    "The shipping trace is next. Fix zone selection and invoice numbering, then rerun those tests.",
+    "Carry that edge-case approach into retry and postcode normalization. Check the verbose failures before editing.",
+    "The settlement sample exposed two more issues: fix currency conversion and reconciliation without changing their APIs.",
+    "Now compare event timestamps by instant and correct the SLA boundary. The trace from before has examples.",
+    "Finish the override and notification paths. In particular, keep explicit null overrides distinct from missing ones.",
+    "Move to pagination and proportional allocation. Keep the page cursor exclusive and every cent accounted for.",
+    "The ledger and scope checks still fail. Fix refunds and exact scope matching, then run the suite.",
+    "Clean up percentile and CSV cell encoding. Use the generated traces for awkward inputs.",
+    "Run the whole verbose suite and fix any regression you introduced. Write RELEASE_NOTES.md naming the fixed areas.",
+    "One final pass: run all tests and update RELEASE_NOTES.md with the passing count and remaining risks."
+  ],
+  "timeout_s": 900,
+  "verify_timeout_s": 300,
+  "tags": [
+    "python",
+    "multi-turn",
+    "session",
+    "long-context"
+  ]
+}

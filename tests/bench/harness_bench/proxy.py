@@ -108,6 +108,7 @@ class _Server(ThreadingHTTPServer):
         self.auth_file = Path(auth_file)
         self.rows = []
         self.lock = threading.Lock()
+        self.current_turn = None
 
     def save(self, raw, row):
         with self.lock:
@@ -184,6 +185,8 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path not in PATHS:
             self._reject(404)
             return
+        with self.server.lock:
+            request_turn = self.server.current_turn
         try:
             length = int(self.headers.get("Content-Length", ""))
             if not 0 < length <= 64 * 1024 * 1024:
@@ -225,6 +228,8 @@ class _Handler(BaseHTTPRequestHandler):
             "output_items": [],
             "sections": sections(body),
         }
+        if request_turn is not None:
+            row["turn"] = request_turn
         started = time.monotonic()
         try:
             auth = json.loads(self.server.auth_file.read_text())["tokens"]
@@ -347,6 +352,10 @@ class RecordingProxy:
     def rows(self):
         with self.server.lock:
             return list(self.server.rows)
+
+    def begin_turn(self, index):
+        with self.server.lock:
+            self.server.current_turn = index
 
     def __enter__(self):
         self.thread.start()

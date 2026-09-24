@@ -55,12 +55,29 @@ uvx --with tiktoken python tests/bench/harness_bench/report.py \
 The default `tasks/` directory contains exactly the 12 scored benchmark tasks;
 `--task all` selects those 12. For a wiring check, select
 `--tasks-dir tests/bench/harness_bench/tasks-smoke --task smoke-hello`.
+The `session-resume` smoke task has two prompts and checks the resume path.
 Use `--tasks-dir tests/bench/harness_bench/tasks-long` to select the three
 long-horizon tasks; validate them offline first with
 `python tests/bench/harness_bench/validate_tasks.py tests/bench/harness_bench/tasks-long`.
 Their setup generates large files in each copied workspace, so keep `TMPDIR`
 on a disk with enough space and use a distinct run label. No live inference is
 needed for validation.
+Use `--tasks-dir tests/bench/harness_bench/tasks-session` for the two
+12-prompt session tasks. `task.json` uses `prompts` in place of `prompt`;
+the prompts run in order within one tny session or Codex thread, using the
+same workspace and proxy. The verifier runs once after the last prompt.
+Pi, OMP, Hermes, FX, Unreal Agent, and OpenCode are reported as skipped on
+session tasks because their noninteractive resume route has not been verified.
+Each request row has a one-based `turn`, and `result.json` records each
+turn's requests, provider usage, cost, exit status, and wall time, plus the
+number of turns completed. The report shows completed/requested turns.
+These tasks reuse the regression and migration codebases with staged
+developer prompts, additional generated traces, and final documentation
+checks. Validate both untouched and reference solutions offline with
+`python tests/bench/harness_bench/validate_tasks.py tests/bench/harness_bench/tasks-session`.
+The generated traces offer substantial output for the later turns; actual
+context growth depends on the agent's tool use and has not been measured on
+the full tasks.
 `--tasks-dir tests/bench/harness_bench/tasks-heldout` selects the held-out
 set for the final confirmation run.
 Each run writes `result.json`, `stdout.txt`, `stderr.txt`,

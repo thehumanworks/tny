@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ADAPTERS = ("tny", "codex", "pi", "omp", "hermes", "opencode", "fx", "unreal-agent")
+SESSION_ADAPTERS = frozenset(("tny", "codex"))
 UNREAL_BIN = Path("/home/tomas/.cache/tny-opt/bin/unreal-agent-runner")
 
 
@@ -60,7 +61,7 @@ def isolated_env(run_dir, proxy_url):
     """Keep executable lookup and locale, but discard user agent and provider state."""
     home = Path(run_dir) / "home"
     codex_home = home / ".codex"
-    codex_home.mkdir(parents=True)
+    codex_home.mkdir(parents=True, exist_ok=True)
     token = _jwt()
     (codex_home / "auth.json").write_text(
         json.dumps(
@@ -352,6 +353,37 @@ def invocation(name, run_dir, proxy_url, prompt, model, effort, tny_bin):
             env,
         )
     raise RuntimeError(f"{name}: ChatGPT Responses proxy configuration unverified")
+
+
+def session_invocation(
+    name, run_dir, proxy_url, prompt, model, effort, tny_bin, resume_id
+):
+    """Use the same isolated HOME and resume the existing noninteractive session."""
+    if name not in SESSION_ADAPTERS:
+        raise ValueError(f"{name}: noninteractive session resume is unverified")
+    call = invocation(name, run_dir, proxy_url, prompt, model, effort, tny_bin)
+    if resume_id:
+        verb = "--resume" if name == "tny" else "resume"
+        call.command[-1:-1] = [verb, resume_id]
+    return call
+
+
+def resume_id(name, stdout):
+    """Read the native session or thread identifier from CLI JSON output."""
+    if name == "tny":
+        try:
+            return json.loads(stdout).get("session_id")
+        except ValueError:
+            return None
+    if name == "codex":
+        for line in stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if event.get("type") == "thread.started":
+                return event.get("thread_id")
+    return None
 
 
 def final_message(name, stdout):

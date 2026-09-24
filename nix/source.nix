@@ -90,8 +90,8 @@ let
     # Instruction-evolution replay benchmark and its in-memory Python mutation
     # checks use these existing tests/ and python/ trees, with stdlib only.
     ../tests # includes quick-ask PTY, cache-routing fixtures, optional cache benchmark,
-    # tests/bench/harness_bench/tasks-smoke/smoke-hello, and tasks-long/. The live
-    # harness benchmark is opt-in and is not a sandbox test. Long-task setup
+    # tests/bench/harness_bench/tasks-smoke/, tasks-long/, and tasks-session/.
+    # The live harness benchmark is opt-in and is not a sandbox test. Long-task setup
     # generates its logs in a copied workspace; no generated data is vendored.
     # test_terminal_background.py imports test_terminal_cancel.py and runs the
     # native binary against stdlib loopback fixtures; both are included above.

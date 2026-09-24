@@ -172,6 +172,12 @@ def aggregate(results):
                 if successes and len(dollars) == len(eligible)
                 else None,
                 "requests_per_task": _mean([row["requests"] for row in eligible]),
+                "turns_completed_per_task": _mean(
+                    [row.get("turns_completed", 1) for row in eligible]
+                ),
+                "turns_requested_per_task": _mean(
+                    [row.get("turns_requested", 1) for row in eligible]
+                ),
                 "cache_hit": cached_total / input_total
                 if input_total
                 and all(row.get("cached_input_tokens") is not None for row in eligible)
@@ -206,6 +212,8 @@ def aggregate(results):
                 "passed": sum(row["pass"] for row in rows if row["_status"] != "error"),
                 "runs": sum(row["_status"] != "error" for row in rows),
                 "errors": sum(row["_status"] == "error" for row in rows),
+                "turns_completed": sum(row.get("turns_completed", 1) for row in rows),
+                "turns_requested": sum(row.get("turns_requested", 1) for row in rows),
             }
             for harness, rows in harnesses.items()
         }
@@ -227,8 +235,8 @@ def markdown(report):
         "",
         f"Token method: {report['token_method']}. Standard list prices as of {report['price_date']}; subscription dollars are comparison units, not a bill.",
         "",
-        "| Harness | Model | Pass rate (95% CI) | Errors | ITE/task (SD) | ITE/passed | USD/task | USD/passed | Requests/task | Cache hit | Mean context tokens | Static prefix | p50 wall |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Harness | Model | Pass rate (95% CI) | Errors | ITE/task (SD) | ITE/passed | USD/task | USD/passed | Requests/task | Turns completed/requested | Cache hit | Mean context tokens | Static prefix | p50 wall |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in report["headline"]:
         lines.append(
@@ -246,6 +254,7 @@ def markdown(report):
                     _fmt(row["usd_per_task"], 4),
                     _fmt(row["usd_per_passed_task"], 4),
                     _fmt(row["requests_per_task"], 1),
+                    f"{_fmt(row['turns_completed_per_task'], 1)}/{_fmt(row['turns_requested_per_task'], 1)}",
                     f"{row['cache_hit']:.1%}"
                     if row["cache_hit"] is not None
                     else "n/a",
@@ -269,6 +278,11 @@ def markdown(report):
             + " | "
             + " | ".join(
                 f"{values[h]['passed']}/{values[h]['runs']}"
+                + (
+                    f" ({values[h]['turns_completed']}/{values[h]['turns_requested']} turns)"
+                    if values[h]["turns_requested"] != values[h]["runs"]
+                    else ""
+                )
                 + (f" (+{values[h]['errors']} error)" if values[h]["errors"] else "")
                 if h in values
                 else "—"
