@@ -24,8 +24,10 @@ advancing the offset, and its full file receives a byte-range handle when a
 session is available. Terminal collection in the `all` profile uses the same
 64 MiB hard cap as shell profiles so outputs beyond 512 KiB can be spilled.
 
-The flag is captured in `tny_ctx` and carried into detached session runners.
-Without the flag, provider request bytes and tool behavior remain unchanged.
+The flag is captured in `tny_ctx` and carried into detached session runners
+through private start-packet fields. Those fields are omitted from flag-off
+packets and public recovery snapshots. Without the flag, provider request
+bytes and tool behavior remain unchanged.
 The shared file and result code works on native and wasm; wasm's terminal tool
 continues to return its existing unsupported error.
 
@@ -44,6 +46,13 @@ requests. The first request carried no tool result; the second sizes were:
 The first request ranged from 22,905 to 22,912 bytes in these runs. The file
 read is primarily a navigation change at its default 16 KiB budget. These are
 synthetic tool outputs and do not establish a live inference quality gain.
+The replay used native default isolation (`TNY_ISOLATE` absent), so the tool
+ran in a detached session runner. The second request contained one spill
+header in each flag-on terminal case and one continuation header in the
+flag-on `read_file` case; flag-off cases contained neither. The three flag-off
+request-size pairs exactly matched an isolated build of `main` at
+`41a3b82861b057c85ce86339292fdddd8846c76d`. This checks the complete
+caller-to-runner path and the flag-off wire boundary.
 With `TNY_EXP_SPILL_BYTES=16384`, the same replay put 16,651 bytes of terminal
 log output and 16,633 bytes of failing-test output inline; the second requests
 were 40,345 and 40,593 bytes respectively. The 16 KiB arm slightly exceeds

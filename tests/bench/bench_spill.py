@@ -66,6 +66,7 @@ def measure(binary, scenario, enabled, root):
             TNY_SELF_IMPROVE="0",
             TNY_EXP_SPILL="1" if enabled else "0",
         )
+        env.pop("TNY_ISOLATE", None)
         run = subprocess.run(
             [str(binary), "--cwd", str(ws), "ask", "--json", "measure output"],
             env=env,

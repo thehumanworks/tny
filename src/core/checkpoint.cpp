@@ -79,7 +79,6 @@ constexpr bool_field bools[] = {
     {"model_from_flag", &tny_ctx::model_from_flag},
     {"json_out", &tny_ctx::json_out},
     {"no_save", &tny_ctx::no_save},
-    {"exp_spill", &tny_ctx::exp_spill},
     {"no_self_improve", &tny_ctx::no_self_improve},
     {"no_color", &tny_ctx::no_color},
     {"force_color", &tny_ctx::force_color},
@@ -207,6 +206,7 @@ yyjson_mut_val *encode(yyjson_mut_doc *d, const tny_ctx *c, bool public_only) {
     check(memchr(c->swarm_definition_digest, 0, sizeof c->swarm_definition_digest) != nullptr);
     check(yyjson_mut_obj_add_strcpy(d, r, "swarm_definition_digest", c->swarm_definition_digest));
     for (const auto &f : bools) check(yyjson_mut_obj_add_bool(d, r, f.name, c->*(f.member)));
+    if (!public_only && c->exp_spill) check(yyjson_mut_obj_add_bool(d, r, "exp_spill", true));
     check(yyjson_mut_obj_add_int(d, r, "backend", c->backend));
     check(yyjson_mut_obj_add_int(d, r, "max_extension_iterations", c->max_extension_iterations));
     check(yyjson_mut_obj_add_int(d, r, "extension_timeout_ms", c->extension_timeout_ms));
@@ -217,11 +217,13 @@ yyjson_mut_val *encode(yyjson_mut_doc *d, const tny_ctx *c, bool public_only) {
     check(yyjson_mut_obj_add_int(d, r, "tool_profile", c->tool_profile));
     check(yyjson_mut_obj_add_int(d, r, "image_input", c->image_input));
     check(yyjson_mut_obj_add_uint(d, r, "max_tool_result_bytes", c->max_tool_result_bytes));
-    check(yyjson_mut_obj_add_uint(d, r, "exp_spill_bytes", c->exp_spill_bytes));
-    check(yyjson_mut_obj_add_uint(d, r, "exp_spill_head_pct", c->exp_spill_head_pct));
-    check(yyjson_mut_obj_add_uint(d, r, "exp_spill_line_bytes", c->exp_spill_line_bytes));
-    check(yyjson_mut_obj_add_uint(d, r, "exp_read_bytes", c->exp_read_bytes));
-    check(yyjson_mut_obj_add_uint(d, r, "exp_read_lineno", c->exp_read_lineno));
+    if (!public_only && c->exp_spill) {
+        check(yyjson_mut_obj_add_uint(d, r, "exp_spill_bytes", c->exp_spill_bytes));
+        check(yyjson_mut_obj_add_uint(d, r, "exp_spill_head_pct", c->exp_spill_head_pct));
+        check(yyjson_mut_obj_add_uint(d, r, "exp_spill_line_bytes", c->exp_spill_line_bytes));
+        check(yyjson_mut_obj_add_uint(d, r, "exp_read_bytes", c->exp_read_bytes));
+        check(yyjson_mut_obj_add_uint(d, r, "exp_read_lineno", c->exp_read_lineno));
+    }
     check(yyjson_mut_obj_add_uint(d, r, "mcp_import_mask", c->mcp_import_mask));
     encode_array(d, r, "extra_dirs", c->extra_dirs, c->n_extra_dirs);
     encode_array(d, r, "instruction_paths", c->instruction_paths, c->n_instruction_paths);
@@ -287,6 +289,9 @@ context restore(yyjson_val *r) {
         check(absent(v) || yyjson_is_bool(v));
         c.get()->*(f.member) = yyjson_get_bool(v);
     }
+    auto *spill = jget(r, "exp_spill");
+    check(absent(spill) || yyjson_is_bool(spill));
+    c->exp_spill = yyjson_get_bool(spill);
     restore_number(c->backend, jget(r, "backend"));
     // tny_ctx_load uses -1 until provider resolution. Private snapshots have
     // always round-tripped that sentinel; public recovery still requires OpenAI.
@@ -389,11 +394,6 @@ bool public_key(const char *name) {
         "instructions_digest",
         "swarm_definition_digest",
         "max_tool_result_bytes",
-        "exp_spill_bytes",
-        "exp_spill_head_pct",
-        "exp_spill_line_bytes",
-        "exp_read_bytes",
-        "exp_read_lineno",
         "mcp_import_mask",
         "extra_dirs",
         "instruction_paths",

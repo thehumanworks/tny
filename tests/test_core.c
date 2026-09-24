@@ -5698,6 +5698,67 @@ TEST job_wait_cancellation_leaves_live_job_untouched(void) {
     PASS();
 }
 
+TEST context_checkpoint_spill_private_only(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->exp_spill = false;
+    yyjson_mut_doc *off_doc = yyjson_mut_doc_new(jallocator());
+    ASSERT(off_doc);
+    yyjson_mut_doc_set_root(off_doc, tny_checkpoint_context(off_doc, ctx));
+    char *off = jwrite(off_doc);
+    ASSERT(off);
+    ASSERT_FALSE(strstr(off, "exp_spill"));
+    ASSERT_FALSE(strstr(off, "exp_read"));
+    yyjson_doc *off_parsed = jparse(off, strlen(off));
+    ASSERT(off_parsed);
+    tny_ctx *off_restored = tny_checkpoint_context_restore(yyjson_doc_get_root(off_parsed));
+    ASSERT(off_restored);
+    ASSERT_FALSE(off_restored->exp_spill);
+    tny_ctx_free(off_restored);
+    yyjson_doc_free(off_parsed);
+
+    ctx->exp_spill = true;
+    ctx->exp_spill_bytes = 16384;
+    ctx->exp_spill_head_pct = 50;
+    ctx->exp_spill_line_bytes = 768;
+    ctx->exp_read_bytes = 32768;
+    ctx->exp_read_lineno = 10;
+    yyjson_mut_doc *on_doc = yyjson_mut_doc_new(jallocator());
+    ASSERT(on_doc);
+    yyjson_mut_doc_set_root(on_doc, tny_checkpoint_context(on_doc, ctx));
+    char *on = jwrite(on_doc);
+    ASSERT(on && strstr(on, "\"exp_spill\":true"));
+    yyjson_doc *parsed = jparse(on, strlen(on));
+    ASSERT(parsed);
+    tny_ctx *restored = tny_checkpoint_context_restore(yyjson_doc_get_root(parsed));
+    ASSERT(restored);
+    ASSERT(restored->exp_spill);
+    ASSERT_EQ(16384, restored->exp_spill_bytes);
+    ASSERT_EQ(50, restored->exp_spill_head_pct);
+    ASSERT_EQ(768, restored->exp_spill_line_bytes);
+    ASSERT_EQ(32768, restored->exp_read_bytes);
+    ASSERT_EQ(10, restored->exp_read_lineno);
+
+    yyjson_mut_doc *public_doc = yyjson_mut_doc_new(jallocator());
+    ASSERT(public_doc);
+    yyjson_mut_doc_set_root(public_doc, tny_checkpoint_public(public_doc, ctx));
+    char *public_json = jwrite(public_doc);
+    ASSERT(public_json);
+    ASSERT_FALSE(strstr(public_json, "exp_spill"));
+    ASSERT_FALSE(strstr(public_json, "exp_read"));
+    free(public_json);
+    yyjson_mut_doc_free(public_doc);
+    tny_ctx_free(restored);
+    yyjson_doc_free(parsed);
+    free(on);
+    yyjson_mut_doc_free(on_doc);
+    free(off);
+    yyjson_mut_doc_free(off_doc);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST context_checkpoint_preserves_resolved_selection(void) {
     ensure_env();
     write_settings("{\"web_search_command\":\"echo {query}\",\"secret_fixture\":\"private-only\"}");
@@ -6232,6 +6293,7 @@ SUITE(core_suite) {
     RUN_TEST(edit_feedback_dispatch_bounds_utf8_snippet);
     RUN_TEST(grep_files_fanout_matches_serial_scan);
     RUN_TEST(semantic_search_fanout_matches_serial_scan);
+    RUN_TEST(context_checkpoint_spill_private_only);
     RUN_TEST(context_checkpoint_preserves_resolved_selection);
     RUN_TEST(session_swarm_definition_restores_snapshot_and_rejects_change);
     RUN_TEST(job_wait_cancellation_leaves_live_job_untouched);

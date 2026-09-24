@@ -555,6 +555,13 @@ class Handler(BaseHTTPRequestHandler):
                             "inline_tool_result_bytes": sum(
                                 len(output.encode("utf-8")) for output in outputs
                             ),
+                            "spill_header_count": sum(
+                                "[output: " in output and "full output: " in output
+                                for output in outputs
+                            ),
+                            "read_continuation_header_count": sum(
+                                "continue with offset=" in output for output in outputs
+                            ),
                         }
                     )
                     + "\n"
