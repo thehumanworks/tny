@@ -603,6 +603,14 @@ static bool exp_batch_hint(void) {
     return v && strcmp(v, "1") == 0;
 }
 
+/* TNY_EXP_REASONING_CTX=all_turns asks the Responses server to use the
+ * replayed reasoning items of earlier turns too, as Codex does for gpt-6.
+ * Unset or any other value keeps today's bytes. */
+static const char *exp_reasoning_context(void) {
+    const char *v = getenv("TNY_EXP_REASONING_CTX");
+    return v && strcmp(v, "all_turns") == 0 ? v : NULL;
+}
+
 static const char *model_of(oa_impl *o) {
     return o->ctx->model ? o->ctx->model : OPENAI_DEFAULT_MODEL;
 }
@@ -998,6 +1006,8 @@ static char *build_request_rsp(oa_impl *o, oa_request_owner *request) {
     if (o->ctx->reasoning_effort && *o->ctx->reasoning_effort) {
         buf_appends(b, ",\"reasoning\":{\"effort\":");
         jescape(b, tny_effort_wire(TNY_BK_OPENAI, o->ctx->reasoning_effort));
+        const char *reasoning_ctx = exp_reasoning_context();
+        if (reasoning_ctx) buf_appendf(b, ",\"context\":\"%s\"", reasoning_ctx);
         buf_appends(b, "}");
     }
     buf_appends(b, "}");
