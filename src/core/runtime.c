@@ -523,12 +523,14 @@ static char *message_event_json(tny_engine *e, const char *type, const char *mes
 
 static char *compact_event_json(tny_engine *e, const char *type, const char *trigger,
                                 int before_count, int after_count, const char *summary,
-                                const char *error) {
+                                const char *error, int64_t before_tokens, int64_t after_tokens) {
     buf_t b;
     buf_init(&b);
     event_json_begin(e, &b, type);
     buf_appends(&b, "\"trigger\":");
     jescape(&b, trigger ? trigger : "manual");
+    if (before_tokens > 0) buf_appendf(&b, ",\"before_tokens\":%lld", (long long)before_tokens);
+    if (after_tokens > 0) buf_appendf(&b, ",\"after_tokens\":%lld", (long long)after_tokens);
     if (strcmp(type, "pre_compact") == 0) {
         buf_appendf(&b, ",\"message_count\":%d", before_count);
     } else if (strcmp(type, "post_compact") == 0) {
@@ -1104,6 +1106,8 @@ static char *native_control_json(tny_engine *e, const tny_openai_control_request
         jescape(&b, request->subagent_outcome ? request->subagent_outcome : "done");
         buf_appendf(&b, ",\"ok\":%s", request->subagent_ok ? "true" : "false");
         break;
+    case TNY_OPENAI_CONTROL_PRE_COMPACT:
+    case TNY_OPENAI_CONTROL_POST_COMPACT: break;
     }
     buf_appends(&b, "}}");
     return buf_detach(&b);
@@ -1255,6 +1259,32 @@ static void native_openai_control(const tny_openai_control_request *request,
     tny_engine *e = ud;
     if (!e || !request || !response) return;
     if (!e->extensions) return;
+    if (request->kind == TNY_OPENAI_CONTROL_PRE_COMPACT ||
+        request->kind == TNY_OPENAI_CONTROL_POST_COMPACT) {
+        if (tny_extension_capability_get((tny_backend_id)e->ctx->backend,
+                                         TNY_EXT_CAP_LIFECYCLE_COMPACTION_OBSERVE) !=
+            TNY_EXT_CAP_SUPPORTED)
+            return;
+        const char *type =
+            request->kind == TNY_OPENAI_CONTROL_PRE_COMPACT ? "pre_compact" : "post_compact";
+        int count = session_message_count(e->session);
+        const char *summary = request->compact_summary;
+        int boundary = session_compact_boundary(e->session, NULL);
+        int after = count - boundary + 1;
+        if (request->kind == TNY_OPENAI_CONTROL_POST_COMPACT) {
+            yyjson_mut_doc *view = session_exp_provider_view(e->session, NULL);
+            if (view) after = (int)yyjson_mut_arr_size(yyjson_mut_doc_get_root(view));
+            yyjson_mut_doc_free(view);
+        }
+        char *json =
+            compact_event_json(e, type, "threshold", count, after, summary, NULL,
+                               request->compact_before_tokens, request->compact_after_tokens);
+        if (json) {
+            (void)invoke_extensions(e, type, json, EXT_PHASE_OBSERVE, NULL);
+            free(json);
+        }
+        return;
+    }
     process_queued_extension_hooks(e);
     const char *event = NULL;
     switch (request->kind) {
@@ -1275,6 +1305,8 @@ static void native_openai_control(const tny_openai_control_request *request,
     case TNY_OPENAI_CONTROL_PROVIDER_RESPONSE: event = "provider_response"; break;
     case TNY_OPENAI_CONTROL_SUBAGENT_START: event = "subagent_start"; break;
     case TNY_OPENAI_CONTROL_SUBAGENT_END: event = "subagent_end"; break;
+    case TNY_OPENAI_CONTROL_PRE_COMPACT:
+    case TNY_OPENAI_CONTROL_POST_COMPACT: return;
     }
     if (!event) return;
     char *json = native_control_json(e, request, event);
@@ -1402,7 +1434,8 @@ static void finalize_turn(tny_engine *e) {
     if (tny_alloc_scope_failed()) return;
     if (!session_title(e->session) && e->prompt_text) session_set_title(e->session, e->prompt_text);
     if (tny_alloc_scope_failed()) return;
-    if (e->stop == TNY_STOP_DONE) (void)tny_engine_compact(e, false, "threshold");
+    if (e->stop == TNY_STOP_DONE && !e->ctx->exp_compact)
+        (void)tny_engine_compact(e, false, "threshold");
     if (tny_alloc_scope_failed()) return;
     session_save(e->session);
 }
@@ -1945,7 +1978,8 @@ int tny_engine_compact(tny_engine *e, bool force, const char *trigger) {
                                                    TNY_EXT_CAP_LIFECYCLE_COMPACTION_OBSERVE) ==
                           TNY_EXT_CAP_SUPPORTED;
     if (observable) {
-        char *json = compact_event_json(e, "pre_compact", trigger, before, before, NULL, NULL);
+        char *json =
+            compact_event_json(e, "pre_compact", trigger, before, before, NULL, NULL, 0, 0);
         if (json) {
             (void)invoke_extensions(e, "pre_compact", json, EXT_PHASE_OBSERVE, NULL);
             free(json);
@@ -1962,7 +1996,7 @@ int tny_engine_compact(tny_engine *e, bool force, const char *trigger) {
             int boundary = session_compact_boundary(e->session, &summary);
             int after = session_message_count(e->session) - boundary + 1;
             char *json =
-                compact_event_json(e, "post_compact", trigger, before, after, summary, NULL);
+                compact_event_json(e, "post_compact", trigger, before, after, summary, NULL, 0, 0);
             if (json) {
                 (void)invoke_extensions(e, "post_compact", json, EXT_PHASE_OBSERVE, NULL);
                 free(json);
@@ -1972,7 +2006,7 @@ int tny_engine_compact(tny_engine *e, bool force, const char *trigger) {
     }
     if (observable) {
         char *json = compact_event_json(e, "compact_failed", trigger, before, before, NULL,
-                                        "session persistence failed");
+                                        "session persistence failed", 0, 0);
         if (json) {
             (void)invoke_extensions(e, "compact_failed", json, EXT_PHASE_OBSERVE, NULL);
             free(json);

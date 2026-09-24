@@ -85,6 +85,24 @@ bool tny_wire_is_chat(const char *wire_api) { return wire_api && strcmp(wire_api
 
 static const char *bk_names[TNY_BK_COUNT] = {"openai", "acp"};
 
+static void load_exp_compact(tny_ctx *ctx) {
+    const char *enabled = getenv("TNY_EXP_COMPACT");
+    ctx->exp_compact = enabled && strcmp(enabled, "1") == 0;
+    ctx->exp_compact_tokens = 128000;
+    const char *tokens = getenv("TNY_EXP_COMPACT_TOKENS");
+    if (tokens && *tokens) {
+        char *end = NULL;
+        long long value = strtoll(tokens, &end, 10);
+        if (end != tokens && !*end && value > 0) ctx->exp_compact_tokens = value;
+    }
+    const char *window = getenv("TNY_EXP_COMPACT_CONTEXT_WINDOW");
+    if (window && *window) {
+        char *end = NULL;
+        long long value = strtoll(window, &end, 10);
+        if (end != window && !*end && value > 0) ctx->exp_compact_window = value;
+    }
+}
+
 const char *tny_tool_profile_name(tny_tool_profile profile) {
     if (profile == TNY_TOOLS_TERMINAL_EDIT) return "terminal+edit";
     if (profile == TNY_TOOLS_TERMINAL) return "terminal";
@@ -644,6 +662,7 @@ static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
     }
     ctx->no_self_improve =
         learning_env ? strcmp(learning_env, "0") == 0 : !jget_bool(sroot, "self_improve", true);
+    load_exp_compact(ctx);
     ctx->max_steps = 0; /* unlimited; .tny.json "steps" or --max-steps cap it */
     const char *read_only = getenv("TNY_TEAM_READ_ONLY");
     ctx->workspace_read_only = read_only && strcmp(read_only, "1") == 0;
@@ -823,7 +842,8 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     ctx->provider_name = xstrdup("openai");
     ctx->perm_mode = TNY_MODE_ASK;
     ctx->tool_profile = TNY_TOOLS_ALL;
-    ctx->max_steps = 0;              /* unlimited unless the embedder sets a cap */
+    ctx->max_steps = 0; /* unlimited unless the embedder sets a cap */
+    load_exp_compact(ctx);
     ctx->extensions_enabled = false; /* explicit embedders opt into authority */
     ctx->max_extension_iterations = 0;
     ctx->extension_timeout_ms = 5000;

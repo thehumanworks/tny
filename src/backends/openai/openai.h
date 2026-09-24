@@ -21,7 +21,9 @@ typedef enum {
     TNY_OPENAI_CONTROL_PROVIDER_REQUEST,
     TNY_OPENAI_CONTROL_PROVIDER_RESPONSE,
     TNY_OPENAI_CONTROL_SUBAGENT_START,
-    TNY_OPENAI_CONTROL_SUBAGENT_END
+    TNY_OPENAI_CONTROL_SUBAGENT_END,
+    TNY_OPENAI_CONTROL_PRE_COMPACT,
+    TNY_OPENAI_CONTROL_POST_COMPACT
 } tny_openai_control_kind;
 
 typedef enum {
@@ -60,6 +62,9 @@ typedef struct {
     const char *subagent_action;
     const char *subagent_outcome;
     bool subagent_ok;
+    int64_t compact_before_tokens;
+    int64_t compact_after_tokens;
+    const char *compact_summary;
 } tny_openai_control_request;
 
 typedef struct {

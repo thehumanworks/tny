@@ -68,11 +68,14 @@ typedef struct tny_ctx {
     tny_tool_profile tool_profile; /* native-loop built-ins advertised/accepted */
     bool json_out;
     bool no_save;
-    bool no_self_improve;     /* default-on bounded workflow learning; explicit opt-out */
-    bool no_color;            /* --no-color | --color=never: no SGR at all */
-    bool force_color;         /* --color=always: SGR even piped, beats NO_COLOR */
-    bool library_mode;        /* deterministic embed: never write host stdio */
-    bool prompt_optimisation; /* internal read-only draft service, not a user tool profile */
+    bool no_self_improve; /* default-on bounded workflow learning; explicit opt-out */
+    bool exp_compact;     /* opt-in token-triggered native compaction */
+    int64_t exp_compact_tokens;
+    int64_t exp_compact_window; /* 0 when the model window is unknown */
+    bool no_color;              /* --no-color | --color=never: no SGR at all */
+    bool force_color;           /* --color=always: SGR even piped, beats NO_COLOR */
+    bool library_mode;          /* deterministic embed: never write host stdio */
+    bool prompt_optimisation;   /* internal read-only draft service, not a user tool profile */
     struct tny_host_services_state *host_services; /* borrowed from lib runtime */
     struct custom_tool_registry *custom_tools;     /* borrowed from lib runtime */
 

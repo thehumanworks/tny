@@ -126,6 +126,18 @@ int session_message_count(tny_session_state *s);
 /* Index of first message the model should see verbatim + summary text. */
 int session_compact_boundary(tny_session_state *s, const char **summary);
 
+/* Experimental native compaction. The stored transcript stays complete;
+ * only the provider view changes. A summary is immutable until replaced. */
+void session_exp_set_last_tokens(tny_session_state *s, int64_t tokens);
+int64_t session_exp_last_tokens(tny_session_state *s);
+bool session_exp_compact_needed(tny_session_state *s);
+int session_exp_compact_cut(tny_session_state *s);
+char *session_exp_archive(tny_session_state *s); /* malloc'd path or NULL */
+char *session_exp_mechanical_summary(tny_session_state *s, int cut);
+int session_exp_compact_apply(tny_session_state *s, int cut, const char *summary,
+                              const char *archive, int64_t before_tokens);
+yyjson_mut_doc *session_exp_provider_view(tny_session_state *s, int *repairs);
+
 /* Runtime status for background tasks (docs/adr/0031). Top-level fields
  * `status` ("running"|"done"|"error"|"interrupted"), `exit_code` and
  * `result` (the exact object foreground `ask --json` would have printed).

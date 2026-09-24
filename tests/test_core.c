@@ -916,6 +916,78 @@ TEST session_compaction(void) {
     PASS();
 }
 
+TEST session_experimental_compaction_view(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->exp_compact = true;
+    ctx->exp_compact_tokens = 100;
+    ctx->exp_compact_window = 100;
+    ctx->no_save = true;
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    char *large = malloc(33000);
+    ASSERT(large);
+    memset(large, 'x', 32999);
+    large[32999] = 0;
+    for (int i = 0; i < 3; i++) {
+        large[0] = (char)('A' + i);
+        session_add_text(s, "user", large);
+        session_add_assistant(s, "done", NULL);
+    }
+    free(large);
+    session_exp_set_last_tokens(s, 79);
+    ASSERT(!session_exp_compact_needed(s));
+    session_exp_set_last_tokens(s, 80); /* 80% of known 100-token window */
+    ASSERT(session_exp_compact_needed(s));
+    int cut = session_exp_compact_cut(s);
+    ASSERT_EQ_FMT(6, cut, "%d");
+    ASSERT_EQ_FMT(0, session_exp_compact_apply(s, cut, "Stable summary", NULL, 80), "%d");
+    ASSERT(!session_exp_compact_needed(s));
+    int repairs = -1;
+    yyjson_mut_doc *view = session_exp_provider_view(s, &repairs);
+    ASSERT(view);
+    char *json = jwrite_mut_val(yyjson_mut_doc_get_root(view));
+    ASSERT(json);
+    ASSERT(strstr(json, "Cxxxxxxxx") != NULL);
+    ASSERT(strstr(json, "Axxxxxxxx") == NULL);
+    ASSERT(strstr(json, "Stable summary") != NULL);
+    free(json);
+    yyjson_mut_doc_free(view);
+    const char *summary = NULL;
+    ASSERT_EQ_FMT(6, session_compact_boundary(s, &summary), "%d");
+    ASSERT_STR_EQ("Stable summary", summary);
+
+    session_add_text(s, "user", "latest user instruction");
+    session_add_assistant(s, NULL,
+                          "[{\"id\":\"call-1\",\"type\":\"function\",\"function\":{"
+                          "\"name\":\"read_file\",\"arguments\":\"{}\"}}]");
+    session_add_tool_result(s, "call-1", "result-one");
+    ASSERT_EQ_FMT(7, session_exp_compact_cut(s), "%d");
+    view = session_exp_provider_view(s, &repairs);
+    ASSERT(view);
+    json = jwrite_mut_val(yyjson_mut_doc_get_root(view));
+    ASSERT(json);
+    ASSERT(strstr(json, "Stable summary") != NULL);
+    ASSERT(strstr(json, "latest user instruction") != NULL);
+    ASSERT(strstr(json, "call-1") != NULL);
+    ASSERT(strstr(json, "result-one") != NULL);
+    ASSERT(strstr(json, "call-1") < strstr(json, "result-one"));
+    free(json);
+    yyjson_mut_doc_free(view);
+    char *fallback = session_exp_mechanical_summary(s, session_exp_compact_cut(s));
+    ASSERT(fallback);
+    ASSERT(strstr(fallback, "latest user instruction") != NULL);
+    free(fallback);
+    ASSERT_STR_EQ("Stable summary", summary);
+    session_exp_set_last_tokens(s, 0);
+    ASSERT_EQ_FMT((long long)0, (long long)session_exp_last_tokens(s), "%lld");
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST session_recovery_roundtrip(void) {
     ensure_env();
     write_settings("{}");
@@ -6100,6 +6172,7 @@ SUITE(core_suite) {
     RUN_TEST(session_tool_argument_rewrite_is_targeted_and_no_match_terminates);
     RUN_TEST(session_result_handles);
     RUN_TEST(session_compaction);
+    RUN_TEST(session_experimental_compaction_view);
     RUN_TEST(session_recovery_roundtrip);
     RUN_TEST(image_mime_from_magic);
     RUN_TEST(image_data_url_roundtrip);

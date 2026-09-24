@@ -37,8 +37,9 @@ typedef enum {
     ST_BODY,
     ST_WAIT_PERMISSION,
     ST_WAIT_CUSTOM,
-    ST_CHECKPOINT, /* quiescent completed-tool boundary, awaiting fresh exec */
-    ST_RETRY_WAIT  /* backoff before re-POSTing the same step (docs/adr/0069) */
+    ST_CHECKPOINT,     /* quiescent completed-tool boundary, awaiting fresh exec */
+    ST_RETRY_WAIT,     /* backoff before re-POSTing the same step (docs/adr/0069) */
+    ST_COMPACT_RECOVER /* summary failed; resume the ordinary model request */
 } oa_state;
 
 /* Retry budget per model call: the first attempt plus this many retries,
@@ -124,7 +125,12 @@ typedef struct {
     char finish_reason[32];
     int64_t usage_in, usage_out;
     int64_t usage_cached, usage_cache_write;
-    bool usage_seen, usage_recorded;
+    bool usage_seen, usage_recorded, usage_input_seen;
+    bool compacting;
+    bool compact_skip_once;
+    int compact_cut;
+    int64_t compact_before_tokens;
+    char *compact_archive;
     tny_openai_usage usage;
     /* Opaque server affinity belongs to one user turn, including its tool
      * rounds/retries. Never persist it or carry it into the next turn. */
@@ -197,6 +203,7 @@ static void emit_text(oa_impl *o, tny_event_kind k, const char *t, size_t n) {
 }
 
 static void emit_error(oa_impl *o, tny_event_error_kind code, const char *text, size_t len) {
+    if (o->compacting && !tny_alloc_scope_failed()) return;
     tny_backend_event ev = {0};
     ev.kind = TNY_EV_ERROR;
     ev.error_code = code;
@@ -206,7 +213,10 @@ static void emit_error(oa_impl *o, tny_event_error_kind code, const char *text, 
 }
 
 static void record_usage(oa_impl *o) {
-    if (!o->usage_seen || o->usage_recorded || tny_alloc_scope_failed()) return;
+    if (tny_alloc_scope_failed()) return;
+    if (o->ctx->exp_compact && !o->compacting && !o->usage_recorded)
+        session_exp_set_last_tokens(o->env.session, o->usage_input_seen ? o->usage_in : 0);
+    if (!o->usage_seen || o->usage_recorded) return;
     o->usage_recorded = true;
     o->usage.input_tokens += o->usage_in;
     o->usage.output_tokens += o->usage_out;
@@ -224,6 +234,56 @@ static void record_usage(oa_impl *o) {
 }
 
 static void preview_not_delivered(oa_impl *o, const char *reason);
+static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry);
+static void conn_drop(oa_impl *o);
+static void reasoning_reset(oa_impl *o);
+
+static void compact_observe(oa_impl *o, tny_openai_control_kind kind, const char *summary) {
+    tny_openai_control_request request = {0};
+    request.kind = kind;
+    request.compact_before_tokens = o->compact_before_tokens;
+    request.compact_after_tokens = o->compact_before_tokens;
+    if (kind == TNY_OPENAI_CONTROL_POST_COMPACT) {
+        yyjson_mut_doc *view = session_exp_provider_view(o->env.session, NULL);
+        char *json = view ? jwrite_mut_val(yyjson_mut_doc_get_root(view)) : NULL;
+        request.compact_after_tokens = 5000 + (int64_t)strlen(json      ? json
+                                                              : summary ? summary
+                                                                        : "") /
+                                                  4;
+        free(json);
+        yyjson_mut_doc_free(view);
+    }
+    request.compact_summary = summary;
+    tny_openai_control_response response = control_call(o, &request);
+    control_response_free(&response);
+}
+
+static void compact_finish(oa_impl *o, const char *model_summary) {
+    char *fallback = NULL;
+    if (!model_summary || !*model_summary) {
+        fallback = session_exp_mechanical_summary(o->env.session, o->compact_cut);
+        model_summary = fallback;
+    }
+    if (model_summary) {
+        buf_t summary;
+        buf_init(&summary);
+        if (o->compact_archive)
+            buf_appendf(&summary, "Full pre-compaction transcript: %s\n\n", o->compact_archive);
+        buf_appends(&summary, model_summary);
+        if (!summary.oom &&
+            session_exp_compact_apply(o->env.session, o->compact_cut, summary.data,
+                                      o->compact_archive, o->compact_before_tokens) == 0) {
+            if (session_save(o->env.session) == 0)
+                compact_observe(o, TNY_OPENAI_CONTROL_POST_COMPACT, summary.data);
+        }
+        buf_free(&summary);
+    }
+    free(fallback);
+    free(o->compact_archive);
+    o->compact_archive = NULL;
+    o->compacting = false;
+    o->compact_skip_once = true;
+}
 
 /* Observe a sticky allocation failure and mark the provider OOM boundary. */
 static bool provider_oom(void) {
@@ -236,6 +296,19 @@ static void emit_turn_end(oa_impl *o, tny_stop_reason stop) {
     /* Under provider OOM the runtime settles with its reserved pair through
      * emergency cancel; ordinary finalization must not allocate here. */
     if (provider_oom() || !o->turn_open) return;
+    if (o->compacting && stop == TNY_STOP_ERROR && !o->cancelled) {
+        record_usage(o);
+        compact_finish(o, NULL);
+        conn_drop(o);
+        oa_calls_reset(&o->calls);
+        buf_clear(&o->turn->text);
+        buf_clear(&o->turn->rawbody);
+        reasoning_reset(o);
+        sse_parser_free(&o->sse);
+        sse_parser_init(&o->sse);
+        o->state = ST_COMPACT_RECOVER;
+        return;
+    }
     o->turn_open = false;
     /* Settlement callbacks may cancel again; the turn is already ending. */
     o->state = ST_IDLE;
@@ -553,7 +626,8 @@ static int fail_stream(oa_impl *o) {
     error_text(o, &o->stream_error, false, msg, sizeof msg);
     if (o->stream_error.retryable && schedule_retry(o, msg, 0)) return 0;
     error_text(o, &o->stream_error, true, msg, sizeof msg);
-    if (o->turn->text.len) session_recovery_write(o->env.session, o->turn->text.data);
+    if (!o->compacting && o->turn->text.len)
+        session_recovery_write(o->env.session, o->turn->text.data);
     emit_error(o, TNY_EVENT_ERROR_PROTOCOL, msg, strlen(msg));
     emit_turn_end(o, TNY_STOP_ERROR);
     return -1;
@@ -566,7 +640,8 @@ static int fail_stream(oa_impl *o) {
 static int stream_interrupted(oa_impl *o, const char *what) {
     conn_drop(o);
     if (schedule_retry(o, what, 0)) return 0;
-    if (o->turn->text.len) session_recovery_write(o->env.session, o->turn->text.data);
+    if (!o->compacting && o->turn->text.len)
+        session_recovery_write(o->env.session, o->turn->text.data);
     emit_error(o, TNY_EVENT_ERROR_IO, what, strlen(what));
     emit_turn_end(o, TNY_STOP_ERROR);
     return -1; /* moot: the turn already ended */
@@ -590,6 +665,27 @@ static void note_repairs(oa_impl *o, int repairs) {
 
 static const char *model_of(oa_impl *o) {
     return o->ctx->model ? o->ctx->model : OPENAI_DEFAULT_MODEL;
+}
+
+static const char *COMPACT_INSTRUCTION =
+    "Summarize the conversation so work can continue. Carry forward the goal, all user "
+    "constraints, current plan and state, completed and remaining work, key facts, file paths "
+    "and commands, and open errors. Preserve exact details needed to resume. Return only the "
+    "summary. The full transcript is available at the path supplied below.";
+
+static void append_compact_trigger(oa_impl *o, yyjson_mut_doc *view) {
+    if (!o->compacting || !view) return;
+    buf_t text;
+    buf_init(&text);
+    buf_appends(&text, COMPACT_INSTRUCTION);
+    if (o->compact_archive) buf_appendf(&text, "\nTranscript: %s", o->compact_archive);
+    yyjson_mut_val *m = yyjson_mut_obj(view);
+    if (m && !text.oom) {
+        yyjson_mut_obj_add_strcpy(view, m, "role", "user");
+        yyjson_mut_obj_add_strcpy(view, m, "content", text.data);
+        yyjson_mut_arr_add_val(yyjson_mut_doc_get_root(view), m);
+    }
+    buf_free(&text);
 }
 
 /* The shared system preamble follows the runtime composition contract:
@@ -790,19 +886,21 @@ static char *build_request_chat(oa_impl *o, oa_request_owner *request) {
     /* compacted view */
     const char *summary = NULL;
     int boundary = session_compact_boundary(s, &summary);
-    if (summary && boundary > 0) {
+    if (!o->ctx->exp_compact && summary && boundary > 0) {
         buf_appends(b, ",{\"role\":\"system\",\"content\":");
         jescape(b, summary);
         buf_appends(b, "}");
     }
     if (buf_oom(b) || provider_oom()) { return NULL; }
     int repairs = 0;
-    yyjson_mut_doc *view =
-        oa_request_take_view(request, session_provider_view(s, boundary, &repairs));
+    yyjson_mut_doc *view = oa_request_take_view(
+        request, o->ctx->exp_compact ? session_exp_provider_view(s, &repairs)
+                                     : session_provider_view(s, boundary, &repairs));
     if (!view) { return NULL; }
     note_repairs(o, repairs);
     if (!provider_oom() && o->continuing && o->turn->text.len)
         oa_view_append_continuation(view, o->turn->text.data);
+    append_compact_trigger(o, view);
     if (provider_oom()) { return NULL; }
     yyjson_mut_val *msgs = yyjson_mut_doc_get_root(view);
     size_t total = yyjson_mut_arr_size(msgs);
@@ -826,7 +924,7 @@ static char *build_request_chat(oa_impl *o, oa_request_owner *request) {
     const char *schema =
         oa_request_take_string(request, OA_BUILD_SCHEMA, tools_schema_json(&o->env));
     if (!schema) { return NULL; }
-    buf_appendf(b, ",\"tools\":%s,\"tool_choice\":\"auto\"", schema);
+    buf_appendf(b, ",\"tools\":%s,\"tool_choice\":\"%s\"", schema, o->compacting ? "none" : "auto");
     oa_request_take_string(request, OA_BUILD_SCHEMA, NULL);
     if (o->ctx->output_schema) buf_appendf(b, ",\"response_format\":%s", o->ctx->output_schema);
     if (o->ctx->max_tokens_field) buf_appendf(b, ",\"%s\":8192", o->ctx->max_tokens_field);
@@ -903,17 +1001,19 @@ static char *build_request_rsp(oa_impl *o, oa_request_owner *request) {
     int boundary = session_compact_boundary(s, &summary);
     if (buf_oom(b) || provider_oom()) { return NULL; }
     int repairs = 0;
-    yyjson_mut_doc *view =
-        oa_request_take_view(request, session_provider_view(s, boundary, &repairs));
+    yyjson_mut_doc *view = oa_request_take_view(
+        request, o->ctx->exp_compact ? session_exp_provider_view(s, &repairs)
+                                     : session_provider_view(s, boundary, &repairs));
     if (!view) { return NULL; }
     note_repairs(o, repairs);
     if (!provider_oom() && o->continuing && o->turn->text.len)
         oa_view_append_continuation(view, o->turn->text.data);
+    append_compact_trigger(o, view);
     if (provider_oom()) { return NULL; }
-    const char *input =
-        oa_request_take_string(request, OA_BUILD_INPUT,
-                               tny_openai_responses_input_with_summary(
-                                   yyjson_mut_doc_get_root(view), boundary > 0 ? summary : NULL));
+    const char *input = oa_request_take_string(
+        request, OA_BUILD_INPUT,
+        tny_openai_responses_input_with_summary(
+            yyjson_mut_doc_get_root(view), !o->ctx->exp_compact && boundary > 0 ? summary : NULL));
     oa_request_take_view(request, NULL);
     if (provider_oom()) {
         oa_request_take_string(request, OA_BUILD_INPUT, NULL);
@@ -944,9 +1044,12 @@ static char *build_request_rsp(oa_impl *o, oa_request_owner *request) {
         buf_appends(b, ",\"tools\":");
         buf_append(b, flat, len - 1);
         if (len > 2) buf_appends(b, ",");
-        buf_appends(
-            b, "{\"type\":\"web_search\",\"external_web_access\":true}],\"tool_choice\":\"auto\"");
-    } else buf_appendf(b, ",\"tools\":%s,\"tool_choice\":\"auto\"", flat ? flat : "[]");
+        buf_appendf(
+            b, "{\"type\":\"web_search\",\"external_web_access\":true}],\"tool_choice\":\"%s\"",
+            o->compacting ? "none" : "auto");
+    } else
+        buf_appendf(b, ",\"tools\":%s,\"tool_choice\":\"%s\"", flat ? flat : "[]",
+                    o->compacting ? "none" : "auto");
     oa_request_take_string(request, OA_BUILD_FLAT, NULL);
     oa_request_take_string(request, OA_BUILD_SCHEMA, NULL);
 
@@ -1142,7 +1245,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     o->finish_reason[0] = 0;
     o->usage_in = o->usage_out = 0;
     o->usage_cached = o->usage_cache_write = -1;
-    o->usage_seen = o->usage_recorded = false;
+    o->usage_seen = o->usage_recorded = o->usage_input_seen = false;
     if (!o->continuing) buf_clear(&o->turn->text); /* a continuation keeps the shown partial */
     buf_clear(&o->turn->rawbody);
     reasoning_reset(o);
@@ -1162,14 +1265,35 @@ request_oom:
 static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
     if (tny_swarm_activate(&o->env, errbuf, errlen) != 0) return -1;
     if (tny_team_deliver(&o->env, errbuf, errlen) != 0) return -1;
-    return start_post_mode(o, errbuf, errlen, false);
+    if (!o->compact_skip_once && !o->compacting && session_exp_compact_needed(o->env.session)) {
+        o->compact_cut = session_exp_compact_cut(o->env.session);
+        o->compact_before_tokens = session_exp_last_tokens(o->env.session);
+        o->compact_archive = session_exp_archive(o->env.session);
+        if (!o->ctx->no_save && !o->compact_archive) {
+            snprintf(errbuf, errlen, "could not save pre-compaction transcript");
+            return -1;
+        }
+        o->compacting = true;
+        compact_observe(o, TNY_OPENAI_CONTROL_PRE_COMPACT, NULL);
+    }
+    o->compact_skip_once = false;
+    int rc = start_post_mode(o, errbuf, errlen, false);
+    if (rc == -1 && o->compacting && !o->cancelled) {
+        compact_finish(o, NULL);
+        o->compact_skip_once = false;
+        rc = start_post_mode(o, errbuf, errlen, false);
+    }
+    return rc;
 }
 
 /* ---------- SSE event handling ---------- */
 
 static void capture_usage(oa_impl *o, const oa_decoded_event *event) {
     o->usage_seen = true;
-    if (event->usage_fields & 1) o->usage_in = event->input_tokens;
+    if (event->usage_fields & 1) {
+        o->usage_input_seen = true;
+        o->usage_in = event->input_tokens;
+    }
     if (event->usage_fields & 2) o->usage_out = event->output_tokens;
     if (event->usage_fields & 4) o->usage_cached = event->cached_tokens;
     if (event->usage_fields & 8) o->usage_cache_write = event->cache_write_tokens;
@@ -1187,11 +1311,11 @@ static int on_decoded(const oa_decoded_event *event, void *ud) {
     case OA_DECODE_TEXT:
         buf_append(&o->turn->text, event->text, event->len);
         if (buf_oom(&o->turn->text)) return TNY_PARSE_OOM;
-        emit_text(o, TNY_EV_TEXT_DELTA, event->text, event->len);
+        if (!o->compacting) emit_text(o, TNY_EV_TEXT_DELTA, event->text, event->len);
         break;
     case OA_DECODE_THINKING:
         o->thinking_seen = true;
-        emit_text(o, TNY_EV_THINKING, event->text, event->len);
+        if (!o->compacting) emit_text(o, TNY_EV_THINKING, event->text, event->len);
         break;
     case OA_DECODE_USAGE: capture_usage(o, event); break;
     case OA_DECODE_ERROR:
@@ -1871,6 +1995,23 @@ static int run_tools(oa_impl *o) {
 static int step_finished(oa_impl *o) {
     record_usage(o);
     if (provider_oom()) return -1;
+    if (o->compacting) {
+        /* A summary is accepted only from a completed, tool-free response. */
+        compact_finish(o, o->final_stop == TNY_STOP_DONE && o->calls.n == 0 && o->turn->text.len
+                              ? o->turn->text.data
+                              : NULL);
+        oa_calls_reset(&o->calls);
+        char err[512];
+        int rc = start_post_mode(o, err, sizeof err, false);
+        o->compact_skip_once = false;
+        if (rc == -2) return -1;
+        if (rc != 0) {
+            emit_error(o, TNY_EVENT_ERROR_IO, err, strlen(err));
+            emit_turn_end(o, TNY_STOP_ERROR);
+            return -1;
+        }
+        return 0;
+    }
     tny_session_state *s = o->env.session;
     if (o->calls.n == 0) {
         if (o->turn->steer && !o->cancelled) {
@@ -2159,7 +2300,7 @@ static void oa_cancel(tny_backend *b) {
         (void)finish_tool_batch(o);
         return;
     }
-    if (o->turn->text.len && !had_tool_batch) {
+    if (o->turn->text.len && !had_tool_batch && !o->compacting) {
         session_recovery_write(o->env.session, o->turn->text.data);
         session_add_assistant(o->env.session, o->turn->text.data, NULL);
         session_save(o->env.session);
@@ -2200,6 +2341,7 @@ static int oa_pollfds(tny_backend *b, struct pollfd *fds, int max) {
 static int oa_poll_timeout(tny_backend *b) {
     oa_impl *o = b->impl;
     int64_t left;
+    if (o->state == ST_COMPACT_RECOVER) return 0;
     if (o->state == ST_RETRY_WAIT) left = o->retry_at_ms - monotonic_ms();
     else if (o->state == ST_BODY && o->error_status) left = o->error_deadline_ms - monotonic_ms();
     else if ((o->state == ST_HEADERS || o->state == ST_BODY) && oa_connection_get(o->connection) &&
@@ -2223,8 +2365,20 @@ static void sniff_body(oa_impl *o, const char *bytes, size_t n) {
     }
 }
 
-static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
+static int oa_dispatch_impl(tny_backend *b, struct pollfd *fds, int n) {
     oa_impl *o = b->impl;
+    if (o->state == ST_COMPACT_RECOVER) {
+        char err[512];
+        int rc = start_post_mode(o, err, sizeof err, false);
+        o->compact_skip_once = false;
+        if (rc == -2) return -1;
+        if (rc != 0) {
+            emit_error(o, TNY_EVENT_ERROR_IO, err, strlen(err));
+            emit_turn_end(o, TNY_STOP_ERROR);
+            return -1;
+        }
+        return 0;
+    }
     if (o->state == ST_WAIT_CUSTOM) {
         if (n > 0 && fds[0].revents) custom_tools_wake_drain(o->ctx->custom_tools);
         return finish_custom_completion(o);
@@ -2435,6 +2589,12 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
     return 0;
 }
 
+static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
+    int rc = oa_dispatch_impl(b, fds, n);
+    oa_impl *o = b->impl;
+    return o->state == ST_COMPACT_RECOVER ? 0 : rc;
+}
+
 static int oa_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
     const char *wire = tny_wire_is_chat(ctx->wire_api) ? ", wire chat" : "";
     if (ctx->api_key) {
@@ -2451,6 +2611,7 @@ static int oa_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
 
 static void oa_destroy(tny_backend *b) {
     oa_impl *o = b->impl;
+    free(o->compact_archive);
     oa_connection_free(&o->connection);
     oa_calls_reset(&o->calls);
     pending_perm_clear(o);
