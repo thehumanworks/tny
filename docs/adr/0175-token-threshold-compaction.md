@@ -42,8 +42,8 @@ billing or live model quality.
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | 20 turns | off | 40 | 290,412 | 7,260 | 13 | 12 mechanical |
 | 20 turns | on | 40 | 345,760 | 8,644 | 1 | 0 |
-| 120 tool steps | off | 121 | 56,790,796 | 469,345 | 1 | 0 |
-| 120 tool steps | on | 122 | 30,241,572 | 247,882 | 1 | 1 model |
+| 120 tool steps | off | 121 | 56,795,152 | 469,381 | 1 | 0 |
+| 120 tool steps | on | 122 | 30,243,917 | 247,901 | 1 | 1 model |
 
 The 20-turn on arm sends more total bytes because it retains the complete
 history below the token threshold; it avoids twelve early-summary prefix
