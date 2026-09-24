@@ -29,6 +29,41 @@ static bool skip_dir(const char *name) {
            strcmp(name, "__pycache__") == 0;
 }
 
+/* A named directory only bypasses generated-directory ignores when it is
+ * itself below one. Absolute workspace roots and ordinary subdirectories keep
+ * the same walk (and file budget) as an omitted path. */
+static bool named_ignored_dir(const tools_env *env, const char *abs) {
+    const char *cwd = env->ctx->cwd;
+    if (!path_is_within(cwd, abs) || strcmp(cwd, abs) == 0) return false;
+    const char *part = abs + strlen(cwd);
+    if (*part == '/') part++;
+    while (*part) {
+        const char *end = strchr(part, '/');
+        size_t len = end ? (size_t)(end - part) : strlen(part);
+        char name[32];
+        if (len < sizeof name) {
+            memcpy(name, part, len);
+            name[len] = 0;
+            if (skip_dir(name)) return true;
+        } else if (part[0] == '.') return true;
+        if (!end) break;
+        part = end + 1;
+    }
+    return false;
+}
+
+/* Directory walks never expose hidden files or the local .tny credential
+ * store. A caller can still search one of these by naming the file itself. */
+static bool skip_secret_file(const char *dir, const char *name) {
+    if (name[0] == '.') return true;
+    const char *p = dir;
+    while ((p = strstr(p, "/.tny"))) {
+        if (p[5] == '/' || p[5] == '\0') return true;
+        p += 5;
+    }
+    return false;
+}
+
 typedef bool (*walk_cb)(const char *abs, const char *rel, void *ud);
 
 /* Return false after allocator exhaustion. The caller must propagate NULL so
@@ -47,7 +82,7 @@ static bool walk(const char *root, const char *rel, int *budget, int *skipped, b
     struct dirent *e;
     while ((e = readdir(d)) && *budget > 0) {
         if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
-        if (honor_ignores && e->d_name[0] == '.') {
+        if (e->d_name[0] == '.') {
             char *hidden = path_join(dir, e->d_name);
             if (!hidden) {
                 ok = false;
@@ -75,8 +110,10 @@ static bool walk(const char *root, const char *rel, int *budget, int *skipped, b
                 if (honor_ignores && skip_dir(e->d_name)) (*skipped)++;
                 else if (!walk(root, nrel, budget, skipped, honor_ignores, cb, ud)) ok = false;
             } else if (S_ISREG(st.st_mode)) {
-                (*budget)--;
-                if (!cb(nabs, nrel, ud)) ok = false;
+                if (!skip_secret_file(dir, e->d_name)) {
+                    (*budget)--;
+                    if (!cb(nabs, nrel, ud)) ok = false;
+                }
             }
         }
         free(nrel);
@@ -341,7 +378,7 @@ static char *t_glob_files(tools_env *env, yyjson_val *args) {
         walked = glob_cb(abs, base ? base + 1 : abs, &g);
         budget--;
     } else if (S_ISDIR(st.st_mode))
-        walked = walk(abs, "", &budget, &skipped, !p || !*p || strcmp(p, ".") == 0, glob_cb, &g);
+        walked = walk(abs, "", &budget, &skipped, !named_ignored_dir(env, abs), glob_cb, &g);
     else walked = true;
     free(abs);
     if (!walked || buf_oom(&out) || tny_alloc_scope_failed()) {
@@ -414,8 +451,8 @@ static void grep_scan(const char *abs, const char *rel, const char *pat, bool ci
             size_t ll = i - start;
             char end = data[i];
             data[i] = 0;
-            bool matched = regex ? regexec(regex, data + start, 0, NULL, 0) == 0
-                                 : line_contains(data + start, ll, pat, ci);
+            bool matched = line_contains(data + start, ll, pat, ci) ||
+                           (regex && regexec(regex, data + start, 0, NULL, 0) == 0);
             data[i] = end;
             if (matched) {
                 if (ll > 300) ll = 300;
@@ -500,10 +537,16 @@ static char *t_grep_files(tools_env *env, yyjson_val *args) {
     char *abs = tool_resolve_path(env, p && *p ? p : ".", &err);
     if (!abs) return err;
     bool ci = jget_bool(args, "case_insensitive", false);
-    bool use_regex = strpbrk(pat, "|()[]+?^${}") != NULL || strstr(pat, ".*") != NULL;
+    bool use_regex = strpbrk(pat, "|()[]+?^${}\\") != NULL || strstr(pat, ".*") != NULL;
     regex_t regex;
-    if (use_regex && regcomp(&regex, pat, REG_EXTENDED | REG_NOSUB | (ci ? REG_ICASE : 0)) != 0)
-        use_regex = false; /* punctuation in code can also be a literal search */
+    if (use_regex) {
+        if (regcomp(&regex, pat, REG_EXTENDED | REG_NOSUB | (ci ? REG_ICASE : 0)) != 0)
+            use_regex = false; /* punctuation in code can also be literal */
+        else if (regexec(&regex, "", 0, NULL, 0) == 0) {
+            regfree(&regex); /* empty matches would flood every line */
+            use_regex = false;
+        }
+    }
     buf_t out;
     buf_init(&out);
     bool ok;
@@ -526,8 +569,8 @@ static char *t_grep_files(tools_env *env, yyjson_val *args) {
         if (ok) grep_fold(&out, &one, &total);
         buf_free(&one.out);
     } else if (S_ISDIR(st.st_mode))
-        ok = grep_tree(abs, pat, ci, use_regex ? &regex : NULL, !p || !*p || strcmp(p, ".") == 0,
-                       &out, &scanned, &skipped);
+        ok = grep_tree(abs, pat, ci, use_regex ? &regex : NULL, !named_ignored_dir(env, abs), &out,
+                       &scanned, &skipped);
     else {
         if (use_regex) regfree(&regex);
         char *e = tool_err("cannot search %s", abs);

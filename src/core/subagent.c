@@ -10,6 +10,7 @@
  * environment. inspect/lifecycle read the stored session and its writer
  * lock; they never start a process. */
 #include "core/subagent.h"
+#include "util/alloc.h"
 #include "util/process.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
@@ -63,18 +64,28 @@ static bool sa_valid_label(const char *label, size_t len) {
     return !hex_shaped;
 }
 
-/* Labels live beside the durable child session, so deletion/recovery retains
- * the ordinary session lifetime. A duplicate is ambiguous, never guessed. */
-static int sa_lookup_label(tny_ctx *ctx, const char *label, char **resolved) {
+/* Labels are scoped to the parent session. A sessionless caller uses the
+ * empty scope, which also keeps the direct unit/process seam deterministic. */
+static const char *sa_parent_id(const tools_env *env) {
+    return env->session && env->session->id ? env->session->id : "";
+}
+
+/* Labels live beside the durable child session. A duplicate within one
+ * parent is ambiguous, never guessed. -1 is allocation failure, -2 is I/O. */
+static int sa_lookup_label(tools_env *env, const char *label, char **resolved) {
     *resolved = NULL;
+    tny_ctx *ctx = env->ctx;
+    const char *parent = sa_parent_id(env);
+    size_t parent_len = strlen(parent), label_len = strlen(label);
     char *sessions = path_join(ctx->tny_dir, "sessions");
     char *ws = sessions ? path_join(sessions, ctx->ws_hash) : NULL;
     free(sessions);
     if (!ws) return -1;
     DIR *dir = opendir(ws);
     if (!dir) {
+        int saved_errno = errno;
         free(ws);
-        return errno == ENOENT ? 0 : -1;
+        return saved_errno == ENOENT ? 0 : -2;
     }
     int matches = 0;
     struct dirent *entry;
@@ -90,7 +101,9 @@ static int sa_lookup_label(tny_ctx *ctx, const char *label, char **resolved) {
         size_t len = 0;
         char *stored = file_slurp(file, &len);
         free(file);
-        if (stored && len == strlen(label) && memcmp(stored, label, len) == 0) {
+        if (stored && len == parent_len + 1 + label_len &&
+            memcmp(stored, parent, parent_len) == 0 && stored[parent_len] == '\n' &&
+            memcmp(stored + parent_len + 1, label, label_len) == 0) {
             tny_session_state *child_session = session_open(ctx, entry->d_name);
             if (child_session) {
                 matches++;
@@ -111,11 +124,15 @@ static int sa_lookup_label(tny_ctx *ctx, const char *label, char **resolved) {
     return matches;
 }
 
-static bool sa_store_label(tny_ctx *ctx, const char *id, const char *label) {
-    tny_session_state *child = session_open(ctx, id);
+static bool sa_store_label(tools_env *env, const char *id, const char *label) {
+    tny_session_state *child = session_open(env->ctx, id);
     if (!child) return false;
     char *file = path_join(child->dir, "subagent-label");
-    bool ok = file && file_write_atomic(file, label, strlen(label)) == 0;
+    buf_t value;
+    buf_init(&value);
+    buf_appendf(&value, "%s\n%s", sa_parent_id(env), label);
+    bool ok = file && !buf_oom(&value) && file_write_atomic(file, value.data, value.len) == 0;
+    buf_free(&value);
     free(file);
     session_close(child);
     return ok;
@@ -392,14 +409,18 @@ static char *sa_outcome(tools_env *env, sa_action action, const char *resume_id,
     const char *known = action == SA_MESSAGE ? resume_id : NULL;
     if (!known && !ctx->no_save && sa_valid_id(sid, sid_len) && sa_session_stored(ctx, sid))
         known = sid;
+    bool label_stored = label && action == SA_CREATE && known && sa_store_label(env, known, label);
+    if (tny_alloc_scope_failed()) {
+        yyjson_doc_free(doc);
+        return NULL;
+    }
     bool reported = output && yyjson_is_int(code);
     bool reported_ok = reported && yyjson_get_int(code) == 0 && !(cerr && *cerr);
     char *result = NULL;
     if (exited0 && reported_ok) {
         if (ctx->no_save) result = sa_success(env, NULL, NULL, output);
         else if (known && sid && strcmp(known, sid) == 0) {
-            bool stored = !label || sa_store_label(ctx, known, label);
-            result = sa_success(env, known, stored ? label : NULL, output);
+            result = sa_success(env, known, label_stored ? label : NULL, output);
         }
     }
     if (!result && p->cancelled) {
@@ -551,8 +572,11 @@ char *tny_subagent_execute(tools_env *env, yyjson_val *args) {
     char *resolved = NULL;
     const char *id = action == SA_CREATE ? NULL : requested;
     if (requested && (action == SA_CREATE || !sa_valid_id(requested, strlen(requested)))) {
-        int matches = sa_lookup_label(ctx, requested, &resolved);
-        if (matches < 0) return NULL;
+        int matches = sa_lookup_label(env, requested, &resolved);
+        if (matches == -1) return NULL;
+        if (matches == -2)
+            return tool_err("SUBAGENT_LABEL_LOOKUP_FAILED: could not read stored child labels; "
+                            "retry or use a generated child id");
         if (matches > 1)
             return tool_err("SUBAGENT_LABEL_AMBIGUOUS: multiple stored children use that label; "
                             "use a generated child id");

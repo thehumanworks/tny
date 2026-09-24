@@ -4509,7 +4509,7 @@ TEST subagent_label_resolves_durable_child(void) {
     ASSERT(stored);
     char *label_file = path_join(stored->dir, "subagent-label");
     ASSERT(label_file);
-    ASSERT_EQ(0, file_write_atomic(label_file, "wallpaper-1", strlen("wallpaper-1")));
+    ASSERT_EQ(0, file_write_atomic(label_file, "\nwallpaper-1", strlen("\nwallpaper-1")));
     free(label_file);
     session_close(stored);
     result = tools_execute(&env, "subagent", "{\"action\":\"inspect\",\"id\":\"wallpaper-1\"}");
@@ -4517,6 +4517,61 @@ TEST subagent_label_resolves_durable_child(void) {
     free(result);
     free(second);
     free(id);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST subagent_label_is_parent_scoped_and_survives_failed_first_turn(void) {
+    tny_ctx *ctx = subagent_ctx();
+    ASSERT(ctx);
+    perm_engine *perm = perm_new(ctx);
+    tny_session_state *parent_a = session_new(ctx);
+    tny_session_state *parent_b = session_new(ctx);
+    ASSERT(parent_a && parent_b);
+    ASSERT_EQ(0, session_save(parent_a));
+    ASSERT_EQ(0, session_save(parent_b));
+    tools_env env = {.ctx = ctx, .perm = perm, .session = parent_a};
+    char *failed_id = subagent_stored_session(ctx);
+    ASSERT(failed_id);
+    char script[512];
+    snprintf(script, sizeof script,
+             "printf '{\"output\":\"FAILED\",\"exit_code\":1,\"session_id\":\"%s\"}'", failed_id);
+    char *argv[] = {"/bin/sh", "-c", script, NULL};
+    char *result = tny_subagent_run_labeled(&env, "create", NULL, "worker-1", argv, environ, "p");
+    ASSERT(result && strstr(result, "SUBAGENT_CHILD_FAILED"));
+    free(result);
+    result = tools_execute(&env, "subagent", "{\"action\":\"inspect\",\"id\":\"worker-1\"}");
+    ASSERT(result && strstr(result, failed_id));
+    free(result);
+    result = tools_execute(&env, "subagent",
+                           "{\"action\":\"message\",\"id\":\"worker-1\",\"prompt\":\"p\"}");
+    ASSERT(result && strstr(result, "SUBAGENT_AUTH_UNAVAILABLE") &&
+           !strstr(result, "SESSION_NOT_FOUND"));
+    free(result);
+
+    env.session = parent_b;
+    result = tools_execute(&env, "subagent", "{\"action\":\"inspect\",\"id\":\"worker-1\"}");
+    ASSERT(result && strstr(result, "SUBAGENT_SESSION_NOT_FOUND"));
+    free(result);
+    char *other_id = subagent_stored_session(ctx);
+    ASSERT(other_id);
+    snprintf(script, sizeof script,
+             "printf '{\"output\":\"CHILD-OK\",\"exit_code\":0,\"session_id\":\"%s\"}'", other_id);
+    result = tny_subagent_run_labeled(&env, "create", NULL, "worker-1", argv, environ, "p");
+    ASSERT(result && strstr(result, "label: worker-1"));
+    free(result);
+    result = tools_execute(&env, "subagent", "{\"action\":\"inspect\",\"id\":\"worker-1\"}");
+    ASSERT(result && strstr(result, other_id) && !strstr(result, failed_id));
+    free(result);
+    env.session = parent_a;
+    result = tools_execute(&env, "subagent", "{\"action\":\"inspect\",\"id\":\"worker-1\"}");
+    ASSERT(result && strstr(result, failed_id) && !strstr(result, other_id));
+    free(result);
+    free(other_id);
+    free(failed_id);
+    session_close(parent_a);
+    session_close(parent_b);
     perm_free(perm);
     tny_ctx_free(ctx);
     PASS();
@@ -6085,6 +6140,107 @@ TEST file_search_explicit_paths_regex_and_globstar(void) {
     PASS();
 }
 
+TEST file_search_root_ignores_secrets_and_literal_code(void) {
+    ensure_env();
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    perm_engine *perm = perm_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm};
+    char path[900], args[2000];
+    snprintf(path, sizeof path, "%s/node_modules/pkg", g_ws);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/node_modules/pkg/hidden.js", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/build", g_ws);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/build/generated.js", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/ordinary/node_modules", g_ws);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/ordinary/node_modules/dependency.js", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/.git", g_ws);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/.git/config", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/.tny", g_ws);
+    ASSERT_EQ(0, mkdir_p(path));
+    snprintf(path, sizeof path, "%s/.tny/codex-auth.json", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/.env", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/.npmrc", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PRIVATE_MARKER\n", 15));
+    snprintf(path, sizeof path, "%s/visible.txt", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, "PUBLIC_MARKER\n", 14));
+
+    char *default_result = tools_execute(&env, "grep_files", "{\"pattern\":\"PRIVATE_MARKER\"}");
+    snprintf(args, sizeof args, "{\"pattern\":\"PRIVATE_MARKER\",\"path\":\"%s\"}", g_ws);
+    char *root_result = tools_execute(&env, "grep_files", args);
+    ASSERT(default_result && root_result && strcmp(default_result, root_result) == 0);
+    ASSERT(strstr(root_result, "(no matches;") == root_result);
+    free(default_result);
+    free(root_result);
+    snprintf(args, sizeof args, "{\"pattern\":\"**/*.js\",\"path\":\"%s\"}", g_ws);
+    root_result = tools_execute(&env, "glob_files", args);
+    ASSERT(root_result && !strstr(root_result, "hidden.js") &&
+           !strstr(root_result, "generated.js") && !strstr(root_result, "dependency.js"));
+    free(root_result);
+    snprintf(args, sizeof args, "{\"pattern\":\"PRIVATE_MARKER\",\"path\":\"%s/ordinary\"}", g_ws);
+    root_result = tools_execute(&env, "grep_files", args);
+    ASSERT(root_result && strstr(root_result, "(no matches;") == root_result);
+    free(root_result);
+    snprintf(args, sizeof args, "{\"pattern\":\"PRIVATE_MARKER\",\"path\":\"%s/.tny\"}", g_ws);
+    root_result = tools_execute(&env, "grep_files", args);
+    ASSERT(root_result && strstr(root_result, "(no matches;") == root_result);
+    free(root_result);
+    snprintf(args, sizeof args, "{\"pattern\":\"*\",\"path\":\"%s/.tny\"}", g_ws);
+    root_result = tools_execute(&env, "glob_files", args);
+    ASSERT(root_result && !strstr(root_result, "codex-auth.json"));
+    free(root_result);
+    snprintf(args, sizeof args,
+             "{\"pattern\":\"PRIVATE_MARKER\",\"path\":\"%s/.tny/codex-auth.json\"}", g_ws);
+    root_result = tools_execute(&env, "grep_files", args);
+    ASSERT(root_result && strstr(root_result, "codex-auth.json:1:PRIVATE_MARKER"));
+    free(root_result);
+
+    const char *code = "free(abs)\nargv[0]\n$(CC)\nuser?.name\n"
+                       "join(this.agentDir, \"extensions\")\na || b\nType.Union\n";
+    snprintf(path, sizeof path, "%s/literal.txt", g_ws);
+    ASSERT_EQ(0, file_write_atomic(path, code, strlen(code)));
+    static const char *patterns[] = {
+        "free(abs)", "argv[0]", "$(CC)", "user?.name", "join(this.agentDir, \"extensions\")",
+        "a || b"};
+    for (size_t i = 0; i < sizeof patterns / sizeof *patterns; i++) {
+        yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+        yyjson_mut_val *obj = yyjson_mut_obj(doc);
+        yyjson_mut_doc_set_root(doc, obj);
+        yyjson_mut_obj_add_str(doc, obj, "pattern", patterns[i]);
+        yyjson_mut_obj_add_str(doc, obj, "path", path);
+        size_t len = 0;
+        char *json = yyjson_mut_write(doc, 0, &len);
+        ASSERT(json);
+        char *result = tools_execute(&env, "grep_files", json);
+        ASSERT(result && strstr(result, patterns[i]));
+        if (strcmp(patterns[i], "a || b") == 0) ASSERT(!strstr(result, "free(abs)"));
+        free(result);
+        free(json);
+        yyjson_mut_doc_free(doc);
+    }
+    snprintf(args, sizeof args, "{\"pattern\":\"x?\",\"path\":\"%s\"}", path);
+    root_result = tools_execute(&env, "grep_files", args);
+    ASSERT(root_result && strstr(root_result, "(no matches;") == root_result);
+    free(root_result);
+    snprintf(args, sizeof args, "{\"pattern\":\"Type\\\\.Union\",\"path\":\"%s\"}", path);
+    root_result = tools_execute(&env, "grep_files", args);
+    ASSERT(root_result && strstr(root_result, "Type.Union"));
+    free(root_result);
+    perm_free(perm);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST semantic_search_fanout_matches_serial_scan(void) {
     ensure_env();
     write_settings("{}");
@@ -6130,6 +6286,7 @@ SUITE(core_suite) {
     RUN_TEST(edit_feedback_dispatch_bounds_utf8_snippet);
     RUN_TEST(grep_files_fanout_matches_serial_scan);
     RUN_TEST(file_search_explicit_paths_regex_and_globstar);
+    RUN_TEST(file_search_root_ignores_secrets_and_literal_code);
     RUN_TEST(semantic_search_fanout_matches_serial_scan);
     RUN_TEST(context_checkpoint_preserves_resolved_selection);
     RUN_TEST(session_swarm_definition_restores_snapshot_and_rejects_change);
@@ -6242,6 +6399,7 @@ SUITE(core_suite) {
     RUN_TEST(subagent_selector_validation);
     RUN_TEST(subagent_prepare_rejects_with_exact_codes);
     RUN_TEST(subagent_label_resolves_durable_child);
+    RUN_TEST(subagent_label_is_parent_scoped_and_survives_failed_first_turn);
     RUN_TEST(subagent_process_outcomes_are_classified);
     RUN_TEST(subagent_child_wind_down_completes_before_forced_kill);
     RUN_TEST(subagent_stored_state_and_session_guards);

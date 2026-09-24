@@ -35,16 +35,6 @@ Keep tool names stable so task prompts and agent integrations transfer:
 | Skills | `skill`, `install_skill` |
 | Subagents | `subagent` (`create`, `message`, `inspect`, `lifecycle`; see [Subagents](#subagents)) |
 
-`grep_files` searches a literal substring unless the pattern contains POSIX
-extended regex syntax such as `|`, `[]`, `+`, `?`, anchors, or `.*`. Its
-`case_insensitive` option applies to both forms. An explicit file path is
-searched directly; an explicit directory includes descendants that a workspace
-root walk normally ignores, such as `node_modules` and `dist`. Empty results
-report the number of files scanned and directories skipped by ignore rules.
-`glob_files` accepts `*`, `?`, and `**/` (including zero directories), and
-matches workspace relative or absolute patterns. With an explicit `path`, a
-pattern may be rooted at that path or relative to it; named ignored directories
-are searched. These file tools run in native and wasm builds.
 | Team control | `team_control` (`start`, `status`, `collect`, `wait-any`, `cancel`): job-backed async teams with captured parent/member identity and bounded collection. `verify` explicitly refuses; no accepted status is fabricated. Native saved local contexts only. See [team control](../team-control.md) |
 | Team messages | `team_mailbox` (`send`, `inbox`, `read`, `ack`, `retire`): bounded durable collaboration context. Native local only; private member capabilities or the recorded submitting session establish membership, never supplied sender/session IDs. See [mailboxes](../team-mailbox.md) |
 | Task workspaces | `job_workspace_inspect`, `job_workspace_integrate`, `job_workspace_cleanup`: explicit operations with separate permissions on proven-owned, terminal isolated task worktrees. Native local only. See [managed workspaces](../task-workspaces.md) |
@@ -52,6 +42,19 @@ are searched. These file tools run in native and wasm builds.
 | MCP | `mcp_search_tools`, `mcp_select_tool`, `mcp_features` only; namespaced `server/tool` names ride a system-prompt catalog, never the tools array ([ADR 0049](../adr/0049-mcp-background-warmup.md)) |
 | Speech | `speak` (text, optional voice): automatic ephemeral playback using the Codex login, independent of the chat provider; advertised only with credentials and a player. [Speech contract](../speech.md) |
 | Runtime | `ask_user_question`, `memory`, `read_tool_result` |
+
+For local native and wasm searches, `grep_files` always looks for the literal
+substring. It also accepts lines matching a POSIX extended regex when the
+pattern contains recognizable regex syntax and the regex cannot match an empty
+string. Its `case_insensitive` option applies to both forms. An explicit file
+path is searched directly. A directory walk keeps hidden files and credential
+files out; a named directory inside `node_modules`, `build`, `dist` or another
+ignored directory searches that subtree. Naming the workspace root or an
+ordinary directory keeps normal ignores. Empty results report the number of
+files scanned and directories skipped. `glob_files` accepts `*`, `?`, and
+`**/` (including zero directories), and matches relative or absolute patterns.
+With an explicit `path`, a pattern may be rooted at that path or relative to it.
+The `--ssh` file tools retain their remote literal grep and pruned glob behavior.
 
 Large results: bounded preview + session handle; `read_tool_result` reads a byte range or literal search. Background commands persist pid, cwd, log path, detected URL.
 

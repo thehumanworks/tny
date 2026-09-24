@@ -14,7 +14,6 @@ import glob
 import json
 import os
 import platform
-import re
 import subprocess
 import tempfile
 from collections import Counter
@@ -116,11 +115,8 @@ def seed(work: Path, tool: str, args: dict) -> dict:
                 else "fixture.txt"
             )
         )
-        candidate = pattern.split("|")[0]
-        candidate = re.sub(r"\\(.)", r"\1", candidate)
-        candidate = re.sub(r"[\[\]().*+?^${}]", "", candidate) or "fixture"
         file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_text(candidate + "\n")
+        file.write_text(pattern + "\n")
     else:
         if pattern.startswith(str(original) + "/") and original:
             pattern = pattern[len(str(original)) + 1 :]
@@ -189,6 +185,7 @@ def main() -> None:
         "source": "saved argument shapes, synthetic local fixture trees",
         "baseline": opt.baseline,
         "recorded_calls": len(cases),
+        "fixture_contents": "exact grep pattern as literal text, including special characters",
         "before": dict(totals["before"]),
         "after": dict(totals["after"]),
     }
