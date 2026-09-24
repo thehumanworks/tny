@@ -5,7 +5,11 @@ import re
 import subprocess
 from pathlib import Path
 
-for spec in sorted(Path(__file__).parent.glob("*.smt2")):
+specs = sorted(Path(__file__).parent.glob("*.smt2"))
+if not specs:
+    raise SystemExit("no SMT-LIB proof obligations found")
+
+for spec in specs:
     expected = len(re.findall(r"^\(check-sat\)$", spec.read_text(), re.M))
     assert expected, f"{spec}: no proof obligations"
     run = subprocess.run(["z3", str(spec)], capture_output=True, text=True, timeout=30)
