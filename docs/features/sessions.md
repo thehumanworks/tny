@@ -378,6 +378,35 @@ A user message that mentioned a skill ([ADR 0056](../adr/0056-skill-mention-inje
 
 After **eight** completed turns, keep the latest **four** verbatim and replace older turns with a structured summary (requests, outcomes, files, commands, interruptions). `/compact` forces condensation of everything before the latest turn. The on-disk transcript stays intact; only the model view shrinks.
 
+## In-turn tool-result clearing (experimental)
+
+Set `TNY_EXP_CTX_EDIT=1` to clear older large tool results during one native
+HTTP turn. After the previous model response reports more than 48,000 input
+tokens, tny saves each eligible result larger than 1 KiB and replaces its
+transcript content with a stub. Only results included in a previous model
+request can be cleared, even if a new parallel batch exceeds the keep count.
+It keeps the latest eight tool results verbatim and leaves tool calls, IDs,
+assistant text, and reasoning unchanged.
+Every stub includes a `read_tool_result(handle, offset, length)` reference,
+which also works when tools run over SSH. Saved sessions include a local path
+to the private file in `<session>/results/`; ephemeral sessions retain the
+original in memory. The saved transcript contains the stubs the model saw.
+`session.json` records each clearing batch in `context_edits` with estimated
+token counts and the number of cleared items. A new batch waits for about
+32,000 tokens of growth
+after the previous edit. To limit cache misses, tny clears only when the
+estimated removed bytes are at least one quarter of the cached suffix that
+would change. Each record also reports a rough payback estimate in later
+requests under the gpt-6 input price ratio.
+
+Override the thresholds with `TNY_EXP_CTX_EDIT_TRIGGER`,
+`TNY_EXP_CTX_EDIT_KEEP`, and `TNY_EXP_CTX_EDIT_STEP`. The change works on both
+Responses and Chat Completions, including native subagents. ACP clients own
+their context and are unaffected. The shared code also works in wasm; browser
+sessions without durable storage use the in-memory result store. Explicit
+libtny contexts do not read this environment switch. See
+[ADR 0173](../adr/0173-batched-in-turn-tool-result-clearing.md).
+
 ## Recovery
 
 Persist streaming text and tool progress continuously. `tny ask --resume last

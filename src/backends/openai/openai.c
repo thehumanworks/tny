@@ -124,6 +124,11 @@ typedef struct {
     tny_stop_reason final_stop; /* provider terminal reason for this step */
     char finish_reason[32];
     int64_t usage_in, usage_out;
+    int ctx_edit_first;
+    int ctx_edit_seen_until;
+    int64_t ctx_edit_next_trigger;
+    int64_t ctx_edit_prev_input;
+    bool ctx_edit_prev_seen;
     int64_t usage_cached, usage_cache_write;
     bool usage_seen, usage_recorded, usage_input_seen;
     bool compacting;
@@ -210,6 +215,12 @@ static void emit_error(oa_impl *o, tny_event_error_kind code, const char *text, 
     ev.text = text;
     ev.text_len = len;
     emit(o, &ev);
+}
+
+int64_t oa_context_edit_next_trigger(int64_t previous_input, size_t saved_bytes, int64_t step) {
+    int64_t saved_tokens = saved_bytes / 4 > INT64_MAX ? INT64_MAX : (int64_t)(saved_bytes / 4);
+    int64_t after = previous_input > saved_tokens ? previous_input - saved_tokens : 0;
+    return after > INT64_MAX - step ? INT64_MAX : after + step;
 }
 
 static void record_usage(oa_impl *o) {
@@ -872,7 +883,9 @@ static char *build_request_chat(oa_impl *o, oa_request_owner *request) {
      * what the API applies anyway, and strict providers reject unknown
      * request members. */
     if (tny_tier_is_fast(o->ctx->service_tier)) buf_appends(b, ",\"service_tier\":\"priority\"");
-    buf_appends(b, ",\"stream\":true,\"messages\":[");
+    buf_appends(b, ",\"stream\":true");
+    if (o->ctx->ctx_edit_enabled) buf_appends(b, ",\"stream_options\":{\"include_usage\":true}");
+    buf_appends(b, ",\"messages\":[");
 
     if (buf_oom(b) || provider_oom()) { return NULL; }
     buf_t *sys = oa_request_buffer(request, OA_BUILD_SYSTEM);
@@ -1107,6 +1120,52 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
         tny_alloc_provider_failed();
         return -2;
     }
+    if (!retry && o->ctx->ctx_edit_enabled && !o->unsent_preview && o->step > 0 &&
+        o->ctx_edit_prev_seen && o->ctx_edit_prev_input > o->ctx_edit_next_trigger) {
+        tny_session_state *session = o->env.session;
+        tny_session_state staged = *session;
+        staged.doc = yyjson_mut_doc_mut_copy(session->doc, jallocator());
+        if (!staged.doc) {
+            tny_alloc_provider_failed();
+            return -2;
+        }
+        size_t bytes_saved = 0, affected_bytes = 0;
+        int cleared = session_context_edit(&staged, o->ctx_edit_first, o->ctx_edit_seen_until,
+                                           o->ctx->ctx_edit_keep, &bytes_saved, &affected_bytes);
+        /* Ephemeral result storage may reallocate while the document is staged. */
+        session->mem_results = staged.mem_results;
+        session->n_mem_results = staged.n_mem_results;
+        if (cleared > 0) {
+            int64_t saved_tokens = (int64_t)(bytes_saved / 4);
+            int64_t after =
+                o->ctx_edit_prev_input > saved_tokens ? o->ctx_edit_prev_input - saved_tokens : 0;
+            double payback = bytes_saved ? 11.5 * (double)affected_bytes / (double)bytes_saved : 0;
+            if (session_record_context_edit(&staged, o->ctx_edit_prev_input, after, cleared,
+                                            affected_bytes, bytes_saved, payback) &&
+                session_save(&staged) == 0) {
+                yyjson_mut_doc *old = session->doc;
+                session->doc = staged.doc;
+                staged.doc = old;
+                session->persisted = staged.persisted;
+                char notice[160];
+                snprintf(notice, sizeof notice,
+                         "context_edit: cleared %d results; context %lld to %lld tokens; payback "
+                         "%.1f requests",
+                         cleared, (long long)o->ctx_edit_prev_input, (long long)after, payback);
+                emit_text(o, TNY_EV_STATUS, notice, strlen(notice));
+                o->ctx_edit_next_trigger = oa_context_edit_next_trigger(
+                    o->ctx_edit_prev_input, bytes_saved, o->ctx->ctx_edit_step);
+            } else cleared = -1;
+        }
+        yyjson_mut_doc_free(staged.doc);
+        if (cleared == -2 || tny_alloc_scope_failed()) {
+            tny_alloc_provider_failed();
+            return -2;
+        }
+        if (cleared <= 0)
+            o->ctx_edit_next_trigger =
+                oa_context_edit_next_trigger(o->ctx_edit_prev_input, 0, o->ctx->ctx_edit_step);
+    }
     if (retry) o->provider_attempt++;
     else {
         o->provider_request_sequence++;
@@ -1231,6 +1290,10 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     }
     /* A successful write is submission, not proof of perception. From here
      * retries/history must retain these exact bytes. */
+    if (o->ctx->ctx_edit_enabled) {
+        o->ctx_edit_seen_until = session_message_count(o->env.session);
+        o->ctx_edit_prev_seen = false;
+    }
     o->unsent_preview = NULL;
     o->state = ST_HEADERS;
     o->last_byte_ms = monotonic_ms();
@@ -1302,6 +1365,10 @@ static void capture_usage(oa_impl *o, const oa_decoded_event *event) {
     if (o->usage_out < 0) o->usage_out = 0;
     if (o->usage_cached > o->usage_in) o->usage_cached = o->usage_in;
     if (o->usage_cache_write > o->usage_in) o->usage_cache_write = o->usage_in;
+    if (o->ctx->ctx_edit_enabled) {
+        o->ctx_edit_prev_input = o->usage_in;
+        o->ctx_edit_prev_seen = true;
+    }
 }
 
 static int on_decoded(const oa_decoded_event *event, void *ud) {
@@ -2155,6 +2222,11 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_
     o->ud = ud;
     o->background_armed = o->background_boundary = false;
     o->step = 0;
+    o->ctx_edit_first = session_message_count(o->env.session);
+    o->ctx_edit_seen_until = o->ctx_edit_first;
+    o->ctx_edit_next_trigger = o->ctx->ctx_edit_trigger;
+    o->ctx_edit_prev_input = 0;
+    o->ctx_edit_prev_seen = false;
     o->cancelled = false;
     o->turn_open = true;
     o->usage_in = o->usage_out = 0;
@@ -2826,6 +2898,13 @@ yyjson_mut_val *tny_backend_openai_checkpoint(tny_backend *b, yyjson_mut_doc *d)
     if (o->state != ST_CHECKPOINT || o->turn->permission.id || o->turn->custom.id) return NULL;
     yyjson_mut_val *r = yyjson_mut_obj(d);
     yyjson_mut_obj_add_int(d, r, "step", o->step);
+    if (o->ctx->ctx_edit_enabled) {
+        yyjson_mut_obj_add_int(d, r, "ctx_edit_first", o->ctx_edit_first);
+        yyjson_mut_obj_add_int(d, r, "ctx_edit_seen_until", o->ctx_edit_seen_until);
+        yyjson_mut_obj_add_int(d, r, "ctx_edit_next_trigger", o->ctx_edit_next_trigger);
+        yyjson_mut_obj_add_int(d, r, "ctx_edit_prev_input", o->ctx_edit_prev_input);
+        yyjson_mut_obj_add_bool(d, r, "ctx_edit_prev_seen", o->ctx_edit_prev_seen);
+    }
     yyjson_mut_obj_add_int(d, r, "tool_index", o->tool_index);
     yyjson_mut_obj_add_int(d, r, "tool_batch_failed", o->tool_batch_failed);
     yyjson_mut_obj_add_int(d, r, "max_retries", o->max_retries);
@@ -2906,6 +2985,14 @@ int tny_backend_openai_restore(tny_backend *b, yyjson_val *r, tny_backend_event_
     o->cb = cb;
     o->ud = ud;
     o->step = (int)jget_int(r, "step", 0);
+    if (o->ctx->ctx_edit_enabled) {
+        o->ctx_edit_first =
+            (int)jget_int(r, "ctx_edit_first", session_message_count(o->env.session));
+        o->ctx_edit_seen_until = (int)jget_int(r, "ctx_edit_seen_until", o->ctx_edit_first);
+        o->ctx_edit_next_trigger = jget_int(r, "ctx_edit_next_trigger", o->ctx->ctx_edit_trigger);
+        o->ctx_edit_prev_input = jget_int(r, "ctx_edit_prev_input", 0);
+        o->ctx_edit_prev_seen = jget_bool(r, "ctx_edit_prev_seen", false);
+    }
     o->tool_index = (int)jget_int(r, "tool_index", 0);
     o->tool_batch_failed = (int)jget_int(r, "tool_batch_failed", 0);
     o->max_retries = (int)jget_int(r, "max_retries", 0);

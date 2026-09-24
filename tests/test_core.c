@@ -883,6 +883,187 @@ TEST session_result_handles(void) {
     PASS();
 }
 
+TEST session_context_edit_keeps_pairs_reasoning_and_frozen_stubs(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    session_add_text(s, "user", "first turn");
+    session_add_assistant(s, "previous answer", NULL);
+    int first = session_message_count(s);
+    session_add_text(s, "user", "long turn");
+    char large[2049];
+    memset(large, 'x', sizeof large - 1);
+    large[sizeof large - 1] = 0;
+    memcpy(large, "[cleared: genuine output]", strlen("[cleared: genuine output]"));
+    char boundary[1025];
+    memset(boundary, 'b', sizeof boundary - 1);
+    boundary[sizeof boundary - 1] = 0;
+    for (int i = 0; i < 4; i++) {
+        char call[160], id[16];
+        snprintf(id, sizeof id, "c%d", i);
+        snprintf(call, sizeof call,
+                 "[{\"id\":\"%s\",\"type\":\"function\",\"function\":{\"name\":\"read_file\","
+                 "\"arguments\":\"{}\"}}]",
+                 id);
+        session_add_assistant_ex(s, NULL, call,
+                                 i == 0 ? "{\"reasoning_items\":[{\"type\":\"reasoning\","
+                                          "\"encrypted_content\":\"opaque\"}]}"
+                                        : NULL);
+        session_add_tool_result(s, id, i == 1 ? boundary : large);
+    }
+    size_t saved = 0, affected = 0;
+    ASSERT_EQ_FMT(2, session_context_edit(s, first, session_message_count(s), 1, &saved, &affected),
+                  "%d");
+    ASSERT(saved > 3000);
+    ASSERT(affected >= saved);
+    yyjson_mut_val *msgs = session_messages(s);
+    const char *stub0 =
+        yyjson_mut_get_str(yyjson_mut_obj_get(yyjson_mut_arr_get(msgs, first + 2), "content"));
+    ASSERT(stub0 && strstr(stub0, "[cleared: read_file output, 2048 bytes, 1 lines; full: "));
+    ASSERT(strstr(stub0, "read_tool_result(handle="));
+    const char *path_start = strstr(stub0, "; path: ");
+    ASSERT(path_start);
+    path_start += strlen("; path: ");
+    char stored[1024];
+    snprintf(stored, sizeof stored, "%.*s", (int)(strlen(path_start) - 1), path_start);
+    FILE *file = fopen(stored, "rb");
+    ASSERT(file);
+    char reread[sizeof large];
+    ASSERT_EQ_FMT(sizeof large - 1, fread(reread, 1, sizeof large, file), "%zu");
+    fclose(file);
+    ASSERT(memcmp(reread, large, sizeof large - 1) == 0);
+    ASSERT_STR_EQ(boundary, yyjson_mut_get_str(yyjson_mut_obj_get(
+                                yyjson_mut_arr_get(msgs, first + 4), "content")));
+    ASSERT_STR_EQ(large, yyjson_mut_get_str(
+                             yyjson_mut_obj_get(yyjson_mut_arr_get(msgs, first + 8), "content")));
+    char *before = jwrite(s->doc);
+    size_t second_saved = 99;
+    ASSERT_EQ_FMT(
+        0, session_context_edit(s, first, session_message_count(s), 1, &second_saved, &affected),
+        "%d");
+    ASSERT_EQ_FMT((size_t)0, second_saved, "%zu");
+    char *after = jwrite(s->doc);
+    ASSERT_STR_EQ(before, after);
+    free(before);
+    free(after);
+    yyjson_mut_doc *view = session_provider_view(s, 0, NULL);
+    ASSERT(view);
+    ASSERT_EQ_FMT((size_t)11, yyjson_mut_arr_size(yyjson_mut_doc_get_root(view)), "%zu");
+    yyjson_mut_val *assistant = yyjson_mut_arr_get(yyjson_mut_doc_get_root(view), first + 1);
+    yyjson_mut_val *reasoning = yyjson_mut_obj_get(assistant, "reasoning_items");
+    ASSERT(yyjson_mut_is_arr(reasoning));
+    ASSERT_EQ_FMT((size_t)1, yyjson_mut_arr_size(reasoning), "%zu");
+    yyjson_mut_doc_free(view);
+    ASSERT(session_record_context_edit(s, 50000, 49000, 2, affected, saved, 23.5));
+    yyjson_mut_val *edits = yyjson_mut_obj_get(yyjson_mut_doc_get_root(s->doc), "context_edits");
+    yyjson_mut_val *event = yyjson_mut_arr_get(edits, 0);
+    ASSERT_STR_EQ("context_edit", yyjson_mut_get_str(yyjson_mut_obj_get(event, "type")));
+    ASSERT_EQ(2, yyjson_mut_get_int(yyjson_mut_obj_get(event, "cleared_items")));
+    ASSERT(yyjson_mut_get_real(yyjson_mut_obj_get(event, "payback_requests")) > 23.0);
+    session_close(s);
+    s = session_new(ctx);
+    ASSERT(s);
+    first = session_message_count(s);
+    session_add_text(s, "user", "one expensive suffix");
+    session_add_assistant(s, NULL,
+                          "[{\"id\":\"c0\",\"type\":\"function\",\"function\":{\"name\":\"read_"
+                          "file\",\"arguments\":\"{}\"}}]");
+    session_add_tool_result(s, "c0", large);
+    char long_text[16385];
+    memset(long_text, 'z', sizeof long_text - 1);
+    long_text[sizeof long_text - 1] = 0;
+    session_add_assistant(s, long_text, NULL);
+    saved = affected = 0;
+    ASSERT_EQ(0, session_context_edit(s, first, session_message_count(s), 0, &saved, &affected));
+    ASSERT_EQ_FMT((size_t)0, saved, "%zu");
+    ASSERT_STR_EQ(large, yyjson_mut_get_str(yyjson_mut_obj_get(
+                             yyjson_mut_arr_get(session_messages(s), 2), "content")));
+    session_close(s);
+    ctx->no_save = true;
+    s = session_new(ctx);
+    ASSERT(s);
+    session_add_text(s, "user", "ephemeral output");
+    session_add_assistant(s, NULL,
+                          "[{\"id\":\"c0\",\"type\":\"function\",\"function\":{\"name\":\"read_"
+                          "file\",\"arguments\":\"{}\"}}]");
+    session_add_tool_result(s, "c0", large);
+    ASSERT_EQ(1, session_context_edit(s, 0, session_message_count(s), 0, &saved, &affected));
+    const char *ephemeral_stub = yyjson_mut_get_str(
+        yyjson_mut_obj_get(yyjson_mut_arr_get(session_messages(s), 2), "content"));
+    const char *handle_start = strstr(ephemeral_stub, "read_tool_result(handle=");
+    ASSERT(handle_start);
+    handle_start += strlen("read_tool_result(handle=");
+    char handle[32];
+    snprintf(handle, sizeof handle, "%.*s", 16, handle_start);
+    size_t read_len = 0;
+    char *ephemeral_original = session_read_result(s, handle, 0, sizeof large, &read_len);
+    ASSERT(ephemeral_original);
+    ASSERT_EQ_FMT(sizeof large - 1, read_len, "%zu");
+    ASSERT(memcmp(ephemeral_original, large, read_len) == 0);
+    free(ephemeral_original);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST session_context_edit_never_clears_unseen_parallel_batch(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    session_add_text(s, "user", "parallel reads");
+    char old[32769], current[2049];
+    memset(old, 'o', sizeof old - 1);
+    old[sizeof old - 1] = 0;
+    memset(current, 'n', sizeof current - 1);
+    current[sizeof current - 1] = 0;
+    for (int i = 0; i < 2; i++) {
+        char call[160], id[16];
+        snprintf(id, sizeof id, "old%d", i);
+        snprintf(call, sizeof call,
+                 "[{\"id\":\"%s\",\"type\":\"function\",\"function\":{\"name\":\"read_file\","
+                 "\"arguments\":\"{}\"}}]",
+                 id);
+        session_add_assistant(s, NULL, call);
+        session_add_tool_result(s, id, old);
+    }
+    int seen_until = session_message_count(s);
+    buf_t calls;
+    buf_init(&calls);
+    buf_appends(&calls, "[");
+    for (int i = 0; i < 12; i++) {
+        buf_appendf(&calls,
+                    "%s{\"id\":\"new%d\",\"type\":\"function\",\"function\":{\"name\":"
+                    "\"read_file\",\"arguments\":\"{}\"}}",
+                    i ? "," : "", i);
+    }
+    buf_appends(&calls, "]");
+    ASSERT_FALSE(buf_oom(&calls));
+    session_add_assistant(s, NULL, calls.data);
+    buf_free(&calls);
+    for (int i = 0; i < 12; i++) {
+        char id[16];
+        snprintf(id, sizeof id, "new%d", i);
+        session_add_tool_result(s, id, current);
+    }
+    size_t saved = 0, affected = 0;
+    ASSERT_EQ(2, session_context_edit(s, 0, seen_until, 0, &saved, &affected));
+    ASSERT(saved > 60000);
+    yyjson_mut_val *msgs = session_messages(s);
+    for (int i = 0; i < 12; i++) {
+        yyjson_mut_val *m = yyjson_mut_arr_get(msgs, (size_t)seen_until + 1 + (size_t)i);
+        ASSERT_STR_EQ(current, yyjson_mut_get_str(yyjson_mut_obj_get(m, "content")));
+    }
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST session_compaction(void) {
     ensure_env();
     write_settings("{}");
@@ -5775,6 +5956,19 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     write_settings("{\"web_search_command\":\"echo {query}\",\"secret_fixture\":\"private-only\"}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
     ASSERT(ctx);
+    ctx->ctx_edit_enabled = false;
+    yyjson_mut_doc *off_doc = yyjson_mut_doc_new(jallocator());
+    ASSERT(off_doc);
+    yyjson_mut_doc_set_root(off_doc, tny_checkpoint_context(off_doc, ctx));
+    char *off_json = jwrite(off_doc);
+    ASSERT(off_json);
+    ASSERT_FALSE(strstr(off_json, "ctx_edit_"));
+    free(off_json);
+    yyjson_mut_doc_free(off_doc);
+    ctx->ctx_edit_enabled = true;
+    ctx->ctx_edit_trigger = 40000;
+    ctx->ctx_edit_step = 20000;
+    ctx->ctx_edit_keep = 3;
     free(ctx->api_key);
     ctx->api_key = xstrdup("private-runtime-key");
     free(ctx->provider_name);
@@ -5839,6 +6033,10 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT(restored->exp_compact);
     ASSERT_EQ(16000, restored->exp_compact_tokens);
     ASSERT_EQ(12000, restored->exp_compact_window);
+    ASSERT(restored->ctx_edit_enabled);
+    ASSERT_EQ_FMT((long long)40000, (long long)restored->ctx_edit_trigger, "%lld");
+    ASSERT_EQ_FMT((long long)20000, (long long)restored->ctx_edit_step, "%lld");
+    ASSERT_EQ(3, restored->ctx_edit_keep);
     tny_ctx_free(restored);
     /* Public recovery stores effective selection but no credential/settings
      * bytes, and rejects changed identity or widened permission access. */
@@ -5854,6 +6052,7 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT_FALSE(strstr(public_json, "private-only"));
     ASSERT_FALSE(strstr(public_json, "runtime-only"));
     ASSERT_FALSE(strstr(public_json, "exp_compact"));
+    ASSERT_FALSE(strstr(public_json, "ctx_edit_"));
     yyjson_doc *public_parsed = jparse(public_json, strlen(public_json));
     ASSERT(public_parsed);
     tny_ctx *recovered = tny_checkpoint_recover(ctx, yyjson_doc_get_root(public_parsed));
@@ -6122,6 +6321,7 @@ SUITE(core_suite) {
     RUN_TEST(grep_files_fanout_matches_serial_scan);
     RUN_TEST(semantic_search_fanout_matches_serial_scan);
     RUN_TEST(context_checkpoint_preserves_resolved_selection);
+    RUN_TEST(session_context_edit_never_clears_unseen_parallel_batch);
     RUN_TEST(session_swarm_definition_restores_snapshot_and_rejects_change);
     RUN_TEST(job_wait_cancellation_leaves_live_job_untouched);
     RUN_TEST(job_spawn_maps_colliding_descriptors_without_clobbering);
@@ -6191,6 +6391,7 @@ SUITE(core_suite) {
     RUN_TEST(session_task_snapshot_atomic_window_and_symlink_guards);
     RUN_TEST(session_tool_argument_rewrite_is_targeted_and_no_match_terminates);
     RUN_TEST(session_result_handles);
+    RUN_TEST(session_context_edit_keeps_pairs_reasoning_and_frozen_stubs);
     RUN_TEST(session_compaction);
     RUN_TEST(session_experimental_compaction_view);
     RUN_TEST(session_recovery_roundtrip);

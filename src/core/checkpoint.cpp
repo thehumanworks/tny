@@ -228,6 +228,12 @@ yyjson_mut_val *encode(yyjson_mut_doc *d, const tny_ctx *c, bool public_only) {
             check(yyjson_mut_obj_add_sint(d, r, "exp_compact_tokens", c->exp_compact_tokens));
             check(yyjson_mut_obj_add_sint(d, r, "exp_compact_window", c->exp_compact_window));
         }
+        if (c->ctx_edit_enabled) {
+            check(yyjson_mut_obj_add_bool(d, r, "ctx_edit_enabled", true));
+            check(yyjson_mut_obj_add_int(d, r, "ctx_edit_trigger", c->ctx_edit_trigger));
+            check(yyjson_mut_obj_add_int(d, r, "ctx_edit_step", c->ctx_edit_step));
+            check(yyjson_mut_obj_add_int(d, r, "ctx_edit_keep", c->ctx_edit_keep));
+        }
         encode_array(d, r, "extra_headers", c->extra_headers, header_count(c));
         int argc = 0;
         while (c->agent_argv && c->agent_argv[argc]) ++argc;
@@ -307,6 +313,23 @@ context restore(yyjson_val *r) {
         check(absent(compact_tokens) && absent(compact_window));
         c->exp_compact_tokens = 128000;
         c->exp_compact_window = 0;
+    }
+    auto *ctx_edit_enabled = jget(r, "ctx_edit_enabled");
+    check(absent(ctx_edit_enabled) || yyjson_is_bool(ctx_edit_enabled));
+    c->ctx_edit_enabled = yyjson_get_bool(ctx_edit_enabled);
+    if (c->ctx_edit_enabled) {
+        auto restore_ctx_edit_count = [r](const char *key, int64_t maximum) {
+            auto *v = jget(r, key);
+            check(v && yyjson_is_int(v));
+            if (yyjson_is_uint(v)) check(yyjson_get_uint(v) <= static_cast<uint64_t>(maximum));
+            int64_t value =
+                yyjson_is_uint(v) ? static_cast<int64_t>(yyjson_get_uint(v)) : yyjson_get_sint(v);
+            check(value >= 0 && value <= maximum);
+            return value;
+        };
+        c->ctx_edit_trigger = restore_ctx_edit_count("ctx_edit_trigger", 10000000);
+        c->ctx_edit_step = restore_ctx_edit_count("ctx_edit_step", 10000000);
+        c->ctx_edit_keep = static_cast<int>(restore_ctx_edit_count("ctx_edit_keep", 1000000));
     }
     restore_number(c->backend, jget(r, "backend"));
     // tny_ctx_load uses -1 until provider resolution. Private snapshots have

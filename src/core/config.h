@@ -169,6 +169,10 @@ typedef struct tny_ctx {
                                    * from --max-steps, /max-steps, or the
                                    * repo's .tny.json "steps" */
     size_t max_tool_result_bytes; /* default 32768 */
+    bool ctx_edit_enabled;        /* opt-in tool-result clearing in native HTTP turns */
+    int64_t ctx_edit_trigger;     /* previous response input-token threshold */
+    int64_t ctx_edit_step;        /* growth required after a clearing batch */
+    int ctx_edit_keep;            /* newest tool results kept verbatim */
     bool context_enabled;         /* AGENTS.md loading */
     char *instructions_snapshot;  /* cached request/event snapshot */
     char **instruction_paths;
