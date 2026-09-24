@@ -91,6 +91,33 @@ default `all` tool profile, empty project): system instructions 373 tokens;
 - Verification is hidden from the agent and runs after the harness exits.
 - Each (harness, task) runs at least 3 times; report mean and spread.
 
+### Evaluation rules
+
+Adopted from the two harness-optimisation papers in `docs/web-resources/`
+(Harbor, arXiv 2604.20938; AHE, arXiv 2604.25850). Both report
+best-of-several results that fall inside their own noise.
+
+- Freeze model, effort, timeout, and upstream per comparison. Only the harness
+  varies.
+- tny before/after decisions: ≥5 reps per task. Cross-harness table: ≥3 reps
+  per (harness, task), with 95% Wilson intervals on pass rate.
+- Pair by task. Success is a non-inferiority gate: ship only if the lower
+  bound of the paired Δsuccess is ≥ −1 task-equivalent (δ = 8 pp at 12
+  tasks), declared before the run. Cost is tested for significance with a
+  paired per-task log-ITE ratio and bootstrap CIs over tasks.
+- Report ITE per completed task as Σ ITE of **all** runs (failed, timed out,
+  and aborted included) ÷ Σ passes. Failures count as failures.
+- Never report the best of several runs. The selected configuration is
+  re-run with fresh reps, and that confirmation run is what gets reported.
+- Change one thing at a time, then run the full stack; the gains are not
+  expected to add up. Record null results.
+- Before a full run, smoke-check that every new feature actually fires
+  (non-zero counters). Measure the baseline in the same session window with
+  interleaved order.
+- People designing harness changes never read `verify.sh` or hidden tests.
+- Publish the per-task flip table (fail→pass, pass→fail), not only
+  aggregates.
+
 ### Task format
 
 ```
