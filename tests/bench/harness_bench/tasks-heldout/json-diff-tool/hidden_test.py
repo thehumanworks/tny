@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 w = Path(sys.argv[1])
+sys.path.insert(0, str(w))
 spec = importlib.util.spec_from_file_location("jdiff", w / "jdiff.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)

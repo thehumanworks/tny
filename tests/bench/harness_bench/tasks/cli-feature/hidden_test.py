@@ -29,4 +29,7 @@ assert (
     "--since" in run("stats", "--help").stdout
     and "--tag" in run("stats", "--help").stdout
 )
-assert "stats" in (w / "README.md").read_text()
+readme = (w / "README.md").read_text()
+assert all(
+    word in readme for word in ("stats", "--since", "--tag", "count", "total_minutes")
+)

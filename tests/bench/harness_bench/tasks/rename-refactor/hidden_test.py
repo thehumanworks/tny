@@ -21,6 +21,8 @@ for p in [
 ]:
     s = p.read_text()
     assert "profile_path" not in s
-    if p.name != "README.md":
+    if p.parent == w / "clients":
         assert "load_profile" not in s
+    else:
+        assert "read_profile" in s
 assert len(list((w / "docs").glob("*.md"))) == 12

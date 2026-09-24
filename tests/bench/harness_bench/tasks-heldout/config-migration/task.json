@@ -2,7 +2,7 @@
   "id": "config-migration",
   "difficulty": "easy",
   "category": "refactor",
-  "prompt": "We've renamed cache_dir to state_dir. Update the sample INI configs, docs and loader; old cache_dir configs must still load.",
+  "prompt": "We've renamed cache_dir to state_dir. Update the sample INI configs, docs and loader; old cache_dir configs must still load. When both keys appear, state_dir wins. Use only state_dir in the sample docs, and explain legacy compatibility in README.",
   "timeout_s": 900,
   "tags": [
     "rename",
