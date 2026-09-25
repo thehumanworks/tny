@@ -99,7 +99,8 @@ Pages for this repo deploys from the branch (`main:/docs`, legacy build),
 so the workflow rebuilds the static site from `site/` and commits the
 output into `docs/` on `main`. Generated HTML and assets in `docs/` are a
 published mirror of `site/` — edit `site/` and `scripts/site_build.py`,
-never the generated files in `docs/`.
+never the generated files in `docs/`. After tagging, dispatch `pages.yml` on
+`main` to update the published site from the new stable tag (ADR 0172).
 
 ## Toolchain (`mise install`)
 

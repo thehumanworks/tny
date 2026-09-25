@@ -92,9 +92,10 @@ static yyjson_val *field(yyjson_val *obj, const char *name) {
     if (!yyjson_is_obj(obj)) return NULL;
     yyjson_val *key, *value, *found = NULL;
     size_t i, n;
+    size_t name_len = strlen(name);
     yyjson_obj_foreach(obj, i, n, key, value) {
-        if (yyjson_get_len(key) == strlen(name) &&
-            !memcmp(yyjson_get_str(key), name, strlen(name))) {
+        const char *key_text = yyjson_get_str(key);
+        if (key_text && yyjson_get_len(key) == name_len && !memcmp(key_text, name, name_len)) {
             if (found) return NULL;
             found = value;
         }

@@ -144,6 +144,12 @@ jobs:
           pipx install clang-format==23.1.0
           pipx install clang-tidy==22.1.8
 
+      - name: Install formal verifier for the full suite
+        if: matrix.suite == 'full'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q z3
+
       - name: Build, test, size
         run: |
           set -eu

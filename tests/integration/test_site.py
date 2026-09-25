@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,13 @@ def fail(msg: str) -> None:
 
 
 def main() -> None:
+    # Capture before generation: site/ is tracked, so writing a new release
+    # page can make git describe gain -dirty after the binary was built.
+    expected_version = os.environ.get("TNY_VERSION") or subprocess.check_output(
+        ["git", "describe", "--tags", "--always", "--dirty"],
+        cwd=ROOT,
+        text=True,
+    ).strip().removeprefix("v")
     subprocess.check_call([sys.executable, str(BUILD)], cwd=ROOT)
     html = (SITE / "index.html").read_text(encoding="utf-8")
     css = (SITE / "assets" / "site.css").read_text(encoding="utf-8")
@@ -44,9 +52,22 @@ def main() -> None:
     if "assets/term.js" in html:
         fail("index.html still loads the deleted JS agent loop (docs/adr/0017)")
 
-    for needle in ("<span>v0.3.0</span>", "<span>agent-first</span>"):
-        if needle not in html:
-            fail(f"release metadata missing from index.html: {needle!r}")
+    binary = ROOT / "build" / "tny"
+    actual_version = subprocess.check_output(
+        [str(binary), "--version"], text=True
+    ).strip()
+    if actual_version != expected_version:
+        fail(f"site release binary version {actual_version!r} != {expected_version!r}")
+    if f"<span>v{expected_version}</span>" not in html:
+        fail(f"landing version does not match binary: {expected_version}")
+    size_bytes = binary.stat().st_size
+    size = f"{size_bytes / (1024 * 1024):.1f} MiB"
+    if f"This build's stripped binary is {size}." not in html:
+        fail(f"landing size does not match stripped binary: {size_bytes} bytes")
+    if f"{size_bytes:,} B ({size})" not in size_page:
+        fail(f"size page does not report stripped binary: {size_bytes} bytes")
+    if "<span>agent-first</span>" not in html:
+        fail("release metadata missing agent-first label")
     for name, page in (("index.html", html), ("llms.txt", llms)):
         for needle in ("built by agents", "focused on the agent"):
             if needle not in page:

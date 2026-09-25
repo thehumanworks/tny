@@ -7,6 +7,7 @@ files in this directory are the complete record.
 
 | ADR | Decision |
 | --- | --- |
+| [0172](0172-release-site-metadata.md) | Release-tag site version and measured stripped binary size; republish Pages after tagging |
 | [0171](0171-formal-verification-smt-lib.md) | SMT-LIB 2/Z3 formal protocol contracts, paired with concrete integration checks |
 | [0167](0167-workspace-dashboard-navigation.md) | Current-workspace-first session sections and fuzzy directory filtering |
 | [0166](0166-global-sessions-and-immediate-backgrounding.md) | Fresh native runners, immediate background detachment and a dashboard of all saved workspaces |

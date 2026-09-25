@@ -1098,7 +1098,7 @@ install-lib: lib-shared
 		-e 's|@COMPAT_LIBS@|$(ABI0_COMPAT_LIBS)|g' libtny-0.pc.in > \
 		"$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny-0.pc"
 
-site:
+site: release
 	python3 scripts/site_build.py
 
 # ---- quality gates (docs/adr/0039) --------------------------------------

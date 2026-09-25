@@ -3,18 +3,42 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
+
+
+def release_version() -> str:
+    """Use the same tag/override as the native binary (ADR 0014)."""
+    version = os.environ.get("TNY_VERSION")
+    if not version:
+        version = subprocess.check_output(
+            ["git", "describe", "--tags", "--always", "--dirty"],
+            cwd=ROOT,
+            text=True,
+        ).strip()
+    return version.removeprefix("v")
+
+
+def release_size() -> tuple[int, str]:
+    """Measure the stripped release built by make, not an old bake-off."""
+    binary = ROOT / "build" / "tny"
+    if not binary.is_file():
+        raise FileNotFoundError(f"{binary}: run make release before building the site")
+    count = binary.stat().st_size
+    return count, f"{count / (1024 * 1024):.1f} MiB"
+
 
 REPO = "https://github.com/thehumanworks/tny"
 INSTALL = "git clone https://github.com/thehumanworks/tny && cd tny && make"
 TNYTTY_INSTALL = (
     "git clone https://github.com/thehumanworks/tny && cd tny && make tnytty"
 )
-VERSION = "0.3.0"
-SIZE = "0.71mib"
+VERSION = release_version()
+SIZE_BYTES, SIZE = release_size()
 SITE_BASE = "https://thehumanworks.github.io/tny/"
 
 NAV = (
@@ -246,7 +270,7 @@ def landing() -> str:
     features = [
         (
             "Small measured binary",
-            f"The historical v0.3.0 macOS arm64 build measured {SIZE}. Size is reported, not a ceiling. Designed for instant installation and embedding in agent sandboxes.",
+            f"This build's stripped binary is {SIZE}. Size is reported, not a ceiling. Designed for instant installation and embedding in agent sandboxes.",
         ),
         (
             "Instant time to prompt",
@@ -427,7 +451,7 @@ def docs_install() -> str:
 <h2 id="ci">CI binaries</h2>
 <p>Every pull request builds stripped artifacts on Linux x86_64 and aarch64 (glibc and musl static), Darwin arm64 (Apple Silicon / Metal — not Intel x86). Nix is an optional developer workflow, not a CI gate. Download them from the <code>ci</code> workflow run.</p>
 <h2 id="size">What you should see</h2>
-<p>The historical v0.3.0 macOS arm64 build measured {SIZE}; measure your release with <code>make size-check</code>. Size is reported, not gated by a product ceiling. <code>tny --version</code> and <code>tny ask --help</code> should return in a couple of milliseconds.</p>
+<p>This build's stripped binary is {SIZE} ({SIZE_BYTES:,} bytes); measure your release with <code>make size-check</code>. Size is reported, not gated by a product ceiling. <code>tny --version</code> and <code>tny ask --help</code> should return in a couple of milliseconds.</p>
 {cmd("tny --version")}
 {cmd("tny doctor --json")}
 <h2 id="hosts">Provider dependencies</h2>
@@ -1072,7 +1096,7 @@ def docs_size() -> str:
 <h2 id="why">Why this exists</h2>
 <p>tny stays fast, portable and small through measurement. There is no binary-size ceiling and no product goal to undercut another harness on artifact size. Host binaries stay external.</p>
 <h2 id="measured">Historical bake-off</h2>
-<p>Dated comparison with fx v0.0.3, same machine, macOS arm64, hyperfine. Binary size is current for tny {VERSION}; startup and RSS retain the historical v0.1.0 bake-off until the next performance remeasurement. These numbers are evidence, not a mission:</p>
+<p>Current stripped tny v{VERSION} binary on this build host: {SIZE_BYTES:,} B ({SIZE}). The comparison below is a historical v0.3.0 macOS arm64 bake-off against fx v0.0.3; do not treat its binary size, startup or RSS as current measurements. These numbers are evidence, not a mission:</p>
 <table>
   <thead><tr><th>Metric</th><th>fx 0.0.3</th><th>tny</th><th>Result</th></tr></thead>
   <tbody>

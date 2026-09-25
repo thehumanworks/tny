@@ -55,5 +55,5 @@ The git tag is the single source of truth; no version string is committed.
   (`version_string_is_sane` in `tests/test_core.c`); integration tests
   read the version from `tny --version` and compare it to `git describe`
   output rather than a literal.
-- The static site (`scripts/site_build.py`) still carries its own version
-  string; it is regenerated content, out of scope here.
+- The static site version and measured size are now derived from the release
+  binary and tag (ADR 0172); the historical separate version is superseded.
