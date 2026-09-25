@@ -55,6 +55,12 @@ typedef struct tui {
     buf_t partial; /* transcript line still being streamed */
     bool dirty;
 
+    bool shell_mode; /* ! at the start of an empty composer */
+    int shell_fd;    /* -1 when no local command is running */
+    pid_t shell_pid;
+    buf_t shell_pending; /* bounded disclosure for the next user prompt */
+    bool shell_truncated;
+    bool shell_line_start;
     buf_t input;              /* composer, '\n' separates continuation lines */
     size_t cur;               /* byte offset of the caret in input */
     bool in_paste;            /* inside a bracketed paste: bytes are literal text */
@@ -211,6 +217,12 @@ bool tui_runner_attach(tui *t, tny_session_state *session);
 
 /* tui.c */
 void tui_submit(tui *t, const char *text);
+bool tui_shell_start(tui *t, const char *command);
+void tui_shell_drain(tui *t);
+void tui_shell_stop(tui *t);
+void tui_shell_queue_ready(tui *t);
+char *tui_shell_prompt(const tui *t, const char *text);
+const char *tui_shell_visible(const char *text); /* strip only the display echo */
 void tui_cancel_turn(tui *t);
 void tui_dictation_start(tui *t, const char *provider);
 void tui_dictation_step(tui *t);

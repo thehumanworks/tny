@@ -86,6 +86,7 @@ This prevents local project instructions from crossing into the remote workspace
 | --- | --- |
 | text | user prompt |
 | `/` at start | command palette (filter as you type) |
+| `!` at an empty composer | local shell mode; Enter runs a command in tny's host cwd, Esc/Ctrl-C or empty Enter returns to prompts |
 | `@` | workspace file picker (gitignore-aware, insert path only) |
 | `$` | skill picker (insert skill name, do not load until invoked) |
 | Up/Down at draft edge | prompt history |
@@ -98,6 +99,14 @@ This prevents local project instructions from crossing into the remote workspace
 | Ctrl-O | optimise the typed/dictated draft using an independent model; review before Enter submits |
 | Left with an empty composer | background an active native turn and open all saved sessions; idle Left opens the same dashboard; drafts and focused inputs still edit |
 | Ctrl-X / `/agents` | all saved sessions; detach an active foreground turn into background mode |
+
+Shell mode streams merged stdout/stderr immediately. Its commands, output and
+exit codes are disclosed in a marked untrusted block at the start of the next
+agent message, not in the saved conversation until that message is sent. The
+context output is capped at 64 KiB; the screen still shows all output. Local
+commands have host permissions, not agent-tool sandbox permissions. While one
+command runs, the next command or prompt waits. Browser/wasm builds show an
+unsupported error instead of running host commands.
 
 `/optimise PROMPT` also rewrites the draft; `--model MODEL` and
 `--provider NAME` before the prompt override its configured defaults.
