@@ -3,6 +3,9 @@
 #ifndef TNY_ALLOC_OVERRIDE_H
 #define TNY_ALLOC_OVERRIDE_H
 
+/* musl's GNU CPU_ALLOC declarations repeat calloc in sched.h. Load them
+ * before call-site aliases, including when pthread.h is included later. */
+#include <sched.h>
 #include <stdlib.h>
 #include <string.h>
 #include "util/alloc.h"

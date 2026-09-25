@@ -1,179 +1,133 @@
 # Execution code-mode evidence
 
-Working-tree verification on `feat/execution-server-code-mode`, based on
-`4e4d270`. This page records observations, not inferred completion.
+Date: 2026-09-25. Baseline: `4e4d270`; branch:
+`feat/execution-server-code-mode`; review: PR #193.
+This ledger distinguishes completed observations from historical failures and
+from unsupported capabilities. The PR checks identify the exact revision of
+hosted results; a passing check on an earlier revision is not a later revision's
+aggregate result.
 
-## Added verification
+## Implemented acceptance boundary
 
-- `tests/integration/test_execution_code_mode.py`: production binary with
-  loopback Chat/Responses providers, exact singleton schema, file read/write,
-  direct-call refusal, Lua ambient-API restriction, JSON codec, profile ceiling,
-  runtime bounds and observed execution-child crash without replay.
-- `tests/integration/code_mode_fixture.py`: explicit code wrappers for legacy
-  fixture scenarios. Streaming conversion retains fragmented arguments and
-  Responses added/done metadata cases.
-- `tests/integration/test_execution_permissions.py`: owner permission,
-  cancellation, reattachment and active image-control admission cases, including
-  an owner claiming a vacant background session; all seven cases pass.
-- `tests/integration/test_execution_library.py`: real public C ABI native and
-  verified ACP refusal, with a registered host callback invoked zero times.
-- `tests/test_main.c`: registers runtime, protocol, transport and state suites.
+The production CLI/TUI and verified ACP bridge expose only `run_code`. Each
+native cell starts the matching executable over a private inherited socket;
+tool preparation and effects run in that execution process. Owner callbacks
+mediate policy, hooks, events and state, not a second direct tool dispatcher.
+The [contract](contract.md) maps requirements to concrete tests, and
+[ADR 0174](../../adr/0174-execution-server-code-mode.md) describes the design and
+compatibility limits. AIM's harness/executor and code-mode implementation were
+studied before selecting tny's native C/Lua approach; its parallel direct mode
+was not retained.
 
-## Current observations
+## Native regression inventory
 
-Python syntax compilation of all integration files and Ruff checks passed.
-`test_nix_ci_matrix.py` passed. `test_make_contract.py` passed 5 tests;
-`test_cpp_build.py` passed 16 tests with its Emscripten check explicitly skipped
-on this native host. These checks cover build/test wiring and syntax.
-The first production release run of `test_execution_code_mode.py` passed 11
-native tests with one explicit wasm skip (6.633 seconds). It exercised both
-HTTP wires, actual file effects, the real execution child and crash/no-replay,
-limits, hooks, profile separation and malformed private protocol input.
+A complete immutable integration inventory was enumerated from
+`tests/integration/run.sh` and partitioned across eight independent native
+worktrees, all at tree `55c5a8c7257fad30c27c4015fb276c5972e9ea29`
+(the tree committed as `ae6640f`). Every normal `make test` prerequisite passed
+in every shard. All **101 integration groups** executed: 100 passed, and the
+background-agent image fixture failed because it still attempted the explicitly
+removed shell-to-owner image attachment path.
 
-Additional observed native checks: prompt-cache 17/17; MCP CLI 11/11; terminal
-background all profiles and cross-session collection; terminal cancellation
-with shell, grandchild and setsid descendants and an unrelated sentinel. The
-migrated native-search suite passed all seven cases (four nested service modes,
-two unsolicited hosted-search refusals, and fetch compatibility).
+The corrected background fixture invokes typed `read_image` inside the same
+code cell before its parked terminal operation. Its complete script then passed,
+retaining same-runner/socket/owner-lock assertions, background reattachment,
+exact captured bytes after the source file changes, and no replay. No raw image
+path was restored. One otherwise-passing shard detected generated site HTML
+changes from its site build; those were build-output version/size substitutions,
+not source/test edits. That shard's drift receipt was not relabelled as an
+unchanged snapshot pass.
 
-These are working-tree observations, not a clean aggregate gate. The final
-measurements below distinguish completed gates from the original failing
-aggregate; focused passes do not turn that earlier aggregate into a pass.
-No live provider, hosted CI or performance improvement is claimed.
+The older evolving-tree aggregate (100 groups, 29 failures) remains historical.
+Its failure reconciliation and all subsequent checks informed repairs, but it
+is not presented as a green aggregate. Likewise, the partitioned inventory plus
+focused repairs is not represented as a new serial `make test` exit 0. Hosted
+full-suite results on the PR provide a separately revision-bound aggregate.
 
-## Explicit acceptance risks
+## Completed CI repair gates
 
-The migration changes every agent tool call. Tests now exercise native images,
-terminal collection, managed-agent authority and hooks through code. Embedded
-model calls explicitly refuse execution; their fixtures assert zero effects and
-preserved ownership rather than claiming callback execution support. Fresh
-executable reconstruction cannot copy pointers or live in-memory resources.
+The following local checks completed on the CI repair source committed in
+`7ca1988`, using synthetic credentials and loopback providers:
 
-Wasm has no native execution process and must report a clean unsupported error.
-No native/wasm tool parity is claimed for this migration.
-
-## Current integration status
-
-The previously identified native optimisation, oversized ACP image handling,
-permission-stop audit and native nested-event projection defects are repaired
-and have passing focused reruns:
-
-- Native optimisation: 19/19, including local and SSH reads and denied writes.
-- ACP client: 31/31; oversized image state returns the explicit 4 MiB error.
-- ACP managed: 19/19, including readonly policy, independent admission,
-  cancellation, teams and real subagent inheritance.
-- Owner permissions: 7/7 on the final release, including cross-cell grants,
-  six-second human wait, matched reply IDs, cancellation and reattachment.
-- Extensions: complete integration script passed after matching nested audit
-  entries separately from wrapper entries.
-- Collective mailbox contention: both targeted regression tests passed.
-- Subagents, ephemeral propagation, background lifecycle and benchmark fixture
-  migration passed focused checks. Image input passed 8/8 and speech 10/10.
-
-The full aggregate gate ran **100 integration groups and failed 29** while
-fixture migrations were in progress. Focused reruns cover the corrected behavior
-in **all 29 groups**, including the subsequently migrated SDK and repaired
-allocation-fault groups below. There has been no subsequent green full aggregate.
-Earlier failures in its log refer to inputs since repaired; that log is not a
-clean final aggregate result. Image queue checks now pass 16 native cases (one explicit wasm skip), including
-active shell-control refusal and typed-preview cancellation/resume without old
-bytes. Job-artifact consumers pass 14 cases, including real pending selection
-ownership across approval, job/manifest mutation and one-time grants. Typed
-nested image tools retain their execution and queue tests. Final aggregate
-acceptance remains pending.
-
-
-## Latest focused repairs and remaining gaps
-
-Public C ABI refusal passed 2/2 through actual native Responses and verified ACP
-providers. Both received the explicit embedded/custom callback error, with zero
-host callback invocations. The complete `test_libtny`, `test_libtny_acp` and
-`test_libtny_custom_tools` scripts now pass with explicit embedded-refusal
-assertions. Registration, text/streaming, repeated sessions, active cancellation,
-cleanup and retained-event ownership checks remain. Model-driven asynchronous
-callback completion cannot occur under this contract; private ownership tests
-retain coverage of that machinery. This release has no embedded execution
-backend or direct fallback.
-
-The Chat allocation failure at index 60 exposed a real bug: failed allocation
-during tool-argument replacement deleted the existing arguments member. The
-replacement now stages both nodes before mutation. Its deterministic regression
-failed before the fix and passes afterward (14 assertions).
-
-The complete `make test-runtime-ownership test-libtny-fault` target now exits 0:
-all 278 Responses and 191 Chat active-turn allocation indices and recovery checks,
-21 other sweep scopes, and four reserved-settlement scenarios passed. Fault-only
-mock responses coalesce headers and body into one write to stabilize allocation
-counts; 100 discovery runs per wire were stable. Default fragmented-stream tests
-are unchanged. No discovered allocation index or injected failure was dropped.
-A stale nonexistent native test selector was removed; both actual regression
-selectors now require at least one executed test and pass.
-
-Focused repairs after the aggregate's earlier failures passed: MCP HTTP,
-jobs permission cases 4/4 and catalog cases 2/2, purposeful swarms 14/14,
-swarm factory 11/11, captured swarm parents 2/2, SSH,
-complete TUI approval/steering/image checks, exact subagent diagnostics and owned
-cancellation, and pending manifest permissions
-7/7 (including the approval mutation matrix and allocation failures in the real
-fresh execution child). Image queue passed 16 native cases with one wasm skip;
-job-artifact consumers passed 14/14. The aggregate log spans fixture edits and
-therefore cannot establish final source acceptance.
-
-
-## Aggregate failure reconciliation
-
-Every entry below failed in the recorded aggregate and subsequently passed the
-stated focused check. A focused subset does not reclassify the full aggregate.
-
-| Corrected aggregate groups | Subsequent evidence |
+| Gate | Observed result |
 | --- | --- |
-| `test_acp_bridge_deadline`, `test_acp_client` | Deadline fixture passed; ACP client 31/31 |
-| `test_ask_events`, `test_background`, `test_bench_tools` | Complete focused scripts passed |
-| `test_collective_swarm` | Both failed contention cases passed |
-| `test_ephemeral`, `test_extensions` | Complete focused scripts passed |
-| `test_execution_command` | 2/2 with the `build/tny` runner argument, exit 0 |
-| `test_image_preview_queue` | 16 passed, one explicit wasm skip |
-| `test_image_preview_workflow` | 21 cases, one optional skip |
-| `test_image_service` | 13/13 |
-| `test_image_workflow` | 96 cases, one optional skip |
-| `test_intercept`, `test_isolation` | Complete focused scripts passed |
-| `test_job_artifacts` | 14/14 |
-| `test_jobs` | Permission 4/4 and catalog 2/2, covering all three aggregate failures |
-| `test_manifest_permissions` | 7/7 with real fresh-child allocation instrumentation |
-| `test_mcp_http` | Complete script, exit 0; modern/legacy discovery and calls retained |
-| `test_purposeful_swarm` | 14/14 |
-| `test_ssh`, `test_subagent_diagnostics` | Complete focused scripts passed |
-| `test_swarm_factory`, `test_swarm_parent` | 11/11 and 2/2 |
-| `test_tui` | Complete PTY script, including nested approval and steering |
-| `test_libtny`, `test_libtny_acp`, `test_libtny_custom_tools` | Complete scripts pass; code-only embedded refusal, zero callbacks, retained lifecycle checks |
-| `test_libtny_mutation_fault` | Full runtime-ownership and allocation-fault target exits 0; all discovered injections and recovery checks retained |
+| Native release / unit / quality | `make -j6 quality test-unit` exited 0 on an unchanged 1,382-file input manifest; 585 unit tests, 584 passed, one platform skip, 32,572 assertions; two extra restricted-profile regressions passed |
+| Native lifecycle | 43/43, no skips; raw/code refusal, retained checkpoint/steer, same-engine recovery, private pending ownership |
+| Native request allocation ownership | All 17 discovered request-construction indices passed |
+| Native mutations | All 16 compiled mutants killed; NDEBUG live-lease abort guard and guardless baseline checked |
+| Provider refusal allocation matrix | Eight wire/context/proposal scenarios; every discovered allocation index injected with single settlement, no callback effects and same-engine recovery; 400 injections on the recorded macOS build |
+| Python SDK target | 107 tests, 106 passed and one existing artifact-dependent skip; executable conformance accepted |
+| TypeScript SDK target | 60 tests, 59 passed and one existing legacy-library skip; executable conformance accepted |
+| SDK conformance | Each adapter reported 8 passing scenarios and 2 explicitly unsupported permission scenarios; unsupported is not pass |
+| SDK types and style | Strict mypy (11 source files), strict TypeScript checking, Ruff and all 42 JavaScript syntax checks passed |
 
-## Stable implementation gates
+The first hosted run exposed failures that local feature-only tests had missed:
 
-The coordinator recorded these results after the final production fixes:
+| Hosted failure | Reconciliation |
+| --- | --- |
+| Valgrind: ten native fixture failures, 343 reported errors | The provider-fault executable needed the same private executor/guardian entry points as the main binary. Two remaining tests assumed removed embedded direct/pending execution. Replaced those assumptions with explicit refusal plus independent private ownership coverage; did not add suppressions |
+| Parser/backend ownership on Linux/macOS | The same unsupported checkpoint/pending fixtures; revised lifecycle tests preserve the supported invariants and allocation checks |
+| Wasm execution refusal test | The binary correctly returned an explicit platform-unavailable/no-fallback error; the fixture now checks that actual contract and zero effects |
+| SDK model callbacks and standalone optimisation | Public model tools refuse. Standalone optimisation also refuses before I/O because the embedding ABI has no trusted executor launcher; Python/Node must not be re-executed as tny |
+| Linux quality | GNU spawn declarations now come from early compiler feature flags, not a late source-level reserved-macro definition |
 
-- Unit gate: exit 0; 585 tests, 32,572 assertions, 584 passed and one skip.
-- Final postfix quality gate: exit 0, including the final session fix and runner
-  guard. GCC analyzer is explicitly skipped on Darwin.
-- macOS leak gate: exit 0, zero leaks. Four nonfork transport cases are included;
-  process suites retain the exclusions printed by the leak runner.
-- Formal gate: exit 0; 9,600 compiled admission cases, seven universal
-  source-linked predicate obligations plus nonvacuity, and ten existing abstract
-  obligations. This does not prove the parser, process lifecycle or tool effects.
-- Stripped native arm64 release: 1,486,336 bytes; runtime linkage to system
-  libc++ and libSystem only. No speed or token-saving claim is made.
-- After the last fixture edits, `make format-check lint-py` exited 0. This was
-  read-only verification; no production source was reformatted.
+On `7ca1988`, hosted CI run `36183006796` observed **Valgrind success**:
+regular unit/CLI leak checks, native request ownership, and all 43 provider
+lifecycle cases passed. Reported summaries contain **zero errors and zero
+suppressed errors**. The same revision's wasm/node and browser smoke passed.
+That run also exposed additional Linux packaging/build issues, handled below;
+its whole matrix was therefore not green.
 
-Native Linux/musl runtime, browser backpressure, hosted CI and live providers
-were not verified by this macOS run. The original aggregate returned nonzero, and no subsequent whole-inventory
-result is claimed here. All its failed groups have passing focused reconciliation;
-this does not replace a final aggregate observation.
+## Linux portability regressions
 
+Enabling GNU spawn declarations for native C revealed two interactions. The
+existing glibc compatibility header now also precedes C and forced allocation
+headers, preventing accidental `__isoc23_*` imports that raised the published
+2.34 compatibility floor to 2.38. The release compatibility checks remain strict.
 
-The independent review reopened the production freeze to broaden the active
-image-control guard to all roles. The new background owner regression found
-that the existing role allowlist already rejects owner image controls before
-the active-cell guard; no owner-role image-read bypass was reproduced. The
-broader guard is defense in depth. The seven permission cases, native unit
-gate, quality and leak gates subsequently passed on the changed revision.
+Musl's GNU `sched.h` redeclares `calloc`; it must be loaded before allocation
+call-site aliases. Actual `src/lib/tny.c` compilation under musl-gcc failed before
+the early scheduler include and passed afterward. The mixed-language build
+suite now includes a negative compile fixture: removing that include makes the
+same declaration fail. It also checks early compatibility flags across C/C++
+release and fault-library commands, then compiles the real compatibility header.
+The complete build suite passed 19 tests with one explicit Emscripten skip on
+macOS. Hosted Linux/musl artifact checks remain the authoritative end-to-end gate.
+
+## Source-linked formal evidence
+
+`make verify-formal` checks the actual Clang AST of the pure admission predicate
+with fixed-width Z3 bitvectors: seven universal obligations over all 192 input
+bits, a satisfiable non-vacuity witness, and 9,600 compiled representative cases.
+Ten existing abstract obligations also pass. Predicate SHA-256:
+`e7a1b727207551197fe372d46dd320b4b6fd8b57021a75a82ce032dc5c2d910b`.
+
+See [protocol proof](protocol-proof.md) for the exact trusted base and exclusions.
+This is **not** proof of parsers, C memory safety, callback implementations,
+filesystem policy, process cleanup, or exactly-once external effects. Split
+frames, malformed input, actual execution PIDs, permissions, allocation failure,
+server loss, and no replay are checked by executable tests instead.
+
+## Explicit compatibility and evidence limits
+
+Wasm and public embedded/custom/host-callback agent tools are unsupported;
+there is no direct fallback. Standalone SDK optimisation is also unsupported
+before provider, credential or workspace I/O; native CLI/TUI optimisation remains
+available. SDK registration, no-tool inference, lifecycle, cancellation and
+supported standalone services retain independent coverage.
+
+ACP requires the verified strict tools-only adapter. MCP connections are
+cell-scoped. The complete initial snapshot, including stored session history,
+is capped at 8 MiB; compaction does not delete that history. Native execution
+requires the supported Linux/macOS process-identity seam. These are operational
+limits, not hidden compatibility claims.
+
+The guardian's execution-server-death tests cover its owned shell tree. They do
+not establish cleanup of arbitrary MCP peers after external executor SIGKILL,
+identity/allocation failures, or deliberately escaped descendants. Completed
+effects are not rolled back. No live provider inference, speed improvement,
+token saving, or general operating-system sandbox guarantee is claimed.
+
+Raw local logs, atomic statuses, input manifests and the full integration plan
+are retained in `/tmp/tny-execution-code-mode` on the development host. Hosted
+results and their source revisions are visible on PR #193.

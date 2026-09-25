@@ -40,9 +40,10 @@ TNY_SHELL_PATH ?= /bin/sh
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
 UNAME_M := $(shell uname -m 2>/dev/null || echo unknown)
 ifeq ($(UNAME_S),Linux)
-  # Declare glibc spawn extensions through compiler feature flags, not a
-  # source-level definition of a reserved system identifier.
-  DEFS += -D_GNU_SOURCE
+  # GNU spawn extensions need feature flags before even forced allocator
+  # headers. Apply the existing libc compatibility guard to C as well as C++:
+  # _GNU_SOURCE must not opt shipped C objects into GLIBC_2.38 strto* symbols.
+  DEFS += -D_GNU_SOURCE $(CXX_GLIBC_FLOOR)
 endif
 ifeq ($(UNAME_S),Darwin)
   # macOS dyld strips sanitizer insertion variables before Python can spawn
