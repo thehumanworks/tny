@@ -80,6 +80,7 @@ sys.exit(subprocess.call(["sh", "-c", av[-1]]))
             env = dict(
                 os.environ,
                 HOME=str(home),
+                TNY_TOOLS="all",
                 PATH=f"{binp}{os.pathsep}{os.environ.get('PATH', '')}",
                 OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
                 OPENAI_API_KEY="test-key-not-real",
@@ -105,7 +106,9 @@ sys.exit(subprocess.call(["sh", "-c", av[-1]]))
             assert r.returncode == 0, f"exit {r.returncode}: {r.stderr.decode()}"
             out = json.loads(r.stdout)
             assert "MOCK-OK" in out["output"], out
-            assert [t["name"] for t in out["tool_calls"]] == [
+            assert [
+                t["name"] for t in out["tool_calls"] if t["name"] != "run_code"
+            ] == [
                 "list_files",
                 "glob_files",
             ], out

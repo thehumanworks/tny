@@ -356,6 +356,17 @@ class JobArtifactConsumers(CompiledArtifactChecks, ImageFixture):
                         socket_cli=call[1].get("command") == "sh preview-job.sh",
                     )
                     self.assertEqual(run.returncode, 0, run.stderr)
+                    if call[1].get("command") == "sh preview-job.sh":
+                        refused = self.assert_preview("unsupported", 0)
+                        self.assertEqual(
+                            refused["preview"]["error_code"],
+                            "execution_server_required",
+                        )
+                        self.assertEqual(
+                            refused["preview"]["selected"]["sha256"],
+                            item["output_sha256"],
+                        )
+                        self.ask([("image_preview", {"job": job, "item": 0})], wire)
                     value = self.assert_preview()
                     selected = value["preview"]["selected"]
                     self.assertEqual(selected["sha256"], item["output_sha256"])
@@ -500,6 +511,12 @@ class JobArtifactConsumers(CompiledArtifactChecks, ImageFixture):
                         socket_cli=call[1].get("command") == "sh length-preview.sh",
                     )
                     self.assertEqual(self.pixels(self.state["chat"][-1]), [])
+                    if call[1].get("command") == "sh length-preview.sh":
+                        self.assertEqual(
+                            self.result_object()["preview"]["error_code"],
+                            "execution_server_required",
+                        )
+                        self.ask([("image_preview", {"job": job, "item": 0})], wire)
                     self.assertEqual(
                         self.result_object()["preview"]["status"], "failed"
                     )
@@ -527,18 +544,15 @@ class JobArtifactConsumers(CompiledArtifactChecks, ImageFixture):
                 )
             ]
         )
-        schema = next(
-            tool["function"]["parameters"]
-            for tool in self.state["chat"][0]["tools"]
-            if tool["function"]["name"] == "job_submit"
-        )
+        job = self.result_object()["id"]
+        self.ask([("run_code", {"code": 'print(tools.describe("job_submit"))'})])
+        schema = json.loads(self.results()[0])["function"]["parameters"]
         self.assertEqual(
             schema["properties"]["items"]["items"]["properties"]["persist_manifest"][
                 "type"
             ],
             "boolean",
         )
-        job = self.result_object()["id"]
         run = self.job_command("wait", job, "--timeout", "30")
         self.assertEqual(run.returncode, 0, (run.stdout, run.stderr))
         item = json.loads(run.stdout)["items"][0]

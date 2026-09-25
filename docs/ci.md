@@ -28,7 +28,7 @@ See [ADR 0135](adr/0135-clean-build-variants.md).
 | `tny-linux-x86_64-musl` | `ubuntu-24.04` + Alpine 3.21 | **static** musl; unit tests + smoke |
 | `tny-linux-aarch64-musl` | `ubuntu-24.04-arm` + Alpine 3.21 | **static** musl; unit tests + smoke |
 | `tny-darwin-arm64` | `macos-15` | Apple Silicon only; ASan unit tests, shell workflows, libtny fault/fuzz/ownership checks, ImageMagick 7 conversion tests, size and package |
-| `tny-wasm` (`tny.js`+`tny.wasm`, `tny-web.mjs`+`.wasm`) | `ubuntu-24.04` + emsdk 6.0.8 | the SAME openai/codex-profile mock suites with `TNY=build/wasm/tny`, measured wasm artifact size, and a headless-Chromium page smoke ([ADR 0017](adr/0017-wasm-browser-parity.md)) |
+| `tny-wasm` (`tny.js`+`tny.wasm`, `tny-web.mjs`+`.wasm`) | `ubuntu-24.04` + emsdk 6.0.8 | both provider wires with no-tool streaming and explicit `run_code` refusal, standalone services, measured wasm artifact size, and a headless-Chromium no-tool page smoke ([ADR 0174](adr/0174-execution-server-code-mode.md)) |
 
 GitHub Actions builds and releases Linux and macOS native artifacts only
 ([ADR 0137](adr/0137-linux-macos-ci-and-optional-nix.md)). Windows jobs and
@@ -177,6 +177,15 @@ stack and DTV for threads alive at exit, never a first-party leak, so
 `--errors-for-leak-kinds=definite,indirect` decides the exit code.
 
 A `valgrind` job on `ubuntu-24.04` runs `make valgrind` on every PR.
+The instrumentor does not implement `pidfd_send_signal` (also absent from the
+inspected 3.27.1 syscall table). The stubborn-MCP-peer case still runs under
+Memcheck and asserts safe capability refusal, no raw-PID signalling, bounded
+return and memory cleanup. The same job then runs that exact case natively with
+`TNY_TEST_REQUIRE_PROCESS_TREE=1`; missing capability, zero selected tests,
+skips or failure to reap are fatal. Thus instrumented refusal is not presented
+as proof of native reaping. The normal native sanitizer suite also exercises
+the supported path. No memory diagnostics or test groups are suppressed for
+this kernel-instrumentation mismatch.
 `tests/valgrind.supp` suppresses only the dynamic loader and the dlopen'd
 system OpenSSL that `src/net/stream.c` deliberately never closes; first-party
 leaks are never suppressed.

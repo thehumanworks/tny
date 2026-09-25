@@ -5,6 +5,13 @@ require ABI 1.1; ABI 1.0 remains usable when no task is requested. The native ru
 remains the source of truth; this package owns lifecycle, thread-affinity,
 event copying, error mapping, and sync/async ergonomics.
 
+Model-driven tools are unavailable in embedded sessions under
+[ADR 0174](../../docs/adr/0174-execution-server-code-mode.md). `run_code`
+returns an explicit refusal with no direct fallback, before permission dispatch.
+Installing a matching CLI does not enable embedded model tools. Registration
+APIs remain available; this path invokes no custom-tool callbacks. No-tool
+inference, streaming, cancellation and session lifecycle remain supported.
+
 ```python
 from tny import Runtime, RuntimeConfig, TaskPreset, TextDeltaEvent
 
@@ -239,7 +246,8 @@ bundled `.libs`, uses that native path for live/shared probes, and reports the
 independently checked wheel SHA with `artifact.kind` set to `wheel`.
 
 The release-gate test creates its own venv, installs the named wheel, invokes
-the canonical runner, and requires all ten v1 scenarios to pass:
+the canonical runner, and validates all ten v1 scenarios: eight pass and the two model-tool
+permission scenarios explicitly report `unsupported`:
 
 ```sh
 TNY_TEST_BUNDLED_WHEEL=/absolute/path/to/tny-*.whl \
@@ -247,9 +255,14 @@ TNY_TEST_BUNDLED_WHEEL=/absolute/path/to/tny-*.whl \
 ```
 ## Standalone toolkit
 
+`optimise` / `optimize` currently return an unsupported error before provider
+I/O. Embedded optimisation has no execution-server launcher and no direct
+fallback; no workspace exploration is performed. The method signatures remain
+available for compatibility.
+
 `Toolkit` and `AsyncToolkit` expose image generation/editing, speech
-export/playback, WAV/microphone transcription, and prompt optimisation through
-libtny ABI 1.2+. They need no agent runtime, session, or `tny` executable.
+export/playback and WAV/microphone transcription through libtny ABI 1.2+.
+They need no agent runtime, session, or `tny` executable.
 
 ```python
 from tny import Toolkit, ToolkitConfig
@@ -258,7 +271,6 @@ kit = Toolkit(ToolkitConfig(workspace="/path/to/project"))
 image = kit.generate_image("A small tree", output_file="tree.png")
 kit.speak("Hello", output_file="hello.mp3")
 text = kit.transcribe("recording.wav").text
-draft = kit.optimise(text).text.decode("utf-8")
 ```
 
 Use the same methods on `AsyncToolkit` with `await`. Every call accepts a

@@ -341,9 +341,12 @@ typedef struct {
     int turn_requests;                  /* reset per turn: only its first POST asks for a tool */
     const char *first_body, *done_body; /* optional per-test response overrides */
     buf_t bodies[6];
+    buf_t tool_reply;
     int hook_calls;
+    int pre_tool_calls, post_tool_calls;
     pv_hook hook;
     bool selected; /* actual image_preview tool, not the queue probe hook */
+    bool stop_nested_pre;
     bool unlink_at_permission;
     int preview_permissions;
     bool stop_batch;   /* an extension stops the batch after the tools ran */
@@ -378,6 +381,39 @@ static void pv_hash(const uint8_t *data, size_t len, char out[65]) {
         out[i * 2 + 1] = hex[digest[i] & 0xf];
     }
     out[64] = '\0';
+}
+
+/* Existing preview scenarios exercise their tools through the same exclusive
+ * code boundary as production. Explicit response overrides remain untouched. */
+static const char *pv_code_reply(pv_fixture *f, const char *body) {
+    yyjson_doc *doc = jparse(body, strlen(body));
+    yyjson_val *choice = yyjson_arr_get_first(jget(yyjson_doc_get_root(doc), "choices"));
+    yyjson_val *calls = jget(jget(choice, "message"), "tool_calls");
+    buf_clear(&f->tool_reply);
+    buf_appends(&f->tool_reply,
+                "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"message\":{\"tool_calls\":[");
+    size_t i, n;
+    yyjson_val *call;
+    yyjson_arr_foreach(calls, i, n, call) {
+        if (i) buf_appends(&f->tool_reply, ",");
+        buf_appends(&f->tool_reply, "{\"type\":\"function\",\"id\":");
+        jescape(&f->tool_reply, jget_str(call, "id"));
+        buf_appends(&f->tool_reply, " ,\"function\":{\"name\":\"run_code\",\"arguments\":");
+        yyjson_val *fn = jget(call, "function");
+        buf_t code = {0}, args = {0};
+        buf_appendf(&code, "print(tools.call([=[%s]=], [=[%s]=]))", jget_str(fn, "name"),
+                    jget_str(fn, "arguments"));
+        buf_appends(&args, "{\"code\":");
+        jescape(&args, code.data);
+        buf_appends(&args, "}");
+        jescape(&f->tool_reply, args.data);
+        buf_appends(&f->tool_reply, "}}");
+        buf_free(&code);
+        buf_free(&args);
+    }
+    buf_appends(&f->tool_reply, "]}}]}");
+    yyjson_doc_free(doc);
+    return f->tool_reply.data;
 }
 
 static int pv_post(const http_server_request *request, http_server_response *response, void *ud) {
@@ -425,6 +461,7 @@ static int pv_post(const http_server_request *request, http_server_response *res
     if (f->decode_wire)
         body =
             f->decode_wire == 1 ? decode_json : (f->decode_wire == 2 ? decode_sse : decode_flush);
+    if (first_of_turn && !f->first_body && !f->decode_wire) body = pv_code_reply(f, body);
     response->status = 200;
     response->content_type = f->decode_wire > 1 ? "text/event-stream" : "application/json";
     response->body = body;
@@ -512,6 +549,11 @@ static char *pv_ask_user(const char *question, void *ud) {
 static void pv_control(const tny_openai_control_request *request,
                        tny_openai_control_response *response, void *ud) {
     pv_fixture *f = ud;
+    if (request->kind == TNY_OPENAI_CONTROL_PRE_TOOL) f->pre_tool_calls++;
+    if (request->kind == TNY_OPENAI_CONTROL_POST_TOOL) f->post_tool_calls++;
+    if (f->stop_nested_pre && request->kind == TNY_OPENAI_CONTROL_PRE_TOOL && request->tool_name &&
+        strcmp(request->tool_name, "list_files") == 0)
+        response->stop = true;
     if (f->selected && request->tool_name && strcmp(request->tool_name, "image_preview") == 0) {
         if (request->kind == TNY_OPENAI_CONTROL_PERMISSION) {
             f->preview_permissions++;
@@ -595,6 +637,7 @@ static void pv_close(pv_fixture *f) {
     http_server_destroy(&f->server);
     buf_free(&f->error_text);
     buf_free(&f->callback_text);
+    buf_free(&f->tool_reply);
     for (size_t i = 0; i < sizeof f->bodies / sizeof f->bodies[0]; i++) buf_free(&f->bodies[i]);
 }
 
@@ -740,7 +783,7 @@ TEST openai_preview_fatal_flush_stops_the_next_request(void) {
 TEST openai_preview_reports_non_delivery_when_the_turn_ends_early(void) {
     const tny_stop_reason stops[] = {TNY_STOP_INTERRUPTED, TNY_STOP_STEP_LIMIT,
                                      TNY_STOP_INTERRUPTED, TNY_STOP_ERROR,
-                                     TNY_STOP_DENIED,      TNY_STOP_INTERRUPTED};
+                                     TNY_STOP_DENIED,      TNY_STOP_DENIED};
     for (int scenario = 0; scenario < 6; scenario++) {
         pv_fixture f;
         pv_open(&f);
@@ -835,7 +878,7 @@ TEST openai_selected_preview_allow_once_pins_before_permission(void) {
 TEST openai_selected_preview_terminal_cleanup_and_recovery(void) {
     const tny_stop_reason stops[] = {TNY_STOP_INTERRUPTED, TNY_STOP_STEP_LIMIT,
                                      TNY_STOP_INTERRUPTED, TNY_STOP_ERROR,
-                                     TNY_STOP_DENIED,      TNY_STOP_INTERRUPTED};
+                                     TNY_STOP_DENIED,      TNY_STOP_DENIED};
     for (int scenario = 0; scenario < 6; scenario++) {
         pv_fixture f;
         pv_open(&f);
@@ -1083,6 +1126,152 @@ TEST provider_decoding_every_split(void) {
     }
     PASS();
 }
+TEST provider_rejects_raw_tools_before_hooks(void) {
+    const char *names[] = {"read_file", "run_command", "mcp_select_tool", "web_search"};
+    for (int chat = 0; chat <= 1; chat++) {
+        for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) {
+            pv_fixture f;
+            pv_open(&f);
+            free(f.ctx->wire_api);
+            f.ctx->wire_api = xstrdup(chat ? "chat" : "responses");
+            buf_t reply = {0};
+            if (chat) {
+                buf_appends(&reply, "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"message\":{"
+                                    "\"tool_calls\":[{\"id\":\"direct\",\"type\":\"function\","
+                                    "\"function\":{\"name\":");
+                jescape(&reply, names[i]);
+                buf_appends(&reply, ",\"arguments\":\"{}\"}}]}}]}");
+            } else {
+                buf_appends(&reply,
+                            "{\"status\":\"completed\",\"output\":[{\"type\":\"function_call\","
+                            "\"call_id\":\"direct\",\"name\":");
+                jescape(&reply, names[i]);
+                buf_appends(&reply, ",\"arguments\":\"{}\"}]}");
+                f.done_body = "{\"status\":\"completed\",\"output\":[]}";
+            }
+            f.first_body = reply.data;
+            ASSERT_EQ(0, pv_turn(&f, "inspect the tool boundary"));
+            ASSERT_EQ(0, f.pre_tool_calls);
+            ASSERT_EQ(0, f.post_tool_calls);
+            ASSERT_EQ(0, f.hook_calls);
+            ASSERT_EQ(2, f.requests);
+            ASSERT(strstr(f.bodies[1].data, "only run_code is exposed"));
+            yyjson_doc *request = jparse(f.bodies[0].data, f.bodies[0].len);
+            ASSERT(request);
+            yyjson_val *tools = jget(yyjson_doc_get_root(request), "tools");
+            ASSERT_EQ(1, (int)yyjson_arr_size(tools));
+            yyjson_val *tool = yyjson_arr_get_first(tools);
+            ASSERT_STR_EQ("run_code", jget_str(chat ? jget(tool, "function") : tool, "name"));
+            yyjson_doc_free(request);
+            buf_free(&reply);
+            pv_close(&f);
+        }
+    }
+    PASS();
+}
+
+TEST execution_image_admission_reserves_parent_queue(void) {
+    pv_fixture f;
+    pv_open(&f);
+    tools_env env = {.ctx = f.ctx,
+                     .session = f.session,
+                     .perm = f.perm,
+                     .execution_server = true,
+                     .reserved_image_count = 8};
+    char error[256];
+    const char *code = NULL;
+    ASSERT_EQ(-1, tools_queue_image_preview(&env, "/does-not-exist", f.hash_a, 0, &code, error,
+                                            sizeof error));
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_CAPACITY, code);
+    env.reserved_image_count = 7;
+    ASSERT_EQ(0, tools_queue_image_preview(&env, f.png, f.hash_a, 0, &code, error, sizeof error));
+    ASSERT_EQ(-1, tools_queue_image_preview(&env, f.png, f.hash_a, 0, &code, error, sizeof error));
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_CAPACITY, code);
+    tools_discard_pending_images(&env);
+    env.reserved_image_count = 0;
+    env.reserved_image_bytes = 4u * 1024u * 1024u;
+    ASSERT_EQ(-1, tools_queue_image_preview(&env, f.png, f.hash_a, 0, &code, error, sizeof error));
+    ASSERT_STR_EQ(TNY_IMAGE_PREVIEW_CODE_TOO_LARGE, code);
+    ASSERT_EQ(0, env.n_pending_images);
+    pv_close(&f);
+    PASS();
+}
+
+TEST provider_nested_controls_log_and_stop(void) {
+    const char *body =
+        "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"message\":{\"tool_calls\":[{"
+        "\"id\":\"outer\",\"type\":\"function\",\"function\":{\"name\":\"run_code\","
+        "\"arguments\":\"{\\\"code\\\":\\\"print(tools.call('list_files', '{}'))\\\"}\"}}]}}]}";
+    for (int stop = 0; stop <= 1; stop++) {
+        pv_fixture f;
+        pv_open(&f);
+        f.first_body = body;
+        f.stop_nested_pre = stop;
+        ASSERT_EQ(0, pv_turn(&f, "nested control boundary"));
+        ASSERT_EQ(stop ? TNY_STOP_INTERRUPTED : TNY_STOP_DONE, f.stop);
+        ASSERT_EQ(stop ? 1 : 2, f.requests);
+        ASSERT_EQ(2, f.pre_tool_calls); /* wrapper plus nested operation */
+        if (!stop) {
+            const char *log = tny_backend_openai_toolcalls_json(f.backend);
+            yyjson_doc *doc = jparse(log, strlen(log));
+            ASSERT(doc);
+            yyjson_val *calls = yyjson_doc_get_root(doc);
+            ASSERT_EQ(2, (int)yyjson_arr_size(calls));
+            ASSERT_STR_EQ("list_files", jget_str(yyjson_arr_get(calls, 0), "name"));
+            ASSERT_STR_EQ("run_code", jget_str(yyjson_arr_get(calls, 1), "name"));
+            ASSERT_STR_EQ("success", jget_str(yyjson_arr_get(calls, 0), "status"));
+            yyjson_doc_free(doc);
+        }
+        pv_close(&f);
+    }
+    PASS();
+}
+
+TEST provider_decoder_rejects_hosted_search(void) {
+    const char *events[] = {
+        "{\"type\":\"response.output_item.added\",\"item\":{\"type\":\"web_search_call\","
+        "\"id\":\"search\",\"status\":\"in_progress\"}}",
+        "{\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"web_search_call\","
+        "\"id\":\"search\",\"status\":\"completed\"}]}}",
+        "{\"status\":\"completed\",\"output\":[{\"type\":\"web_search_call\","
+        "\"id\":\"search\",\"status\":\"completed\"}]}"};
+    for (size_t i = 0; i < sizeof events / sizeof events[0]; i++) {
+        decode_capture c = {0};
+        ASSERT_EQ(TNY_PARSE_OK, oa_decoder_feed(&c.decoder, &c.calls, false, false, events[i],
+                                                strlen(events[i]), decoded_collect, &c));
+        ASSERT_EQ(1, c.failed);
+        ASSERT_EQ(0, c.calls.n);
+        char *extras = NULL;
+        ASSERT_EQ(TNY_PARSE_OK, oa_decoder_extras(&c.decoder, &extras));
+        ASSERT(!extras || !strstr(extras, "web_search_call"));
+        free(extras);
+        decoded_free(&c);
+    }
+    PASS();
+}
+
+TEST provider_decoder_rejects_nul_tool_names(void) {
+    const char *events[] = {
+        "{\"status\":\"completed\",\"output\":[{\"type\":\"function_call\",\"call_id\":\"bad\","
+        "\"name\":\"run_code\\u0000other\",\"arguments\":\"{}\"}]}",
+        "{\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"bad\",\"type\":\"function\","
+        "\"function\":{\"name\":\"run_code\\u0000other\",\"arguments\":\"{}\"}}]}}]}"};
+    for (int chat = 0; chat <= 1; chat++) {
+        decode_capture c = {0};
+        ASSERT_EQ(TNY_PARSE_OK, oa_decoder_feed(&c.decoder, &c.calls, chat, false, events[chat],
+                                                strlen(events[chat]), decoded_collect, &c));
+        if (chat) {
+            ASSERT_EQ(1, c.failed);
+            ASSERT_EQ(0, c.calls.n);
+        } else {
+            ASSERT_EQ(1, c.calls.n);
+            ASSERT_STR_EQ("invalid tool name", c.calls.calls[0].name);
+        }
+        decoded_free(&c);
+    }
+    PASS();
+}
+
 TEST responses_reasoning_owns_unknown_fields(void) {
     const char *event =
         "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"reasoning\",\"id\":\"r\","
@@ -1150,6 +1339,58 @@ TEST cpp_ownership_boundary(void) {
 }
 
 #ifdef TNY_ALLOC_TESTING
+TEST session_argument_rewrite_oom_preserves_original(void) {
+    size_t allocations = 0;
+    for (size_t index = 0; index <= allocations; index++) {
+        tny_alloc_scope_begin("disabled");
+        pv_fixture f;
+        pv_open(&f);
+        session_add_assistant(
+            f.session, NULL,
+            "[{\"id\":\"rewrite\",\"type\":\"function\",\"function\":{\"name\":\"run_code\","
+            "\"arguments\":\"{\\\"code\\\":\\\"print(1)\\\"}\"}}]");
+        char *before = jwrite(f.session->doc);
+        ASSERT(before);
+        /* Force string-pool growth independently of timing/stream coalescing. */
+        size_t bytes = 64u * 1024u;
+        char *replacement = malloc(bytes + 1);
+        ASSERT(replacement);
+        memset(replacement, ' ', bytes);
+        replacement[0] = '{';
+        replacement[bytes - 1] = '}';
+        replacement[bytes] = 0;
+        char nth[32];
+        snprintf(nth, sizeof nth, "%zu", index);
+        setenv("TNY_TEST_ALLOC_SCOPE", "tool-argument-rewrite", 1);
+        setenv("TNY_TEST_ALLOC_FAIL_AT", nth, 1);
+        tny_alloc_scope_begin("tool-argument-rewrite");
+        session_replace_tool_arguments(f.session, "rewrite", replacement);
+        bool injected = tny_alloc_test_scope_injected();
+        if (!index) allocations = tny_alloc_test_scope_count();
+        tny_alloc_scope_begin("disabled");
+        unsetenv("TNY_TEST_ALLOC_SCOPE");
+        unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+        ASSERT(allocations > 0);
+        ASSERT_EQ(index != 0, injected);
+        char *after = jwrite(f.session->doc);
+        ASSERT(after);
+        if (injected) ASSERT_STR_EQ(before, after);
+        else ASSERT(strcmp(before, after) != 0);
+        free(before);
+        free(after);
+        free(replacement);
+        /* A later valid rewrite succeeds on the same document after failure. */
+        session_replace_tool_arguments(f.session, "rewrite", "{\"code\":\"print(2)\"}");
+        yyjson_mut_val *message = yyjson_mut_arr_get_last(session_messages(f.session));
+        yyjson_mut_val *call = yyjson_mut_arr_get_first(yyjson_mut_obj_get(message, "tool_calls"));
+        const char *args = yyjson_mut_get_str(
+            yyjson_mut_obj_get(yyjson_mut_obj_get(call, "function"), "arguments"));
+        ASSERT_STR_EQ("{\"code\":\"print(2)\"}", args);
+        pv_close(&f);
+    }
+    PASS();
+}
+
 typedef struct {
     pv_fixture *fixture;
     bool body, parser;
@@ -1204,13 +1445,14 @@ static void request_fault_control(const tny_openai_control_request *request,
     tny_alloc_scope_begin("openai-request");
 }
 
-/* Real engine + loopback provider + registered asynchronous host tool. Scopes
- * start at public control/invoke boundaries, never at guessed allocation offsets. */
+/* Provider refusal and private pending-API ownership are separate contracts.
+ * Allocation scopes start at control/API boundaries, never guessed offsets. */
 typedef struct {
     tny_tool_call *host;
     uint64_t generation;
     size_t index;
     int mode, invokes, permissions, errors, ends, tools;
+    bool refusal_seen;
     bool armed, permission_seen;
     tny_stop_reason stop;
 } native_pending_fixture;
@@ -1231,21 +1473,17 @@ static int32_t native_pending_invoke(void *ud, tny_tool_call *call, uint64_t gen
     f->host = call;
     f->generation = generation;
     f->invokes++;
-    if (f->mode == 4 || f->mode == 6) native_fault_begin(f);
     return TNY_TOOL_INVOKE_ASYNC;
 }
 static void native_pending_control(const tny_openai_control_request *request,
                                    tny_openai_control_response *response, void *ud) {
     native_pending_fixture *f = ud;
-    if (f->mode == 7 && request->kind == TNY_OPENAI_CONTROL_TOOL_BATCH) response->stop = true;
-    if (request->kind == TNY_OPENAI_CONTROL_PRE_TOOL) {
-        response->extension = xstrdup("fixture-extension");
-        response->reason = xstrdup("fixture-reason");
-    }
-    if (request->kind == TNY_OPENAI_CONTROL_PERMISSION) {
-        f->permissions++;
-        if (f->mode == 5) native_fault_begin(f);
-    }
+    if (f->mode && request->kind == TNY_OPENAI_CONTROL_PROVIDER_RESPONSE && !f->armed)
+        native_fault_begin(f);
+    /* Stop before constructing another request: discover only the response,
+     * refusal and settlement allocations, then recover on the same engine. */
+    if (f->mode && request->kind == TNY_OPENAI_CONTROL_TOOL_BATCH) response->stop = true;
+    if (request->kind == TNY_OPENAI_CONTROL_PERMISSION) f->permissions++;
 }
 static int native_pending_drive(pv_fixture *p, tny_engine *engine, native_pending_fixture *f) {
     struct pollfd fds[HTTP_SERVER_POLLFD_CAPACITY + TNY_BACKEND_POLLFD_MAX];
@@ -1264,7 +1502,14 @@ static int native_pending_drive(pv_fixture *p, tny_engine *engine, native_pendin
             if (strcmp(event->ev.perm_id, "native-pending-id")) return -1;
             f->permission_seen = true;
         }
-        if (event->ev.kind == TNY_EV_TOOL_END) f->tools++;
+        if (event->ev.kind == TNY_EV_TOOL_END) {
+            f->tools++;
+            const char *text = event->ev.tool_detail;
+            if (text &&
+                (strstr(text, "only run_code is exposed") ||
+                 strstr(text, "execution server unavailable for embedded host/custom callbacks")))
+                f->refusal_seen = true;
+        }
         if (event->ev.kind == TNY_EV_ERROR) {
             if (event->ev.error_code != TNY_EVENT_ERROR_OOM || f->ends) return -1;
             f->errors++;
@@ -1615,12 +1860,14 @@ static void native_backend_tick(pv_fixture *p) {
 TEST native_checkpoint_retains_steer_and_consumed_index(void) {
     pv_fixture p;
     pv_open(&p);
-    p.ctx->library_mode = true;
-    p.first_body = "{\"choices\":[{\"message\":{\"content\":\"batch "
-                   "text\",\"tool_calls\":[{\"id\":\"consumed-first\",\"type\":\"function\","
-                   "\"function\":{\"name\":\"list_files\",\"arguments\":\"{}\"}},{\"id\":"
-                   "\"remaining-second\",\"type\":\"function\",\"function\":{\"name\":\"list_"
-                   "files\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}";
+    p.first_body =
+        "{\"choices\":[{\"message\":{\"content\":\"batch "
+        "text\",\"tool_calls\":[{\"id\":\"consumed-first\",\"type\":\"function\","
+        "\"function\":{\"name\":\"run_code\",\"arguments\":\"{\\\"code\\\":\\\"print('first-result'"
+        ")\\\"}\"}},"
+        "{\"id\":\"remaining-second\",\"type\":\"function\",\"function\":{\"name\":\"run_code\","
+        "\"arguments\":\"{\\\"code\\\":\\\"print('second-result')\\\"}\"}}]},\"finish_reason\":"
+        "\"tool_calls\"}]}";
     native_checkpoint_fixture f = {.p = &p};
     tny_backend_openai_bind(p.backend, p.session, p.perm, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                             NULL, native_checkpoint_control, &f);
@@ -1660,41 +1907,61 @@ TEST native_checkpoint_retains_steer_and_consumed_index(void) {
     ASSERT_EQ(2, p.requests);
     ASSERT(strstr(p.bodies[1].data, "parked checkpoint steer"));
     ASSERT(strstr(p.bodies[1].data, "batch text"));
+    ASSERT(strstr(p.bodies[1].data, "first-result"));
+    ASSERT(strstr(p.bodies[1].data, "second-result"));
+    ASSERT_EQ(0, p.errors);
     const char *log_text = tny_backend_openai_toolcalls_json(p.backend);
     yyjson_doc *log = jparse(log_text, strlen(log_text));
     ASSERT(log);
     ASSERT_EQ(2, yyjson_arr_size(yyjson_doc_get_root(log)));
+    for (size_t i = 0; i < 2; ++i) {
+        yyjson_val *call = yyjson_arr_get(yyjson_doc_get_root(log), i);
+        ASSERT_STR_EQ("run_code", jget_str(call, "name"));
+        ASSERT_STR_EQ("success", jget_str(call, "status"));
+    }
     yyjson_doc_free(log);
     pv_close(&p);
     PASS();
 }
 
+/* Embedded model-driven permission/completion/cancellation no longer creates a
+ * host lease. Exercise both wire formats, raw/code proposals and library/native
+ * contexts with a registered callback; every discovered refusal allocation must
+ * settle once without invoking it, then permit text recovery on the same engine.
+ * Private lease completion, generation and invalidation are tested separately. */
 TEST native_pending_lifecycle_and_allocation_sweeps(void) {
     for (int wire = 0; wire < 2; ++wire) {
-        for (int mode = 0; mode < 8; ++mode) {
+        for (int mode = 0; mode < 4; ++mode) {
             size_t count = 0;
             for (size_t index = 0; index <= count; ++index) {
                 tny_alloc_scope_begin("disabled");
                 size_t live = tny_alloc_test_owned_live();
                 pv_fixture p;
                 pv_open(&p);
-                p.ctx->library_mode = true;
-                p.ctx->perm_mode = mode == 4 ? TNY_MODE_YOLO : TNY_MODE_ASK;
+                p.ctx->library_mode = mode < 2;
+                p.ctx->perm_mode = TNY_MODE_YOLO;
                 free(p.ctx->wire_api);
                 p.ctx->wire_api = xstrdup(wire ? "chat" : "responses");
-                p.first_body =
-                    wire ? "{\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"native-pending-"
-                           "id\",\"type\":\"function\",\"function\":{\"name\":\"native_pending\","
-                           "\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{"
-                           "\"prompt_tokens\":123,\"completion_tokens\":7}}"
-                         : "{\"status\":\"completed\",\"usage\":{\"input_tokens\":123,\"output_"
-                           "tokens\":7},\"output\":[{\"type\":\"function_call\",\"call_id\":"
-                           "\"native-pending-id\",\"name\":\"native_pending\",\"arguments\":\"{}\"}"
-                           "]}";
+                bool code = mode % 2 == 0;
+                const char *name = code ? "run_code" : "native_pending";
+                const char *arguments =
+                    code ? "{\"code\":\"print(tools.call('native_pending', {}))\"}" : "{}";
+                buf_t body = {0};
+                buf_appends(&body,
+                            wire ? "{\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"native-"
+                                   "pending-id\",\"type\":\"function\",\"function\":{"
+                                 : "{\"status\":\"completed\",\"output\":[{\"type\":\"function_"
+                                   "call\",\"call_id\":\"native-pending-id\",");
+                buf_appends(&body, "\"name\":");
+                jescape(&body, name);
+                buf_appends(&body, ",\"arguments\":");
+                jescape(&body, arguments);
+                buf_appends(&body, wire ? "}}]},\"finish_reason\":\"tool_calls\"}]}" : "}]}");
+                p.first_body = body.data;
                 p.done_body = wire ? "{\"choices\":[{\"message\":{\"content\":\"done\"},\"finish_"
                                      "reason\":\"stop\"}]}"
                                    : "{\"status\":\"completed\",\"output\":[]}";
-                native_pending_fixture f = {.mode = mode, .index = index};
+                native_pending_fixture f = {.mode = 1, .index = index};
                 p.ctx->custom_tools = custom_tools_new();
                 ASSERT(p.ctx->custom_tools);
                 tny_tool_spec_v1 spec = {0};
@@ -1717,52 +1984,19 @@ TEST native_pending_lifecycle_and_allocation_sweeps(void) {
                 tny_backend_openai_bind(p.backend, p.session, p.perm, NULL, NULL, NULL, NULL, NULL,
                                         NULL, NULL, NULL, native_pending_control, &f);
                 ASSERT_EQ(0, tny_engine_start(engine, "native pending", NULL, err, sizeof err));
-                for (int i = 0; i < 2000 && !f.ends && !f.permission_seen && !f.host; ++i)
-                    ASSERT_EQ(0, native_pending_drive(&p, engine, &f));
-                if (mode == 5 && !index) count = tny_alloc_test_scope_count();
-                if (mode != 4 && !f.ends) {
-                    ASSERT(f.permission_seen);
-                    ASSERT_EQ(0, f.invokes);
-                    if (mode == 2) tny_engine_cancel(engine);
-                    else
-                        tny_engine_respond_permission(engine, "native-pending-id",
-                                                      mode == 1 ? TNY_PERM_DECISION_DENY
-                                                                : TNY_PERM_DECISION_ALLOW);
-                    for (int i = 0; i < 2000 && !f.ends && !f.host; ++i)
-                        ASSERT_EQ(0, native_pending_drive(&p, engine, &f));
-                }
-                if ((mode == 4 || mode == 6) && !index) count = tny_alloc_test_scope_count();
-                bool injected = index && tny_alloc_test_scope_injected();
-                tny_tool_result_v1 result = {0};
-                result.abi_version = TNY_TOOL_RESULT_ABI_VERSION;
-                result.struct_size = sizeof result;
-                char payload[] = "queued-owned-result";
-                result.data = (tny_bytes){payload, strlen(payload)};
-                if (f.host && !injected) {
-                    ASSERT_EQ(1, f.invokes);
-                    ASSERT_EQ(1, p.requests);
-                    ASSERT_EQ(TNY_STATUS_BAD_STATE,
-                              custom_tool_complete(f.host, f.generation + 1, &result));
-                    if (mode == 7) native_fault_begin(&f);
-                    int complete = custom_tool_complete(f.host, f.generation, &result);
-                    injected = index && tny_alloc_test_scope_injected();
-                    ASSERT_EQ(injected ? TNY_STATUS_OOM : TNY_STATUS_OK, complete);
-                    memset(payload, 'x', sizeof payload - 1);
-                    ASSERT_EQ(1, p.requests); /* queued bytes have not been consumed */
-                    if (mode == 3) tny_engine_cancel(engine);
-                }
                 for (int i = 0; i < 2000 && !f.ends; ++i)
                     ASSERT_EQ(0, native_pending_drive(&p, engine, &f));
-                if (mode == 7 && !index) count = tny_alloc_test_scope_count();
-                injected = index && tny_alloc_test_scope_injected();
+                if (!index) count = tny_alloc_test_scope_count();
+                bool injected = index && tny_alloc_test_scope_injected();
+                ASSERT(f.armed);
                 ASSERT_EQ(index != 0, injected);
+                ASSERT_EQ(0, f.invokes);
+                ASSERT_EQ(NULL, f.host);
+                ASSERT_EQ(0, f.permissions);
+                ASSERT(!f.permission_seen);
                 ASSERT_EQ(1, f.ends);
                 ASSERT_EQ(injected ? 1 : 0, f.errors);
-                ASSERT_EQ(injected                                ? TNY_STOP_ERROR
-                          : mode == 1                             ? TNY_STOP_DENIED
-                          : (mode == 2 || mode == 3 || mode == 7) ? TNY_STOP_INTERRUPTED
-                                                                  : TNY_STOP_DONE,
-                          f.stop);
+                ASSERT_EQ(injected ? TNY_STOP_ERROR : TNY_STOP_INTERRUPTED, f.stop);
                 ASSERT_EQ(0, tny_alloc_test_settlement_allocations());
                 if (injected) {
                     size_t settled = tny_alloc_test_scope_count();
@@ -1770,23 +2004,12 @@ TEST native_pending_lifecycle_and_allocation_sweeps(void) {
                     ASSERT_EQ(settled, tny_alloc_test_scope_count());
                     ASSERT_EQ(1, f.errors);
                     ASSERT_EQ(1, f.ends);
+                } else {
+                    ASSERT_EQ(1, f.tools);
+                    ASSERT(f.refusal_seen);
+                    ASSERT_EQ(1, p.requests);
                 }
                 tny_alloc_scope_begin("disabled");
-                if (f.host) {
-                    ASSERT_EQ(TNY_STATUS_BAD_STATE,
-                              custom_tool_complete(f.host, f.generation, &result));
-                    tny_tool_call_release(f.host);
-                    f.host = NULL;
-                }
-                if (!injected && (mode == 1 || mode == 2 || mode == 3)) ASSERT_EQ(1, f.tools);
-                if (!injected && mode != 1 && mode != 2 && mode != 3 && mode != 7) {
-                    ASSERT_EQ(1, f.tools);
-                    ASSERT_EQ(2, p.requests);
-                    ASSERT(strstr(p.bodies[1].data, "queued-owned-result"));
-                    const char *log = tny_backend_openai_toolcalls_json(p.backend);
-                    ASSERT(strstr(log, "native_pending"));
-                    ASSERT_STR_EQ(log, tny_backend_openai_toolcalls_json(p.backend));
-                }
                 /* Recovery uses the same engine/owner after every failed index. */
                 f.mode = 0;
                 f.errors = f.ends = 0;
@@ -1799,6 +2022,15 @@ TEST native_pending_lifecycle_and_allocation_sweeps(void) {
                 ASSERT_EQ(1, f.ends);
                 ASSERT_EQ(0, f.errors);
                 ASSERT_EQ(TNY_STOP_DONE, f.stop);
+                ASSERT_EQ(0, f.invokes);
+                if (!injected) {
+                    ASSERT_EQ(2, p.requests);
+                    ASSERT(strstr(
+                        p.bodies[1].data,
+                        code ? "execution server unavailable for embedded host/custom callbacks"
+                             : "only run_code is exposed"));
+                }
+                buf_free(&body);
                 tny_engine_free(engine);
                 p.backend = NULL;
                 custom_tools_free(p.ctx->custom_tools);
@@ -1815,10 +2047,94 @@ TEST native_pending_lifecycle_and_allocation_sweeps(void) {
                 unsetenv("TNY_TEST_ALLOC_SCOPE");
                 unsetenv("TNY_TEST_ALLOC_FAIL_AT");
             }
-            if (mode >= 4) ASSERT(count > 0);
-            printf("native pending wire=%d mode=%d discovered=%zu\n", wire, mode, count);
+            ASSERT(count > 0);
+            printf("native refusal wire=%d mode=%d discovered=%zu\n", wire, mode, count);
         }
     }
+    PASS();
+}
+
+/* These private APIs still own asynchronous host leases even though a model
+ * cannot invoke them. Keep completion-copy OOM, generation and cancellation
+ * semantics observable without restoring a provider execution fallback. */
+TEST native_pending_private_completion_and_invalidation(void) {
+    for (int cancel = 0; cancel < 2; ++cancel) {
+        size_t count = 0;
+        for (size_t index = 0; index <= count; ++index) {
+            tny_alloc_scope_begin("disabled");
+            size_t live = tny_alloc_test_owned_live();
+            native_pending_fixture f = {.index = index};
+            custom_tool_registry *registry = custom_tools_new();
+            ASSERT(registry);
+            tny_tool_spec_v1 spec = {0};
+            spec.abi_version = TNY_TOOL_SPEC_ABI_VERSION;
+            spec.struct_size = sizeof spec;
+            spec.name = (tny_bytes){"native_pending", 14};
+            spec.description = (tny_bytes){"fixture", 7};
+            spec.input_schema_json = (tny_bytes){"{\"type\":\"object\"}", 17};
+            spec.invoke = native_pending_invoke;
+            spec.user_data = &f;
+            tny_tool_registration *registration = NULL;
+            ASSERT_EQ(TNY_STATUS_OK, custom_tools_register(registry, NULL, &spec, &registration));
+            tools_call call = {0};
+            char *result = NULL;
+            bool is_error = false;
+            ASSERT_EQ(
+                TNY_TOOL_INVOKE_ASYNC,
+                custom_tool_invoke(registration, "{}", &call.custom_call, &result, &is_error));
+            ASSERT_EQ(1, f.invokes);
+            ASSERT(tools_call_pending(&call));
+            ASSERT_EQ(0, tools_call_take_async(&call, &result, &is_error));
+            tny_tool_result_v1 completion = {0};
+            completion.abi_version = TNY_TOOL_RESULT_ABI_VERSION;
+            completion.struct_size = sizeof completion;
+            char payload[] = "queued-owned-result";
+            completion.data = (tny_bytes){payload, strlen(payload)};
+            ASSERT_EQ(TNY_STATUS_BAD_STATE,
+                      custom_tool_complete(f.host, f.generation + 1, &completion));
+            native_fault_begin(&f);
+            int rc = custom_tool_complete(f.host, f.generation, &completion);
+            if (!index) count = tny_alloc_test_scope_count();
+            ASSERT_EQ(index != 0, tny_alloc_test_scope_injected());
+            ASSERT_EQ(index ? TNY_STATUS_OOM : TNY_STATUS_OK, rc);
+            tny_alloc_scope_begin("disabled");
+            if (index) {
+                /* A failed copy leaves the same generation completable. */
+                ASSERT_EQ(0, tools_call_take_async(&call, &result, &is_error));
+                ASSERT_EQ(TNY_STATUS_OK, custom_tool_complete(f.host, f.generation, &completion));
+            }
+            memset(payload, 'x', sizeof payload - 1);
+            ASSERT_EQ(TNY_STATUS_BAD_STATE,
+                      custom_tool_complete(f.host, f.generation, &completion));
+            if (cancel) tools_call_invalidate_async(&call);
+            else {
+                ASSERT_EQ(1, tools_call_take_async(&call, &result, &is_error));
+                ASSERT_STR_EQ("queued-owned-result", result);
+                ASSERT(!is_error);
+                free(result);
+            }
+            ASSERT(!tools_call_pending(&call));
+            ASSERT_EQ(TNY_STATUS_BAD_STATE,
+                      custom_tool_complete(f.host, f.generation, &completion));
+            tools_call_free(&call);
+            tools_call_free(&call);
+            tny_tool_call_release(f.host);
+            /* Invalidation must also revoke a not-yet-completed generation. */
+            ASSERT_EQ(
+                TNY_TOOL_INVOKE_ASYNC,
+                custom_tool_invoke(registration, "{}", &call.custom_call, &result, &is_error));
+            tools_call_invalidate_async(&call);
+            ASSERT_EQ(TNY_STATUS_BAD_STATE,
+                      custom_tool_complete(f.host, f.generation, &completion));
+            tny_tool_call_release(f.host);
+            custom_tools_free(registry);
+            ASSERT_EQ(live, tny_alloc_test_owned_live());
+        }
+        ASSERT(count > 0);
+    }
+    unsetenv("TNY_TEST_ALLOC_SCOPE");
+    unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+    tny_alloc_scope_begin("disabled");
     PASS();
 }
 
@@ -2123,9 +2439,11 @@ TEST request_construction_oom_after_usage_skips_finalization(void) {
 
 SUITE(openai_suite) {
 #ifdef TNY_ALLOC_TESTING
+    RUN_TEST(session_argument_rewrite_oom_preserves_original);
     RUN_TEST(request_construction_oom_after_usage_skips_finalization);
     RUN_TEST(native_pending_lifecycle_and_allocation_sweeps);
     RUN_TEST(native_pending_transfer_preserves_source_on_failure);
+    RUN_TEST(native_pending_private_completion_and_invalidation);
     RUN_TEST(native_request_constructor_allocation_sweep);
     RUN_TEST(native_request_real_stale_replay_and_control_stop);
     RUN_TEST(native_cancel_headers_raw_error_and_retry_waits);
@@ -2136,6 +2454,11 @@ SUITE(openai_suite) {
     RUN_TEST(cancellation_inside_decode_preserves_callback_and_reuse);
     RUN_TEST(cpp_ownership_boundary);
     RUN_TEST(provider_decoding_every_split);
+    RUN_TEST(provider_rejects_raw_tools_before_hooks);
+    RUN_TEST(provider_nested_controls_log_and_stop);
+    RUN_TEST(execution_image_admission_reserves_parent_queue);
+    RUN_TEST(provider_decoder_rejects_hosted_search);
+    RUN_TEST(provider_decoder_rejects_nul_tool_names);
     RUN_TEST(responses_reasoning_owns_unknown_fields);
     RUN_TEST(single_call_assembles_from_fragments);
     RUN_TEST(parallel_calls_keyed_by_index);

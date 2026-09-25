@@ -7,6 +7,8 @@
 #include "core/tools.h"
 #include "core/perm.h"
 #include "core/runtime.h"
+#include "core/execution.h"
+#include "util/execution_command.h"
 #include "core/session.h"
 #include "util/alloc.h"
 #include <stdio.h>
@@ -120,6 +122,10 @@ static int turn_sweep_case(const char *provider, const char *index, const char *
 SUITE_EXTERN(openai_suite);
 GREATEST_MAIN_DEFS();
 int main(int argc, char **argv) {
+    /* Native lifecycle suites execute tools through this same trusted test
+     * image, just like tests/test_main.c; never fall back to in-process tools. */
+    if (argc == 2 && strcmp(argv[1], "--exec-command") == 0) return tny_exec_command_main();
+    if (argc == 2 && strcmp(argv[1], "--exec-server") == 0) return tny_execution_server_main();
     if (argc == 2 && strcmp(argv[1], "--native-storage-guard") == 0) {
         tools_call call = {0};
         /* The guard must reject authority before dereferencing or releasing it. */

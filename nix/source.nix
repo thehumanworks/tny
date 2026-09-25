@@ -1,3 +1,8 @@
+# Execution code mode vendors Lua under the existing third_party fileset;
+# The production predicate proof tests/formal/check_execution_protocol.py
+# uses the existing tests fileset and explicit Clang/Z3 inputs in nix/tests.nix.
+# test_code_runtime.c and integration/test_execution_code_mode.py plus its
+# code_mode_fixture.py helper use existing C/Python inputs, no host Lua.
 # test-acp-wasm-seam links the existing native graph with acp_proc_wasm.c;
 # its Python stdlib fixture needs no emsdk and does not claim a wasm build.
 # Its C ABI capability probes reuse the existing include/src/tests filesets.

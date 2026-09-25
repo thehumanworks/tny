@@ -134,7 +134,7 @@ static int create_runtime(const char *workspace, const char *url, uint32_t permi
     options.base_url = view(url);
     options.api_key = view("custom-fixture-not-real");
     options.permission_mode = permission_mode;
-    options.max_tool_result_bytes = 8;
+    options.max_tool_result_bytes = 1024;
     return tny_runtime_create(&options, sizeof options, out, NULL);
 }
 
@@ -220,7 +220,20 @@ static int drain_turn(tny_session *session, int deny_permission, uint32_t expect
                                                TNY_PERMISSION_DENY, NULL) != TNY_STATUS_OK)
                 return 1;
         }
-        if (event_view.kind == TNY_EVENT_TOOL_END) (*tool_ends)++;
+        if (event_view.kind == TNY_EVENT_TOOL_END) {
+            if (event_view.tool_name.len != 8 ||
+                memcmp(event_view.tool_name.ptr, "run_code", 8) != 0 || tny_event_tool_ok(event))
+                return 1;
+            tny_bytes detail = tny_event_tool_detail(event);
+            char message[2048];
+            if (!detail.ptr || detail.len >= sizeof message) return 1;
+            memcpy(message, detail.ptr, (size_t)detail.len);
+            message[detail.len] = '\0';
+            if (!strstr(message, "execution server unavailable") ||
+                !strstr(message, "no direct fallback"))
+                return 1;
+            (*tool_ends)++;
+        }
         if (event_view.kind == TNY_EVENT_TURN_END) {
             terminals++;
             if (event_view.stop_reason != expected_stop) return 1;
@@ -265,84 +278,32 @@ static int run_mode(const char *workspace, const char *url, invoke_mode mode) {
         return 34;
     if (tny_session_send(session, view("call the host tool"), NULL) != 0) return 35;
 
+    /* Embedded model turns cannot enter host callbacks. These modes retain
+     * active-request cancel/free ownership coverage; callback-handle completion
+     * races are covered by the lower-boundary custom_tools unit suite. */
     int tool_ends = 0;
-    struct timespec started = {0};
-    if (mode == MODE_ASYNC || mode == MODE_ASYNC_VALIDATE) clock_gettime(CLOCK_MONOTONIC, &started);
-    if (mode == MODE_CANCEL || mode == MODE_CLOSE || mode == MODE_UNREGISTER ||
-        mode == MODE_CANCEL_LATE || mode == MODE_UNREGISTER_RACE || mode == MODE_CLOSE_RACE) {
-        for (;;) {
-            tny_event *event = NULL;
-            int32_t status = tny_session_next_event(session, 5000, &event, NULL);
-            if (status != TNY_STATUS_EVENT || !event) return 36;
-            uint32_t kind = tny_event_get_kind(event);
-            tny_event_free(event);
-            if (kind == TNY_EVENT_TOOL_START) break;
-        }
-        if (mode == MODE_CLOSE || mode == MODE_UNREGISTER || mode == MODE_CANCEL_LATE ||
-            mode == MODE_UNREGISTER_RACE || mode == MODE_CLOSE_RACE) {
-            bool race = mode == MODE_UNREGISTER_RACE || mode == MODE_CLOSE_RACE;
-            if (race) {
-                pthread_mutex_lock(&state.gate_mutex);
-                state.release_completion = 1;
-                pthread_cond_broadcast(&state.gate_condition);
-                pthread_mutex_unlock(&state.gate_mutex);
-            }
-            if (mode == MODE_CLOSE || mode == MODE_CLOSE_RACE) tny_runtime_free(runtime);
-            else if (mode == MODE_UNREGISTER || mode == MODE_UNREGISTER_RACE) {
-                tny_session_free(session);
-                if (tny_tool_registration_unregister(registration, NULL) != TNY_STATUS_OK)
-                    return 48;
-            } else {
-                if (tny_session_cancel(session, NULL) != TNY_STATUS_OK ||
-                    tny_session_cancel(session, NULL) != TNY_STATUS_OK ||
-                    drain_turn(session, 0, TNY_STOP_REASON_INTERRUPTED, &tool_ends))
-                    return 49;
-                tny_session_free(session);
-            }
-            pthread_mutex_lock(&state.gate_mutex);
-            state.release_completion = 1;
-            pthread_cond_broadcast(&state.gate_condition);
-            pthread_mutex_unlock(&state.gate_mutex);
-            pthread_join(state.thread, NULL);
-            if (state.first_completion != TNY_STATUS_BAD_STATE &&
-                !(race && state.first_completion == TNY_STATUS_OK))
-                return 45;
-            if (mode != MODE_CLOSE && mode != MODE_CLOSE_RACE) tny_runtime_free(runtime);
-            pthread_cond_destroy(&state.gate_condition);
-            pthread_mutex_destroy(&state.gate_mutex);
-            return 0;
-        }
-        pthread_mutex_lock(&state.gate_mutex);
-        state.release_completion = 1;
-        pthread_cond_broadcast(&state.gate_condition);
-        pthread_mutex_unlock(&state.gate_mutex);
-        if (tny_session_cancel(session, NULL) != TNY_STATUS_OK) return 37;
-        if (drain_turn(session, 0, TNY_STOP_REASON_INTERRUPTED, &tool_ends)) return 38;
-    } else if (drain_turn(session, 0, TNY_STOP_REASON_DONE, &tool_ends)) {
-        return 39;
+    if (mode == MODE_CLOSE || mode == MODE_CLOSE_RACE) {
+        tny_runtime_free(runtime);
+        runtime = NULL;
+        session = NULL;
+    } else if (mode == MODE_UNREGISTER || mode == MODE_UNREGISTER_RACE) {
+        tny_session_free(session);
+        session = NULL;
+    } else if (mode == MODE_CANCEL || mode == MODE_CANCEL_LATE) {
+        if (tny_session_cancel(session, NULL) != TNY_STATUS_OK ||
+            tny_session_cancel(session, NULL) != TNY_STATUS_OK ||
+            drain_turn(session, 0, TNY_STOP_REASON_INTERRUPTED, &tool_ends))
+            return 38;
+    } else {
+        if (drain_turn(session, 0, TNY_STOP_REASON_DONE, &tool_ends)) return 39;
+        if (tool_ends != 1) return 43;
     }
-    if (mode == MODE_ASYNC || mode == MODE_ASYNC_VALIDATE) {
-        struct timespec finished;
-        clock_gettime(CLOCK_MONOTONIC, &finished);
-        double elapsed = (double)(finished.tv_sec - started.tv_sec) +
-                         (double)(finished.tv_nsec - started.tv_nsec) / 1000000000.0;
-        if (elapsed >= 2.0) return 46;
+    if (state.invoked || state.thread_started || state.call) return 40;
+    if (!runtime) {
+        pthread_cond_destroy(&state.gate_condition);
+        pthread_mutex_destroy(&state.gate_mutex);
+        return 0;
     }
-    if (state.thread_started) pthread_join(state.thread, NULL);
-    if (state.invoked != 1 || state.reentrant_status != TNY_STATUS_BAD_STATE) return 40;
-    if (mode == MODE_ASYNC_VALIDATE &&
-        (state.pending_stale_completion != TNY_STATUS_BAD_STATE ||
-         state.invalid_utf8_completion != TNY_STATUS_INVALID_ARGUMENT ||
-         state.first_completion != TNY_STATUS_OK ||
-         state.second_completion != TNY_STATUS_BAD_STATE ||
-         state.stale_completion != TNY_STATUS_BAD_STATE))
-        return 41;
-    if ((mode == MODE_ASYNC || mode == MODE_EARLY) && state.first_completion != TNY_STATUS_OK)
-        return 47;
-    if (mode == MODE_CANCEL && state.first_completion != TNY_STATUS_OK &&
-        state.first_completion != TNY_STATUS_BAD_STATE)
-        return 42;
-    if (mode != MODE_CANCEL && tool_ends != 1) return 43;
     tny_session_free(session);
     if (tny_tool_registration_unregister(registration, NULL) != TNY_STATUS_OK ||
         tny_tool_registration_unregister(registration, NULL) != TNY_STATUS_BAD_STATE)
@@ -353,7 +314,7 @@ static int run_mode(const char *workspace, const char *url, invoke_mode mode) {
     return 0;
 }
 
-static int denied_mode(const char *workspace, const char *url) {
+static int sensitive_refusal_mode(const char *workspace, const char *url) {
     callback_state state = {.mode = MODE_SYNC};
     tny_runtime *runtime = NULL;
     if (create_runtime(workspace, url, TNY_PERMISSION_ASK, &runtime) != 0) return 50;
@@ -366,8 +327,8 @@ static int denied_mode(const char *workspace, const char *url) {
         tny_session_send(session, view("deny the host tool"), NULL) != 0)
         return 52;
     int tool_ends = 0;
-    if (drain_turn(session, 1, TNY_STOP_REASON_DENIED, &tool_ends)) return 53;
-    if (state.invoked != 0) return 54;
+    if (drain_turn(session, 1, TNY_STOP_REASON_DONE, &tool_ends)) return 53;
+    if (state.invoked != 0 || tool_ends != 1) return 54;
     tny_session_free(session);
     tny_runtime_free(runtime);
     return 0;
@@ -388,11 +349,12 @@ int main(int argc, char **argv) {
         if (!status) status = run_mode(argv[1], argv[2], MODE_UNREGISTER_RACE);
         if (!status) status = run_mode(argv[1], argv[2], MODE_CLOSE_RACE);
     }
-    if (!status) status = denied_mode(argv[1], argv[2]);
+    if (!status) status = sensitive_refusal_mode(argv[1], argv[2]);
     if (status) {
         fprintf(stderr, "libtny-custom-tools failed at %d\n", status);
         return status;
     }
-    puts("libtny-custom-tools: sync/async/cancel/deny lifecycle passed");
+    puts(
+        "libtny-custom-tools: registration, embedded refusal, active cancel/free lifecycle passed");
     return 0;
 }

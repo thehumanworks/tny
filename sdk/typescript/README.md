@@ -7,6 +7,13 @@ through a small C Node-API addon. HTTP mode does not spawn `tny`; optional
 ACP mode starts an external adapter and a matching tny MCP relay. JavaScript
 contains no provider-wire or agent-loop implementation.
 
+Model-driven tools are unavailable in embedded sessions under
+[ADR 0174](../../docs/adr/0174-execution-server-code-mode.md). `run_code`
+returns an explicit refusal with no direct fallback, before permission dispatch.
+Installing a matching CLI does not enable embedded model tools. Registration
+APIs remain available; this path invokes no custom-tool callbacks. No-tool
+inference, streaming, cancellation and session lifecycle remain supported.
+
 The package is intentionally marked `UNLICENSED` until the repository adopts
 project licensing.
 
@@ -204,8 +211,13 @@ by exit-code ID. Results that lack the canonical fixture are reported
 `not_run` rather than promoted to self-attested passes.
 ## Standalone toolkit
 
+`optimise` / `optimize` currently return an unsupported error before provider
+I/O. Embedded optimisation has no execution-server launcher and no direct
+fallback; no workspace exploration is performed. The method signatures remain
+available for compatibility.
+
 `Toolkit` exposes image generation/editing, speech export/playback,
-WAV/microphone transcription, and prompt optimisation through libtny ABI 1.2+.
+and WAV/microphone transcription through libtny ABI 1.2+.
 It needs no agent runtime, session, or `tny` executable.
 
 ```typescript
@@ -215,7 +227,6 @@ const kit = new Toolkit({ workspace: "/path/to/project" });
 const image = await kit.generateImage("A small tree", { outputFile: "tree.png" });
 await kit.speak("Hello", { outputFile: "hello.mp3" });
 const { text } = await kit.transcribe("recording.wav");
-const draft = await kit.optimise(text);
 ```
 
 Every call accepts an `AbortSignal` and joins native work on cancellation.

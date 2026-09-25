@@ -15,6 +15,7 @@ import time
 import unittest
 from pathlib import Path
 
+from code_mode_fixture import code_call
 from test_jobs import TNY, Handler, JobsFixture, argv_without_runner_binary
 from test_subagent import chat_frames, tool_outputs, user_texts
 
@@ -419,9 +420,13 @@ class CapturedParent(JobsFixture):
             if call["id"] == "manual-check"
         ]
         self.assertEqual(len(calls), 1, calls)
-        self.assertEqual(calls[0]["function"]["name"], "terminal")
+        expected_name, expected_arguments = code_call(
+            "terminal", json.dumps({"command": self.check_command})
+        )
+        self.assertEqual(calls[0]["function"]["name"], expected_name)
         self.assertEqual(
-            json.loads(calls[0]["function"]["arguments"])["command"], self.check_command
+            json.loads(calls[0]["function"]["arguments"]),
+            json.loads(expected_arguments),
         )
         self.assertTrue("exit: 0" in check or "exit code: 0" in check, check)
         self.assertEqual(len(self.bodies["one"]), 3, "worker one replayed")

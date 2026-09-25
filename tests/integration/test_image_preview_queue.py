@@ -34,6 +34,8 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from code_mode_fixture import code_chat_frames
+
 ROOT = Path(__file__).resolve().parents[2]
 TNY = str(Path(os.environ.get("TNY", ROOT / "build/tny")).resolve())
 WASM = "wasm" in TNY
@@ -171,7 +173,7 @@ class Handler(BaseHTTPRequestHandler):
             200,
             "text/event-stream",
             (
-                "".join(f"data: {json.dumps(f)}\n\n" for f in frames)
+                "".join(f"data: {json.dumps(f)}\n\n" for f in code_chat_frames(frames))
                 + "data: [DONE]\n\n"
             ).encode(),
         )
@@ -209,6 +211,7 @@ class PreviewBase(unittest.TestCase):
             "OPENAI_BASE_URL": self.url + "/v1",
             "OPENAI_API_KEY": "fixture-openai-key",
             "OPENAI_WIRE_API": "chat",
+            "TNY_TOOLS": "all",
         }
         if self.isolate is not None:
             self.env["TNY_ISOLATE"] = self.isolate
@@ -399,7 +402,7 @@ class ControlPreviewTests(PreviewBase):
                 return json.loads(line)
         self.fail(f"no control client output in {results}")
 
-    def test_preview_queued_bytes_reach_the_next_request_once(self):
+    def test_active_tool_role_previews_refuse_without_reading_bytes(self):
         self.settings({"image_input": {"openai": True}})
         # two generations write the SAME output path in one batch
         plan = self.plan(
@@ -425,24 +428,18 @@ class ControlPreviewTests(PreviewBase):
         r = self.run_tny("ask", "generate and review")
         self.assertEqual(r.returncode, 0, r.stderr)
         out = self.replies()
-        self.assertEqual([x["status"] for x in out["replies"]], ["queued", "queued"])
-        self.assertTrue(all(x["ok"] for x in out["replies"]), out)
-        self.assertNotIn("error_code", out["replies"][0])
-
-        self.assertEqual(len(self.state["chat"]), 2, r.stderr)
-        self.assertEqual(self.image_bytes(self.state["chat"][0]), [])
-        carried = self.image_bytes(self.state["chat"][1])
-        self.assertEqual([sha(b) for _, b in carried], [sha(PNG_A), sha(PNG_B)])
-        self.assertEqual([b for _, b in carried], [PNG_A, PNG_B])
-        self.assertEqual(
-            self.attachment_texts(self.state["chat"][1]),
-            ["Images queued by explicitly requested generation/edit preview."],
+        self.assertTrue(all(not x["ok"] for x in out["replies"]), out)
+        self.assertTrue(
+            all("use nested" in x.get("error", "") for x in out["replies"]), out
         )
+        self.assertEqual(len(self.state["chat"]), 2, r.stderr)
+        self.assertEqual(self.image_bytes(self.state["chat"][1]), [])
+        self.assertEqual(self.shot.read_bytes(), PNG_B)
 
-    def test_hard_cancel_reports_non_delivery_and_resume_has_no_old_bytes(self):
+    def test_hard_cancel_discards_typed_image_queue_before_resume(self):
         self.cancelled_preview(parked=False)
 
-    def test_hard_cancel_while_permission_parked_drains_non_delivery(self):
+    def test_hard_cancel_while_permission_parked_discards_typed_queue(self):
         self.cancelled_preview(parked=True)
 
     def cancelled_preview(self, *, parked):
@@ -476,7 +473,43 @@ class ControlPreviewTests(PreviewBase):
                 "permission": {"*": "allow", "bash": {"printf harmless": "ask"}},
             }
         )
-        self.state["tool_calls"] = calls
+        manifest = self.ws / "captured-preview.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "kind": "image_manifest",
+                    "operation_id": "a" * 32,
+                    "operation": "generate",
+                    "status": "succeeded",
+                    "committed": True,
+                    "workspace": str(self.ws.resolve()),
+                    "started": "fixture",
+                    "prompt": "fixture",
+                    "output": str(self.shot.resolve()),
+                    "requested": {"provider": "codex"},
+                    "effective": {},
+                    "result": {
+                        "bytes": len(PNG_A),
+                        "width": 1,
+                        "height": 1,
+                        "mime_type": "image/png",
+                    },
+                    "artifacts": [
+                        {
+                            "role": "native",
+                            "path": str(self.shot.resolve()),
+                            "sha256": sha(PNG_A),
+                            "bytes": len(PNG_A),
+                        }
+                    ],
+                }
+            )
+        )
+        self.state["tool_calls"] = [
+            {"name": "image_preview", "arguments": {"manifest": str(manifest)}},
+            *calls,
+        ]
         mode = "ask" if parked else "yolo"
         # This checks cancellation ownership, not the optional OS sandbox.
         (self.ws / ".tny.json").write_text(json.dumps({"sandbox": "off"}))
@@ -488,7 +521,8 @@ class ControlPreviewTests(PreviewBase):
             time.sleep(0.02)
         self.assertTrue(record.exists(), "preview did not reach the receiver")
         receipt = json.loads(record.read_text())
-        self.assertEqual(receipt["replies"][0]["status"], "queued")
+        self.assertFalse(receipt["replies"][0]["ok"], receipt)
+        self.assertIn("use nested", receipt["replies"][0].get("error", ""))
         events = []
         with socket.socket(socket.AF_UNIX) as owner:
             owner.settimeout(10)
@@ -509,7 +543,17 @@ class ControlPreviewTests(PreviewBase):
         self.assertEqual(events[-1].get("stop"), "interrupted", events)
         self.assertTrue(
             any(
-                "IMAGE_PREVIEW_NOT_DELIVERED" in e.get("text", "") for e in events[:-1]
+                e.get("ev") == "tool_end"
+                and e.get("tool_name") == "image_preview"
+                and e.get("ok")
+                for e in events
+            ),
+            events,
+        )
+        self.assertTrue(
+            any(
+                "IMAGE_PREVIEW_NOT_DELIVERED" in event.get("text", "")
+                for event in events
             ),
             events,
         )
@@ -570,10 +614,9 @@ class ControlPreviewTests(PreviewBase):
             self.assertIsNotNone(reply)
             self.assertFalse(reply.get("ok", False), reply)
             self.assertNotEqual(reply.get("status"), "queued", reply)
-        self.assertEqual(replies[-1]["status"], "queued")
-        self.assertEqual(
-            [b for _, b in self.image_bytes(self.state["chat"][1])], [PNG_A]
-        )
+        self.assertFalse(replies[-1]["ok"], replies[-1])
+        self.assertIn("use nested", replies[-1].get("error", ""))
+        self.assertEqual(self.image_bytes(self.state["chat"][1]), [])
 
     def test_role_with_decoded_nul_is_not_tool_role(self):
         self.settings({"image_input": {"openai": True}})
@@ -592,7 +635,7 @@ class ControlPreviewTests(PreviewBase):
         self.assertEqual(self.replies()["replies"], [None])
         self.assertEqual(self.image_bytes(self.state["chat"][1]), [])
 
-    def test_mixed_manual_and_preview_batch_sends_both_once(self):
+    def test_active_manual_and_preview_controls_are_both_refused(self):
         self.settings({"image_input": {"openai": True}})
         manual = self.ws / "manual.png"
         manual.write_bytes(PNG_B)
@@ -617,17 +660,13 @@ class ControlPreviewTests(PreviewBase):
         r = self.run_tny("ask", "attach and review")
         self.assertEqual(r.returncode, 0, r.stderr)
         out = self.replies()
-        self.assertTrue(out["replies"][0]["ok"], out)
-        self.assertNotIn("status", out["replies"][0])  # manual reply unchanged
-        self.assertEqual(out["replies"][1]["status"], "queued")
-        carried = self.image_bytes(self.state["chat"][1])
-        self.assertEqual([b for _, b in carried], [PNG_B, PNG_A])  # queue order
-        self.assertEqual(
-            self.attachment_texts(self.state["chat"][1]),
-            ["Images attached by explicit tool requests."],
+        self.assertTrue(all(not reply["ok"] for reply in out["replies"]), out)
+        self.assertTrue(
+            all("use nested" in reply.get("error", "") for reply in out["replies"]), out
         )
+        self.assertEqual(self.image_bytes(self.state["chat"][1]), [])
 
-    def test_unknown_policy_allows_manual_but_refuses_preview(self):
+    def test_unknown_policy_does_not_enable_parent_image_reads(self):
         self.settings({})  # unknown: no image_input entry at all
         plan = self.plan(
             [
@@ -650,16 +689,11 @@ class ControlPreviewTests(PreviewBase):
         r = self.run_tny("ask", "review it")
         self.assertEqual(r.returncode, 0, r.stderr)
         out = self.replies()
-        self.assertEqual(out["replies"][0]["status"], "unsupported")
-        self.assertEqual(out["replies"][0]["error_code"], "image_input_not_configured")
-        self.assertFalse(out["replies"][0]["ok"])
-        self.assertTrue(out["replies"][1]["ok"], out)  # manual still works
-        carried = self.image_bytes(self.state["chat"][1])
-        self.assertEqual([b for _, b in carried], [PNG_A])
-        self.assertEqual(
-            self.attachment_texts(self.state["chat"][1]),
-            ["Image attached by read_image."],
+        self.assertTrue(all(not reply["ok"] for reply in out["replies"]), out)
+        self.assertTrue(
+            all("use nested" in reply.get("error", "") for reply in out["replies"]), out
         )
+        self.assertEqual(self.image_bytes(self.state["chat"][1]), [])
         # the generated artifact is untouched by the refusal
         self.assertEqual(self.shot.read_bytes(), PNG_A)
 
@@ -686,11 +720,10 @@ class ControlPreviewTests(PreviewBase):
         r = self.run_tny("ask", "review it")
         self.assertEqual(r.returncode, 0, r.stderr)
         out = self.replies()
-        self.assertEqual(out["replies"][0]["status"], "unsupported")
-        self.assertEqual(out["replies"][0]["error_code"], "image_input_not_configured")
-        self.assertIn(REFUSAL, out["replies"][0]["error"])
-        self.assertFalse(out["replies"][1]["ok"])
-        self.assertIn(REFUSAL, out["replies"][1]["error"])
+        self.assertTrue(all(not reply["ok"] for reply in out["replies"]), out)
+        self.assertTrue(
+            all("use nested" in reply.get("error", "") for reply in out["replies"]), out
+        )
         self.assertEqual(self.image_bytes(self.state["chat"][1]), [])
 
     def test_hash_and_root_refusals_never_queue(self):
@@ -724,12 +757,10 @@ class ControlPreviewTests(PreviewBase):
         r = self.run_tny("ask", "review it")
         self.assertEqual(r.returncode, 0, r.stderr)
         out = self.replies()
-        self.assertEqual(out["replies"][0]["status"], "failed")
-        self.assertEqual(out["replies"][0]["error_code"], "hash_mismatch")
-        self.assertEqual(out["replies"][1]["status"], "failed")
-        self.assertEqual(out["replies"][1]["error_code"], "outside_allowed_roots")
-        self.assertFalse(out["replies"][2]["ok"], out["replies"][2])
-        self.assertNotIn("status", out["replies"][2])  # validation, not admission
+        self.assertTrue(all(not reply["ok"] for reply in out["replies"]), out)
+        self.assertTrue(
+            all("use nested" in reply.get("error", "") for reply in out["replies"]), out
+        )
         self.assertEqual(self.image_bytes(self.state["chat"][1]), [])
 
     def test_tool_role_cannot_reach_owner_control(self):

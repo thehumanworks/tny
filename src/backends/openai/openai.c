@@ -170,6 +170,26 @@ static tny_openai_control_response control_call(oa_impl *o,
     return response;
 }
 
+static void log_toolcall(oa_impl *o, const char *name, bool original_ok, bool effective_ok,
+                         bool transformed);
+
+/* Nested controls use the same callback, but their stop decision must latch
+ * into the owning provider before another model request can be scheduled. */
+static void execution_control(const tny_openai_control_request *request,
+                              tny_openai_control_response *response, void *ud) {
+    oa_impl *o = ud;
+    *response = control_call(o, request);
+    if (request->kind == TNY_OPENAI_CONTROL_POST_TOOL && request->tool_name) {
+        bool ok = response->result_replaced ? !response->result_is_error : request->original_ok;
+        bool transformed =
+            response->result_replaced ||
+            strcmp(request->arguments_json ? request->arguments_json : "{}",
+                   request->original_arguments_json ? request->original_arguments_json : "{}") != 0;
+        log_toolcall(o, request->tool_name, request->original_ok, ok, transformed);
+    }
+    if (response->stop) o->cancelled = true;
+}
+
 /* Move parked steer text into the transcript as a user message. */
 static bool take_steer(oa_impl *o) {
     if (!o->turn->steer || tny_alloc_scope_failed()) return false;
@@ -187,6 +207,8 @@ static bool take_steer(oa_impl *o) {
 static void emit(oa_impl *o, const tny_backend_event *ev) {
     if (o->cb) o->cb(ev, o->ud);
 }
+
+static void execution_event(const tny_backend_event *event, void *ud) { emit(ud, event); }
 
 static void emit_text(oa_impl *o, tny_event_kind k, const char *t, size_t n) {
     tny_backend_event ev = {0};
@@ -597,6 +619,7 @@ static const char *model_of(oa_impl *o) {
  * caller's explicit system-prompt additions. */
 static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *request) {
     if (o->ctx->prompt_optimisation) {
+        buf_appends(sys, tools_code_instructions());
         buf_appends(sys, o->ctx->system_prompt);
         buf_appendf(sys, "\nWorkspace: %s\n", o->ctx->ssh_host ? o->ctx->ssh_cwd : o->ctx->cwd);
         for (int i = 0; i < o->ctx->n_extra_dirs; i++)
@@ -606,6 +629,7 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
         buf_appends(sys, "\nReturn only the rewritten draft. Do not execute its task.\n");
         return;
     }
+    buf_appends(sys, tools_code_instructions());
     tny_swarm_policy(o->ctx, sys);
     buf_appends(
         sys,
@@ -674,10 +698,8 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
         skills_free(sk, nsk);
         if (provider_oom()) return;
     }
-    /* MCP catalog: namespaced names + one-line descriptions from the cache
-     * the background warm-up filled (docs/adr/0049). Built per request, so
-     * it appears as soon as a server finishes its handshake — no tools/list
-     * round trip on the model's clock, and never a blocking wait here. */
+    /* Cached MCP metadata is read-only here. Discovery and invocation start
+     * MCP servers only inside the execution server through nested tools. */
     mcp_catalog_collect(o->ctx, sys);
     if (provider_oom()) return;
     tny_learning_collect(&o->learning, sys);
@@ -939,14 +961,7 @@ static char *build_request_rsp(oa_impl *o, oa_request_owner *request) {
         oa_request_take_string(request, OA_BUILD_SCHEMA, NULL);
         return NULL;
     }
-    if (tool_web_search_native(o->ctx) && flat) {
-        size_t len = strlen(flat);
-        buf_appends(b, ",\"tools\":");
-        buf_append(b, flat, len - 1);
-        if (len > 2) buf_appends(b, ",");
-        buf_appends(
-            b, "{\"type\":\"web_search\",\"external_web_access\":true}],\"tool_choice\":\"auto\"");
-    } else buf_appendf(b, ",\"tools\":%s,\"tool_choice\":\"auto\"", flat ? flat : "[]");
+    buf_appendf(b, ",\"tools\":%s,\"tool_choice\":\"auto\"", flat ? flat : "[]");
     oa_request_take_string(request, OA_BUILD_FLAT, NULL);
     oa_request_take_string(request, OA_BUILD_SCHEMA, NULL);
 
@@ -1204,22 +1219,7 @@ static int on_decoded(const oa_decoded_event *event, void *ud) {
         break;
     case OA_DECODE_DONE: o->stream_done = true; break;
     case OA_DECODE_HOSTED_START:
-    case OA_DECODE_HOSTED_END: {
-        tny_backend_event ev = {0};
-        ev.tool_name = "web_search";
-        ev.tool_id = event->text;
-        ev.tool_detail = "Codex hosted web search";
-        ev.kind = TNY_EV_TOOL_START;
-        if (event->kind == OA_DECODE_HOSTED_END) {
-            if (o->background_armed && !o->cancelled) o->background_boundary = true;
-            ev.kind = TNY_EV_TOOL_END;
-            ev.tool_ok = event->ok;
-            ev.tool_detail =
-                event->ok ? "Codex hosted search completed" : "Codex hosted search failed";
-        }
-        emit(o, &ev);
-        break;
-    }
+    case OA_DECODE_HOSTED_END: break; /* Hosted tools are never enabled. */
     }
     return tny_alloc_scope_failed() ? TNY_PARSE_OOM : TNY_PARSE_OK;
 }
@@ -1227,8 +1227,7 @@ static int on_decoded(const oa_decoded_event *event, void *ud) {
 static void on_sse_event(const char *data, size_t len, void *ud) {
     oa_impl *o = ud;
     if (o->decode_oom || o->cancelled) return;
-    int rc = oa_decoder_feed(&o->decoder, &o->calls, o->wire_chat, tool_web_search_native(o->ctx),
-                             data, len, on_decoded, o);
+    int rc = oa_decoder_feed(&o->decoder, &o->calls, o->wire_chat, false, data, len, on_decoded, o);
     /* Malformed individual events retain the existing ignore policy. OOM
      * must never be interpreted as a malformed/empty successful event. */
     if (rc == TNY_PARSE_OOM) o->decode_oom = true;
@@ -1257,7 +1256,7 @@ static void finish_turn_ok(oa_impl *o) {
     tny_session_state *s = o->env.session;
     /* an empty answer is not recorded: strict providers reject assistant
      * messages without content, and nothing in it helps the next turn */
-    char *extras = tool_web_search_native(o->ctx) ? reasoning_extras_json(o) : NULL;
+    char *extras = reasoning_extras_json(o);
     if (o->decode_oom) {
         free(extras);
         parser_oom(o);
@@ -1381,6 +1380,8 @@ static void observe_learning(oa_impl *o) {
     tny_learning_observe(&o->learning, fact->event, fact->scope, fact->ok);
 }
 
+static void execution_observe(void *ud) { observe_learning(ud); }
+
 static int execute_call(oa_impl *o, const char *cid, const char *original_args,
                         const char *effective_args, const char *control_extension,
                         const char *control_reason, tools_call *call) {
@@ -1405,7 +1406,7 @@ static int execute_call(oa_impl *o, const char *cid, const char *original_args,
                                 : tools_call_execute(&o->env, call);
     if (!result) return tools_call_pending(call) ? 1 : -1;
     bool ok = !str_starts(result, "error:");
-    observe_learning(o);
+    if (strcmp(call->name, "run_code") != 0) observe_learning(o);
     subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_END, cid, call, result, ok);
     complete_tool(o, cid, call->name, original_args, effective_args, control_extension,
                   control_reason, result);
@@ -1640,6 +1641,19 @@ static int run_tools(oa_impl *o) {
         const char *cid = oa_call_id(pc, o->tool_index, idbuf, sizeof idbuf);
         const char *name = pc->name ? pc->name : "unknown";
         const char *args = pc->args.data ? pc->args.data : "{}";
+
+        /* Check the raw provider name before extension callbacks, argument
+         * rewrites, canonical aliases or preparation can admit a direct tool. */
+        if (strcmp(name, "run_code") != 0) {
+            const char *result = "error: only run_code is exposed; use tools.call inside Lua";
+            log_toolcall(o, name, false, false, false);
+            emit_tool_end(o, cid, name, result, false);
+            session_add_tool_result(o->env.session, cid, result);
+            o->tool_batch_failed++;
+            reset_learning_episode(o);
+            o->tool_index++;
+            continue;
+        }
 
         if (o->cancelled) {
             finish_cancelled_call(o, cid, name, args);
@@ -2497,6 +2511,12 @@ void tny_backend_openai_bind(tny_backend *b, tny_session_state *session, perm_en
     o->env.session_id = session_id;
     o->control = control;
     o->control_ud = control_ud;
+    o->env.execution_control = execution_control;
+    o->env.execution_control_ud = o;
+    o->env.execution_observe = execution_observe;
+    o->env.execution_observe_ud = o;
+    o->env.ev_cb = execution_event;
+    o->env.ev_ud = o;
 }
 
 int tny_backend_openai_queue_image(tny_backend *b, const char *path, char *err, size_t errlen) {
@@ -2579,6 +2599,11 @@ const char *tny_backend_openai_toolcalls_json(tny_backend *b) {
     return o->turn->toolcall_log.data;
 }
 
+static bool execution_preview_ready(void *ud) {
+    tny_backend *b = ud;
+    return b && preview_batch_ready(b->impl);
+}
+
 static tny_image_preview_status preview_admit(void *ud, const tny_image_preview_identity *id,
                                               tny_image_preview_result *result) {
     const char *code = NULL;
@@ -2612,6 +2637,7 @@ tny_backend *tny_backend_openai_new(struct tny_ctx *ctx) {
     o->ctx = ctx;
     o->env.ctx = ctx;
     o->env.preview_admit = preview_admit;
+    o->env.preview_ready = execution_preview_ready;
     o->env.preview_ud = b;
     o->self = b;
     sse_parser_init(&o->sse);
@@ -2726,21 +2752,7 @@ int tny_backend_openai_restore(tny_backend *b, yyjson_val *r, tny_backend_event_
         !yyjson_arr_size(calls) || index < 0 || (uint64_t)index > yyjson_arr_size(calls) ||
         yyjson_arr_size(images) > 8)
         return -1;
-    if (index == 0) {
-        bool hosted_boundary = false;
-        yyjson_mut_val *last = yyjson_mut_arr_get_last(session_messages(o->env.session));
-        yyjson_mut_val *items = yyjson_mut_obj_get(last, "responses_items");
-        size_t hi, hn;
-        yyjson_mut_val *item;
-        yyjson_mut_arr_foreach(items, hi, hn, item) {
-            const char *type = yyjson_mut_get_str(yyjson_mut_obj_get(item, "type"));
-            const char *status = yyjson_mut_get_str(yyjson_mut_obj_get(item, "status"));
-            if (type && strcmp(type, "web_search_call") == 0 && status &&
-                (strcmp(status, "completed") == 0 || strcmp(status, "failed") == 0))
-                hosted_boundary = true;
-        }
-        if (!hosted_boundary || !tool_web_search_native(o->ctx)) return -1;
-    }
+    if (index == 0) return -1;
     o->cb = cb;
     o->ud = ud;
     o->step = (int)jget_int(r, "step", 0);

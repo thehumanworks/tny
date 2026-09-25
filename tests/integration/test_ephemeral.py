@@ -9,6 +9,8 @@ import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from code_mode_fixture import code_chat_frames
+
 TNY = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("TNY", "build/tny")
 
 
@@ -41,6 +43,7 @@ class SubagentHandler(BaseHTTPRequestHandler):
         self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
 
     def _stream(self, frames):
+        frames = code_chat_frames(frames)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Transfer-Encoding", "chunked")
@@ -179,8 +182,8 @@ def exercise_ephemeral_subagent(home, workspace, env):
             == ["subagent_start", "subagent_end"],
             lifecycle,
         )
-        check(lifecycle[0]["subagent_id"] == "subagent_call_1", lifecycle)
-        check(lifecycle[1]["subagent_id"] == "subagent_call_1", lifecycle)
+        check(lifecycle[0]["subagent_id"].startswith("code-"), lifecycle)
+        check(lifecycle[1]["subagent_id"] == lifecycle[0]["subagent_id"], lifecycle)
         check(lifecycle[0]["action"] == "create", lifecycle)
         check(lifecycle[1]["action"] == "create", lifecycle)
         check(
@@ -205,6 +208,7 @@ def run():
         os.makedirs(workspace)
         env = dict(os.environ)
         env["HOME"] = home
+        env["TNY_TOOLS"] = "all"
         for key in list(env):
             if key.endswith("_API_KEY") or key.endswith("_BASE_URL"):
                 env.pop(key)

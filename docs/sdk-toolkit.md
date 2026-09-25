@@ -1,5 +1,19 @@
 # Standalone SDK toolkit
 
+## Execution-server compatibility
+
+`optimise` and its `optimize` alias are currently **unsupported** in the public
+C ABI, Python and TypeScript SDKs. After validating and copying the request,
+`tny_toolkit_job_run` returns `TNY_STATUS_UNSUPPORTED` before any credential,
+provider, workspace or settings I/O. A cancellation requested before execution
+still takes precedence. No successful result is returned.
+
+The embedding ABI has no trusted launcher for a matching execution server;
+re-executing Python or Node with tny's private flags is invalid. This release
+does not restore in-process tool execution or search the ambient PATH for a
+replacement executable. Native CLI/TUI optimisation remains supported. The
+other standalone toolkit operations below are unchanged. See [ADR 0174](adr/0174-execution-server-code-mode.md).
+
 ## Preview remains outside the toolkit
 
 Standalone SDK toolkit image operations are metadata-only. `preview` is not a
@@ -10,7 +24,7 @@ session socket lookup is added. Conversation-native tools and CLI preview are
 separate owning-turn operations described in [images](images.md).
 
 Python's `Toolkit` / `AsyncToolkit` and TypeScript's `Toolkit` expose the native
-image, speech, transcription, and prompt optimisation services directly. They
+image, speech and transcription services directly. They
 require **libtny ABI 1.2+** on the existing native SDK platforms: macOS arm64 and
 Linux glibc x86_64/aarch64. They need no `tny` executable, agent `Runtime`,
 session, or disposal call. Each method releases its native operation before
@@ -23,7 +37,7 @@ returning or raising.
 | Text to speech | `speak(text, output_file=...)` | `speak(text, {outputFile})` | MP3 path or `None`/`null`, played flag, provider, voice, MIME type |
 | File to text | `transcribe(input_file)` | `transcribe(inputFile)` | Transcript and provider |
 | Microphone to text | `dictate(seconds=...)` | `dictate({seconds})` | Transcript and provider |
-| Prompt optimisation | `optimise(text, ...)` | `optimise(text, options)` | Improved prompt, provider, model |
+| Prompt optimisation | `optimise(text, ...)` | `optimise(text, options)` | Explicit unsupported error; no I/O or result |
 
 Both languages also accept `optimize`. `AsyncToolkit` has the same Python
 methods and options, awaited. Python transcript/prompt text is `bytes`, matching
@@ -40,8 +54,7 @@ image = kit.generate_image("A small tree", output_file="tree.png")
 kit.edit_image("Make the leaves blue", images=[image.path], output_file="blue.png")
 kit.speak("Your image is ready", output_file="message.mp3")
 transcript = kit.transcribe("recording.wav")
-draft = kit.optimise(transcript.text)
-print(draft.text.decode("utf-8"))
+print(transcript.text.decode("utf-8"))
 ```
 
 ```typescript
@@ -54,8 +67,7 @@ await kit.editImage("Make the leaves blue", {
 });
 await kit.speak("Your image is ready", { outputFile: "message.mp3" });
 const transcript = await kit.transcribe("recording.wav");
-const draft = await kit.optimise(transcript.text);
-console.log(draft.text);
+console.log(transcript.text);
 ```
 
 ## Configuration and authority
@@ -142,11 +154,10 @@ never writes credentials into settings.
 Optimisation accepts `provider`, `model`, `base_url`, `api_key`, `wire_api`
 (`chat` or `responses`), and `timeout_seconds` (integer 1–86400). TypeScript uses
 `baseUrl`, `apiKey`, `wireApi`, and `timeoutSeconds`. These override the resolved
-profile for that call. Omission uses native environment/user settings defaults,
-including the 300-second timeout. The optimiser reads relevant project files
-but never submits the draft, persists an agent transcript, or enables writes,
-shell commands, extensions, MCP, or delegation. The caller owns review and later
-submission of the returned prompt.
+profile in the native CLI/TUI service. The public SDK retains validation of
+these request fields for ABI compatibility, but execution is unsupported; none
+of those settings authorize a provider request or project-file read. No draft
+or transcript is produced by a rejected SDK optimisation.
 
 ## Cancellation, results, and limits
 
@@ -221,4 +232,6 @@ Image JSON retains native fields `kind`, `ok`, `operation`, `provider`, `model`,
 `manifest_path`, `seed` and `request_id`. The last four are `null` when
 persistence was declined or the provider returned no such identifier. Speech returns `provider`, `voice`, `mime_type`,
 `path` (null for playback), and `played`. Transcription returns `provider` and
-`text`; optimisation adds `model`. SDKs copy results before destroying the job.
+`text`. The optimisation result shape (`text`, `provider`, `model`) remains
+reserved for compatibility; this release returns no optimisation result. SDKs
+copy successful supported-service results before destroying the job.

@@ -128,7 +128,7 @@ int ac_spawn_agent(ac_impl *o, char *errbuf, size_t errlen) {
                  "no ACP agent configured: tny --provider acp --agent CMD -- args…");
         return -1;
     }
-    if ((ac_guarded(o) || o->ctx->ssh_host) && argv[0][0] != '/' && strchr(argv[0], '/')) {
+    if (argv[0][0] != '/' && strchr(argv[0], '/')) {
         snprintf(errbuf, errlen,
                  "acp: guarded clients initialize in private scratch; configure an absolute "
                  "agent executable path or a command name on PATH instead of a relative path");

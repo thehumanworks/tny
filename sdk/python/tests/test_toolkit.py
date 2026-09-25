@@ -18,7 +18,6 @@ from toolkit_provider import (  # noqa: E402
     MP3,
     OPTIMISE_TOKEN,
     PNG,
-    READ_TOOLS,
     REQUEST_ID,
     SEED,
     TEXT,
@@ -215,26 +214,29 @@ class ToolkitTests(unittest.TestCase):
             self.assertTrue(speech.played)
             self.assertIsNone(speech.path)
 
-    def test_optimise_reads_workspace_without_submitting_or_writing(self):
-        self.provider.mode = "explore"
-        result = self.toolkit.optimise(
-            "Improve the context file", **self.optimise_options()
-        )
-        self.assertEqual(result.text, TEXT.encode())
-        self.assertEqual(result.provider, "openai")
-        self.assertEqual(result.model, "fixture-model")
-        self.assertEqual(len(self.provider.requests), 2)
-        bodies = [r["body"] for r in self.provider.requests]
-        self.assertEqual(
-            {tool["function"]["name"] for tool in bodies[0]["tools"]}, READ_TOOLS
-        )
-        self.assertIn("UTF-8 fixture context", str(bodies[1]["messages"]))
-        self.assertNotIn(TEXT, repr(result))
-        self.provider.mode = "write"
-        self.toolkit.optimize("Improve the context file", **self.optimise_options())
-        self.assertEqual(
-            (self.path / "src/context.txt").read_text(), "UTF-8 fixture context\n"
-        )
+    def test_optimise_refuses_without_provider_or_file_effects(self):
+        before = {
+            p.relative_to(self.path): p.read_bytes()
+            for p in self.path.rglob("*")
+            if p.is_file()
+        }
+        for mode in ("ok", "explore", "write"):
+            self.provider.mode = mode
+            for method in (self.toolkit.optimise, self.toolkit.optimize):
+                with self.subTest(mode=mode, method=method.__name__):
+                    with self.assertRaises(tny.UnsupportedError) as raised:
+                        method("Improve the context file", **self.optimise_options())
+                    self.assertEqual(raised.exception.code, -9)
+                    self.assertEqual(self.provider.requests, [])
+                    self.assertEqual(
+                        {
+                            p.relative_to(self.path): p.read_bytes()
+                            for p in self.path.rglob("*")
+                            if p.is_file()
+                        },
+                        before,
+                    )
+                    self.assertNotIn(OPTIMISE_TOKEN, str(raised.exception))
 
     def test_errors_preserve_files_and_do_not_echo_credentials(self):
         output = self.path / "out.png"
@@ -517,10 +519,10 @@ class ToolkitTests(unittest.TestCase):
             self.assertEqual(image.path.read_bytes(), PNG)
             self.assertEqual(speech.path.read_bytes(), MP3)
             self.assertEqual(transcript.text, TEXT.encode())
-            optimised = await toolkit.optimise(
-                "Improve context", **self.optimise_options()
-            )
-            self.assertEqual(optimised.text, TEXT.encode())
+            request_count = len(self.provider.requests)
+            with self.assertRaises(tny.UnsupportedError):
+                await toolkit.optimise("Improve context", **self.optimise_options())
+            self.assertEqual(len(self.provider.requests), request_count)
             self.provider.mode = "stall"
             self.provider.arrived.clear()
             task = asyncio.create_task(

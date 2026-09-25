@@ -37,7 +37,7 @@ static tny_ctx *ctx_with_settings(const char *json) {
 
 /* true when the advertised schema names `tool` */
 static bool schema_has(tools_env *env, const char *tool) {
-    char *schema = tools_schema_json(env);
+    char *schema = tools_catalog_json(env);
     if (!schema) return false;
     yyjson_doc *doc = jparse(schema, strlen(schema));
     bool found = false;

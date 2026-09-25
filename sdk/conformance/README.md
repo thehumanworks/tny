@@ -17,7 +17,8 @@ python3 sdk/conformance/run.py \
 
 Use `build/lib/libtny.so.1` on Linux. The reference adapter drives live ABI 1
 turns against the strict local OpenAI mock, reopens a persisted session, checks
-allow/deny/stale permission handling, cancellation and auth errors, and invokes
+embedded execution refusal with zero effects in ask/auto/yolo modes,
+cancellation and auth errors, and invokes
 the public steer/cancel path to prove rejected text is returned immediately
 before an interrupted terminal and survives a close/reopen boundary. It also
 invokes the existing focused C fixtures for queue backpressure and
@@ -37,6 +38,14 @@ targets also build the `build/tny` executable used by the offline ACP fixtures
 as their MCP bridge. When running the Python tests or Node integration adapter
 directly, run `make release lib-shared` first; the shared library alone does not
 provide that executable.
+
+The current native C/Python/TypeScript adapters report the two embedded
+permission scenarios as **unsupported**, not passing: code-only model execution
+is unavailable before permission dispatch in public embedding (ADR 0174).
+Their conformance `permissions` capability is false. Each adapter still executes
+a real `run_code` refusal probe with no workspace effects; the remaining eight
+applicable scenarios must pass. Native CLI/TUI approvals and low-level pending
+ownership are covered by their separate production tests.
 
 Release policy
 --------------

@@ -112,6 +112,7 @@ class Ctx:
             HOME=self.home,
             OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
             OPENAI_API_KEY="test-key-not-real",
+            TNY_TOOLS="all",
             **kw,
         )
 
@@ -185,7 +186,9 @@ def main():
             assert res["ephemeral"] is False, res
             # the openai engine's tool trace must be stored, not the empty
             # host-tools fallback branch
-            assert [t["name"] for t in res["tool_calls"]] == [
+            assert [
+                t["name"] for t in res["tool_calls"] if t["name"] != "run_code"
+            ] == [
                 "list_files",
                 "glob_files",
             ], res
@@ -213,7 +216,9 @@ def main():
             view = rv0.stdout.decode()
             assert "user:" in view and "list files in ." in view, view
             assert "result:" in view and "MOCK-OK" in view, view
-            assert "⏺ list_files" in view, view
+            assert (
+                "⏺ run_code" in view and "list_files" in view and "glob_files" in view
+            ), view
             print("ok: happy path")
 
             # ---- result parity: stored result == foreground --json ----

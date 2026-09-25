@@ -400,11 +400,11 @@ wasm: same source, same header; the gateway's CORS policy must allow it.
 ## Agent loop
 
 1. Assemble messages: tny preamble + `AGENTS.md` chain + skill catalog (names only) + bounded history. Over `--ssh` the chain is `$HOME/.tny/` then the remote cwd ([ADR 0040](../adr/0040-ssh-agents-md.md)).
-2. POST with built-in + selected MCP tool schemas.
-3. On tool calls: run `pre_tool_use` before validation, fold rewrite/deny, schema-validate and permission-check the effective call, resolve a real outstanding permission, execute admitted calls serially in stable provider order, run success/failure and batch hooks, then persist the effective `role: tool` messages. Original/effective values stay separately attributed in the top-level extension audit. `read_image` then injects a **user** message with `image_url` data-URL parts (providers reject image parts on `role: tool`; [ADR 0008](../adr/0008-native-loop-images.md)) → POST again.
+2. POST with exactly the `run_code` schema. Nested discovery returns the permitted builtin/MCP catalog.
+3. Reject direct provider tool names other than `run_code`. Start a fresh bounded execution server for each code cell. For nested calls, run `pre_tool_use` before validation, fold rewrite/deny, schema-validate and permission-check the effective call, resolve a real outstanding permission, execute admitted calls serially in stable provider order, run success/failure and batch hooks, then persist the effective `role: tool` messages. Original/effective values stay separately attributed in the top-level extension audit. `read_image` then injects a **user** message with `image_url` data-URL parts (providers reject image parts on `role: tool`; [ADR 0008](../adr/0008-native-loop-images.md)) → POST again.
 4. Stop on final text, cancel, permission deny, or the optional step limit (unlimited by default; `--max-steps` / `/max-steps` / `.tny.json` `"steps"` set a cap — [ADR 0024](../adr/0024-unlimited-steps-default.md)).
 
-This is the only backend that uses [features/permissions.md](../features/permissions.md) and [features/mcp-and-skills.md](../features/mcp-and-skills.md) as the execution engine.
+Native HTTP and the verified ACP bridge use [features/permissions.md](../features/permissions.md) and [features/mcp-and-skills.md](../features/mcp-and-skills.md) as the execution engine.
 
 Each physical HTTP attempt is surrounded by bounded `provider_request` and
 `provider_response` extension events sharing a logical request ID and attempt

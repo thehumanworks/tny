@@ -15,11 +15,12 @@ Codex and Grok subscription authentication use native login and refresh.
 ```text
 CLI / TUI / C ABI / Python / Node SDKs
                 |
-       runtime + sessions + tools + MCP
-                |
-       native OpenAI-compatible HTTP + SSE
-                |
-  gateways / ChatGPT Responses / xAI / local models
+       runtime + sessions + tool authority
+          |                        |
+ native HTTP + SSE             run_code RPC
+          |                        |
+ gateways / providers     fresh execution server
+                               Lua + tools + MCP
 ```
 
 The event vocabulary remains `text_delta`, `thinking`, `tool_start`, `tool_end`,
@@ -32,14 +33,29 @@ post-tool, batch and allowlisted provider request/response edges. Callbacks do
 not re-enter the backend. Extension-free turns do not start Python.
 
 Optional ACP clients ([ADR 0164](adr/0164-optional-acp-clients.md)) run an external
-agent over stdio. Its session receives a stdio MCP bridge into this same runtime
-and tool registry. External built-in tools remain agent-owned. See the
-[capability matrix](verification/acp-client/README.md).
+agent over stdio. Only the verified Claude adapter is admitted, with external
+built-ins disabled, strict MCP configuration and a private scratch cwd. Its MCP
+bridge exposes `run_code`; nested tools execute under the owning context in the
+fresh execution server. [ADR 0174](adr/0174-execution-server-code-mode.md)
+supersedes the older adapter admission and direct registry exposure.
+
+## Execution server
+
+Agent tools use the singleton `run_code` surface on both HTTP wires and ACP.
+Each cell starts a fresh native execution process with a trusted context
+snapshot and bounded Lua runtime. Nested operations keep existing permissions
+and workspace policy; direct provider tool names fail closed. See
+[ADR 0174](adr/0174-execution-server-code-mode.md) and the
+[acceptance contract](verification/execution-code-mode/contract.md).
+Wasm returns an unsupported-execution error because it cannot spawn this server.
 
 ## Embedding boundary
 
 Standalone SDK toolkit jobs ([ADR 0086](adr/0086-standalone-sdk-toolkit.md))
-call the shared image, speech, dictation, and optimisation services directly.
+call the shared image, speech and dictation services directly. Public SDK
+optimisation currently returns `TNY_STATUS_UNSUPPORTED` before any I/O: it
+requires a trusted execution-server launcher that the embedding ABI does not
+provide (ADR 0174). Native CLI/TUI optimisation remains supported.
 Each has a private context and atomic cancellation flag; language adapters own
 scheduling and release. They never enter the agent session API or spawn `tny`.
 
@@ -54,7 +70,7 @@ not a separate provider lifecycle.
 ## Process rules
 
 - One tny process, one primary workspace (`cwd` unless `--cwd`).
-- **Turns run in a detached session runner** ([ADR 0053](adr/0053-forked-turn-isolation.md), [ADR 0166](adr/0166-global-sessions-and-immediate-backgrounding.md)): on native builds, `ask` and the TUI spawn a fresh executable in a detached process session. The runner owns the backend, engine, MCP servers and every `session.json` write, streaming normalized events over `<session>/sock` (NDJSON). A caller crash or SIGKILL detaches the turn. Explicit interrupts, foreground TUI exit and foreground terminal hangup stop it, with a verified process kill if cancellation stalls ([ADR 0081](adr/0081-reliable-session-interruption.md)). Caller-side macOS TLS initialization does not disable isolation. wasm, `--ephemeral`, and `TNY_ISOLATE=0` run in-process; libtny embedders stay in-process by design because their callers own lifecycle.
+- **Turns run in a detached session runner** ([ADR 0053](adr/0053-forked-turn-isolation.md), [ADR 0166](adr/0166-global-sessions-and-immediate-backgrounding.md)): on native builds, `ask` and the TUI spawn a fresh executable in a detached process session. The runner owns the backend, engine and every `session.json` write, streaming normalized events over `<session>/sock` (NDJSON). Execution children own nested tools and their MCP clients; state changes return to the runner for persistence. A caller crash or SIGKILL detaches the turn. Explicit interrupts, foreground TUI exit and foreground terminal hangup stop it, with a verified process kill if cancellation stalls ([ADR 0081](adr/0081-reliable-session-interruption.md)). Caller-side macOS TLS initialization does not disable isolation. wasm, `--ephemeral`, and `TNY_ISOLATE=0` keep the turn in-process; supported native tools still require execution children. Library-hosted model tools fail closed.
 - Always have a RAII-style shutdown path: cancel turn → close stream → release resources.
 - Never log bearer tokens, `.env` values.
 
@@ -168,7 +184,8 @@ uses ChatGPT credentials independently of the chat provider. See
 independent Codex credentials/model; it has no conversation or local tool loop.
 The shared web_search tool and CLI use this service when logged into Codex and
 DuckDuckGo only without that login (explicit command/URL overrides still win).
-Builtin Codex retains its inline hosted-search optimization. Search results are
+Codex uses the same nested search operation; provider-hosted search items are
+not advertised and unsolicited hosted execution is rejected. Search results are
 ordinary parent tool results for checkpoint/reattach purposes. See
 [ADR 0109](adr/0109-provider-independent-codex-search.md).
 

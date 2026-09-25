@@ -19,6 +19,8 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from code_mode_fixture import code_chat_frames, code_response_events
+
 ROOT = Path(__file__).resolve().parents[2]
 TNY = Path(os.environ.get("TNY", ROOT / "build/tny")).resolve()
 HEADER = "# Automatic workflow learning"
@@ -97,7 +99,9 @@ class Provider(BaseHTTPRequestHandler):
                 },
             ]
             data = (
-                "".join("data: " + json.dumps(x) + "\n\n" for x in frames)
+                "".join(
+                    "data: " + json.dumps(x) + "\n\n" for x in code_chat_frames(frames)
+                )
                 + "data: [DONE]\n\n"
             )
         else:
@@ -156,7 +160,9 @@ class Provider(BaseHTTPRequestHandler):
                     "response": {"id": "r", "status": "completed", "output": [item]},
                 }
             )
-            data = "".join("data: " + json.dumps(x) + "\n\n" for x in frames)
+            data = "".join(
+                "data: " + json.dumps(x) + "\n\n" for x in code_response_events(frames)
+            )
         encoded = data.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")

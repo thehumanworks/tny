@@ -14,6 +14,8 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from code_mode_fixture import code_call
+
 TNY = str(
     Path(
         sys.argv[1] if len(sys.argv) > 1 else os.environ.get("TNY", "build/tny")
@@ -57,11 +59,12 @@ class Provider(BaseHTTPRequestHandler):
             usage.clear()
         call_id = f"call_{len(users)}_{step}"
         if step < 2:
+            tool_name, tool_arguments = code_call("list_files", '{"path":"."}')
             item = {
                 "type": "function_call",
                 "call_id": call_id,
-                "name": "list_files",
-                "arguments": '{"path":"."}',
+                "name": tool_name,
+                "arguments": tool_arguments,
             }
             delta = {
                 "tool_calls": [
@@ -69,7 +72,7 @@ class Provider(BaseHTTPRequestHandler):
                         "index": 0,
                         "id": call_id,
                         "type": "function",
-                        "function": {"name": "list_files", "arguments": '{"path":"."}'},
+                        "function": {"name": tool_name, "arguments": tool_arguments},
                     }
                 ]
             }

@@ -5,7 +5,6 @@ import base64
 import fcntl
 import json
 import os
-import shlex
 import signal
 import struct
 import subprocess
@@ -16,6 +15,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from code_mode_fixture import code_chat_frames, lua_string
 from test_tui import BANNER, TNY, Screen, Term, base_env, clean
 
 TNY = os.path.abspath(TNY)
@@ -72,6 +72,7 @@ class Provider:
                     self.end_headers()
 
                     def event(value):
+                        value = code_chat_frames([value])[0]
                         self.wfile.write(
                             ("data: " + json.dumps(value) + "\n\n").encode()
                         )
@@ -103,12 +104,7 @@ class Provider:
                                     "name": "terminal",
                                     "arguments": json.dumps(
                                         {
-                                            "command": (
-                                                f"{shlex.quote(TNY)} image attach image.png; "
-                                                if images
-                                                else ""
-                                            )
-                                            + "printf first\\n >> effects; touch started; while [ ! -f release ]; do sleep 0.05; done",
+                                            "command": "printf first\\n >> effects; touch started; while [ ! -f release ]; do sleep 0.05; done",
                                             "timeout_s": 30,
                                         }
                                     ),
@@ -126,6 +122,19 @@ class Provider:
                                 },
                             },
                         ]
+                        if images:
+                            # Capture inside the execution server before the shell
+                            # parks. Active shell-to-owner image IO is forbidden;
+                            # the later path rewrite must not change captured pixels.
+                            first = calls[0]["function"]
+                            first["name"] = "run_code"
+                            first["arguments"] = json.dumps(
+                                {
+                                    "code": 'print(tools.call("read_image", \'{"path":"image.png"}\'))\n'
+                                    + f'print(tools.call("terminal", {lua_string(first["arguments"])}))',
+                                    "timeout_ms": 30000,
+                                }
+                            )
                         event(
                             {
                                 "choices": [
@@ -597,6 +606,7 @@ class ContinuationProvider:
                             }
                         ]
                     }
+                event = code_chat_frames([event])[0]
                 self.wfile.write(("data: " + json.dumps(event) + "\n\n").encode())
                 self.wfile.write(b"data: [DONE]\n\n")
 

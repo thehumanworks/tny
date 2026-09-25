@@ -77,9 +77,16 @@ class BundledWheelConformanceTests(unittest.TestCase):
                 },
             )
             self.assertEqual(len(result["scenarios"]), 10)
-            self.assertTrue(
-                all(scenario["status"] == "pass" for scenario in result["scenarios"])
-            )
+            self.assertFalse(result["capabilities"]["permissions"])
+            unavailable = {"permission_allow_and_stale_reject", "permission_deny"}
+            for scenario in result["scenarios"]:
+                self.assertEqual(
+                    scenario["status"],
+                    "unsupported" if scenario["id"] in unavailable else "pass",
+                )
+                if scenario["id"] in unavailable:
+                    self.assertIn("no direct fallback", scenario["reason"])
+                    self.assertFalse(scenario.get("assertions"))
             execution_ids = {execution["id"] for execution in result["executions"]}
             self.assertIn("python_installed_package_smoke", execution_ids)
 

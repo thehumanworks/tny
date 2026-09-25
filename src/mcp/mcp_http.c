@@ -8,10 +8,11 @@
 #include "mcp/mcp_priv.h"
 
 #include "util/tny_poll.h"
+#include "util/process.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <poll.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,8 +47,29 @@ void mcp_conn_close(mcp_conn *c) {
     if (c->transport == MCP_TRANSPORT_STDIO && c->pid > 0) {
         close(c->in_fd);
         close(c->out_fd);
-        kill(c->pid, SIGTERM);
-        waitpid(c->pid, NULL, WNOHANG);
+        /* EOF is the cooperative stdio shutdown. Keep sole wait ownership
+         * until it exits, or hand the unreaped child to the generation-safe
+         * process seam. Never signal a raw, possibly retired PID here. */
+        int64_t deadline = monotonic_ms() + 100;
+        pid_t waited;
+        do {
+            waited = waitpid(c->pid, NULL, WNOHANG);
+            if (waited < 0 && errno == EINTR) continue;
+            if (waited != 0) break;
+            (void)tny_poll(NULL, 0, 10);
+        } while (monotonic_ms() < deadline);
+        if (waited == 0 || (waited < 0 && errno == EINTR)) {
+            bool reaped = false;
+            (void)tny_process_stop_owned_tree(c->pid, NULL, &reaped);
+            /* A failed identity/capture can race a natural exit. Retire any
+             * now-observable direct child without acquiring signal authority. */
+            if (!reaped) {
+                deadline = monotonic_ms() + 100;
+                do {
+                    waited = waitpid(c->pid, NULL, WNOHANG);
+                } while (waited < 0 && errno == EINTR && monotonic_ms() < deadline);
+            }
+        }
     }
     buf_free(&c->rbuf);
     yyjson_doc_free(c->tools);

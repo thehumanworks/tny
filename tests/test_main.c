@@ -1,11 +1,18 @@
 /* test_main.c — greatest runner; suites live in the other test files. */
 #include "greatest.h"
 #include "core/runner.h"
+#include "core/execution.h"
+#include "util/execution_command.h"
 #include <stdlib.h>
 #include <string.h>
 
 GREATEST_MAIN_DEFS();
 
+SUITE_EXTERN(code_runtime_suite);
+SUITE_EXTERN(execution_protocol_suite);
+SUITE_EXTERN(execution_transport_suite);
+SUITE_EXTERN(execution_transport_process_suite);
+SUITE_EXTERN(execution_state_suite);
 SUITE_EXTERN(util_suite);
 SUITE_EXTERN(worktree_suite);
 SUITE_EXTERN(task_workspace_suite);
@@ -41,6 +48,8 @@ SUITE_EXTERN(tnyjev_suite);
 SUITE_EXTERN(image_service_suite);
 
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--exec-command") == 0) return tny_exec_command_main();
+    if (argc == 2 && strcmp(argv[1], "--exec-server") == 0) return tny_execution_server_main();
     /* Unit runner lifecycles exec this test binary as their trusted image. */
     if (argc == 2 && strcmp(argv[1], "--runner-start") == 0) return tny_runner_start_main();
     if (argc == 2 && strcmp(argv[1], "--runner-restart") == 0) return tny_runner_restart_main();
@@ -54,6 +63,11 @@ int main(int argc, char **argv) {
     RUN_SUITE(speech_suite);
     RUN_SUITE(dictation_suite);
     RUN_SUITE(tnyjev_suite);
+    RUN_SUITE(code_runtime_suite);
+    RUN_SUITE(execution_protocol_suite);
+    RUN_SUITE(execution_transport_suite);
+    RUN_SUITE(execution_transport_process_suite);
+    RUN_SUITE(execution_state_suite);
     RUN_SUITE(util_suite);
     RUN_SUITE(worktree_suite);
     RUN_SUITE(task_workspace_suite);

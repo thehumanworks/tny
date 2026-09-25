@@ -45,3 +45,13 @@ Strict versioned JSON definitions add named purposes and bounded nested groups. 
 validated tree compiles to one existing durable team, with a single admission scope
 and persisted canonical provenance. Implementation evidence and remaining platform
 gates are tracked in [purposeful-swarms evidence](verification/purposeful-swarms/implementation.md).
+
+## Execution server and code-only tools (ADR 0174)
+
+Replace the provider-facing native tool registry with `run_code`, preserve the
+filtered nested catalog, and execute each bounded Lua cell in a fresh process.
+Native Chat/Responses and verified ACP share the same authority checks. The
+[acceptance contract](verification/execution-code-mode/contract.md) and
+[evidence ledger](verification/execution-code-mode/evidence.md) track protocol,
+policy, platform and regression proof separately. Wasm returns a clean
+unsupported-execution error; no direct-tool fallback is permitted.

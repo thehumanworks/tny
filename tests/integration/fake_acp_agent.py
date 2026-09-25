@@ -18,6 +18,8 @@ import sys
 import time
 from pathlib import Path
 
+from code_mode_fixture import code_call
+
 MODE = os.environ.get("ACP_FIXTURE_MODE", "normal")
 STATE = (
     Path(os.environ["ACP_FIXTURE_STATE_DIR"]) / f"agent-{os.getpid()}.json"
@@ -166,6 +168,9 @@ def model_options(current=None):
 def session_result(fresh):
     value = {"sessionId": SID} if fresh else {}
     if MODE == "legacy-model":
+        value["configOptions"] = [
+            item for item in model_options() if item.get("id") != "model"
+        ]
         value["models"] = {
             "currentModelId": MODEL,
             "availableModels": [
@@ -369,7 +374,13 @@ def prompt(message):
                     }
                 )
             record("tool_call_started", call["name"])
-            answers.append(mcp_request("tools/call", call))
+            wire_name, wire_args = code_call(call["name"], call.get("arguments", {}))
+            answers.append(
+                mcp_request(
+                    "tools/call",
+                    {"name": wire_name, "arguments": json.loads(wire_args)},
+                )
+            )
             record("tool_results", answers)
             if os.environ.get("ACP_FIXTURE_TOOL_UPDATES") == "1":
                 session_update(
@@ -455,6 +466,8 @@ def main():
             result(message["id"], session_result(method == "session/new"))
         elif method == "session/set_config_option":
             record("set_config", params)
+            if params["configId"] in ("engine", "model"):
+                record("set_model_config", params)
             if MODE == "reject-model":
                 error(message["id"], -32602, "fixture model selection rejected")
                 continue

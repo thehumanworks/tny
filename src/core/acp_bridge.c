@@ -94,6 +94,13 @@ static int rpc_error(bridge_client *c, const char *id, int code, const char *mes
     return rc;
 }
 
+static void execution_control(const tny_openai_control_request *request,
+                              tny_openai_control_response *response, void *ud) {
+    tny_acp_bridge *b = ud;
+    if (b->control && !tny_alloc_scope_failed()) b->control(request, response, b->control_ud);
+    if (response->stop) b->stop_requested = true;
+}
+
 static tny_openai_control_response control(tny_acp_bridge *b, bridge_client *c,
                                            tny_openai_control_kind kind, const char *result,
                                            bool ok) {
@@ -258,10 +265,13 @@ static int call_tool(tny_acp_bridge *b, bridge_client *c, const char *id, yyjson
     if (!b->active || !b->env.session || !b->env.perm)
         return rpc_error(c, id, -32000, "tny tool calls require an active owning turn");
     if (c->pending) return rpc_error(c, id, -32000, "one outstanding tool call per connection");
-    const char *name = jget_str(params, "name");
+    size_t name_len = 0;
+    const char *name = jget_strn(params, "name", &name_len);
     yyjson_val *args = jget(params, "arguments");
     if (!name || !*name || (args && !yyjson_is_obj(args)))
         return rpc_error(c, id, -32602, "expected tool name and object arguments");
+    if (name_len != strlen("run_code") || strcmp(name, "run_code") != 0)
+        return rpc_error(c, id, -32602, "only run_code is exposed; use tools.call inside Lua");
     c->id = xstrdup(id);
     c->original_args = args ? jwrite_val(args) : xstrdup("{}");
     c->args = xstrdup(c->original_args);
@@ -527,6 +537,8 @@ void tny_acp_bridge_bind(tny_acp_bridge *b, const tools_env *env, tny_openai_con
     b->env = *env;
     b->control = cb;
     b->control_ud = ud;
+    b->env.execution_control = cb ? execution_control : NULL;
+    b->env.execution_control_ud = b;
 }
 const char *tny_acp_bridge_servers_json(const tny_acp_bridge *b) { return b ? b->servers : "[]"; }
 void tny_acp_bridge_begin_turn(tny_acp_bridge *b, tny_backend_event_cb cb, void *ud) {

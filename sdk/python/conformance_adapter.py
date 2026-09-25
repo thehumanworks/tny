@@ -20,11 +20,14 @@ if not USE_INSTALLED:
     sys.path.insert(0, str(ROOT / "sdk/python/src"))
 
 import tny  # noqa: E402
-from tny.errors import BadStateError  # noqa: E402
 
 CONTRACT_PATH = ROOT / "sdk/conformance/v1.json"
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
 MOCK = ROOT / "tests/integration/mock_openai.py"
+EMBEDDED_REFUSAL = (
+    b"error: execution server unavailable for embedded host/custom callbacks; "
+    b"no direct fallback"
+)
 STOP_REASONS = {
     0: "done",
     1: "interrupted",
@@ -156,8 +159,6 @@ def record(event: tny.AnyEvent) -> dict[str, object]:
 def collect(
     session: tny.Session,
     prompt: str,
-    *,
-    decision: tny.PermissionDecision | None = None,
 ) -> tuple[list[tny.AnyEvent], list[dict[str, object]]]:
     session.send(prompt)
     events: list[tny.AnyEvent] = []
@@ -165,20 +166,6 @@ def collect(
     for event in session.events():
         events.append(event)
         transcript.append(record(event))
-        if isinstance(event, tny.PermissionRequestEvent) and decision is not None:
-            try:
-                session.respond_permission(b"stale-request", decision)
-            except BadStateError:
-                pass
-            else:
-                raise AssertionError("stale permission id was accepted")
-            session.respond_permission(event, decision)
-            try:
-                session.respond_permission(event, decision)
-            except BadStateError:
-                pass
-            else:
-                raise AssertionError("duplicate permission id was accepted")
     return events, transcript
 
 
@@ -319,40 +306,57 @@ def python_live_scenarios(
         finally:
             stop_mock(process)
 
-        for scenario, decision in (
-            ("permission_allow_and_stale_reject", tny.PermissionDecision.ALLOW),
-            ("permission_deny", tny.PermissionDecision.DENY),
-        ):
-            permission_file = workspace / "permission.txt"
-            if permission_file.exists():
-                permission_file.unlink()
-            process, url = start_mock(MOCK_SENSITIVE="1")
-            try:
-                config = tny.RuntimeConfig(
-                    workspace=workspace,
-                    state_dir=state,
-                    base_url=url,
-                    api_key=secret,
-                )
-                with tny.Runtime(config, library=library) as runtime:
-                    with runtime.create_session() as session:
-                        events, traces[scenario] = collect(
-                            session, "write permission.txt", decision=decision
+        # Embedded code execution is unavailable before permission dispatch.
+        # Probe that refusal rather than claim that allow/deny was exercised.
+        process, url = start_mock(
+            MOCK_SENSITIVE="1",
+            MOCK_EXPECT_TOOL_NAMES="run_code",
+            MOCK_EXPECT_TOOL_OUTPUT=EMBEDDED_REFUSAL.decode(),
+        )
+        try:
+            config = tny.RuntimeConfig(
+                workspace=workspace,
+                state_dir=state,
+                base_url=url,
+                api_key=secret,
+            )
+            with tny.Runtime(config, library=library) as runtime:
+                with runtime.create_session() as session:
+                    events, _ = collect(session, "write permission.txt")
+                    assert not any(
+                        isinstance(e, tny.PermissionRequestEvent) for e in events
+                    )
+                    assert not any(isinstance(e, tny.ErrorEvent) for e in events)
+                    tools = [
+                        e
+                        for e in events
+                        if isinstance(e, (tny.ToolStartEvent, tny.ToolEndEvent))
+                    ]
+                    assert [(e.type, e.tool_name) for e in tools] == [
+                        ("tool_start", b"run_code"),
+                        ("tool_end", b"run_code"),
+                    ]
+                    assert isinstance(tools[-1], tny.ToolEndEvent)
+                    assert (
+                        not tools[-1].ok and tools[-1].tool_detail == EMBEDDED_REFUSAL
+                    )
+                    assert [
+                        e.stop_reason for e in events if isinstance(e, tny.TurnEndEvent)
+                    ] == [0]
+                    assert (
+                        b"".join(
+                            e.text for e in events if isinstance(e, tny.TextDeltaEvent)
                         )
-                        terminals = [
-                            event
-                            for event in events
-                            if isinstance(event, tny.TurnEndEvent)
-                        ]
-                        assert len(terminals) == 1
-                        assert terminals[0].stop_reason == (
-                            0 if decision == tny.PermissionDecision.ALLOW else 2
-                        )
-                assert permission_file.exists() == (
-                    decision == tny.PermissionDecision.ALLOW
-                )
-            finally:
-                stop_mock(process)
+                        == b"PERMISSION-OK " + EMBEDDED_REFUSAL
+                    )
+            assert sorted(p.name for p in workspace.iterdir()) == [
+                "a.txt",
+                "b.txt",
+                "c.txt",
+            ]
+            assert all(p.read_bytes() == b"x\n" for p in workspace.iterdir())
+        finally:
+            stop_mock(process)
 
         process, url = start_mock(MOCK_SLOW_MS="5000")
         try:
@@ -530,13 +534,6 @@ def main() -> int:
                         "second_turn_same_session",
                     )
                     + qualified(
-                        "permission_allow_and_stale_reject",
-                        "parked_before_response",
-                        "stale_id_bad_state",
-                        "duplicate_id_bad_state",
-                    )
-                    + qualified("permission_deny", "denied_tool_not_executed")
-                    + qualified(
                         "cancel_and_drain",
                         "cancel_idempotent",
                         "exactly_one_terminal",
@@ -644,7 +641,7 @@ def main() -> int:
 
         capabilities = {
             "native_openai": bool(snapshot.provider_available_mask & 1),
-            "permissions": True,
+            "permissions": False,
             "cancellation": snapshot.cross_thread_native_cancel,
             "persistence": bool(snapshot.feature_available_mask & 2),
             "steering": True,
@@ -664,8 +661,6 @@ def main() -> int:
         evidence = {
             "success_two_turns": ["python_live_scenarios"],
             "resume_and_steer_rejection": ["python_steer_resume_probe"],
-            "permission_allow_and_stale_reject": ["python_live_scenarios"],
-            "permission_deny": ["python_live_scenarios"],
             "cancel_and_drain": ["python_live_scenarios"],
             "auth_error": ["python_live_scenarios"],
             "unknown_future_event": ["python_unknown_decoder"],
@@ -680,6 +675,12 @@ def main() -> int:
                 "assertions": scenario["assertions"],
                 "evidence": evidence[scenario["id"]],
                 "events": traces.get(scenario["id"], []),
+            }
+            if "permissions" not in scenario["requires"]
+            else {
+                "id": scenario["id"],
+                "status": "unsupported",
+                "reason": "Embedded run_code execution is unavailable before permission dispatch; no direct fallback (ADR 0174).",
             }
             for scenario in CONTRACT["scenarios"]
         ]

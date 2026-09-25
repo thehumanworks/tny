@@ -4,12 +4,13 @@
 No provider key: `--mock` scripts tests/integration/mock_openai.py to issue one
 `terminal` call running the fixture's own reference solution, so the whole
 pipeline — scratch copy, `ask -B --json --stdin`, `session --wait --json`,
-transcript metrics, `check.sh` scoring, markdown + JSON report — runs for one
+runtime operation and provider-wrapper metrics, `check.sh` scoring, markdown + JSON report — runs for one
 task in each of the three arms. `--verify-fixtures` additionally proves every
 frozen task is red before any work and green after its reference solution, so
 a broken fixture cannot hand an arm a free pass.
 """
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -72,9 +73,62 @@ def check_mock():
             # the scripted trajectory is exactly one terminal call
             assert rec["tool_calls"] == 1, rec
             assert rec["terminal_calls"] == 1, rec
+            assert rec["provider_code_calls"] == 1, rec
+            assert rec["provider_tool_calls"] == 1, rec
+            assert rec["tool_names"] == {"terminal": 1}, rec
+            # Saved provider code does not reveal the commands actually run.
+            assert rec["execution_detail_available"] is False, rec
             assert rec["tokens_in"] > 0 and rec["tokens_out"] > 0, rec
-            assert rec["repair_loops"] == 0, rec
+            assert rec["repair_loops"] is None, rec
+            assert rec["edit_tny_edit"] is None, rec
+            assert rec["edit_shell_write"] is None, rec
+            assert rec["edit_structured"] == 0, rec
+            assert rec["failed_results"] == 0, rec
+        assert "N/A" in out and "Code calls" in out, out
+        assert all(summary["repair_loops"] is None for summary in doc["summaries"]), doc
         assert {r["arm"] for r in doc["runs"]} == set(ARMS)
+
+
+def check_metric_evidence():
+    spec = importlib.util.spec_from_file_location("bench_tools", BENCH)
+    bench = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bench)
+    messages = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "function": {
+                        "name": "run_code",
+                        "arguments": json.dumps(
+                            {"code": 'print("terminal edit_file")'}
+                        ),
+                    }
+                }
+            ],
+        }
+    ]
+    observed = bench.classify(
+        messages,
+        [
+            {"name": "terminal", "status": "error"},
+            {"name": "run_code", "status": "success"},
+        ],
+    )
+    assert observed["tool_calls"] == observed["terminal_calls"] == 1, observed
+    assert observed["provider_code_calls"] == observed["failed_results"] == 1, observed
+    assert observed["edit_structured"] == 0, observed
+    assert observed["repair_loops"] is None, observed
+    assert bench.classify(messages, [])["tool_calls"] == 0
+    missing = bench.classify(messages, None)
+    assert missing["tool_calls"] is None and missing["terminal_calls"] is None, missing
+    rows = [
+        dict(row, arm="all", status="done", error=None, **{"pass": True})
+        for row in (observed, missing)
+    ]
+    summary = bench.summarize(rows, "all")
+    assert summary["tool_calls"] is None and summary["failed_results"] is None, summary
+    assert summary["provider_code_calls"] == 1, summary
 
 
 def check_unknown_task():
@@ -84,6 +138,7 @@ def check_unknown_task():
 
 
 def main():
+    check_metric_evidence()
     check_dry_run()
     check_unknown_task()
     check_fixtures()

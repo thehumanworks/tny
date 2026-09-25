@@ -1,5 +1,6 @@
 /* tools.c — registry, permission gate, dispatch, result bounding. */
 #include "core/tools.h"
+#include "core/execution.h"
 #include "core/image.h"
 #include "util/image_io.h"
 #include "core/speech.h"
@@ -552,8 +553,7 @@ static bool schema_tool_hidden(const tools_env *env, const char *name) {
         strcmp(name, "swarm_message") != 0 && strcmp(name, "job_status") != 0 &&
         strcmp(name, "job_workspace_inspect") != 0)
         return true;
-    return strcmp(name, "web_search") == 0 &&
-           (!tool_web_search_configured(env->ctx) || tool_web_search_native(env->ctx));
+    return strcmp(name, "web_search") == 0 && !tool_web_search_configured(env->ctx);
 }
 
 static char *append_custom_schema(char *base, custom_tool_registry *registry) {
@@ -578,12 +578,11 @@ static char *append_custom_schema(char *base, custom_tool_registry *registry) {
     return buf_detach(&merged);
 }
 
-char *tools_schema_json(tools_env *env) {
+char *tools_catalog_json(tools_env *env) {
     if (env && env->ctx &&
         (env->ctx->prompt_optimisation || env->ctx->mcp_disabled || env->ctx->library_mode ||
          (env->ctx->workspace_read_only && getenv("TNY_SWARM_NAME")) ||
-         env->ctx->tool_profile != TNY_TOOLS_ALL ||
-         (!tool_web_search_configured(env->ctx) || tool_web_search_native(env->ctx)) ||
+         env->ctx->tool_profile != TNY_TOOLS_ALL || !tool_web_search_configured(env->ctx) ||
          !tny_speech_available(env->ctx, NULL, true, NULL, 0) || env->ctx->ssh_host ||
          !tny_image_capabilities(env->ctx, false, NULL) || !tny_image_export_supported() ||
          tny_image_input_refused(env->ctx))) {
@@ -611,6 +610,39 @@ char *tools_schema_json(tools_env *env) {
     }
     return append_custom_schema(xstrdup(SCHEMA_JSON),
                                 env && env->ctx ? env->ctx->custom_tools : NULL);
+}
+
+static const char RUN_CODE_SCHEMA[] =
+    "[{\"type\":\"function\",\"function\":{\"name\":\"run_code\","
+    "\"description\":\"Run bounded Lua code in the isolated execution server. Discover tools "
+    "with tools.list() and tools.describe(name); invoke with tools.call(name, JSON arguments). "
+    "Use print to return results.\","
+    "\"parameters\":{\"type\":\"object\",\"properties\":{"
+    "\"code\":{\"type\":\"string\",\"minLength\":1},"
+    "\"timeout_ms\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":30000,\"default\":5000}},"
+    "\"required\":[\"code\"],\"additionalProperties\":false}}}]";
+
+char *tools_schema_json(tools_env *env) {
+    (void)env;
+    return xstrdup(RUN_CODE_SCHEMA);
+}
+
+const char *tools_code_instructions(void) {
+    return "\n# Code execution\n"
+           "The only model-facing tool is run_code. Its code is bounded Lua, with a fresh "
+           "environment per call (timeout_ms defaults to 5000, maximum 30000).\n"
+           "Discover the available nested tools with print(tools.list()), then inspect a "
+           "tool with print(tools.describe(\"read_file\")). Both return JSON strings.\n"
+           "tools.call(name, arguments_json) invokes a nested tool and returns its text "
+           "result. Use json.encode/decode for data and print for output. For example: "
+           "print(tools.call(\"read_file\", json.encode({path=\"README.md\"}))).\n"
+           "Compose dependent steps with Lua variables, functions, loops and conditionals; "
+           "only nested tools access the workspace, shell, network or other services. "
+           "Nested calls retain permissions, hooks and cancellation. run_code cannot "
+           "recursively call itself.\n"
+           "When a workflow will be useful repeatedly, save a parameterized reusable "
+           "workflow in the project through the available file tools. Do this when useful, "
+           "without making a saved workflow a prerequisite for ordinary work.\n";
 }
 
 static bool json_type_matches(yyjson_val *value, const char *type) {
@@ -751,6 +783,34 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
     if (!call->name || !call->permission_tool) return -1;
     call->doc = args_json ? jparse(args_json, strlen(args_json)) : NULL;
     call->args = call->doc ? yyjson_doc_get_root(call->doc) : NULL;
+    if (strcmp(call->name, "run_code") == 0) {
+        if (env->execution_server) {
+            call->error = tool_err("nested run_code is forbidden");
+            return -1;
+        }
+        yyjson_doc *schema = jparse(RUN_CODE_SCHEMA, strlen(RUN_CODE_SCHEMA));
+        yyjson_val *function =
+            jget(yyjson_arr_get_first(schema ? yyjson_doc_get_root(schema) : NULL), "function");
+        int valid =
+            validate_parameters(call->name, call->args, jget(function, "parameters"), &call->error);
+        yyjson_doc_free(schema);
+        if (valid != 0) return -1;
+        yyjson_val *code = jget(call->args, "code");
+        yyjson_val *timeout = jget(call->args, "timeout_ms");
+        const char *source = yyjson_get_str(code);
+        if (!source || !yyjson_get_len(code) || strlen(source) != yyjson_get_len(code)) {
+            call->error = tool_err("run_code code must be nonempty and contain no NUL bytes");
+            return -1;
+        }
+        if (timeout && (yyjson_get_sint(timeout) < 1 || yyjson_get_uint(timeout) > 30000)) {
+            call->error = tool_err("run_code timeout_ms must be an integer from 1 to 30000");
+            return -1;
+        }
+        /* The wrapper grants no operation authority. Every nested invocation
+         * makes its own ordinary permission decision inside the server. */
+        call->verdict = PERM_ALLOW;
+        return 0;
+    }
     /* Stable SUBAGENT_* answers before any permission prompt, extension
      * event or child process (docs/features/mcp-and-skills.md#subagents). */
     if (strcmp(call->name, "subagent") == 0) {
@@ -948,6 +1008,14 @@ char *tools_call_execute(tools_env *env, tools_call *call) {
     const char *name = call->name;
     yyjson_val *args = call->args;
 
+    if (strcmp(name, "run_code") == 0) {
+        if (env->execution_server) return tool_err("nested run_code is forbidden");
+        char *arguments = call->doc ? yyjson_write(call->doc, 0, NULL) : NULL;
+        if (!arguments) return tool_err("could not copy run_code arguments");
+        char *result = tny_execution_run(env, arguments);
+        free(arguments);
+        return result;
+    }
     if (call->intercept) return tny_intercept_execute(env, call->intercept);
 
     if (call->custom) {
@@ -1170,7 +1238,8 @@ static int queue_capture(tools_env *env, const char *path, bool allowed_roots_on
             snprintf(err, errlen, "image preview needs a 64-character lowercase hex sha256");
         return -1;
     }
-    if (!env || !env->ctx || env->n_pending_images >= 8) {
+    if (!env || !env->ctx || env->n_pending_images < 0 || env->n_pending_images >= 8 ||
+        env->reserved_image_count < 0 || env->reserved_image_count >= 8 - env->n_pending_images) {
         if (code_out) *code_out = TNY_IMAGE_PREVIEW_CODE_CAPACITY;
         if (err && errlen) snprintf(err, errlen, "too many images in this step (max 8)");
         return -1;
@@ -1198,6 +1267,22 @@ static int queue_capture(tools_env *env, const char *path, bool allowed_roots_on
         if (code_out) *code_out = load_code ? load_code : TNY_IMAGE_PREVIEW_CODE_UNREADABLE;
         free(abs);
         return -1;
+    }
+    if (env->execution_server) {
+        const size_t limit = 4u * 1024u * 1024u;
+        size_t total = env->reserved_image_bytes;
+        for (int i = 0; i < env->n_pending_images && total <= limit; i++) {
+            if (env->pending_capture[i].len > limit - total) total = limit + 1;
+            else total += env->pending_capture[i].len;
+        }
+        if (total > limit || len > limit - total) {
+            if (code_out) *code_out = TNY_IMAGE_PREVIEW_CODE_TOO_LARGE;
+            if (err && errlen)
+                snprintf(err, errlen, "execution image queue exceeds 4 MiB captured bytes");
+            free(data);
+            free(abs);
+            return -1;
+        }
     }
     tools_pending_capture cap = {0};
     cap.data = data;

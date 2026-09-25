@@ -39,6 +39,12 @@ TNY_SHELL_PATH ?= /bin/sh
 
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
 UNAME_M := $(shell uname -m 2>/dev/null || echo unknown)
+ifeq ($(UNAME_S),Linux)
+  # GNU spawn extensions need feature flags before even forced allocator
+  # headers. Apply the existing libc compatibility guard to C as well as C++:
+  # _GNU_SOURCE must not opt shipped C objects into GLIBC_2.38 strto* symbols.
+  DEFS += -D_GNU_SOURCE $(CXX_GLIBC_FLOOR)
+endif
 ifeq ($(UNAME_S),Darwin)
   # macOS dyld strips sanitizer insertion variables before Python can spawn
   # children. Prefer the framework's real app executable (not its launcher),
@@ -135,8 +141,8 @@ endif
 
 # dlopen lives in libdl on glibc < 2.34; a no-op stub on newer glibc and musl.
 ifeq ($(UNAME_S),Linux)
-  REL_LDFLAGS += -ldl
-  DBG_LDFLAGS += -ldl
+  REL_LDFLAGS += -ldl -lm
+  DBG_LDFLAGS += -ldl -lm
 endif
 
 ifeq ($(STATIC),1)
@@ -179,8 +185,14 @@ SRC_WASM_ONLY := src/net/net_wasm.c src/backends/acp/acp_proc_wasm.c src/util/tu
 SRC_SHARED := $(filter-out $(SRC_NATIVE) $(SRC_WASM_ONLY),$(SRC_ALL))
 SRC := $(SRC_SHARED) $(SRC_NATIVE)
 
-TP := third_party/yyjson/yyjson.c third_party/picohttpparser/picohttpparser.c
-TP_WASM := third_party/yyjson/yyjson.c
+# Vendored Lua VM and explicitly opened safe libraries only. The ambient IO,
+# OS, package/debug/coroutine libraries and standalone executables never link.
+LUA_SRC := $(filter-out third_party/lua/lua.c third_party/lua/luac.c \
+             third_party/lua/linit.c third_party/lua/liolib.c third_party/lua/loslib.c \
+             third_party/lua/loadlib.c third_party/lua/ldblib.c third_party/lua/lcorolib.c,\
+             $(wildcard third_party/lua/*.c))
+TP := third_party/yyjson/yyjson.c third_party/picohttpparser/picohttpparser.c $(LUA_SRC)
+TP_WASM := third_party/yyjson/yyjson.c $(LUA_SRC)
 
 REL_OBJS := $(call objects,$(OBJ_REL),$(SRC)) $(call objects,$(OBJ_REL),$(TP))
 
@@ -324,9 +336,14 @@ endif
 
 # Measure shipped artifacts without a fixed product size ceiling.
 
-.PHONY: verify-formal
-verify-formal:
+.PHONY: verify-formal verify-execution-protocol
+verify-formal: verify-execution-protocol
 	python3 tests/formal/check.py
+
+# This proof translates the actual production C predicate through Clang AST;
+# missing Clang/Z3 or unsupported syntax is an error, never a skipped check.
+verify-execution-protocol:
+	python3 tests/formal/check_execution_protocol.py
 
 .PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-sdk-examples test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
@@ -375,8 +392,8 @@ acp-wasm-seam-fixture: $(ACP_WASM_SEAM_FIXTURE) $(ACP_NATIVE_CAPS_FIXTURE) $(ACP
 test-acp-wasm-seam: acp-wasm-seam-fixture
 	TNY_ACP_WASM_SEAM_BIN=$(abspath $(ACP_WASM_SEAM_FIXTURE)) python3 tests/integration/test_acp_wasm_seam.py
 
-# Real ACP bridge with a fixture-only clock and controllable async execution.
-# Human permission waits are tested without shortening production deadlines.
+# Real ACP bridge and fresh execution server: bounded human waits exceed a
+# requested code budget; direct/custom-async fallbacks are explicitly rejected.
 ACP_DEADLINE_FIXTURE = $(BUILD)/acp-bridge-deadline$(EXE)
 ACP_DEADLINE_OBJ = $(OBJ_REL)/tests/fixtures/acp_bridge_deadline.o
 $(ACP_DEADLINE_OBJ): src/core/acp_bridge.c
@@ -415,23 +432,23 @@ $(OBJ_DBG)/%.o: %.c | $(VERSION_H)
 
 $(OBJ_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(PIC_CFLAGS)) -MMD -MP -c -o $@ $<
+	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(subst -include src/util/alloc_override.h,,$(PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(OBJ_FAULT_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FAULT_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FAULT_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
+	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(subst -include src/util/alloc_override.h,,$(FAULT_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FAULT_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(OBJ_FAULT_SAN_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FAULT_SAN_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FAULT_SAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
+	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(subst -include src/util/alloc_override.h,,$(FAULT_SAN_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FAULT_SAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(OBJ_TSAN_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(TSAN_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(TSAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
+	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(subst -include src/util/alloc_override.h,,$(TSAN_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(TSAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(OBJ_FUZZ)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(FUZZ_CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FUZZ_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FUZZ_CFLAGS)) -MMD -MP -c -o $@ $<
+	$(FUZZ_CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(subst -include src/util/alloc_override.h,,$(FUZZ_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FUZZ_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(OBJ_REL)/%.cpp.o: %.cpp | $(VERSION_H)
 	@mkdir -p $(@D)
@@ -1274,7 +1291,9 @@ LEAKS         ?= leaks
 # terminal_task_suite also forks a detached waiter; the inherited atExit hook
 # stops that waiter before its launch handshake (ADR 0136).
 # learning_process_suite forks writers to verify concurrent evidence merging.
-LEAK_SUITE_SKIP := mcp_suite runner_suite learning_process_suite \
+# execution_transport_process_suite forks fault/transport peers whose exit() inherits
+# the macOS atExit hook and deadlocks. Linux Valgrind still covers the suite.
+LEAK_SUITE_SKIP := mcp_suite runner_suite learning_process_suite execution_transport_process_suite \
 	session_bg_suite ssh_suite terminal_task_suite task_workspace_process_suite
 LEAK_SUITES = $(filter-out $(LEAK_SUITE_SKIP),\
 	$(if $(wildcard tests/test_main.c),$(shell sed -n 's/.*RUN_SUITE(\([A-Za-z0-9_]*\)).*/\1/p' tests/test_main.c)))
@@ -1287,6 +1306,9 @@ leak-build:
 	$(MAKE) SANITIZE=0 BUILD=$(LEAK_BUILD) debug release
 
 leaks: leak-build
+ifeq ($(UNAME_S),Darwin)
+	@echo "leaks: macOS skips fork suites ($(LEAK_SUITE_SKIP)); Linux Valgrind covers them"
+endif
 	@$(LEAK_ENV) $(BASH) scripts/leakcheck.sh auto
 
 ifeq ($(UNAME_S),Linux)

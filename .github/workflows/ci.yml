@@ -88,7 +88,16 @@ jobs:
           valgrind --version
 
       - name: make valgrind
-        run: make valgrind && make test-native-leaks SANITIZE=0
+        run: |
+          make valgrind
+          make test-native-leaks SANITIZE=0
+          # Valgrind lacks pidfd_send_signal. Its full unit run checks the
+          # unavailable-capability refusal and memory cleanup. This independent
+          # native invocation must exercise generation-safe reaping, not skip.
+          TNY_TEST_REQUIRE_PROCESS_TREE=1 ./build/leakcheck/tny-test \
+            -s mcp_suite -t stdio_close_reaps_peer_ignoring_sigterm -e > /tmp/mcp-reaping.log
+          cat /tmp/mcp-reaping.log
+          grep -F '1 test - 1 passed, 0 failed, 0 skipped' /tmp/mcp-reaping.log
 
   build:
     name: ${{ matrix.name }}
@@ -148,7 +157,7 @@ jobs:
         if: matrix.suite == 'full'
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q z3
+          sudo apt-get install -y -q z3 clang
 
       - name: Build, test, size
         run: |
@@ -164,6 +173,7 @@ jobs:
             make -j"$jobs" test
           else
             make -j"$jobs" test-unit release
+            TNY="$PWD/build/tny" python3 tests/integration/test_execution_code_mode.py
           fi
           if [ "$(uname -s)" = Darwin ]; then
             make test-shell-workflows BASH=/bin/bash ZSH=/bin/zsh
@@ -268,10 +278,8 @@ jobs:
           if-no-files-found: error
 
   wasm:
-    # Parity by construction (docs/adr/0017): the wasm binary must pass the
-    # SAME openai integration suite against the SAME strict mocks the native
-    # binary does. A drifted browser build is a red X here, not a code review
-    # comment.
+    # Provider streaming remains shared. Native execution requires a child;
+    # wasm explicitly refuses run_code (ADR 0174), with no direct-tool fallback.
     name: wasm-node
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -283,7 +291,7 @@ jobs:
           version: 6.0.8   # the release the suite was validated against
           actions-cache-folder: emsdk-cache
 
-      - name: Build wasm, run the openai suite under node, size report
+      - name: Build wasm, verify provider streaming and execution refusal, size report
         run: |
           set -eu
           emcc --version | head -1
@@ -292,48 +300,15 @@ jobs:
           node --version
           make -j"$(getconf _NPROCESSORS_ONLN)" wasm wasm-web wasm-dictation-fixture
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 python3 tests/integration/test_acp_client.py
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_openai.py
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_codex_chatgpt.py
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_prompt_cache.py
-          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
-            python3 tests/integration/test_swarm_delivery.py
-          # Shared search HTTP/auth/parser paths run on wasm too; only native
-          # signal, subprocess override and runner/PTY semantics are excluded.
-          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
-            python3 tests/integration/test_search_service.py
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_speech.py
+          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 python3 tests/integration/test_execution_code_mode.py
+          # Standalone services and explicit unsupported process seams remain
+          # testable without admitting provider-driven native tool execution.
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_dictation.py
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_optimise.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_tnyjev.py
-          # Both image suites run whole: dimensions, strict size, manifests and
-          # replay are shared C. Cross-process guard, hard-link and host
-          # permission cases skip themselves with wasm's documented semantics.
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_service.py
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_workflow.py
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_input.py
-          # The captured pending-image queue is shared C: wasm runs the byte
-          # oracle that a file rewritten inside one tool batch cannot change
-          # the pixels that batch already captured. The control-socket preview
-          # group reports itself pending there (no fork, no AF_UNIX runner).
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_preview_queue.py
-          # Actual producer/manifest-selected next requests use shared C;
-          # socket-only controls assert a clean unsupported result on wasm.
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_image_preview_workflow.py
-          # Job selection refuses before metadata/provider work; stored job
-          # provenance replay uses the shared manifest and reference pipeline.
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_job_artifacts.py
-          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
-            python3 tests/integration/test_ask_events.py "$PWD/build/wasm/tny"
-          tests/integration/test_provider_setup.sh "$PWD/build/wasm/tny"
-          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
-            python3 tests/integration/test_extension_capabilities.py
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_extension_contract.py
-          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
-            python3 tests/integration/test_background.py
-          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
-            python3 tests/integration/test_jobs.py "$PWD/build/wasm/tny"
-          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 \
-            python3 tests/integration/test_mcp_http.py
+          tests/integration/test_provider_setup.sh "$PWD/build/wasm/tny"
+          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 python3 tests/integration/test_background.py
+          TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 python3 tests/integration/test_jobs.py "$PWD/build/wasm/tny"
           make wasm-size-check
 
       - name: Browser smoke (xterm.js page runs the artifact)

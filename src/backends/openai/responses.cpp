@@ -134,7 +134,7 @@ static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *sum
             yyjson_mut_arr_foreach(hosted, hi, hn, item) {
                 if (tny_alloc_scope_failed()) break;
                 const char *type = mstr(item, "type");
-                if (!type) continue;
+                if (!type || strcmp(type, "web_search_call") == 0) continue;
                 if (strcmp(type, "message") == 0) has_message = true;
                 yyjson_mut_val *copy = yyjson_mut_val_mut_copy(d, item);
                 if (copy) yyjson_mut_arr_add_val(arr, copy);

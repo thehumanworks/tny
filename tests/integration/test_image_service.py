@@ -17,6 +17,8 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from code_mode_fixture import code_chat_frames
+
 ROOT = Path(__file__).resolve().parents[2]
 TNY = str(Path(os.environ.get("TNY", ROOT / "build/tny")).resolve())
 WASM = "wasm" in TNY
@@ -148,6 +150,16 @@ class Handler(BaseHTTPRequestHandler):
                 args = {
                     "command": f"printf 'A blue robot' | tny image {op}{ref}{flags} --output-file agent.png --json"
                 }
+            if s.get("catalog_only"):
+                name = "run_code"
+                args = {
+                    "code": (
+                        "local selected = {}; for _, entry in ipairs(json.decode(tools.list())) do "
+                        'local name = entry["function"].name; '
+                        'if name == "image_generate" or name == "image_edit" then '
+                        "selected[#selected + 1] = entry end end; print(json.encode(selected))"
+                    )
+                }
             delta = {
                 "tool_calls": [
                     {
@@ -167,7 +179,7 @@ class Handler(BaseHTTPRequestHandler):
             200,
             "text/event-stream",
             (
-                "".join(f"data: {json.dumps(f)}\n\n" for f in frames)
+                "".join(f"data: {json.dumps(f)}\n\n" for f in code_chat_frames(frames))
                 + "data: [DONE]\n\n"
             ).encode(),
         )
@@ -646,9 +658,33 @@ class ImageTests(unittest.TestCase):
             "fixture image",
         ]
 
+    def image_catalog(self, profile):
+        self.state["chat"].clear()
+        self.state["requests"].clear()
+        self.state["catalog_only"] = True
+        try:
+            run = subprocess.run(
+                self.agent_args(profile), env=self.env, capture_output=True, timeout=30
+            )
+        finally:
+            self.state.pop("catalog_only", None)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        names = [tool["function"]["name"] for tool in self.state["chat"][0]["tools"]]
+        self.assertEqual(names, ["run_code"])
+        result = next(
+            message["content"]
+            for message in self.state["chat"][1]["messages"]
+            if message.get("role") == "tool"
+        )
+        return json.loads(result)
+
     def check_typed_and_shell_agents(self):
         profiles = ("all",) if WASM else ("all", "terminal", "terminal+edit")
         for profile in profiles:
+            catalog = self.image_catalog(profile)
+            nested_names = [tool["function"]["name"] for tool in catalog]
+            self.assertEqual("image_generate" in nested_names, profile == "all")
+            self.assertEqual("image_edit" in nested_names, profile == "all")
             for op in ("generate", "edit"):
                 self.state["chat"].clear()
                 self.state["requests"].clear()
@@ -668,10 +704,9 @@ class ImageTests(unittest.TestCase):
                 self.assertEqual((self.home / "agent.png").read_bytes(), PNG)
                 chats = self.state["chat"]
                 names = [t["function"]["name"] for t in chats[0]["tools"]]
-                self.assertEqual("image_generate" in names, profile == "all")
-                self.assertEqual("image_edit" in names, profile == "all")
+                self.assertEqual(names, ["run_code"])
                 self.assertIn("tny image generate", chats[0]["messages"][0]["content"])
-                for tool in chats[0]["tools"]:
+                for tool in catalog:
                     fn = tool["function"]
                     if fn["name"] not in ("image_generate", "image_edit"):
                         continue

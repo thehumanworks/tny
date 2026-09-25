@@ -101,6 +101,9 @@ typedef struct {
  * run is blocking and single-use; it may execute on a different thread from
  * create. cancel is sticky and thread-safe, including before run. No runtime,
  * agent session, process-wide chdir, or CLI executable is needed.
+ * The optimise operation currently returns TNY_STATUS_UNSUPPORTED before I/O:
+ * public embedding has no trusted execution-server launcher (ADR 0174).
+ * Cancellation requested before run still returns TNY_STATUS_CANCELLED.
  * result is borrowed UTF-8 JSON, available after a successful run until destroy.
  * Except cancel, calls on one job must not overlap. destroy refuses a running
  * job; callers must join run and stop cancellation callers before destroying.

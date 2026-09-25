@@ -307,37 +307,12 @@ static int run_dictation(tny_toolkit_job *job, tny_ctx *ctx, yyjson_val *r, char
     return rc;
 }
 
-static int run_optimise(tny_toolkit_job *job, tny_ctx *ctx, yyjson_val *r, char *err, size_t len) {
-    char timeout[16];
-    snprintf(timeout, sizeof timeout, "%llu",
-             (unsigned long long)yyjson_get_uint(jget(r, "timeout_seconds")));
-    tny_optimise_request req = {.text = jget_str(r, "text"),
-                                .provider = jget_str(r, "provider"),
-                                .model = jget_str(r, "model"),
-                                .base_url = jget_str(r, "base_url"),
-                                .api_key = jget_str(r, "api_key"),
-                                .wire_api = jget_str(r, "wire_api"),
-                                .timeout_seconds = jget(r, "timeout_seconds") ? timeout : NULL};
-    tny_optimise *o = tny_optimise_start(ctx, &req, err, len);
-    if (!o) return 1;
-    while (tny_optimise_result(o, NULL, NULL) < 0) {
-        if (stopped(job)) tny_optimise_cancel(o);
-        tny_optimise_step(o);
-        if (tny_optimise_result(o, NULL, NULL) >= 0) break;
-        struct pollfd fds[TNY_BACKEND_POLLFD_MAX];
-        int count = tny_optimise_pollfds(o, fds, TNY_BACKEND_POLLFD_MAX);
-        (void)tny_poll(fds, (nfds_t)count, 50);
-    }
-    const char *text = NULL, *error = NULL;
-    int rc = tny_optimise_result(o, &text, &error);
-    if (!rc) text_result(job, tny_optimise_provider(o), tny_optimise_model(o), text);
-    else snprintf(err, len, "%s", error ? error : "optimisation failed");
-    tny_optimise_free(o);
-    return rc;
-}
-
 static int32_t run(tny_toolkit_job *job) {
     if (stopped(job)) return TNY_STATUS_CANCELLED;
+    /* Public embedding has no matching execution-server launcher. Re-execing
+     * Python/Node as tny is invalid, and workspace exploration cannot fall
+     * back to in-process tools. Refuse before credentials or provider IO. */
+    if (job->operation == OPTIMISE) return TNY_STATUS_UNSUPPORTED;
     yyjson_val *root = yyjson_doc_get_root(job->doc);
     yyjson_val *c = jget(root, "config"), *r = jget(root, "request");
     char *state_dir = path_tny_dir();
@@ -364,7 +339,7 @@ static int32_t run(tny_toolkit_job *job) {
         case SPEAK: rc = run_speech(job, ctx, r, err, sizeof err); break;
         case TRANSCRIBE:
         case DICTATE: rc = run_dictation(job, ctx, r, err, sizeof err); break;
-        case OPTIMISE: rc = run_optimise(job, ctx, r, err, sizeof err); break;
+        case OPTIMISE: break; /* rejected before creating a context */
         }
     }
     tny_ctx_free(ctx);
@@ -453,6 +428,9 @@ int32_t tny_toolkit_job_run(tny_toolkit_job *job, tny_error **error) {
             error, status,
             status == TNY_STATUS_CANCELLED ? "toolkit operation cancelled"
             : status == TNY_STATUS_AUTH    ? "toolkit provider credentials are missing or rejected"
+            : status == TNY_STATUS_UNSUPPORTED && job->operation == OPTIMISE
+                ? "embedded prompt optimisation requires an execution-server launcher; no direct "
+                  "fallback"
             : status == TNY_STATUS_UNSUPPORTED
                 ? "toolkit provider or host capability is unavailable"
             : status == TNY_STATUS_CONFIG        ? "toolkit workspace or settings are unavailable"

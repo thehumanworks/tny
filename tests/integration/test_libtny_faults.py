@@ -12,6 +12,7 @@ fails the parent.
 import ctypes
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -26,7 +27,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, HERE)
 
-from test_libtny import as_bytes, load_lib, runtime_options  # noqa: E402
+from code_mode_fixture import code_response_events  # noqa: E402
+from test_libtny import EventView, as_bytes, load_lib, runtime_options  # noqa: E402
 
 OOM = -4
 EVENT = 1
@@ -206,18 +208,39 @@ def drain(
     return saw_oom
 
 
-def wait_permission(lib, session, error):
+def wait_embedded_refusal(lib, session, error):
+    """Stop after real code refusal while the provider turn is still active."""
     for _ in range(128):
         status, event = next_event(lib, session, error)
-        if status != EVENT or not event.value:
-            die(40)
-        if lib.tny_event_get_kind(event) == PERMISSION_KIND:
-            value = lib.tny_event_permission_id(event)
-            permission = ctypes.string_at(value.ptr, value.len).decode()
+        if status == TIMEOUT:
+            continue
+        assert status == EVENT and event.value, status
+        try:
+            kind = lib.tny_event_get_kind(event)
+            assert kind not in (PERMISSION_KIND, ERROR_KIND, TERMINAL_KIND), kind
+            if kind == 3:
+                view = EventView()
+                assert (
+                    lib.tny_event_view_init(ctypes.byref(view), ctypes.sizeof(view))
+                    == 0
+                )
+                assert (
+                    lib.tny_event_read(event, ctypes.byref(view), ctypes.sizeof(view))
+                    == 0
+                )
+                assert (
+                    ctypes.string_at(view.tool_name.ptr, view.tool_name.len)
+                    == b"run_code"
+                )
+                assert not view.tool_ok
+                assert (
+                    b"unavailable for embedded host/custom callbacks; no direct fallback"
+                    in ctypes.string_at(view.tool_detail.ptr, view.tool_detail.len)
+                )
+                return
+        finally:
             lib.tny_event_free(event)
-            return permission
-        lib.tny_event_free(event)
-    die(41)
+    raise AssertionError("provider did not deliver embedded code refusal")
 
 
 def make_persisted_session(lib, base_url, root):
@@ -520,26 +543,31 @@ def child_case(libpath, scenario, base_url, report_path):
                 keep.append(raw)
                 if lib.tny_session_send(session, prompt, ctypes.byref(error)) != 0:
                     die(22)
-                permission = wait_permission(lib, session, error)
-                raw_id, permission_id = as_bytes(permission)
+                wait_embedded_refusal(lib, session, error)
+                # No model-driven embedded permission can be pending. Sweep
+                # stale-reply ownership/error allocation instead, then recover.
+                raw_id, permission_id = as_bytes("refused-code-has-no-permission")
                 keep.append(raw_id)
                 rc = lib.tny_session_respond_permission(
                     session, permission_id, 2, ctypes.byref(error)
                 )
                 injected = observe(lib, stats)
-                if rc not in (0, OOM):
-                    die(23)
+                assert rc == (OOM if injected else -2), (rc, injected)
                 free_error(lib, error)
-                if rc == OOM:
-                    os.environ["TNY_TEST_ALLOC_SCOPE"] = "disabled"
-                    if (
-                        lib.tny_session_respond_permission(
-                            session, permission_id, 2, ctypes.byref(error)
-                        )
-                        != 0
-                    ):
-                        die(24)
-                drain(lib, session, error, expect_oom=injected if rc == 0 else False)
+                os.environ["TNY_TEST_ALLOC_SCOPE"] = "disabled"
+                assert (
+                    lib.tny_session_respond_permission(
+                        session, permission_id, 2, ctypes.byref(error)
+                    )
+                    == -2
+                )
+                free_error(lib, error)
+                drain(lib, session, error, expect_oom=False, expect_success=True)
+                assert not Path(root, "workspace", "note.txt").exists()
+                raw, prompt = as_bytes("recovery after rejected permission reply")
+                keep.append(raw)
+                assert lib.tny_session_send(session, prompt, ctypes.byref(error)) == 0
+                drain(lib, session, error, expect_oom=False, expect_success=True)
             lib.tny_session_free(session)
             lib.tny_runtime_free(runtime)
 
@@ -580,7 +608,7 @@ def child_case(libpath, scenario, base_url, report_path):
             keep.append(raw)
             if lib.tny_session_send(session, prompt, ctypes.byref(error)) != 0:
                 die(46)
-            wait_permission(lib, session, error)
+            wait_embedded_refusal(lib, session, error)
             started = time.monotonic()
             if target_session:
                 lib.tny_session_free(session)
@@ -637,7 +665,7 @@ def child_repeat_oom(libpath, base_url):
 
 
 def child_reserved_settlement(libpath, base_url, scenario):
-    from test_libtny_custom_tools import INVOKE, TnyBytes, ToolResult, ToolSpec
+    from test_libtny_custom_tools import INVOKE, TnyBytes, ToolSpec
 
     lib = load_lib(libpath)
     instrument(lib)
@@ -676,13 +704,6 @@ def child_reserved_settlement(libpath, base_url, scenario):
                 )
                 == 0
             )
-            lib.tny_tool_call_complete.argtypes = [
-                ctypes.c_void_p,
-                ctypes.c_uint64,
-                ctypes.POINTER(ToolResult),
-                ctypes.POINTER(ctypes.c_void_p),
-            ]
-            lib.tny_tool_call_release.argtypes = [ctypes.c_void_p]
             assert (
                 lib.tny_session_create(
                     runtime, ctypes.byref(session), ctypes.byref(error)
@@ -705,18 +726,18 @@ def child_reserved_settlement(libpath, base_url, scenario):
                     kinds.append(kind)
                     lib.tny_event_free(event)
                     assert kind not in (ERROR_KIND, TERMINAL_KIND)
-                    if (scenario in ("text", "later") and kind == 0) or (
-                        scenario == "permission" and kind == PERMISSION_KIND
-                    ):
+                    assert kind != PERMISSION_KIND, "embedded refusal must not prompt"
+                    if kind == 0:
                         break
                 elif status != TIMEOUT:
                     raise AssertionError((scenario, status))
-                if scenario == "custom" and retained:
-                    break
             else:
                 raise AssertionError(
                     ("provider never reached parked state", scenario, kinds)
                 )
+
+            assert retained == [], "embedded refusal invoked a host callback"
+            assert not Path(root, "workspace", "permission.txt").exists()
 
             snapshot = {
                 path: path.read_bytes() for path in Path(root, "state").rglob("*.json")
@@ -776,19 +797,8 @@ def child_reserved_settlement(libpath, base_url, scenario):
             assert errors == [OOM], errors
             assert terminals == [4], terminals  # TNY_STOP_ERROR
             assert kinds[-2:] == [ERROR_KIND, TERMINAL_KIND]
-            if retained:
-                call, generation = retained.pop()
-                result = ToolResult()
-                result.abi_version = 1
-                result.struct_size = ctypes.sizeof(result)
-                result.data = TnyBytes(b"late", 4)
-                assert (
-                    lib.tny_tool_call_complete(
-                        call, generation, ctypes.byref(result), None
-                    )
-                    == -2
-                )
-                lib.tny_tool_call_release(call)
+            assert retained == [], "OOM settlement invoked a host callback"
+            assert not Path(root, "workspace", "permission.txt").exists()
 
         raw, prompt = as_bytes("successful retry after reserved settlement")
         keep.append(raw)
@@ -819,16 +829,20 @@ def reserved_settlement_fixture(script, libpath, scenario):
                 elif item.get("type") == "function_call_output":
                     assert item["call_id"] in pending_ids
                     pending_ids.remove(item["call_id"])
+                    assert (
+                        "unavailable for embedded host/custom callbacks; no direct fallback"
+                        in item["output"]
+                    ), item
                 elif item.get("role") == "user":
                     assert not pending_ids, (
                         "unanswered tool call before later user turn"
                     )
             assert not pending_ids
             self.server.requests += 1
-            retry = self.server.requests == (5 if scenario == "later" else 3)
-            later_body = scenario == "later" and self.server.requests % 2 == 0
+            retry = self.server.requests == (3 if scenario == "text" else 5)
+            later_body = scenario != "text" and self.server.requests % 2 == 0
             events = [{"type": "response.output_text.delta", "delta": "partial answer"}]
-            if scenario == "later" and not retry and not later_body:
+            if scenario != "text" and not retry and not later_body:
                 events = []
             if not retry and scenario != "text" and not later_body:
                 name = "write_file" if scenario == "permission" else "host_pending"
@@ -868,6 +882,7 @@ def reserved_settlement_fixture(script, libpath, scenario):
                         },
                     }
                 )
+            events = code_response_events(events)
             body = "".join(
                 "data: " + json.dumps(event) + "\n\n" for event in events
             ).encode()
@@ -880,7 +895,7 @@ def reserved_settlement_fixture(script, libpath, scenario):
                 self.server.release.clear()
             self.wfile.write(body)
             self.wfile.flush()
-            if later_body:
+            if later_body and scenario == "later":
                 assert self.server.release.wait(10)
                 tail = (
                     b'data: {"type":"response.output_text.delta","delta":"'
@@ -892,8 +907,11 @@ def reserved_settlement_fixture(script, libpath, scenario):
                     self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError):
                     pass
-            if not retry and scenario == "text":
-                # Keep a genuine streaming response open until OOM closes it.
+            if not retry and (
+                scenario == "text" or (later_body and scenario != "later")
+            ):
+                # Text stays live; other cases park after explicit code refusal.
+                # Public embedded permission/custom callback waits are unavailable.
                 self.connection.settimeout(10)
                 self.connection.recv(1)
 
@@ -913,7 +931,7 @@ def reserved_settlement_fixture(script, libpath, scenario):
             ],
             dict(os.environ),
         )
-        assert server.requests == (5 if scenario == "later" else 3)
+        assert server.requests == (3 if scenario == "text" else 5)
     finally:
         server.shutdown()
         server.server_close()
@@ -997,6 +1015,9 @@ def start_mock(**settings):
     settings.setdefault("MOCK_CONNECTION_CLOSE", "1")
     settings.setdefault("MOCK_CHUNK_WIDTH", "1048576")
     settings.setdefault("MOCK_EXPECT_WIRE", "responses")
+    # Allocation indices must not depend on a race between separately sent
+    # headers/body. Other provider/parser suites retain fragmented delivery.
+    settings.setdefault("MOCK_COALESCE_FIXED_STREAM", "1")
     env = dict(os.environ, **settings)
     mock = subprocess.Popen(
         [sys.executable, os.path.join(HERE, "mock_openai.py"), str(port)],
@@ -1097,6 +1118,21 @@ def provider_turn_sweeps(libpath):
     return counts
 
 
+def native_fault_regressions(host):
+    for test in (
+        "request_construction_oom_after_usage_skips_finalization",
+        "session_argument_rewrite_oom_preserves_original",
+    ):
+        result = subprocess.run(
+            [str(host), "-t", test], capture_output=True, text=True, timeout=60
+        )
+        sys.stdout.write(result.stdout)
+        sys.stderr.write(result.stderr)
+        assert result.returncode == 0, (test, result.returncode)
+        counts = re.findall(r"Total: (\d+) tests?", result.stdout + result.stderr)
+        assert counts and sum(map(int, counts)) >= 1, (test, "selector ran no tests")
+
+
 def main():
     if len(sys.argv) == 3 and sys.argv[1] == "--provider-sweeps-only":
         provider_turn_sweeps(os.path.abspath(sys.argv[2]))
@@ -1124,12 +1160,7 @@ def main():
     libpath = os.path.abspath(sys.argv[1])
     script = os.path.abspath(__file__)
     results = {}
-    native_host = Path(libpath).with_name("provider-faults")
-    for test in (
-        "decoder_oom_mid_stream",
-        "request_construction_oom",
-    ):
-        subprocess.run([str(native_host), "-t", test], check=True, timeout=60)
+    native_fault_regressions(Path(libpath).with_name("provider-faults"))
     results.update(provider_turn_sweeps(libpath))
     for scenario in ("text", "permission", "custom", "later"):
         reserved_settlement_fixture(script, libpath, scenario)

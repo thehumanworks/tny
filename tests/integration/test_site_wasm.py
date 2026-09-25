@@ -4,7 +4,7 @@
 Serves site/ plus the built web artifact, opens the page in headless
 Chromium, feeds a key through the URL hash, and asserts:
   * the real TUI banner paints inside xterm.js,
-  * one full turn streams from mock_openai.py (tool call included),
+  * one no-tool turn streams from mock_openai.py,
   * /quit exits the binary cleanly.
 
 Requires playwright (python) and a chromium; skips with exit 0 when either
@@ -70,7 +70,12 @@ def main():
         mport = free_port()
         mock = subprocess.Popen(
             [sys.executable, MOCK, str(mport)],
-            env=dict(os.environ, MOCK_EXPECT_WIRE="responses", MOCK_CLEAN_EOF="1"),
+            env=dict(
+                os.environ,
+                MOCK_EXPECT_WIRE="responses",
+                MOCK_CLEAN_EOF="1",
+                MOCK_NO_TOOLS="1",
+            ),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )

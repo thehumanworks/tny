@@ -246,6 +246,136 @@ int main() { return 0; }
             self.assertTrue((self.root / f"build/lib/libtny.{suffix}").exists())
             self.run_command([str(self.root / "build/consumer")])
 
+    def test_allocator_aliases_follow_gnu_scheduler_declarations(self):
+        # Model musl sched.h's repeated calloc declaration on every host. Use
+        # the production allocator header, then prove removing its early
+        # scheduler include makes this same fixture fail compilation.
+        for name in ("alloc.h", "alloc_override.h"):
+            self.write(f"src/util/{name}", (ROOT / f"src/util/{name}").read_text())
+        self.write(
+            "headers/sched.h",
+            "#ifndef FIXTURE_SCHED_H\n#define FIXTURE_SCHED_H\n"
+            "#include <stddef.h>\nvoid *calloc(size_t, size_t);\n#endif\n",
+        )
+        self.write(
+            "scheduler.c",
+            "#include <sched.h>\nvoid *probe(void) { return calloc(1, 16); }\n",
+        )
+        command = [
+            *shlex.split(os.environ.get("CC", "cc")),
+            "-std=c11",
+            "-Werror",
+            "-D_GNU_SOURCE",
+            "-Iheaders",
+            "-Isrc",
+            "-include",
+            "src/util/alloc_override.h",
+            "-fsyntax-only",
+            "scheduler.c",
+        ]
+        self.run_command(command)
+        header = self.root / "src/util/alloc_override.h"
+        original = header.read_text()
+        self.assertIn("#include <sched.h>", original)
+        try:
+            header.write_text(original.replace("#include <sched.h>", ""))
+            broken = subprocess.run(
+                command,
+                cwd=self.root,
+                env=self.child_environment(),
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(broken.returncode, 0)
+            self.assertIn("calloc", broken.stderr)
+        finally:
+            header.write_text(original)
+
+    def test_allocator_and_vendor_lanes_preserve_other_forced_headers(self):
+        self.write(
+            "src/util/cxx_glibc_floor.h",
+            (ROOT / "src/util/cxx_glibc_floor.h").read_text(),
+        )
+        self.write("src/util/alloc.c", "int allocator_probe(void) { return 0; }\n")
+        self.write("third_party/probe.c", "int vendor_probe(void) { return 0; }\n")
+        lanes = ("pic", "fault-pic", "fault-san-pic", "tsan-pic", "fuzz-libfuzzer/obj")
+        targets = [
+            f"build/{lane}/{name}.o"
+            for lane in lanes
+            for name in ("src/util/alloc", "third_party/probe")
+        ]
+        output = self.make(
+            "-n",
+            "-B",
+            *targets,
+            "UNAME_S=Linux",
+            "UNAME_M=x86_64",
+            "CC=fixture-cc",
+            "CXX=fixture-cxx",
+            "FUZZ_CC=fixture-cc",
+        )
+        commands = [
+            shlex.split(line)
+            for line in output.splitlines()
+            if line.startswith("fixture-cc ") and " -c " in line
+        ]
+        self.assertEqual(len(commands), len(targets))
+        for command in commands:
+            with self.subTest(target=command[command.index("-o") + 1]):
+                guard = command.index("src/util/cxx_glibc_floor.h")
+                self.assertEqual(command[guard - 1], "-include")
+                self.assertNotIn("src/util/alloc_override.h", command)
+                self.assertEqual(command.count("-include"), 1)
+
+        # Compile both actual pattern-rule paths, not just inspect strings.
+        self.make(*targets[:2], "UNAME_S=Linux", "UNAME_M=x86_64")
+
+    def test_linux_c_and_cpp_share_early_glibc_compatibility_flags(self):
+        # Use the real compatibility header, not a fixture transcription. The
+        # host can be macOS: the Linux command graph is checked without linking.
+        self.write(
+            "src/util/cxx_glibc_floor.h",
+            (ROOT / "src/util/cxx_glibc_floor.h").read_text(),
+        )
+        output = self.make(
+            "-n",
+            "-B",
+            "release",
+            "lib-shared-fault",
+            "UNAME_S=Linux",
+            "UNAME_M=x86_64",
+            "CC=fixture-cc",
+            "CXX=fixture-cxx",
+        )
+        commands = [
+            shlex.split(line)
+            for line in output.splitlines()
+            if line.startswith(("fixture-cc ", "fixture-cxx ")) and " -c " in line
+        ]
+        self.assertTrue(any(cmd[0] == "fixture-cc" for cmd in commands))
+        self.assertTrue(any(cmd[0] == "fixture-cxx" for cmd in commands))
+        self.assertTrue(any("-DTNY_ALLOC_TESTING=1" in cmd for cmd in commands))
+        for command in commands:
+            self.assertIn("-D_GNU_SOURCE", command)
+            guard = command.index("src/util/cxx_glibc_floor.h")
+            self.assertEqual(command[guard - 1], "-include")
+            if "src/util/alloc_override.h" in command:
+                self.assertLess(guard, command.index("src/util/alloc_override.h"))
+
+        # Also compile the real C/C++ probes through the host's Make graph.
+        # On modern glibc this rejects accidental C23 opt-in before linking.
+        probe = self.root / "src/util/probe.c"
+        probe.write_text(
+            "#include <stdlib.h>\n"
+            "#if defined(__GLIBC__) && "
+            "((defined(__GLIBC_USE_ISOC23) && __GLIBC_USE_ISOC23) || "
+            "(defined(__GLIBC_USE_ISOC2X) && __GLIBC_USE_ISOC2X))\n"
+            "#error Shipped native C must retain the pre-C23 libc ABI\n"
+            "#endif\n" + probe.read_text()
+        )
+        self.make("release", "SANITIZE=0")
+        self.run_command([str(self.root / "build/tny")])
+
     def test_lto_exempt_cpp_object_links_into_the_lto_executable(self):
         # ADR 0122: a listed private C++ module compiles to a native object
         # while every other object and the executable link keep LTO. The

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""C ABI ACP availability, command lifetime and sync/async custom-tool roundtrips."""
+"""C ABI ACP command/event ownership and explicit embedded code refusal."""
 
 from __future__ import annotations
 
@@ -109,6 +109,8 @@ def bind(library):
         "tny_event_get_kind": ([ctypes.c_void_p], ctypes.c_uint32),
         "tny_event_stop_reason": ([ctypes.c_void_p], ctypes.c_uint32),
         "tny_event_tool_ok": ([ctypes.c_void_p], ctypes.c_uint32),
+        "tny_event_tool_name": ([ctypes.c_void_p], TnyBytes),
+        "tny_event_tool_detail": ([ctypes.c_void_p], TnyBytes),
         "tny_event_error_code": ([ctypes.c_void_p], ctypes.c_int32),
         "tny_event_text": ([ctypes.c_void_p], TnyBytes),
         "tny_event_cost_currency": ([ctypes.c_void_p], TnyBytes),
@@ -164,6 +166,11 @@ def run_case(
             ]
         ),
     )
+    if cancel:
+        # Cancellation/OOM remain actual active-provider tests. No model-owned
+        # custom callback can be pending under the embedded refusal contract.
+        env["ACP_FIXTURE_MODE"] = "cancel"
+        env["ACP_FIXTURE_CALLS"] = "[]"
     if guarded:
         env.update(
             TNY_ACP_REQUIRE_TOOLS_AUTHORITY="1",
@@ -305,16 +312,16 @@ def run_case(
                 check(lib.tny_session_send(session, prompt, ctypes.byref(error)))
                 assert raw
                 terminal, tool_ends = 0, 0
+                cancel_ready = False
                 cancelled = False
                 deadline = time.monotonic() + 15
                 while time.monotonic() < deadline:
-                    if cancel and invocations and not cancelled:
+                    if cancel and cancel_ready and not cancelled:
                         if oom:
                             os.environ["TNY_TEST_ALLOC_SCOPE"] = "next_event"
                             os.environ["TNY_TEST_ALLOC_FAIL_AT"] = "1"
                             release.set()
-                        else:
-                            check(lib.tny_session_cancel(session, ctypes.byref(error)))
+                        check(lib.tny_session_cancel(session, ctypes.byref(error)))
                         cancelled = True
                     event = ctypes.c_void_p()
                     status = lib.tny_session_next_event(
@@ -346,9 +353,22 @@ def run_case(
                         elif kind == 3:
                             tool_ends += 1
                             if not cancel:
-                                assert bool(lib.tny_event_tool_ok(event)) == (
-                                    not tool_error
+                                name = lib.tny_event_tool_name(event)
+                                detail = lib.tny_event_tool_detail(event)
+                                assert (
+                                    ctypes.string_at(name.ptr, name.len) == b"run_code"
                                 )
+                                refusal = ctypes.string_at(detail.ptr, detail.len)
+                                assert not lib.tny_event_tool_ok(event)
+                                assert b"execution server unavailable" in refusal, (
+                                    refusal
+                                )
+                                assert b"no direct fallback" in refusal, refusal
+                        elif kind == 0:
+                            text = lib.tny_event_text(event)
+                            cancel_ready |= b"CANCEL-READY" in ctypes.string_at(
+                                text.ptr, text.len
+                            )
                         elif kind == 6:
                             retained_usage.append(event)
                             event = None
@@ -372,32 +392,26 @@ def run_case(
                 thread.join(timeout=2)
                 assert not thread.is_alive()
             assert not callback_errors, callback_errors
-            assert invocations == [{"value": "hello"}] * (1 if cancel else 2), (
-                invocations
+            assert invocations == [] and completions == [] and threads == [], (
+                invocations,
+                completions,
+                threads,
             )
-            if asynchronous:
-                assert completions == ([0] if oom else [-2] if cancel else [0, 0]), (
-                    completions
-                )
             facts = json.loads(state.read_text())
             assert facts["argv"] == ["SDK argument with spaces", ""]
             assert facts["model_at_prompt"] == "selected-model"
-            advertised = next(
-                tool for tool in facts["tools"] if tool["name"] == "host_echo"
-            )
-            assert advertised == {
-                "name": "host_echo",
-                "description": "ACP host callback fixture",
-                "inputSchema": CUSTOM_SCHEMA,
-            }, advertised
+            assert [tool["name"] for tool in facts["tools"]] == ["run_code"], facts[
+                "tools"
+            ]
             if not cancel:
-                assert (
-                    bool(facts["tool_results"][0]["result"].get("isError"))
-                    == tool_error
-                )
-                assert result_bytes.decode() in json.dumps(facts["tool_results"]), (
-                    facts["tool_results"]
-                )
+                results = facts["tool_results"]
+                assert results and results[0]["result"].get("isError"), results
+                assert "execution server unavailable" in json.dumps(results), results
+                assert "no direct fallback" in json.dumps(results), results
+            assert list(workspace.iterdir()) == [], (
+                "refused model call changed workspace"
+            )
+
         finally:
             release.set()
             if session.value:
@@ -450,7 +464,7 @@ def main():
                 guarded=True,
             )
         print(
-            "PASS plain/guarded ACP pending custom-tool OOM settles without allocation or late tool events"
+            "PASS plain/guarded ACP active-turn OOM settles without allocation or host callback effects"
         )
         return
     suffix = "libtny.1.dylib" if platform.system() == "Darwin" else "libtny.so.1"
@@ -468,7 +482,7 @@ def main():
         run_case(lib, Path(temporary) / "sync-error", False, tool_error=True)
         run_case(lib, Path(temporary) / "async-error", True, tool_error=True)
     print(
-        "PASS libtny ACP copied argv, exact custom schema, sync/async/cancel and repeated turns"
+        "PASS libtny ACP copied argv, code-only embedded refusal, cancellation and retained usage across repeated turns"
     )
 
 

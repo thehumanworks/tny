@@ -1,5 +1,20 @@
 # libtny embedding API
 
+> **Execution-server compatibility:** public embedded agent tools and standalone
+> SDK `optimise` / `optimize` are currently unsupported. Optimisation refuses
+> before provider, credential or workspace I/O; it never launches the Python/Node
+> host as an execution server. Native CLI/TUI optimisation and the other
+> standalone toolkit services remain available. See [ADR 0174](adr/0174-execution-server-code-mode.md).
+
+Agent tool execution is currently unavailable in library-hosted sessions under
+[ADR 0174](adr/0174-execution-server-code-mode.md): `run_code` fails closed
+rather than executing inside the embedding process. Installing a matching CLI
+does not enable this path. Custom-tool and host-service callback registration
+APIs retain their ABI, but their callbacks are not invoked by this execution
+path. No-tool inference and standalone SDK toolkit services remain separate.
+See the [execution evidence](verification/execution-code-mode/evidence.md) for
+verified coverage and remaining gates.
+
 ABI 1.2 also exposes [standalone toolkit jobs](sdk-toolkit.md) for images,
 speech, transcription, and prompt optimisation, independent of runtime/session
 handles. Existing ABI 1.0/1.1 records, symbols, and defaults remain compatible.
@@ -376,8 +391,10 @@ model="sonnet", ...)`; TypeScript accepts
 `Runtime.create({provider: "acp", acpCommand: ["claude-agent-acp"],
 model: "sonnet", ...})`. Set `TNY_ACP_BRIDGE_EXECUTABLE` to the absolute
 path of the matching `tny` binary so the external agent can connect to the owning
-runtime's MCP tools. The bridge carries registered SDK tools including async
-completion through the same runtime dispatch. Credentials remain owned by the
+runtime's MCP bridge. It exposes `run_code`, but library-hosted execution
+currently fails explicitly before invoking registered SDK callbacks, including
+async callbacks. No matching-executable setting enables those tool calls.
+Credentials remain owned by the
 external executable. ACP reasoning effort requires a matching advertised thought-level option;
 native HTTP fast-tier controls are unavailable. Session resumption depends on the adapter's advertised load
 capability; native mid-turn checkpoint restart is unavailable.

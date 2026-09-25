@@ -52,6 +52,9 @@ Env knobs:
                       send complete responses with Connection: close
   MOCK_CHUNK_WIDTH    responses wire HTTP chunk width (default 17); a value at
                       least as large as the body selects Content-Length
+  MOCK_COALESCE_FIXED_STREAM=1
+                      write fixed-length SSE headers and body together; only
+                      allocation sweeps use this scheduling control
   MOCK_CUSTOM_TOOL    request this custom tool once, then validate its output
   MOCK_CUSTOM_ARGUMENTS
                       JSON arguments for MOCK_CUSTOM_TOOL
@@ -119,6 +122,7 @@ Usage: mock_openai.py [port] [certfile keyfile]
 With certfile/keyfile the mock serves HTTPS (used by test_https.py).
 """
 
+import io
 import json
 import os
 import select
@@ -130,6 +134,8 @@ import sys
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from code_mode_fixture import code_call, code_chat_frames, code_response_events
 
 EXPECT_WIRE = os.environ.get("MOCK_EXPECT_WIRE")
 EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
@@ -151,6 +157,7 @@ ERROR_SECRET = os.environ.get("MOCK_ERROR_SECRET", "mock status failure")
 TRUNCATED_TERMINAL = os.environ.get("MOCK_TRUNCATED_TERMINAL") == "1"
 DROP_REUSED_ONCE = os.environ.get("MOCK_DROP_REUSED_ONCE") == "1"
 CONNECTION_CLOSE = os.environ.get("MOCK_CONNECTION_CLOSE") == "1"
+COALESCE_FIXED_STREAM = os.environ.get("MOCK_COALESCE_FIXED_STREAM") == "1"
 CHUNK_WIDTH = int(os.environ.get("MOCK_CHUNK_WIDTH", "17"))
 if CHUNK_WIDTH < 1:
     raise ValueError("MOCK_CHUNK_WIDTH must be positive")
@@ -299,6 +306,7 @@ def validate_instructions(instructions):
 
 
 def validate_shell_result(text):
+    text = text.removesuffix("\n")  # one newline from the fixture code print
     need(
         text.startswith("exit: 7\nbytes: 9000\ncwd: "),
         f"bad shell result header: {text[:120]!r}",
@@ -490,6 +498,26 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
         self.end_headers()
 
+    def _fixed_stream(self, wire):
+        if COALESCE_FIXED_STREAM:
+            # Fault-index discovery must not race a separately flushed header
+            # and body. One small loopback write makes the complete response
+            # available together. Default fixtures still split arbitrarily.
+            writer = self.wfile
+            buffered = io.BytesIO()
+            try:
+                self.wfile = buffered
+                self._start_stream(len(wire))
+                self.wfile.write(wire)
+            finally:
+                self.wfile = writer
+            self.wfile.write(buffered.getvalue())
+        else:
+            self._start_stream(len(wire))
+            self.wfile.write(wire)
+        self.wfile.flush()
+        self._finish_close()
+
     def do_GET(self):
         url = urllib.parse.urlsplit(self.path)
         if url.path.endswith("/models"):
@@ -553,6 +581,47 @@ class Handler(BaseHTTPRequestHandler):
             with open(HEADER_LOG, "a") as log:
                 for name in LOG_HEADERS:
                     log.write(f"{name}={self.headers.get(name, '')}\n")
+        if os.environ.get("MOCK_NO_TOOLS") == "1":
+            chat = self.path.endswith("/chat/completions")
+            validate_instructions(
+                req["messages"][0]["content"] if chat else req.get("instructions")
+            )
+            names = [
+                tool.get("function", tool).get("name") for tool in req.get("tools", [])
+            ]
+            need(names == ["run_code"], f"unexpected tool surface: {names}")
+            if chat:
+                pieces = [
+                    sse(
+                        {
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": "MOCK-OK"},
+                                    "finish_reason": "stop",
+                                }
+                            ]
+                        }
+                    ),
+                    b"data: [DONE]\n\n",
+                ]
+            else:
+                pieces = [
+                    sse_typed(
+                        {"type": "response.output_text.delta", "delta": "MOCK-OK"}
+                    ),
+                    sse_typed(
+                        {
+                            "type": "response.completed",
+                            "response": {"status": "completed"},
+                        }
+                    ),
+                ]
+            self._start_stream()
+            for piece in pieces:
+                self._chunk(piece)
+            self._chunk(b"")
+            return
         if HTTP_STATUS:
             self._json(HTTP_STATUS, {"error": {"message": ERROR_SECRET}})
             return
@@ -703,7 +772,7 @@ class Handler(BaseHTTPRequestHandler):
             need("function" in t, "chat tools must nest under function")
         if EXPECT_TOOL_NAMES is not None:
             actual = {t["function"]["name"] for t in req.get("tools", [])}
-            expected = set(EXPECT_TOOL_NAMES.split(",")) if EXPECT_TOOL_NAMES else set()
+            expected = {"run_code"}
             need(
                 actual == expected,
                 f"tool names are {sorted(actual)}, want {sorted(expected)}",
@@ -721,7 +790,7 @@ class Handler(BaseHTTPRequestHandler):
         if has_tool_result and EXPECT_TOOL_OUTPUT is not None:
             tool_msg = next(m for m in msgs if m.get("role") == "tool")
             need(
-                tool_msg.get("content") == EXPECT_TOOL_OUTPUT,
+                tool_msg.get("content", "").removesuffix("\n") == EXPECT_TOOL_OUTPUT,
                 f"effective tool output is {tool_msg.get('content')!r}, "
                 f"want {EXPECT_TOOL_OUTPUT!r}",
             )
@@ -1102,21 +1171,30 @@ class Handler(BaseHTTPRequestHandler):
                     "usage": {"prompt_tokens": 200, "completion_tokens": 20},
                 }
             )
+        frames = code_chat_frames(frames)
         if ERROR_NULL:
             for f in frames:
                 f["error"] = None
         cut_call = None if has_tool_result else self._take_cut("call")
         if cut_call:
-            wire = b"".join(sse(f) for f in frames)
-            self._cut(wire[: wire.find(b"\n\n", wire.find(b'{\\"pa')) + 2], cut_call)
+            # Stop after the first actual code-argument fragment. The nested
+            # JSON is escaped twice, so searching for an old path literal no
+            # longer locates the stream boundary reliably.
+            partial = []
+            for frame in frames:
+                partial.append(sse(frame))
+                if any(
+                    call.get("function", {}).get("arguments")
+                    for choice in frame.get("choices", [])
+                    for call in choice.get("delta", {}).get("tool_calls", [])
+                ):
+                    break
+            self._cut(b"".join(partial), cut_call)
             return
         pieces = [*(sse(f) for f in frames), b"data: [DONE]\n\n"]
         if CONNECTION_CLOSE and not DROP_REUSED_ONCE:
             wire = b"".join(pieces)
-            self._start_stream(len(wire))
-            self.wfile.write(wire)
-            self.wfile.flush()
-            self._finish_close()
+            self._fixed_stream(wire)
         else:
             self._start_stream()
             for piece in pieces:
@@ -1144,12 +1222,8 @@ class Handler(BaseHTTPRequestHandler):
         need(isinstance(items, list) and items, "input items missing")
         for t in req.get("tools", []):
             need(
-                (t.get("type") == "function" and "name" in t and "function" not in t)
-                or (
-                    t == {"type": "web_search", "external_web_access": True}
-                    and self.headers.get("OpenAI-Beta") == "responses=v1"
-                ),
-                f"responses tools must be flat functions or pinned ChatGPT hosted search: {t}",
+                (t.get("type") == "function" and "name" in t and "function" not in t),
+                f"responses tools must be flat functions: {t}",
             )
             if t.get("type") == "function":
                 need(
@@ -1158,7 +1232,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
         if EXPECT_TOOL_NAMES is not None:
             actual = {t.get("name", t["type"]) for t in req.get("tools", [])}
-            expected = set(EXPECT_TOOL_NAMES.split(",")) if EXPECT_TOOL_NAMES else set()
+            expected = {"run_code"}
             need(
                 actual == expected,
                 f"tool names are {sorted(actual)}, want {sorted(expected)}",
@@ -1224,7 +1298,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         if outputs and EXPECT_TOOL_OUTPUT is not None:
             need(
-                outputs[0].get("output") == EXPECT_TOOL_OUTPUT,
+                outputs[0].get("output", "").removesuffix("\n") == EXPECT_TOOL_OUTPUT,
                 f"effective tool output is {outputs[0].get('output')!r}, "
                 f"want {EXPECT_TOOL_OUTPUT!r}",
             )
@@ -1481,7 +1555,7 @@ class Handler(BaseHTTPRequestHandler):
                     f"custom call not echoed exactly: {sorted(calls)}",
                 )
                 need(
-                    calls["custom_1"].get("name") == CUSTOM_TOOL,
+                    calls["custom_1"].get("name") == "run_code",
                     f"custom tool name changed: {calls['custom_1']}",
                 )
                 need(
@@ -1502,17 +1576,18 @@ class Handler(BaseHTTPRequestHandler):
                     set(calls) == {"call_1", "call_2"},
                     f"function_call items not echoed exactly: {sorted(calls)}",
                 )
-                expected_call_1 = (
-                    '{"path":"."}' if EXPECT_EXTENSION_REWRITE else '{"path": "."}'
-                )
+                # Nested rewrites change the nested call, not the code source.
+                expected_call_1 = '{"path": "."}'
                 need(
-                    calls["call_1"].get("name") == "list_files"
-                    and calls["call_1"].get("arguments") == expected_call_1,
+                    calls["call_1"].get("name") == "run_code"
+                    and calls["call_1"].get("arguments")
+                    == code_call("list_files", expected_call_1)[1],
                     f"call_1 mangled: {calls['call_1']}",
                 )
                 need(
-                    calls["call_2"].get("name") == "glob_files"
-                    and calls["call_2"].get("arguments") == '{"pattern": "*.txt"}',
+                    calls["call_2"].get("name") == "run_code"
+                    and calls["call_2"].get("arguments")
+                    == code_call("glob_files", '{"pattern": "*.txt"}')[1],
                     f"call_2 mangled: {calls['call_2']}",
                 )
                 need(
@@ -1592,6 +1667,7 @@ class Handler(BaseHTTPRequestHandler):
         # HTTP/1.1 connection valid and reusable; otherwise every SDK scenario
         # pays the platform's stale-socket retry deadline. One explicit fixture
         # mode retains the abrupt, unterminated close regression.
+        events = code_response_events(events)
         wire = b"".join(sse_typed(e) for e in events)
         cut_call = None if outputs else self._take_cut("call")
         if cut_call:
@@ -1612,10 +1688,7 @@ class Handler(BaseHTTPRequestHandler):
             # deadline. Large-chunk CI mode does not exercise split boundaries
             # anyway, and the reusable connection remains valid. Default and
             # dedicated transport fixtures retain chunked boundary coverage.
-            self._start_stream(len(wire))
-            self.wfile.write(wire)
-            self.wfile.flush()
-            self._finish_close()
+            self._fixed_stream(wire)
         else:
             self._start_stream()
             for i in range(0, len(wire), CHUNK_WIDTH):

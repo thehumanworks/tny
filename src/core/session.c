@@ -406,6 +406,8 @@ int session_reload_locked(tny_session_state *s, char *err, size_t errsz) {
 }
 
 int session_save(tny_session_state *s) {
+    if (s->execution_snapshot)
+        return s->execution_save ? s->execution_save(s->execution_save_ud) : -1;
     if (s->ctx->no_save) return 0;
     char *ts = now_iso8601();
     if (!ts || !put_str(s, "updated", ts)) {
@@ -1049,7 +1051,7 @@ const char *session_message_display(tny_session_state *s, int message_index) {
 
 void session_replace_tool_arguments(tny_session_state *s, const char *tool_call_id,
                                     const char *arguments_json) {
-    if (!s || !tool_call_id || !arguments_json) return;
+    if (!s || !tool_call_id || !arguments_json || tny_alloc_scope_failed()) return;
     yyjson_mut_val *messages = session_messages(s);
     size_t count = yyjson_mut_arr_size(messages);
     size_t i = count;
@@ -1066,9 +1068,16 @@ void session_replace_tool_arguments(tny_session_state *s, const char *tool_call_
             const char *value = id ? yyjson_mut_get_str(id) : NULL;
             if (!value || strcmp(value, tool_call_id) != 0) continue;
             yyjson_mut_val *function = yyjson_mut_obj_get(call, "function");
-            if (yyjson_mut_is_obj(function))
-                yyjson_mut_obj_put(function, yyjson_mut_strcpy(s->doc, "arguments"),
-                                   yyjson_mut_strcpy(s->doc, arguments_json));
+            if (yyjson_mut_is_obj(function)) {
+                /* A NULL value makes yyjson_mut_obj_put remove the old member.
+                 * Allocate both nodes before publishing so OOM preserves the
+                 * original call for recovery and subsequent provider requests. */
+                yyjson_mut_val *key = yyjson_mut_strcpy(s->doc, "arguments");
+                if (!key) return;
+                yyjson_mut_val *replacement = yyjson_mut_strcpy(s->doc, arguments_json);
+                if (!replacement || tny_alloc_scope_failed()) return;
+                yyjson_mut_obj_put(function, key, replacement);
+            }
             return;
         }
     }

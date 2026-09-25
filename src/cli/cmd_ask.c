@@ -964,10 +964,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     st.events = events;
     st.quiet = quiet;
 
-    /* MCP servers warm on detached threads while the provider connects
-     * (docs/adr/0049). Native loop only. */
-    if (ctx->backend == TNY_BK_OPENAI) mcp_warm_start(ctx);
-
     if (continue_recovery && session) {
         char *rec = session_recovery_read(session);
         if (rec) {

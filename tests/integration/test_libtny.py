@@ -230,6 +230,7 @@ def run_ctypes(
     api_key="test-key-not-real",
     expect_send_error=None,
     persistence=1,
+    tool_observations=None,
 ):
     lib = load_lib(libpath)
 
@@ -485,6 +486,19 @@ def run_ctypes(
             if kind == 0:
                 view = lib.tny_event_text(event)
                 output.extend(ctypes.string_at(view.ptr, view.len))
+            elif kind in (2, 3) and tool_observations is not None:
+                tool_observations.append(
+                    {
+                        "kind": kind,
+                        "name": ctypes.string_at(
+                            view.tool_name.ptr, view.tool_name.len
+                        ),
+                        "ok": bool(view.tool_ok),
+                        "detail": ctypes.string_at(
+                            view.tool_detail.ptr, view.tool_detail.len
+                        ),
+                    }
+                )
             elif kind == 4:
                 saw_permission = True
                 request_id = lib.tny_event_permission_id(event)
@@ -560,6 +574,18 @@ def run_ctypes(
                     cancelled = lib.tny_event_stop_reason(event)
                 lib.tny_event_free(event)
         assert cancelled == 1
+    if tool_observations is not None and not saw_permission:
+        # Refused model execution must leave no parked approval authority.
+        stale_raw, stale_id = as_bytes("refused-code-has-no-permission")
+        keep.append(stale_raw)
+        stale_error = ctypes.c_void_p()
+        assert (
+            lib.tny_session_respond_permission(
+                session, stale_id, 2, ctypes.byref(stale_error)
+            )
+            == -2
+        )
+        lib.tny_error_free(stale_error)
     lib.tny_session_free(session)
     lib.tny_runtime_free(runtime)
     # All published pointers survive later turns, cancellation and parent teardown.
@@ -1230,18 +1256,51 @@ def main():
     finally:
         stop_mock(mock)
 
-    # Public ask mode parks a sensitive native call until the embedder answers.
-    stage("permission parking")
-    mock, port = start_mock(MOCK_EXPECT_WIRE="responses", MOCK_SENSITIVE="1")
+    # Model-facing code is the sole tool surface. Embedded host callbacks have
+    # no execution-server transport, so a write request must fail explicitly
+    # before permission or filesystem effects; model streaming still completes.
+    stage("embedded code-only execution refusal")
+    unsupported = "error: execution server unavailable for embedded host/custom callbacks; no direct fallback"
+    mock, port = start_mock(
+        MOCK_EXPECT_WIRE="responses",
+        MOCK_SENSITIVE="1",
+        MOCK_EXPECT_TOOL_NAMES="run_code",
+        MOCK_EXPECT_TOOL_OUTPUT=unsupported,
+    )
     try:
         with tempfile.TemporaryDirectory() as root:
             workspace = os.path.join(root, "workspace")
             state = os.path.join(root, "state")
             os.makedirs(workspace)
+            os.makedirs(state)
+            workspace_sentinel = os.path.join(workspace, "keep.txt")
+            state_sentinel = os.path.join(state, "host-owned-state.txt")
+            for path in (workspace_sentinel, state_sentinel):
+                with open(path, "wb") as stream:
+                    stream.write(b"preserve embedded owner state\n")
+            tools = []
+            started = time.monotonic()
             output, permission, stop, errors = run_ctypes(
-                libpath, f"http://127.0.0.1:{port}/v1", workspace, state
+                libpath,
+                f"http://127.0.0.1:{port}/v1",
+                workspace,
+                state,
+                tool_observations=tools,
             )
-            assert permission and not output and stop == 2 and not errors
+            assert time.monotonic() - started < TURN_TIMEOUT
+            assert output == b"PERMISSION-OK " + unsupported.encode(), output
+            assert not permission and stop == 0 and not errors
+            assert [(event["kind"], event["name"]) for event in tools] == [
+                (2, b"run_code"),
+                (3, b"run_code"),
+            ], tools
+            assert (
+                not tools[-1]["ok"] and tools[-1]["detail"] == unsupported.encode()
+            ), tools
+            assert os.listdir(workspace) == ["keep.txt"]
+            for path in (workspace_sentinel, state_sentinel):
+                with open(path, "rb") as stream:
+                    assert stream.read() == b"preserve embedded owner state\n"
             assert not os.path.exists(os.path.join(workspace, "permission.txt"))
     finally:
         stop_mock(mock)

@@ -10,6 +10,8 @@ import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from code_mode_fixture import code_chat_frames
+
 TNY = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("TNY", "build/tny")
 
 
@@ -25,6 +27,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
 
     def _stream(self, frames):
+        frames = code_chat_frames(frames)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Transfer-Encoding", "chunked")
@@ -122,6 +125,7 @@ def main():
             HOME=home,
             TMPDIR=temp_dir,
             OPENAI_API_KEY="sandbox-fixture-not-real",
+            TNY_TOOLS="all",
         )
         base = f"http://127.0.0.1:{server.server_port}/v1"
         try:
@@ -163,7 +167,7 @@ def main():
 
             run("inside")
             assert open(inside).read() == "sandbox-ok"
-            assert "exit code: 0" in Handler.results["inside"]
+            assert "exit code: 0" in Handler.results["inside"], Handler.results
 
             run("outside")
             assert not os.path.exists(outside)

@@ -4,18 +4,18 @@ frozen task set, for the shell-first decision in ADR 0057 (issue #103).
 
 Arms are the `tools` profiles, one per run via TNY_TOOLS:
 
-    all             the complete structured schema (today's default)
+    all             the complete nested tool catalog (today's default)
     terminal+edit   terminal, edit_file, read_image (+ ask_user_question)
     terminal        terminal, read_image only
 
 Every run copies a fixture repo from tests/bench/fixtures/tools/<task>/ into a
 fresh scratch directory, feeds `task.md` to `tny ask -B --json --stdin`, waits
 with `tny session ID --wait --timeout --json`, and scores the scratch with the
-fixture's `check.sh` (exit 0 = pass). The session document carries the whole
-transcript, so the harness measures steps, tool calls, token usage, repair
-loops (a tool call issued after a nonzero-exit tool result) and edit-method
-drift (`sed -i`/heredoc writes versus `tny edit`/`edit_file`) without a second
-provider call.
+fixture's `check.sh` (exit 0 = pass). Runtime result records measure nested
+tool names and effective status; the transcript separately measures provider
+run_code calls. Steps and token usage remain session measurements. Nested
+arguments/results are not retained in this trace, so repair loops and shell
+edit styles are unavailable (JSON null, Markdown N/A), never inferred from Lua.
 
 Usage:
   bench_tools.py --dry-run
@@ -33,7 +33,6 @@ solution.sh, so CI can smoke the whole pipeline (see docs/ci.md).
 import argparse
 import json
 import os
-import re
 import shutil
 import socket
 import statistics
@@ -49,23 +48,7 @@ ARMS = ("all", "terminal+edit", "terminal")
 # fixture bookkeeping never copied into the workspace the model sees
 FIXTURE_META = ("task.md", "check.sh", "check.py", "family", "solution.sh")
 
-# a terminal command that mutates a file without an exact-match editor
-SHELL_WRITE = re.compile(
-    r"""(?x)
-    \bsed\s+-i\b
-  | \bperl\s+-[a-zA-Z]*i
-  | \bex\s+-s\b
-  | <<-?\s*['"]?\w*EOF
-  | \b(?:cat|tee|printf|echo)\b[^|;&]*>{1,2}\s*\S
-  | \bpython3?\s+-c\b[^;|&]*\bopen\(
-  | \bawk\b[^|;&]*>{1,2}\s*\S
-""",
-)
-# `tny edit FILE`, but not the `tny edit --help` probe a model may make first
-TNY_EDIT = re.compile(r"\btny\b[^|;&]*\bedit\b(?![^|;&]*(?:--help|\s-h\b))")
 STRUCTURED_EDIT = {"edit_file", "write_file", "apply_patch", "create_file"}
-# the shell-profile terminal result opens `exit: N`; `all` opens `exit code: N`
-EXIT_LINE = re.compile(r"^exit(?: code)?:\s*(-?\d+)", re.M)
 
 
 # ------------------------------------------------------------------- fixtures
@@ -169,70 +152,53 @@ def start_mock(task, effort):
 
 
 # ------------------------------------------------------------------- measuring
-def classify(messages):
-    """Walk the transcript once for tool names, repair loops and edit method.
+def classify(messages, runtime_calls):
+    """Count observed nested operation records, independently of model wrappers.
 
-    A repair loop is a tool call issued straight after a nonzero-exit result.
-    In the shell arms a plain `grep` miss or a missing `rg` also exits nonzero,
-    so `failures` keeps the command and the head of its output: the ADR reads
-    the two apart rather than treating every nonzero exit as a mistake."""
-    m = {
-        "tool_calls": 0,
-        "terminal_calls": 0,
-        "repair_loops": 0,
-        "edit_tny_edit": 0,
-        "edit_structured": 0,
-        "edit_shell_write": 0,
-        "tool_names": {},
-        "failed_results": 0,
-        "failures": [],
+    Runtime status records include refused/failed operations as well as successful
+    ones. They do not retain nested arguments, command exit codes or result text;
+    those unavailable details cannot establish repair loops or shell edit style.
+    """
+    provider_names = [
+        (call.get("function") or {}).get("name") or call.get("name")
+        for msg in messages
+        if msg.get("role") == "assistant"
+        for call in msg.get("tool_calls") or []
+    ]
+    metrics = {
+        "provider_tool_calls": len(provider_names),
+        "provider_code_calls": provider_names.count("run_code"),
+        "tool_calls": None,
+        "terminal_calls": None,
+        "repair_loops": None,
+        "edit_tny_edit": None,
+        "edit_structured": None,
+        "edit_shell_write": None,
+        "tool_names": None,
+        "failed_results": None,
+        "failures": None,
+        "trace_details": "nested arguments and result text unavailable",
+        "execution_detail_available": False,
     }
-    commands = {}
-    prev_failed = False
-    for msg in messages:
-        role = msg.get("role")
-        if role == "assistant" and msg.get("tool_calls"):
-            for call in msg["tool_calls"]:
-                fn = call.get("function") or {}
-                name = fn.get("name") or call.get("name") or "?"
-                args = fn.get("arguments") or ""
-                m["tool_calls"] += 1
-                m["tool_names"][name] = m["tool_names"].get(name, 0) + 1
-                if prev_failed:
-                    m["repair_loops"] += 1
-                try:
-                    command = json.loads(args).get("command", "")
-                except (ValueError, AttributeError):
-                    command = args
-                commands[call.get("id")] = command or name
-                if name in STRUCTURED_EDIT:
-                    m["edit_structured"] += 1
-                elif name == "terminal":
-                    m["terminal_calls"] += 1
-                    if TNY_EDIT.search(command):
-                        m["edit_tny_edit"] += 1
-                    elif SHELL_WRITE.search(command):
-                        m["edit_shell_write"] += 1
-            prev_failed = False
-        elif role == "tool":
-            content = msg.get("content") or ""
-            hit = EXIT_LINE.search(content)
-            prev_failed = bool(
-                (hit and hit.group(1) != "0") or content.startswith("error:")
-            )
-            if prev_failed:
-                m["failed_results"] += 1
-                if len(m["failures"]) < 8:
-                    m["failures"].append(
-                        {
-                            "exit": hit.group(1) if hit else "error",
-                            "command": (commands.get(msg.get("tool_call_id")) or "?")[
-                                :160
-                            ],
-                            "output": " ".join(content.split())[:160],
-                        }
-                    )
-    return m
+    if not isinstance(runtime_calls, list) or any(
+        not isinstance(call, dict)
+        or not isinstance(call.get("name"), str)
+        or call.get("status") not in ("success", "error")
+        for call in runtime_calls
+    ):
+        return metrics
+    operations = [call for call in runtime_calls if call["name"] != "run_code"]
+    names = {}
+    for call in operations:
+        names[call["name"]] = names.get(call["name"], 0) + 1
+    metrics.update(
+        tool_calls=len(operations),
+        terminal_calls=names.get("terminal", 0),
+        edit_structured=sum(names.get(name, 0) for name in STRUCTURED_EDIT),
+        tool_names=names,
+        failed_results=sum(call["status"] == "error" for call in operations),
+    )
+    return metrics
 
 
 def one_run(a, task, arm, home):
@@ -308,7 +274,7 @@ def one_run(a, task, arm, home):
             tokens_out=usage.get("out", 0),
             output=(result.get("output") or "")[:400],
         )
-        rec.update(classify(doc.get("messages") or []))
+        rec.update(classify(doc.get("messages") or [], result.get("tool_calls")))
         if wait.returncode == 124:
             # the detached runner outlives the wait; stop it before the scratch
             # it is working in disappears under it
@@ -345,11 +311,15 @@ def one_run(a, task, arm, home):
 
 
 # ------------------------------------------------------------------ reporting
+
+
 def mean(xs):
     return round(statistics.fmean(xs), 1) if xs else 0.0
 
 
 def tool_histogram(rows):
+    if not rows or any(r.get("tool_names") is None for r in rows):
+        return None
     hist = {}
     for r in rows:
         for name, n in (r.get("tool_names") or {}).items():
@@ -361,6 +331,22 @@ def comparable(rec):
     """A run whose step/token profile is meaningful: it reached a finished turn
     without a harness or provider error."""
     return rec.get("error") is None and rec.get("status") == "done"
+
+
+def observed_total(rows, field):
+    values = [row.get(field) for row in rows]
+    return (
+        sum(values) if values and all(value is not None for value in values) else None
+    )
+
+
+def observed_mean(rows, field):
+    total = observed_total(rows, field)
+    return round(total / len(rows), 1) if total is not None else None
+
+
+def metric(value, decimals=0):
+    return "N/A" if value is None else f"{value:.{decimals}f}"
 
 
 def summarize(runs, arm):
@@ -375,15 +361,16 @@ def summarize(runs, arm):
         if rows
         else 0.0,
         "steps": mean([r.get("steps", 0) for r in done]),
-        "tool_calls": mean([r.get("tool_calls", 0) for r in done]),
+        "tool_calls": observed_mean(done, "tool_calls"),
+        "provider_code_calls": observed_mean(done, "provider_code_calls"),
         "tokens_in": mean([r.get("tokens_in", 0) for r in done]),
         "tokens_out": mean([r.get("tokens_out", 0) for r in done]),
         "wall_s": mean([r.get("wall_s", 0) for r in done]),
-        "repair_loops": sum(r.get("repair_loops", 0) for r in done),
-        "failed_results": sum(r.get("failed_results", 0) for r in done),
-        "edit_tny_edit": sum(r.get("edit_tny_edit", 0) for r in done),
-        "edit_structured": sum(r.get("edit_structured", 0) for r in done),
-        "edit_shell_write": sum(r.get("edit_shell_write", 0) for r in done),
+        "repair_loops": observed_total(done, "repair_loops"),
+        "failed_results": observed_total(done, "failed_results"),
+        "edit_tny_edit": observed_total(done, "edit_tny_edit"),
+        "edit_structured": observed_total(done, "edit_structured"),
+        "edit_shell_write": observed_total(done, "edit_shell_write"),
         "tool_names": tool_histogram(done),
     }
 
@@ -407,31 +394,38 @@ def markdown(meta, tasks, runs, summaries):
     )
     out.append("")
     out.append(
-        "| Arm | Pass | Steps | Tool calls | Tok in | Tok out | Wall s | "
+        "| Arm | Pass | Steps | Tool calls | Code calls | Tok in | Tok out | Wall s | "
         "Repairs | tny edit | edit_file | shell write |"
     )
     out.append(
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
     )
     for s in summaries:
         out.append(
-            "| `%s` | %d/%d (%.0f%%) | %.1f | %.1f | %.0f | %.0f | %.1f | %d | %d | %d | %d |"
+            "| `%s` | %d/%d (%.0f%%) | %.1f | %s | %s | %.0f | %.0f | %.1f | %s | %s | %s | %s |"
             % (
                 s["arm"],
                 s["passed"],
                 s["runs"],
                 s["pass_rate"],
                 s["steps"],
-                s["tool_calls"],
+                metric(s["tool_calls"], 1),
+                metric(s["provider_code_calls"], 1),
                 s["tokens_in"],
                 s["tokens_out"],
                 s["wall_s"],
-                s["repair_loops"],
-                s["edit_tny_edit"],
-                s["edit_structured"],
-                s["edit_shell_write"],
+                metric(s["repair_loops"]),
+                metric(s["edit_tny_edit"]),
+                metric(s["edit_structured"]),
+                metric(s["edit_shell_write"]),
             )
         )
+    out.append("")
+    out.append(
+        "Tool calls exclude run_code wrappers; code calls count model-issued run_code invocations. "
+        "N/A means nested arguments/results needed for repair or shell-edit classification "
+        "are unavailable. Runtime error counts use effective tool status, not shell exit codes."
+    )
     out.append("")
     out.append("### Per-task pass matrix")
     out.append("")

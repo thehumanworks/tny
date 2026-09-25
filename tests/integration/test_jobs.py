@@ -38,6 +38,8 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from code_mode_fixture import code_chat_frames
+
 MSYS = os.name == "posix" and os.uname().sysname.startswith(("MSYS", "CYGWIN"))
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -278,7 +280,7 @@ class Handler(BaseHTTPRequestHandler):
                 },
             ]
             data = (
-                "".join(f"data: {json.dumps(f)}\n\n" for f in frames)
+                "".join(f"data: {json.dumps(f)}\n\n" for f in code_chat_frames(frames))
                 + "data: [DONE]\n\n"
             ).encode()
             self.reply(200, "text/event-stream", data)
@@ -299,7 +301,8 @@ class Handler(BaseHTTPRequestHandler):
         if "NO_USAGE" in prompt:
             frames[-1].pop("usage", None)
         data = (
-            "".join(f"data: {json.dumps(f)}\n\n" for f in frames) + "data: [DONE]\n\n"
+            "".join(f"data: {json.dumps(f)}\n\n" for f in code_chat_frames(frames))
+            + "data: [DONE]\n\n"
         ).encode()
         self.reply(200, "text/event-stream", data)
 
@@ -3649,7 +3652,7 @@ class JobsPermissions(JobsFixture):
                     },
                 ]
             data = (
-                "".join(f"data: {json.dumps(f)}\n\n" for f in frames)
+                "".join(f"data: {json.dumps(f)}\n\n" for f in code_chat_frames(frames))
                 + "data: [DONE]\n\n"
             ).encode()
             handler.reply(200, "text/event-stream", data)
@@ -3681,7 +3684,11 @@ class JobsPermissions(JobsFixture):
         ]
 
     def tool_statuses(self, run):
-        return json.loads(run.stdout.decode()).get("tool_calls", [])
+        return [
+            call
+            for call in json.loads(run.stdout.decode()).get("tool_calls", [])
+            if call["name"] != "run_code"
+        ]
 
     def test_a_status_grant_never_authorizes_a_submit(self):
         run = self.ask_with_tool(
@@ -3756,6 +3763,25 @@ class JobsSchemaSurface(JobsFixture):
     hold = 0.1
 
     def advertised_tools(self, **env):
+        from test_subagent import chat_frames
+
+        class CatalogHandler(Handler):
+            def chat(self, prompt, after_tool=False):
+                if after_tool:
+                    return super().chat(prompt, after_tool)
+                self.reply(
+                    200,
+                    "text/event-stream",
+                    chat_frames(
+                        call=(
+                            "catalog",
+                            "run_code",
+                            json.dumps({"code": "print(tools.list())"}),
+                        )
+                    ),
+                )
+
+        self.server.RequestHandlerClass = CatalogHandler
         self.state["bodies"].clear()
         self.run_tny(
             "ask",
@@ -3766,7 +3792,17 @@ class JobsSchemaSurface(JobsFixture):
             check=False,
         )
         self.assertTrue(self.state["bodies"], "the fixture saw no request")
-        return [t["function"]["name"] for t in self.state["bodies"][0].get("tools", [])]
+        self.assertEqual(
+            [t["function"]["name"] for t in self.state["bodies"][0].get("tools", [])],
+            ["run_code"],
+        )
+        outputs = [
+            message["content"]
+            for message in self.state["bodies"][-1]["messages"]
+            if message.get("role") == "tool"
+        ]
+        self.assertEqual(len(outputs), 1)
+        return [tool["function"]["name"] for tool in json.loads(outputs[0])]
 
     def test_the_job_tools_are_advertised_in_the_all_profile(self):
         names = self.advertised_tools(TNY_TOOLS="all")
@@ -4477,6 +4513,7 @@ while True: time.sleep(1)
                 "cc",
                 "-std=c11",
                 "-D_DEFAULT_SOURCE",
+                "-D_GNU_SOURCE",
                 "-DTNY_FIXTURE_ANCESTRY",
                 "-ffunction-sections",
                 "-fdata-sections",
