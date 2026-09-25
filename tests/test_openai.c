@@ -1445,13 +1445,14 @@ static void request_fault_control(const tny_openai_control_request *request,
     tny_alloc_scope_begin("openai-request");
 }
 
-/* Real engine + loopback provider + registered asynchronous host tool. Scopes
- * start at public control/invoke boundaries, never at guessed allocation offsets. */
+/* Provider refusal and private pending-API ownership are separate contracts.
+ * Allocation scopes start at control/API boundaries, never guessed offsets. */
 typedef struct {
     tny_tool_call *host;
     uint64_t generation;
     size_t index;
     int mode, invokes, permissions, errors, ends, tools;
+    bool refusal_seen;
     bool armed, permission_seen;
     tny_stop_reason stop;
 } native_pending_fixture;
@@ -1472,21 +1473,17 @@ static int32_t native_pending_invoke(void *ud, tny_tool_call *call, uint64_t gen
     f->host = call;
     f->generation = generation;
     f->invokes++;
-    if (f->mode == 4 || f->mode == 6) native_fault_begin(f);
     return TNY_TOOL_INVOKE_ASYNC;
 }
 static void native_pending_control(const tny_openai_control_request *request,
                                    tny_openai_control_response *response, void *ud) {
     native_pending_fixture *f = ud;
-    if (f->mode == 7 && request->kind == TNY_OPENAI_CONTROL_TOOL_BATCH) response->stop = true;
-    if (request->kind == TNY_OPENAI_CONTROL_PRE_TOOL) {
-        response->extension = xstrdup("fixture-extension");
-        response->reason = xstrdup("fixture-reason");
-    }
-    if (request->kind == TNY_OPENAI_CONTROL_PERMISSION) {
-        f->permissions++;
-        if (f->mode == 5) native_fault_begin(f);
-    }
+    if (f->mode && request->kind == TNY_OPENAI_CONTROL_PROVIDER_RESPONSE && !f->armed)
+        native_fault_begin(f);
+    /* Stop before constructing another request: discover only the response,
+     * refusal and settlement allocations, then recover on the same engine. */
+    if (f->mode && request->kind == TNY_OPENAI_CONTROL_TOOL_BATCH) response->stop = true;
+    if (request->kind == TNY_OPENAI_CONTROL_PERMISSION) f->permissions++;
 }
 static int native_pending_drive(pv_fixture *p, tny_engine *engine, native_pending_fixture *f) {
     struct pollfd fds[HTTP_SERVER_POLLFD_CAPACITY + TNY_BACKEND_POLLFD_MAX];
@@ -1505,7 +1502,14 @@ static int native_pending_drive(pv_fixture *p, tny_engine *engine, native_pendin
             if (strcmp(event->ev.perm_id, "native-pending-id")) return -1;
             f->permission_seen = true;
         }
-        if (event->ev.kind == TNY_EV_TOOL_END) f->tools++;
+        if (event->ev.kind == TNY_EV_TOOL_END) {
+            f->tools++;
+            const char *text = event->ev.tool_detail;
+            if (text &&
+                (strstr(text, "only run_code is exposed") ||
+                 strstr(text, "execution server unavailable for embedded host/custom callbacks")))
+                f->refusal_seen = true;
+        }
         if (event->ev.kind == TNY_EV_ERROR) {
             if (event->ev.error_code != TNY_EVENT_ERROR_OOM || f->ends) return -1;
             f->errors++;
@@ -1856,12 +1860,14 @@ static void native_backend_tick(pv_fixture *p) {
 TEST native_checkpoint_retains_steer_and_consumed_index(void) {
     pv_fixture p;
     pv_open(&p);
-    p.ctx->library_mode = true;
-    p.first_body = "{\"choices\":[{\"message\":{\"content\":\"batch "
-                   "text\",\"tool_calls\":[{\"id\":\"consumed-first\",\"type\":\"function\","
-                   "\"function\":{\"name\":\"list_files\",\"arguments\":\"{}\"}},{\"id\":"
-                   "\"remaining-second\",\"type\":\"function\",\"function\":{\"name\":\"list_"
-                   "files\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}";
+    p.first_body =
+        "{\"choices\":[{\"message\":{\"content\":\"batch "
+        "text\",\"tool_calls\":[{\"id\":\"consumed-first\",\"type\":\"function\","
+        "\"function\":{\"name\":\"run_code\",\"arguments\":\"{\\\"code\\\":\\\"print('first-result'"
+        ")\\\"}\"}},"
+        "{\"id\":\"remaining-second\",\"type\":\"function\",\"function\":{\"name\":\"run_code\","
+        "\"arguments\":\"{\\\"code\\\":\\\"print('second-result')\\\"}\"}}]},\"finish_reason\":"
+        "\"tool_calls\"}]}";
     native_checkpoint_fixture f = {.p = &p};
     tny_backend_openai_bind(p.backend, p.session, p.perm, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                             NULL, native_checkpoint_control, &f);
@@ -1901,41 +1907,61 @@ TEST native_checkpoint_retains_steer_and_consumed_index(void) {
     ASSERT_EQ(2, p.requests);
     ASSERT(strstr(p.bodies[1].data, "parked checkpoint steer"));
     ASSERT(strstr(p.bodies[1].data, "batch text"));
+    ASSERT(strstr(p.bodies[1].data, "first-result"));
+    ASSERT(strstr(p.bodies[1].data, "second-result"));
+    ASSERT_EQ(0, p.errors);
     const char *log_text = tny_backend_openai_toolcalls_json(p.backend);
     yyjson_doc *log = jparse(log_text, strlen(log_text));
     ASSERT(log);
     ASSERT_EQ(2, yyjson_arr_size(yyjson_doc_get_root(log)));
+    for (size_t i = 0; i < 2; ++i) {
+        yyjson_val *call = yyjson_arr_get(yyjson_doc_get_root(log), i);
+        ASSERT_STR_EQ("run_code", jget_str(call, "name"));
+        ASSERT_STR_EQ("success", jget_str(call, "status"));
+    }
     yyjson_doc_free(log);
     pv_close(&p);
     PASS();
 }
 
+/* Embedded model-driven permission/completion/cancellation no longer creates a
+ * host lease. Exercise both wire formats, raw/code proposals and library/native
+ * contexts with a registered callback; every discovered refusal allocation must
+ * settle once without invoking it, then permit text recovery on the same engine.
+ * Private lease completion, generation and invalidation are tested separately. */
 TEST native_pending_lifecycle_and_allocation_sweeps(void) {
     for (int wire = 0; wire < 2; ++wire) {
-        for (int mode = 0; mode < 8; ++mode) {
+        for (int mode = 0; mode < 4; ++mode) {
             size_t count = 0;
             for (size_t index = 0; index <= count; ++index) {
                 tny_alloc_scope_begin("disabled");
                 size_t live = tny_alloc_test_owned_live();
                 pv_fixture p;
                 pv_open(&p);
-                p.ctx->library_mode = true;
-                p.ctx->perm_mode = mode == 4 ? TNY_MODE_YOLO : TNY_MODE_ASK;
+                p.ctx->library_mode = mode < 2;
+                p.ctx->perm_mode = TNY_MODE_YOLO;
                 free(p.ctx->wire_api);
                 p.ctx->wire_api = xstrdup(wire ? "chat" : "responses");
-                p.first_body =
-                    wire ? "{\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"native-pending-"
-                           "id\",\"type\":\"function\",\"function\":{\"name\":\"native_pending\","
-                           "\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{"
-                           "\"prompt_tokens\":123,\"completion_tokens\":7}}"
-                         : "{\"status\":\"completed\",\"usage\":{\"input_tokens\":123,\"output_"
-                           "tokens\":7},\"output\":[{\"type\":\"function_call\",\"call_id\":"
-                           "\"native-pending-id\",\"name\":\"native_pending\",\"arguments\":\"{}\"}"
-                           "]}";
+                bool code = mode % 2 == 0;
+                const char *name = code ? "run_code" : "native_pending";
+                const char *arguments =
+                    code ? "{\"code\":\"print(tools.call('native_pending', {}))\"}" : "{}";
+                buf_t body = {0};
+                buf_appends(&body,
+                            wire ? "{\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"native-"
+                                   "pending-id\",\"type\":\"function\",\"function\":{"
+                                 : "{\"status\":\"completed\",\"output\":[{\"type\":\"function_"
+                                   "call\",\"call_id\":\"native-pending-id\",");
+                buf_appends(&body, "\"name\":");
+                jescape(&body, name);
+                buf_appends(&body, ",\"arguments\":");
+                jescape(&body, arguments);
+                buf_appends(&body, wire ? "}}]},\"finish_reason\":\"tool_calls\"}]}" : "}]}");
+                p.first_body = body.data;
                 p.done_body = wire ? "{\"choices\":[{\"message\":{\"content\":\"done\"},\"finish_"
                                      "reason\":\"stop\"}]}"
                                    : "{\"status\":\"completed\",\"output\":[]}";
-                native_pending_fixture f = {.mode = mode, .index = index};
+                native_pending_fixture f = {.mode = 1, .index = index};
                 p.ctx->custom_tools = custom_tools_new();
                 ASSERT(p.ctx->custom_tools);
                 tny_tool_spec_v1 spec = {0};
@@ -1958,52 +1984,19 @@ TEST native_pending_lifecycle_and_allocation_sweeps(void) {
                 tny_backend_openai_bind(p.backend, p.session, p.perm, NULL, NULL, NULL, NULL, NULL,
                                         NULL, NULL, NULL, native_pending_control, &f);
                 ASSERT_EQ(0, tny_engine_start(engine, "native pending", NULL, err, sizeof err));
-                for (int i = 0; i < 2000 && !f.ends && !f.permission_seen && !f.host; ++i)
-                    ASSERT_EQ(0, native_pending_drive(&p, engine, &f));
-                if (mode == 5 && !index) count = tny_alloc_test_scope_count();
-                if (mode != 4 && !f.ends) {
-                    ASSERT(f.permission_seen);
-                    ASSERT_EQ(0, f.invokes);
-                    if (mode == 2) tny_engine_cancel(engine);
-                    else
-                        tny_engine_respond_permission(engine, "native-pending-id",
-                                                      mode == 1 ? TNY_PERM_DECISION_DENY
-                                                                : TNY_PERM_DECISION_ALLOW);
-                    for (int i = 0; i < 2000 && !f.ends && !f.host; ++i)
-                        ASSERT_EQ(0, native_pending_drive(&p, engine, &f));
-                }
-                if ((mode == 4 || mode == 6) && !index) count = tny_alloc_test_scope_count();
-                bool injected = index && tny_alloc_test_scope_injected();
-                tny_tool_result_v1 result = {0};
-                result.abi_version = TNY_TOOL_RESULT_ABI_VERSION;
-                result.struct_size = sizeof result;
-                char payload[] = "queued-owned-result";
-                result.data = (tny_bytes){payload, strlen(payload)};
-                if (f.host && !injected) {
-                    ASSERT_EQ(1, f.invokes);
-                    ASSERT_EQ(1, p.requests);
-                    ASSERT_EQ(TNY_STATUS_BAD_STATE,
-                              custom_tool_complete(f.host, f.generation + 1, &result));
-                    if (mode == 7) native_fault_begin(&f);
-                    int complete = custom_tool_complete(f.host, f.generation, &result);
-                    injected = index && tny_alloc_test_scope_injected();
-                    ASSERT_EQ(injected ? TNY_STATUS_OOM : TNY_STATUS_OK, complete);
-                    memset(payload, 'x', sizeof payload - 1);
-                    ASSERT_EQ(1, p.requests); /* queued bytes have not been consumed */
-                    if (mode == 3) tny_engine_cancel(engine);
-                }
                 for (int i = 0; i < 2000 && !f.ends; ++i)
                     ASSERT_EQ(0, native_pending_drive(&p, engine, &f));
-                if (mode == 7 && !index) count = tny_alloc_test_scope_count();
-                injected = index && tny_alloc_test_scope_injected();
+                if (!index) count = tny_alloc_test_scope_count();
+                bool injected = index && tny_alloc_test_scope_injected();
+                ASSERT(f.armed);
                 ASSERT_EQ(index != 0, injected);
+                ASSERT_EQ(0, f.invokes);
+                ASSERT_EQ(NULL, f.host);
+                ASSERT_EQ(0, f.permissions);
+                ASSERT(!f.permission_seen);
                 ASSERT_EQ(1, f.ends);
                 ASSERT_EQ(injected ? 1 : 0, f.errors);
-                ASSERT_EQ(injected                                ? TNY_STOP_ERROR
-                          : mode == 1                             ? TNY_STOP_DENIED
-                          : (mode == 2 || mode == 3 || mode == 7) ? TNY_STOP_INTERRUPTED
-                                                                  : TNY_STOP_DONE,
-                          f.stop);
+                ASSERT_EQ(injected ? TNY_STOP_ERROR : TNY_STOP_INTERRUPTED, f.stop);
                 ASSERT_EQ(0, tny_alloc_test_settlement_allocations());
                 if (injected) {
                     size_t settled = tny_alloc_test_scope_count();
@@ -2011,23 +2004,12 @@ TEST native_pending_lifecycle_and_allocation_sweeps(void) {
                     ASSERT_EQ(settled, tny_alloc_test_scope_count());
                     ASSERT_EQ(1, f.errors);
                     ASSERT_EQ(1, f.ends);
+                } else {
+                    ASSERT_EQ(1, f.tools);
+                    ASSERT(f.refusal_seen);
+                    ASSERT_EQ(1, p.requests);
                 }
                 tny_alloc_scope_begin("disabled");
-                if (f.host) {
-                    ASSERT_EQ(TNY_STATUS_BAD_STATE,
-                              custom_tool_complete(f.host, f.generation, &result));
-                    tny_tool_call_release(f.host);
-                    f.host = NULL;
-                }
-                if (!injected && (mode == 1 || mode == 2 || mode == 3)) ASSERT_EQ(1, f.tools);
-                if (!injected && mode != 1 && mode != 2 && mode != 3 && mode != 7) {
-                    ASSERT_EQ(1, f.tools);
-                    ASSERT_EQ(2, p.requests);
-                    ASSERT(strstr(p.bodies[1].data, "queued-owned-result"));
-                    const char *log = tny_backend_openai_toolcalls_json(p.backend);
-                    ASSERT(strstr(log, "native_pending"));
-                    ASSERT_STR_EQ(log, tny_backend_openai_toolcalls_json(p.backend));
-                }
                 /* Recovery uses the same engine/owner after every failed index. */
                 f.mode = 0;
                 f.errors = f.ends = 0;
@@ -2040,6 +2022,15 @@ TEST native_pending_lifecycle_and_allocation_sweeps(void) {
                 ASSERT_EQ(1, f.ends);
                 ASSERT_EQ(0, f.errors);
                 ASSERT_EQ(TNY_STOP_DONE, f.stop);
+                ASSERT_EQ(0, f.invokes);
+                if (!injected) {
+                    ASSERT_EQ(2, p.requests);
+                    ASSERT(strstr(
+                        p.bodies[1].data,
+                        code ? "execution server unavailable for embedded host/custom callbacks"
+                             : "only run_code is exposed"));
+                }
+                buf_free(&body);
                 tny_engine_free(engine);
                 p.backend = NULL;
                 custom_tools_free(p.ctx->custom_tools);
@@ -2056,10 +2047,94 @@ TEST native_pending_lifecycle_and_allocation_sweeps(void) {
                 unsetenv("TNY_TEST_ALLOC_SCOPE");
                 unsetenv("TNY_TEST_ALLOC_FAIL_AT");
             }
-            if (mode >= 4) ASSERT(count > 0);
-            printf("native pending wire=%d mode=%d discovered=%zu\n", wire, mode, count);
+            ASSERT(count > 0);
+            printf("native refusal wire=%d mode=%d discovered=%zu\n", wire, mode, count);
         }
     }
+    PASS();
+}
+
+/* These private APIs still own asynchronous host leases even though a model
+ * cannot invoke them. Keep completion-copy OOM, generation and cancellation
+ * semantics observable without restoring a provider execution fallback. */
+TEST native_pending_private_completion_and_invalidation(void) {
+    for (int cancel = 0; cancel < 2; ++cancel) {
+        size_t count = 0;
+        for (size_t index = 0; index <= count; ++index) {
+            tny_alloc_scope_begin("disabled");
+            size_t live = tny_alloc_test_owned_live();
+            native_pending_fixture f = {.index = index};
+            custom_tool_registry *registry = custom_tools_new();
+            ASSERT(registry);
+            tny_tool_spec_v1 spec = {0};
+            spec.abi_version = TNY_TOOL_SPEC_ABI_VERSION;
+            spec.struct_size = sizeof spec;
+            spec.name = (tny_bytes){"native_pending", 14};
+            spec.description = (tny_bytes){"fixture", 7};
+            spec.input_schema_json = (tny_bytes){"{\"type\":\"object\"}", 17};
+            spec.invoke = native_pending_invoke;
+            spec.user_data = &f;
+            tny_tool_registration *registration = NULL;
+            ASSERT_EQ(TNY_STATUS_OK, custom_tools_register(registry, NULL, &spec, &registration));
+            tools_call call = {0};
+            char *result = NULL;
+            bool is_error = false;
+            ASSERT_EQ(
+                TNY_TOOL_INVOKE_ASYNC,
+                custom_tool_invoke(registration, "{}", &call.custom_call, &result, &is_error));
+            ASSERT_EQ(1, f.invokes);
+            ASSERT(tools_call_pending(&call));
+            ASSERT_EQ(0, tools_call_take_async(&call, &result, &is_error));
+            tny_tool_result_v1 completion = {0};
+            completion.abi_version = TNY_TOOL_RESULT_ABI_VERSION;
+            completion.struct_size = sizeof completion;
+            char payload[] = "queued-owned-result";
+            completion.data = (tny_bytes){payload, strlen(payload)};
+            ASSERT_EQ(TNY_STATUS_BAD_STATE,
+                      custom_tool_complete(f.host, f.generation + 1, &completion));
+            native_fault_begin(&f);
+            int rc = custom_tool_complete(f.host, f.generation, &completion);
+            if (!index) count = tny_alloc_test_scope_count();
+            ASSERT_EQ(index != 0, tny_alloc_test_scope_injected());
+            ASSERT_EQ(index ? TNY_STATUS_OOM : TNY_STATUS_OK, rc);
+            tny_alloc_scope_begin("disabled");
+            if (index) {
+                /* A failed copy leaves the same generation completable. */
+                ASSERT_EQ(0, tools_call_take_async(&call, &result, &is_error));
+                ASSERT_EQ(TNY_STATUS_OK, custom_tool_complete(f.host, f.generation, &completion));
+            }
+            memset(payload, 'x', sizeof payload - 1);
+            ASSERT_EQ(TNY_STATUS_BAD_STATE,
+                      custom_tool_complete(f.host, f.generation, &completion));
+            if (cancel) tools_call_invalidate_async(&call);
+            else {
+                ASSERT_EQ(1, tools_call_take_async(&call, &result, &is_error));
+                ASSERT_STR_EQ("queued-owned-result", result);
+                ASSERT(!is_error);
+                free(result);
+            }
+            ASSERT(!tools_call_pending(&call));
+            ASSERT_EQ(TNY_STATUS_BAD_STATE,
+                      custom_tool_complete(f.host, f.generation, &completion));
+            tools_call_free(&call);
+            tools_call_free(&call);
+            tny_tool_call_release(f.host);
+            /* Invalidation must also revoke a not-yet-completed generation. */
+            ASSERT_EQ(
+                TNY_TOOL_INVOKE_ASYNC,
+                custom_tool_invoke(registration, "{}", &call.custom_call, &result, &is_error));
+            tools_call_invalidate_async(&call);
+            ASSERT_EQ(TNY_STATUS_BAD_STATE,
+                      custom_tool_complete(f.host, f.generation, &completion));
+            tny_tool_call_release(f.host);
+            custom_tools_free(registry);
+            ASSERT_EQ(live, tny_alloc_test_owned_live());
+        }
+        ASSERT(count > 0);
+    }
+    unsetenv("TNY_TEST_ALLOC_SCOPE");
+    unsetenv("TNY_TEST_ALLOC_FAIL_AT");
+    tny_alloc_scope_begin("disabled");
     PASS();
 }
 
@@ -2368,6 +2443,7 @@ SUITE(openai_suite) {
     RUN_TEST(request_construction_oom_after_usage_skips_finalization);
     RUN_TEST(native_pending_lifecycle_and_allocation_sweeps);
     RUN_TEST(native_pending_transfer_preserves_source_on_failure);
+    RUN_TEST(native_pending_private_completion_and_invalidation);
     RUN_TEST(native_request_constructor_allocation_sweep);
     RUN_TEST(native_request_real_stale_replay_and_control_stop);
     RUN_TEST(native_cancel_headers_raw_error_and_retry_waits);

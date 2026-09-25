@@ -39,6 +39,11 @@ TNY_SHELL_PATH ?= /bin/sh
 
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
 UNAME_M := $(shell uname -m 2>/dev/null || echo unknown)
+ifeq ($(UNAME_S),Linux)
+  # Declare glibc spawn extensions through compiler feature flags, not a
+  # source-level definition of a reserved system identifier.
+  DEFS += -D_GNU_SOURCE
+endif
 ifeq ($(UNAME_S),Darwin)
   # macOS dyld strips sanitizer insertion variables before Python can spawn
   # children. Prefer the framework's real app executable (not its launcher),

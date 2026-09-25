@@ -537,3 +537,12 @@ contact-sheet` typed into `terminal` are intercepted into these same tools.
 
 Codex search uses the shared HTTP/SSE seam on wasm; credentials and CORS must
 permit the request. No shell or local agent runtime is used. Failure is explicit.
+
+## Execution snapshot and host limits
+
+The code-mode RPC frame is capped at 8 MiB for the entire initial snapshot, not
+just the script. Stored history and captured state count toward that bound.
+Compaction retains old messages, so start a new session with a short handoff
+after an explicit snapshot-limit error. Native model tools require Linux/macOS
+generation-safe process-tree support; wasm and unsupported host seams fail
+without a direct fallback. See [ADR 0174](../adr/0174-execution-server-code-mode.md).

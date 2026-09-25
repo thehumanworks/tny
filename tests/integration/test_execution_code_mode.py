@@ -476,9 +476,8 @@ class WasmCodeMode(unittest.TestCase):
                 self.assert_schema(wire)
                 output = self.run_code('print("cannot execute")', wire=wire)
                 self.assertIn("error", output.lower())
-                self.assertTrue(
-                    "wasm" in output.lower() or "unsupported" in output.lower(), output
-                )
+                self.assertIn("execution server unavailable on this platform", output)
+                self.assertIn("no direct fallback", output)
                 self.assertEqual(list(self.workspace.iterdir()), [])
 
 

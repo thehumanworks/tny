@@ -51,18 +51,20 @@ MUTANTS = (
         "        candidate.call = std::exchange(*call, tools_call{});\n        candidate.copy(id, original, effective, extension, reason);",
         "runtime",
     ),
+    # Model callbacks are deliberately unreachable. Mutate the still-supported
+    # private lease API and the two production refusal boundaries instead.
     (
         "pending-lifetime",
-        "openai.c",
-        "    o->state = ST_WAIT_CUSTOM;",
-        "    oa_pending_reset(pending);\n    o->state = ST_WAIT_CUSTOM;",
+        "../../lib/custom_tools.cpp",
+        "else if (!call.completed) return 0;",
+        "else if (!call.completed) return -1;",
         "runtime",
     ),
     (
         "cancel-authority",
-        "openai.c",
-        "if (invalidate) tools_call_invalidate_async(&o->turn->custom.call);",
-        "(void)invalidate;",
+        "../../lib/custom_tools.cpp",
+        "    detach(*pending->state);",
+        "    (void)pending;",
         "runtime",
     ),
     (
@@ -110,10 +112,17 @@ MUTANTS += (
         "runtime",
     ),
     (
-        "cancel-consumed-index",
+        "raw-tool-refusal",
         "openai.c",
-        "            pending_custom_clear(o, false);\n            o->tool_index++;",
-        "            pending_custom_clear(o, false);",
+        'if (strcmp(name, "run_code") != 0) {',
+        "if (false) {",
+        "runtime",
+    ),
+    (
+        "embedded-execution-refusal",
+        "../../core/execution.c",
+        "if ((env->ctx->library_mode && !env->ctx->prompt_optimisation) || env->ctx->custom_tools ||\n        env->ctx->host_services)",
+        "if (false)",
         "runtime",
     ),
 )
@@ -307,6 +316,9 @@ def main():
                     raise RuntimeError(f"{name}: original object absent/duplicated")
                 objects.remove(str(original))
                 test = {
+                    "pending-lifetime": "native_pending_private_completion_and_invalidation",
+                    "cancel-authority": "native_pending_private_completion_and_invalidation",
+                    "generation-replay": "native_pending_private_completion_and_invalidation",
                     "move-source": "native_pending_transfer_preserves_source_on_failure",
                     "transfer-before-copy": "native_pending_transfer_preserves_source_on_failure",
                     "builder-view-release": "request_construction_oom_after_usage_skips_finalization",
@@ -346,61 +358,19 @@ def main():
                 [str(binary), *options], out / (name + ".log"), env
             )
             diagnostic = (out / (name + ".log")).read_text(errors="replace")
-            if name in ("cancel-authority", "pending-lifetime"):
-                record["guard_caught"] = record["run_exit"] == -signal.SIGABRT
-                if not record["guard_caught"]:
-                    raise RuntimeError(f"{name}: production guard missed violation")
-                semantic_objects = [
-                    str(guardless_obj)
-                    if str(Path(path).resolve()) == str(tools_object)
-                    else path
-                    for path in objects
-                ]
-                semantic = out / (name + "-semantic")
-                record["semantic_link_exit"] = run(
-                    [
-                        *shlex.split(args.cxx),
-                        str(obj),
-                        *semantic_objects,
-                        *shlex.split(args.ldflags),
-                        "-o",
-                        str(semantic),
-                    ],
-                    out / (name + "-semantic-link.log"),
-                    env,
+            record["killed"] = record["run_exit"] != 0 and any(
+                marker in diagnostic
+                for marker in (
+                    "native request ownership failed",
+                    "FAIL native_",
+                    "FAIL request_construction_",
+                    "AddressSanitizer:",
+                    "runtime error:",
                 )
-                if record["semantic_link_exit"]:
-                    raise RuntimeError(f"{name}: semantic copy did not link")
-                record["semantic_run_exit"] = run(
-                    [str(semantic), *options], out / (name + "-semantic.log"), env
-                )
-                diagnostic = (out / (name + "-semantic.log")).read_text(
-                    errors="replace"
-                )
-                record["killed"] = (
-                    record["semantic_run_exit"] != 0
-                    and "FAIL native_pending_" in diagnostic
-                )
-            else:
-                record["killed"] = record["run_exit"] != 0 and any(
-                    marker in diagnostic
-                    for marker in (
-                        "native request ownership failed",
-                        "FAIL native_",
-                        "FAIL request_construction_",
-                        "AddressSanitizer:",
-                        "runtime error:",
-                    )
-                )
+            )
             if not record["killed"]:
                 raise RuntimeError(f"{name}: no behavioral kill")
-            if record.get("guard_caught"):
-                print(
-                    f"{name}: production guard caught violation; guard-removed private copy failed semantic oracle",
-                    flush=True,
-                )
-            else:
-                print(f"{name}: compiled, behavioral oracle killed mutant", flush=True)
+            print(f"{name}: compiled, behavioral oracle killed mutant", flush=True)
         if any(sha(path) != digest for path, digest in manifest.items()):
             raise RuntimeError("active source/build graph changed during mutation run")
         report["passed"] = True

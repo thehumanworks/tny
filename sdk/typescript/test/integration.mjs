@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -90,6 +90,27 @@ function fixture() {
   return { workspace, stateDir: join(root, "state") };
 }
 
+function workspaceSnapshot(workspace) {
+  return readdirSync(workspace).sort().map((name) =>
+    [name, readFileSync(join(workspace, name), "utf8")]);
+}
+
+function assertEmbeddedRefusal(events, count) {
+  assert.equal(events.filter((event) => event.type === "permission_request").length, 0);
+  assert.equal(events.filter((event) => event.type === "error").length, 0);
+  const ends = events.filter((event) => event.type === "tool_end");
+  assert.equal(ends.length, count);
+  assert.equal(events.filter((event) => event.type === "tool_start").length, count);
+  for (const event of ends) {
+    assert.equal(event.toolName, "run_code");
+    assert.equal(event.toolOk, false);
+    assert.match(event.toolDetail, /execution server unavailable/);
+    assert.match(event.toolDetail, /no direct fallback/);
+  }
+  assert.equal(events.filter((event) => event.type === "turn_end").length, 1);
+  assert.equal(events.at(-1)?.stopReason, "done");
+}
+
 async function create(baseUrl, options = {}) {
   return await Runtime.create({
     ...fixture(),
@@ -122,6 +143,7 @@ await withMock({}, async (baseUrl) => {
   };
   const runtime = await Runtime.create(runtimeOptions);
   const session = await runtime.createSession();
+  const before = workspaceSnapshot(paths.workspace);
   const sequences = [];
   const transcript = [];
   const retained = [];
@@ -145,7 +167,9 @@ await withMock({}, async (baseUrl) => {
   assert.match(text, /MOCK-OK/);
   assert.equal(stop, "done");
   assert.ok(sequences.every((value, index) => index === 0 || value > sequences[index - 1]));
+  assertEmbeddedRefusal(retained, 2);
   const snapshot = structuredClone(retained);
+  const secondEvents = [];
   let secondText = "";
   let secondStop;
   for await (const event of session.run("run the strict turn again")) {
@@ -153,9 +177,13 @@ await withMock({}, async (baseUrl) => {
     assert.equal(event.sessionId, session.id);
     assert.ok(event.turnId);
     transcript.push(normalized(event));
+    secondEvents.push(event);
     if (event.type === "text_delta") secondText += event.text;
     if (event.type === "turn_end") secondStop = event.stopReason;
   }
+  // The second request replays the failed results and completes without a new call.
+  assertEmbeddedRefusal(secondEvents, 0);
+  assert.deepEqual(workspaceSnapshot(paths.workspace), before);
   assert.match(secondText, /MOCK-OK/);
   assert.equal(secondStop, "done");
   assert.ok(transcript.every((event, index) =>
@@ -172,11 +200,39 @@ await withMock({}, async (baseUrl) => {
   assert.equal(retained.filter((event) => event.type === "turn_end").length, 1);
 });
 
+// No-tool inference remains independently usable in the embedding process.
+await withMock({ MOCK_NO_TOOLS: "1" }, async (baseUrl) => {
+  const paths = fixture();
+  const before = workspaceSnapshot(paths.workspace);
+  const runtime = await Runtime.create({ ...paths, baseUrl, apiKey: "test-key-not-real" });
+  const session = await runtime.createSession();
+  for (let turn = 0; turn < 2; turn++) {
+    const events = [];
+    const answer = await session.ask("text only", {
+      onEvent: (event) => events.push(event),
+    });
+    assert.equal(answer.text, "MOCK-OK");
+    assert.equal(answer.stopReason, "done");
+    assert.equal(events.filter((event) => event.type === "turn_end").length, 1);
+    assert.ok(events.every((event) => ![
+      "tool_start", "tool_end", "permission_request", "error",
+    ].includes(event.type)));
+  }
+  await session.close();
+  await runtime.close();
+  assert.deepEqual(workspaceSnapshot(paths.workspace), before);
+});
+
 // Both updates are cumulative session costs. SDK copies survive native event,
 // session and runtime teardown, and the final snapshot is 0.25 rather than 0.35.
 {
   const changes = {
     ACP_FIXTURE_STATE: join(mkdtempSync(join(tmpdir(), "tny-acp-usage-")), "state.json"),
+    ACP_FIXTURE_MCP: "1",
+    ACP_FIXTURE_CALLS: "[]",
+    TNY_ACP_REQUIRE_TOOLS_AUTHORITY: "1",
+    ACP_FIXTURE_NAME: "@agentclientprotocol/claude-agent-acp",
+    ACP_FIXTURE_VERSION: "0.75.1",
     ACP_FIXTURE_USAGE: JSON.stringify([
       { used: 7, size: 100, cost: { amount: 0.1, currency: "EUR" } },
       { used: 9, size: 100, cost: { amount: 0.25, currency: "EUR" } },
@@ -188,12 +244,14 @@ await withMock({}, async (baseUrl) => {
   let runtime;
   let session;
   const usages = [];
+  const acpEvents = [];
   try {
     runtime = await Runtime.create({ ...fixture(), provider: "acp",
       acpCommand: [join(repoRoot, "tests/integration/fake_acp_agent.py")] });
     session = await runtime.createSession();
     for (let turn = 0; turn < 2; turn++) {
       for await (const event of session.run("usage fixture")) {
+        acpEvents.push(event);
         if (event.type === "usage") usages.push(event);
       }
       assert.equal(session.lastUsage.cost, 0.25);
@@ -206,6 +264,14 @@ await withMock({}, async (baseUrl) => {
       else process.env[key] = value;
     }
   }
+  assert.equal(acpEvents.filter((event) => event.type === "turn_end").length, 2);
+  assert.ok(acpEvents.filter((event) => event.type === "turn_end").every(
+    (event) => event.stopReason === "done"));
+  assert.ok(acpEvents.every((event) => ![
+    "tool_start", "tool_end", "permission_request", "error",
+  ].includes(event.type)));
+  const facts = JSON.parse(readFileSync(changes.ACP_FIXTURE_STATE, "utf8"));
+  assert.deepEqual(facts.tools.map((tool) => tool.name), ["run_code"]);
   assert.deepEqual(usages.map((event) => event.cost), [0.1, 0.25, 0.1, 0.25]);
   assert.deepEqual(usages.map((event) => event.contextUsed), [7n, 9n, 7n, 9n]);
   for (const event of usages) {
@@ -325,18 +391,24 @@ await withMock({ MOCK_SLOW_MS: "50" }, async (baseUrl) => {
 });
 
 await withMock({ MOCK_SENSITIVE: "1" }, async (baseUrl) => {
+  const paths = fixture();
+  const before = workspaceSnapshot(paths.workspace);
+  const events = [];
+  let permissionCallbacks = 0;
   const workflow = new Workflow({
-    runtime: {
-      ...fixture(), baseUrl, apiKey: "test-key-not-real",
-    },
-  }).task("workflow-sensitive", "request a sensitive operation");
+    runtime: { ...paths, baseUrl, apiKey: "test-key-not-real" },
+    onEvent: (_task, event) => events.push(event),
+    onPermission: () => { permissionCallbacks++; return "allow"; },
+  }).task("workflow-refused", "request a sensitive operation");
   const result = await workflow.run();
-  assert.equal(result.ok, false);
-  assert.equal(
-    result.require("workflow-sensitive").status,
-    WorkflowTaskStatus.failed,
-  );
-  assert.equal(result.require("workflow-sensitive").stopReason, "denied");
+  // Inference completes after seeing a failed tool result; no write was allowed.
+  assert.equal(result.ok, true);
+  assert.equal(result.require("workflow-refused").status, WorkflowTaskStatus.success);
+  assert.equal(result.require("workflow-refused").stopReason, "done");
+  assertEmbeddedRefusal(events, 1);
+  assert.equal(permissionCallbacks, 0);
+  assert.deepEqual(workspaceSnapshot(paths.workspace), before);
+  assert.equal(existsSync(join(paths.workspace, "permission.txt")), false);
 });
 
 await withMock({ MOCK_SLOW_MS: "5000" }, async (baseUrl) => {
@@ -400,58 +472,31 @@ await withMock({ MOCK_SLOW_MS: "5000" }, async (baseUrl) => {
   });
 });
 
-await withMock({ MOCK_SENSITIVE: "1" }, async (baseUrl) => {
-  const paths = fixture();
-  const runtime = await Runtime.create({
-    ...paths, baseUrl, apiKey: "test-key-not-real",
+// Permission modes cannot enable an in-process fallback. A refusal is not a
+// permission denial or evidence that permission parking/resumption succeeded.
+for (const permissionMode of ["ask", "auto", "yolo"]) {
+  await withMock({ MOCK_SENSITIVE: "1" }, async (baseUrl) => {
+    const paths = fixture();
+    const before = workspaceSnapshot(paths.workspace);
+    const runtime = await Runtime.create({
+      ...paths, baseUrl, apiKey: "test-key-not-real", permissionMode,
+    });
+    const session = await runtime.createSession();
+    const events = [];
+    await session.ask("write permission.txt", {
+      onEvent: (event) => events.push(event),
+    });
+    assertEmbeddedRefusal(events, 1);
+    assert.deepEqual(workspaceSnapshot(paths.workspace), before);
+    assert.equal(existsSync(join(paths.workspace, "permission.txt")), false);
+    await assert.rejects(
+      session.respondPermission("never-issued", "allow"),
+      (error) => error instanceof TnyError && error.status === -2,
+    );
+    await session.close();
+    await runtime.close();
   });
-  const session = await runtime.createSession();
-  let permissionId;
-  const transcript = [];
-  const result = await session.ask("write permission.txt", {
-    onEvent: async (event, current) => {
-      transcript.push(normalized(event));
-      if (event.type === "permission_request") {
-        permissionId = event.permissionId;
-        await current.respondPermission(event.permissionId, "allow");
-        await assert.rejects(
-          current.respondPermission(event.permissionId, "allow"),
-          (error) => error instanceof TnyError && error.status === -2,
-        );
-      }
-    },
-  });
-  assert.ok(permissionId);
-  assert.equal(result.stopReason, "done");
-  assert.equal(existsSync(join(paths.workspace, "permission.txt")), true);
-  await assert.rejects(
-    session.respondPermission(permissionId, "allow"),
-    (error) => error instanceof TnyError && error.status === -2,
-  );
-  observed.permission_allow_and_stale_reject = transcript;
-  await session.close();
-  await runtime.close();
-});
-
-await withMock({ MOCK_SENSITIVE: "1" }, async (baseUrl) => {
-  const paths = fixture();
-  const runtime = await Runtime.create({ ...paths, baseUrl, apiKey: "test-key-not-real" });
-  const session = await runtime.createSession();
-  const transcript = [];
-  const result = await session.ask("write permission.txt", {
-    onEvent: async (event, current) => {
-      transcript.push(normalized(event));
-      if (event.type === "permission_request") {
-        await current.respondPermission(event.permissionId, "deny");
-      }
-    },
-  });
-  assert.equal(result.stopReason, "denied");
-  assert.equal(existsSync(join(paths.workspace, "permission.txt")), false);
-  observed.permission_deny = transcript;
-  await session.close();
-  await runtime.close();
-});
+}
 
 await withMock({ MOCK_SLOW_MS: "200" }, async (baseUrl) => {
   const runtime = await create(baseUrl);
@@ -536,14 +581,11 @@ recordResult("resume_and_steer_rejection", "pass", {
   assertion_ids: ["rejected_text_preserved", "resume_same_session", "teardown_and_reopen"],
   observed_events: observed.resume_and_steer_rejection,
 });
-recordResult("permission_allow_and_stale_reject", "pass", {
-  assertion_ids: ["parked_before_response", "stale_id_bad_state", "duplicate_id_bad_state"],
-  observed_events: observed.permission_allow_and_stale_reject,
-});
-recordResult("permission_deny", "pass", {
-  assertion_ids: ["denied_tool_not_executed"],
-  observed_events: observed.permission_deny,
-});
+for (const id of ["permission_allow_and_stale_reject", "permission_deny"]) {
+  recordResult(id, "unsupported", {
+    reason: "ADR 0174: library-hosted run_code fails closed before permission dispatch; no parked permission or executable tool is available",
+  });
+}
 recordResult("cancel_and_drain", "pass", {
   assertion_ids: ["cancel_idempotent", "exactly_one_terminal", "drained_after_terminal"],
   observed_events: observed.cancel_and_drain,
@@ -563,4 +605,4 @@ recordResult("slow_consumer_backpressure", "not_run", {
   reason: "delayed AsyncIterator covers wrapper demand but does not force native event-queue overflow",
 });
 
-console.log("typescript-sdk integration: strict mock, workflows, permission, cancel, slow consumer, lifecycle passed");
+console.log("typescript-sdk integration: code-only embedded refusal, no-tool inference, workflows, cancel, slow consumer, lifecycle passed");

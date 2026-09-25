@@ -1,5 +1,11 @@
 # Python and TypeScript SDKs
 
+> **Execution-server compatibility:** public embedded agent tools and standalone
+> SDK `optimise` / `optimize` are currently unsupported. Optimisation refuses
+> before provider, credential or workspace I/O; it never launches the Python/Node
+> host as an execution server. Native CLI/TUI optimisation and the other
+> standalone toolkit services remain available. See [ADR 0174](adr/0174-execution-server-code-mode.md).
+
 Agent tool execution is currently unavailable in library-hosted sessions under
 [ADR 0174](adr/0174-execution-server-code-mode.md): `run_code` fails closed
 rather than executing inside the embedding process. Installing a matching CLI

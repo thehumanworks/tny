@@ -87,12 +87,34 @@ currently rejected explicitly, even if a matching CLI is installed; there is
 no configured executable escape hatch. The native CLI's private prompt
 optimisation context is the sole internal exception. Registered custom tools
 or host-service callbacks also cause execution to fail closed because their
-pointers cannot be reconstructed in a fresh executable. Standalone SDK service
-operations retain their separate interfaces.
+pointers cannot be reconstructed in a fresh executable. Standalone SDK image, speech and dictation service
+operations retain their separate interfaces. Public SDK optimisation uses an
+agent loop internally and has no trusted execution-server launcher; it now
+returns `TNY_STATUS_UNSUPPORTED` before I/O (cancellation-before-run takes
+precedence). It cannot treat a failed Python/Node self-exec as successful
+workspace exploration. No CLI lookup or direct-execution fallback is added.
 
 Wasm cannot spawn this native process and returns a clean unsupported-execution
 error. It does not silently fall back to direct tools. This is an explicit
 platform limitation rather than native/wasm execution parity.
+
+## Bounded operating envelope
+
+The 8 MiB frame limit applies to the **whole initial context snapshot**, including
+stored session history, code, permission state and any encoded captures. A
+session can therefore be valid for storage yet too large for tool execution.
+Compaction currently keeps historical messages and does not remove this ceiling;
+start a new session with a concise handoff when the snapshot limit is reached.
+The error is explicit and does not fall back to in-harness execution. A future
+bounded history projection or chunked snapshot protocol would be a separate change.
+
+Native execution also requires the existing generation-safe process-tree host
+seam. Supported Linux hosts need working pidfd operations, and supported macOS
+hosts need the process-identity signal API used by that seam. Other BSDs,
+MSYS2/Cygwin and hosts that deny those operations may still build or run non-tool
+commands but cannot run model tools through this server. They receive the same
+explicit unsupported-execution error; successful compilation is not runtime
+capability proof. Wasm remains unsupported as described above.
 
 ## Verification
 

@@ -162,10 +162,10 @@ const scenarios = [
   passed("resume_and_steer_rejection",
     ["rejected_text_preserved", "resume_same_session", "teardown_and_reopen"],
     ["node_integration"]),
-  passed("permission_allow_and_stale_reject",
-    ["parked_before_response", "stale_id_bad_state", "duplicate_id_bad_state"],
-    ["node_integration"]),
-  passed("permission_deny", ["denied_tool_not_executed"], ["node_integration"]),
+  ...["permission_allow_and_stale_reject", "permission_deny"].map((id) => ({
+    id, status: "unsupported",
+    reason: "ADR 0174: library-hosted run_code fails closed before permission dispatch; no parked permission or executable tool is available",
+  })),
   passed("cancel_and_drain",
     ["cancel_idempotent", "exactly_one_terminal", "drained_after_terminal", "cross_thread_wake"],
     ["node_integration", "node_wake"]),
@@ -244,7 +244,7 @@ const response = {
   },
   capabilities: {
     native_openai: true,
-    permissions: true,
+    permissions: false,
     cancellation: true,
     persistence: true,
     steering: true,

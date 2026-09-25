@@ -159,20 +159,20 @@ test("toolkit speech and transcription use independent media credentials", async
   assert.ok((await f.requests()).find(r => r.body.wav));
 });
 
-test("toolkit optimisation reads project context and cannot execute the draft", async t => {
+test("toolkit optimisation refuses before provider I/O or file effects", async t => {
   const f = await fixture(t);
-  await f.mode("explore");
-  const result = await f.toolkit.optimise("Improve context", f.optimise);
-  assert.deepEqual(result, { text: f.assets.text, model: "fixture-model", provider: "openai" });
-  const requests = await f.requests();
-  assert.equal(requests.length, 2);
-  assert.deepEqual(new Set(requests[0].body.tools.map(tool => tool.function.name)), new Set([
-    "read_file", "list_files", "glob_files", "grep_files", "file_info", "read_tool_result",
-  ]));
-  assert.match(JSON.stringify(requests[1].body.messages), /UTF-8 fixture context/);
-  await f.mode("write");
-  await f.toolkit.optimize("Improve context", f.optimise);
-  assert.equal(readFileSync(join(f.workspace, "src/context.txt"), "utf8"), "UTF-8 fixture context\n");
+  const before = readdirSync(f.workspace).sort();
+  for (const mode of ["ok", "explore", "write"]) {
+    await f.mode(mode);
+    for (const method of ["optimise", "optimize"]) {
+      await assert.rejects(f.toolkit[method]("Improve context", f.optimise),
+        error => error instanceof TnyError && error.status === -9);
+      assert.deepEqual(await f.requests(), []);
+      assert.deepEqual(readdirSync(f.workspace).sort(), before);
+      assert.deepEqual(readdirSync(join(f.workspace, "src")), ["context.txt"]);
+      assert.equal(readFileSync(join(f.workspace, "src/context.txt"), "utf8"), "UTF-8 fixture context\n");
+    }
+  }
 });
 
 test("toolkit snapshots options and keeps credentials out of inspection", async t => {

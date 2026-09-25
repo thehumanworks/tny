@@ -21,6 +21,10 @@ import tny
 
 ROOT = Path(__file__).resolve().parents[3]
 MOCK = ROOT / "tests" / "integration" / "mock_openai.py"
+EMBEDDED_REFUSAL = (
+    b"error: execution server unavailable for embedded host/custom callbacks; "
+    b"no direct fallback"
+)
 LIBRARY = Path(
     os.environ.get(
         "TNY_TEST_LIBRARY",
@@ -125,6 +129,10 @@ class SDKTests(unittest.TestCase):
             os.environ,
             {
                 "ACP_FIXTURE_USAGE": json.dumps(updates),
+                "ACP_FIXTURE_NAME": "@agentclientprotocol/claude-agent-acp",
+                "ACP_FIXTURE_VERSION": "0.75.1",
+                "ACP_FIXTURE_MCP": "1",
+                "ACP_FIXTURE_CALLS": "[]",
                 "ACP_FIXTURE_STATE": str(Path(self.temp.name) / "acp-state.json"),
                 "TNY_ACP_BRIDGE_EXECUTABLE": str(ROOT / "build/tny"),
             },
@@ -587,62 +595,60 @@ class SDKTests(unittest.TestCase):
         finally:
             mock.close()
 
-    def test_permission_and_stale_response(self) -> None:
-        """Conformance: permission_deny and stale permission rejection."""
-        mock = Mock(MOCK_SENSITIVE="1")
-        try:
-            with tny.Runtime(self.config(mock.url), library=self.library) as runtime:
-                with runtime.create_session() as session:
-                    session.send("list files in .")
-                    saw_permission = False
-                    events = []
-                    for event in session.events():
-                        events.append(event)
-                        if isinstance(event, tny.PermissionRequestEvent):
-                            saw_permission = True
-                            session.respond_permission(
-                                event, tny.PermissionDecision.DENY
-                            )
-                            with self.assertRaises(tny.BadStateError):
-                                session.respond_permission(
-                                    event, tny.PermissionDecision.DENY
-                                )
-                    self.assertTrue(saw_permission)
-                    terminals = [
-                        event for event in events if isinstance(event, tny.TurnEndEvent)
-                    ]
-                    self.assertEqual(len(terminals), 1)
-                    self.assertEqual(terminals[0].stop_reason, 2)
-        finally:
-            mock.close()
+    def assert_embedded_refusal(self, events: list[tny.AnyEvent]) -> None:
+        self.assertFalse(any(isinstance(e, tny.PermissionRequestEvent) for e in events))
+        self.assertFalse(any(isinstance(e, tny.ErrorEvent) for e in events))
+        tools = [
+            e for e in events if isinstance(e, (tny.ToolStartEvent, tny.ToolEndEvent))
+        ]
+        self.assertEqual(
+            [(e.type, e.tool_name) for e in tools],
+            [("tool_start", b"run_code"), ("tool_end", b"run_code")],
+        )
+        self.assertIsInstance(tools[-1], tny.ToolEndEvent)
+        self.assertFalse(tools[-1].ok)
+        self.assertEqual(tools[-1].tool_detail, EMBEDDED_REFUSAL)
+        self.assertEqual(
+            [e.stop_reason for e in events if isinstance(e, tny.TurnEndEvent)],
+            [tny.StopReason.DONE],
+        )
+        text = b"".join(e.text for e in events if isinstance(e, tny.TextDeltaEvent))
+        self.assertEqual(text, b"PERMISSION-OK " + EMBEDDED_REFUSAL)
+        self.assertEqual(
+            sorted(p.name for p in self.workspace.iterdir()),
+            ["a.txt", "b.txt", "c.txt"],
+        )
+        for path in self.workspace.iterdir():
+            self.assertEqual(path.read_bytes(), b"x\n")
 
-    def test_permission_allow_and_stale_reject(self) -> None:
-        """Conformance: permission_allow_and_stale_reject."""
-        mock = Mock(MOCK_SENSITIVE="1")
-        try:
-            with (
-                tny.Runtime(self.config(mock.url), library=self.library) as runtime,
-                runtime.create_session() as session,
-            ):
-                session.send("list files in .")
-                saw_permission = False
-                events = []
-                for event in session.events():
-                    events.append(event)
-                    if isinstance(event, tny.PermissionRequestEvent):
-                        saw_permission = True
-                        session.respond_permission(event, tny.PermissionDecision.ALLOW)
-                        with self.assertRaises(tny.BadStateError):
-                            session.respond_permission(
-                                event, tny.PermissionDecision.ALLOW
-                            )
-                self.assertTrue(saw_permission)
-                self.assertTrue(self.workspace.joinpath("permission.txt").exists())
-                self.assertEqual(
-                    len([e for e in events if isinstance(e, tny.TurnEndEvent)]), 1
+    def test_embedded_write_refused_before_permission_with_no_direct_fallback(
+        self,
+    ) -> None:
+        for mode in (tny.PermissionMode.ASK, tny.PermissionMode.YOLO):
+            with self.subTest(mode=mode):
+                mock = Mock(
+                    MOCK_SENSITIVE="1",
+                    MOCK_EXPECT_TOOL_NAMES="run_code",
+                    MOCK_EXPECT_TOOL_OUTPUT=EMBEDDED_REFUSAL.decode(),
                 )
-        finally:
-            mock.close()
+                try:
+                    with (
+                        tny.Runtime(
+                            self.config(mock.url, permission_mode=mode),
+                            library=self.library,
+                        ) as runtime,
+                        runtime.create_session() as session,
+                    ):
+                        events = list(session.run("write permission.txt"))
+                        self.assert_embedded_refusal(events)
+                        for decision in (
+                            tny.PermissionDecision.ALLOW,
+                            tny.PermissionDecision.DENY,
+                        ):
+                            with self.assertRaises(tny.BadStateError):
+                                session.respond_permission(b"stale-request", decision)
+                finally:
+                    mock.close()
 
     def test_thread_safe_cancellation_request(self) -> None:
         """Conformance: cancel_and_drain."""
@@ -747,22 +753,41 @@ class SDKTests(unittest.TestCase):
         finally:
             mock.close()
 
-    def test_native_workflow_denies_unhandled_permissions(self) -> None:
-        mock = Mock(MOCK_SENSITIVE="1")
+    def test_native_workflow_refuses_execution_without_permission_callback(
+        self,
+    ) -> None:
+        mock = Mock(
+            MOCK_SENSITIVE="1",
+            MOCK_EXPECT_TOOL_NAMES="run_code",
+            MOCK_EXPECT_TOOL_OUTPUT=EMBEDDED_REFUSAL.decode(),
+        )
+        events: list[tny.AnyEvent] = []
+        permission_calls: list[tny.PermissionRequestEvent] = []
+
+        def on_permission(
+            task: tny.WorkflowTask, event: tny.PermissionRequestEvent
+        ) -> tny.PermissionDecision:
+            permission_calls.append(event)
+            return tny.PermissionDecision.ALLOW
 
         async def run() -> tny.WorkflowResult:
-            workflow = tny.Workflow(self.config(mock.url), library_path=LIBRARY).task(
-                "sensitive", "request a sensitive operation"
-            )
+            workflow = tny.Workflow(
+                self.config(mock.url),
+                library_path=LIBRARY,
+                on_event=lambda task, event: events.append(event),
+                on_permission=on_permission,
+            ).task("sensitive", "request a sensitive operation")
             return await workflow.run_async()
 
         try:
             result = asyncio.run(run())
-            self.assertFalse(result.ok)
-            self.assertEqual(result["sensitive"].status, tny.WorkflowTaskStatus.FAILED)
-            self.assertEqual(
-                result["sensitive"].stop_reason, int(tny.StopReason.DENIED)
-            )
+            # The provider completes after receiving the explicit refusal;
+            # successful inference must not be mistaken for a successful tool.
+            self.assertTrue(result.ok)
+            self.assertEqual(result["sensitive"].status, tny.WorkflowTaskStatus.SUCCESS)
+            self.assertEqual(result["sensitive"].stop_reason, int(tny.StopReason.DONE))
+            self.assertEqual(permission_calls, [])
+            self.assert_embedded_refusal(events)
         finally:
             mock.close()
 
@@ -908,10 +933,13 @@ class SDKTests(unittest.TestCase):
         scenario_results = {
             "success_two_turns": {"status": "pass", "reason": "assertions_verified"},
             "permission_allow_and_stale_reject": {
-                "status": "pass",
-                "reason": "assertions_verified",
+                "status": "unsupported",
+                "reason": "capability_unavailable",
             },
-            "permission_deny": {"status": "pass", "reason": "assertions_verified"},
+            "permission_deny": {
+                "status": "unsupported",
+                "reason": "capability_unavailable",
+            },
             "cancel_and_drain": {"status": "pass", "reason": "assertions_verified"},
             "auth_error": {"status": "pass", "reason": "assertions_verified"},
             "unknown_future_event": {"status": "pass", "reason": "assertions_verified"},

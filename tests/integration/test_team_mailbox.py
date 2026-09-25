@@ -163,6 +163,7 @@ class MailboxTests(unittest.TestCase):
             "-std=c11",
             "-D_DARWIN_C_SOURCE",
             "-D_DEFAULT_SOURCE",
+            "-D_GNU_SOURCE",
             "-D_POSIX_C_SOURCE=200809L",
             "-DYYJSON_DISABLE_NON_STANDARD",
             "-Isrc",

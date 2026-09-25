@@ -16,12 +16,11 @@ Codex and Grok subscription authentication use native login and refresh.
 CLI / TUI / C ABI / Python / Node SDKs
                 |
        runtime + sessions + tool authority
-                |
-       run_code -> fresh execution server + Lua + tools + MCP
-                |
-       native OpenAI-compatible HTTP + SSE
-                |
-  gateways / ChatGPT Responses / xAI / local models
+          |                        |
+ native HTTP + SSE             run_code RPC
+          |                        |
+ gateways / providers     fresh execution server
+                               Lua + tools + MCP
 ```
 
 The event vocabulary remains `text_delta`, `thinking`, `tool_start`, `tool_end`,
@@ -53,7 +52,10 @@ Wasm returns an unsupported-execution error because it cannot spawn this server.
 ## Embedding boundary
 
 Standalone SDK toolkit jobs ([ADR 0086](adr/0086-standalone-sdk-toolkit.md))
-call the shared image, speech, dictation, and optimisation services directly.
+call the shared image, speech and dictation services directly. Public SDK
+optimisation currently returns `TNY_STATUS_UNSUPPORTED` before any I/O: it
+requires a trusted execution-server launcher that the embedding ABI does not
+provide (ADR 0174). Native CLI/TUI optimisation remains supported.
 Each has a private context and atomic cancellation flag; language adapters own
 scheduling and release. They never enter the agent session API or spawn `tny`.
 

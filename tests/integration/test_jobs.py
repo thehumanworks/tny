@@ -4513,6 +4513,7 @@ while True: time.sleep(1)
                 "cc",
                 "-std=c11",
                 "-D_DEFAULT_SOURCE",
+                "-D_GNU_SOURCE",
                 "-DTNY_FIXTURE_ANCESTRY",
                 "-ffunction-sections",
                 "-fdata-sections",
