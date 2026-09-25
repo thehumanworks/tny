@@ -5,7 +5,8 @@ import json
 import os
 import unittest
 
-from test_jobs import JobsFixture, argv_without_runner_binary
+from test_jobs import Handler, JobsFixture, argv_without_runner_binary
+from test_subagent import chat_frames
 
 
 def definition(agent_name="root-agent"):
@@ -93,10 +94,7 @@ class PurposefulSwarm(JobsFixture):
         self.assertEqual(len(member_bodies), 3)
         for body in member_bodies:
             names = {t["function"]["name"] for t in body["tools"]}
-            self.assertTrue(
-                {"read_file", "list_files", "team_mailbox", "team_control"} <= names
-            )
-            self.assertTrue({"terminal", "write_file", "edit_file"} <= names)
+            self.assertEqual(names, {"run_code"})
             system = "\n".join(
                 m.get("content", "")
                 for m in body["messages"]
@@ -116,7 +114,7 @@ class PurposefulSwarm(JobsFixture):
         self.assertTrue(root_bodies)
         self.assertTrue(
             all(
-                "terminal" in {t["function"]["name"] for t in b["tools"]}
+                {"run_code"} == {t["function"]["name"] for t in b["tools"]}
                 for b in root_bodies
             )
         )
@@ -156,13 +154,13 @@ class PurposefulSwarm(JobsFixture):
             else:
                 roots += 1
             if profile == "all":
-                self.assertIn("swarm_message", names)
+                self.assertEqual(names, {"run_code"})
                 self.assertIn("Prefer swarm_message", policy)
                 self.assertIn('"timeout_ms":30000', policy)
                 self.assertIn('team_mailbox {"action":"status","run":"RUN"}', policy)
                 self.assertNotIn("tny mailbox send", policy)
             else:
-                self.assertNotIn("swarm_message", names)
+                self.assertEqual(names, {"run_code"})
                 for unavailable in ("swarm_message", "team_mailbox", "team_control"):
                     self.assertNotIn(unavailable, policy)
                 for recipe in (
@@ -239,7 +237,7 @@ class PurposefulSwarm(JobsFixture):
                     names = {
                         t["function"]["name"] for t in self.state["bodies"][-1]["tools"]
                     }
-                    self.assertIn("team_control", names)
+                    self.assertEqual(names, {"run_code"})
                     self.assertNotIn("team_start", names)
                 else:
                     self.assertIn("tny team start --request FILE --json", policy)
@@ -332,11 +330,30 @@ class PurposefulSwarm(JobsFixture):
                 self.assertFalse(list((self.home / ".tny" / "jobs").glob("*/job.json")))
 
     def test_mailbox_schema_explains_action_specific_requirements(self):
+        class CatalogHandler(Handler):
+            def chat(self, prompt, after_tool=False):
+                if after_tool:
+                    return super().chat(prompt, after_tool)
+                self.reply(
+                    200,
+                    "text/event-stream",
+                    chat_frames(
+                        call=(
+                            "catalog",
+                            "run_code",
+                            json.dumps(
+                                {"code": 'print(tools.describe("team_mailbox"))'}
+                            ),
+                        )
+                    ),
+                )
+
+        self.server.RequestHandlerClass = CatalogHandler
         self.run_tny("ask", "SCHEMA_ONLY")
-        tools = self.state["bodies"][-1]["tools"]
-        mailbox = next(
-            t["function"] for t in tools if t["function"]["name"] == "team_mailbox"
-        )
+        body = self.state["bodies"][-1]
+        self.assertEqual({t["function"]["name"] for t in body["tools"]}, {"run_code"})
+        output = next(m["content"] for m in body["messages"] if m.get("role") == "tool")
+        mailbox = json.loads(output)["function"]
         for clause in (
             "send requires id,to,text",
             "inbox does not accept timeout_ms",

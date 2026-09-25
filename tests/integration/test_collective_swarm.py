@@ -608,11 +608,13 @@ from tny_ext import PreToolUseEvent, PostToolUseEvent, PostToolFailureEvent
 
 def setup(api):
     held = None
+    contended = False
 
     @api.on(PreToolUseEvent)
     def before(event):
-        nonlocal held
-        if event.tool_name == "team_mailbox" and event.tool_id == "challenge":
+        nonlocal held, contended
+        if not contended and event.tool_name == "team_mailbox" and event.arguments.get("id") == "challenge":
+            contended = True
             path = Path(os.environ["HOME"]) / ".tny/jobs" / os.environ["TNY_TEAM_RUN"] / "state.lock"
             held = path.open("r+")
             fcntl.flock(held, fcntl.LOCK_EX)

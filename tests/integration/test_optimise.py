@@ -12,6 +12,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from code_mode_fixture import code_chat_frames
 from test_tui import BANNER, TNY, Term, base_env
 
 MODEL = "inception/mercury-2.5"
@@ -86,7 +87,9 @@ class Handler(BaseHTTPRequestHandler):
             {"choices": [{"delta": delta, "finish_reason": None}]},
             {"choices": [{"delta": {}, "finish_reason": reason}]},
         ]
-        wire = "".join("data: " + json.dumps(frame) + "\n\n" for frame in frames)
+        wire = "".join(
+            "data: " + json.dumps(frame) + "\n\n" for frame in code_chat_frames(frames)
+        )
         wire += "data: [DONE]\n\n"
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -176,7 +179,9 @@ class OptimiseTests(unittest.TestCase):
             self.assertEqual(endpoint, "/v1/chat/completions")
             self.assertEqual(headers["Authorization"], "Bearer fixture-optimise-key")
             self.assertEqual(body["model"], MODEL)
-            self.assertEqual({t["function"]["name"] for t in body["tools"]}, READ_TOOLS)
+            self.assertEqual(
+                {t["function"]["name"] for t in body["tools"]}, {"run_code"}
+            )
         messages = self.requests[-1][2]["messages"]
         self.assertIn("// UTF-8 parser contract", messages[-1]["content"])
         self.assertIn("nested/parser.c", str(messages))

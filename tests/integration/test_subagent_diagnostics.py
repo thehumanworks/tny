@@ -243,10 +243,14 @@ def diag_selectors(provider, home, workspace):
         before = len(provider.requests)
         payload = fx.run_parent(env, workspace, s)
         check(fx.statuses(payload) == [("subagent", "error")] * len(calls), payload)
-        for result in provider.results[s]:
+        for index, result in enumerate(provider.results[s]):
+            expected = (
+                "error: nested tool preparation failed"
+                if index == 6  # Embedded NUL is rejected by strict code ingress.
+                else "error: SUBAGENT_INVALID_ARGUMENT:"
+            )
             check(
-                result.startswith("error: SUBAGENT_INVALID_ARGUMENT:")
-                and "SENTINEL" not in result,
+                result.startswith(expected) and "SENTINEL" not in result,
                 result,
             )
         check(
@@ -305,7 +309,7 @@ def diag_contexts(provider, tmp):
     fx.run_parent(fx.base_env(home, provider, TNY_TOOLS="terminal"), workspace, s)
     tools = provider.parent_requests(s)[0]["tools"]
     check(
-        "subagent" not in tools and "terminal" in tools,
+        tools == ["run_code"],
         f"terminal profile tools: {tools}",
     )
     check(provider.results[s] == [E_PROFILE], provider.results[s])
@@ -512,7 +516,10 @@ def diag_cancel(provider, home, workspace):
         len(tool) == 1 and tool[0][0] == f"call_{s}_0", f"parent tool results: {tool}"
     )
     tool = [content for _cid, content in tool]
-    expected = [e_cancelled(c) for c in children] + [E_CANCELLED_EARLY]
+    expected = [e_cancelled(c) for c in children] + [
+        E_CANCELLED_EARLY,
+        "error: execution cancelled; outcome unknown, not replayed",
+    ]
     check(tool[0] in expected, f"cancel result {tool[0]!r} not in {expected}")
     for child in children:
         s_state = f"cancel-state-{child}"

@@ -1,3 +1,6 @@
+# Execution code mode vendors Lua under the existing third_party fileset;
+# test_code_runtime.c and integration/test_execution_code_mode.py plus its
+# code_mode_fixture.py helper use existing C/Python inputs, no host Lua.
 # test-acp-wasm-seam links the existing native graph with acp_proc_wasm.c;
 # its Python stdlib fixture needs no emsdk and does not claim a wasm build.
 # Its C ABI capability probes use the existing host compiler, not emsdk.
@@ -15,6 +18,7 @@
   git,
   bash,
   bubblewrap,
+  clang,
   clang-tools,
   imagemagick,
   nodejs,
@@ -51,6 +55,7 @@ stdenv.mkDerivation {
   strictDeps = true;
   nativeBuildInputs = [
     bash
+    clang # verify-execution-protocol translates and compiles the production predicate
     clang-tools # test_cpp_build.py runs real negative format/analyzer fixtures
     git # test_worktree.py uses temporary real repositories and linked worktrees
     # Integration fixtures plus the optional stdlib-only

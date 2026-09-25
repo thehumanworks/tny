@@ -16,6 +16,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from code_mode_fixture import code_chat_frames
 from test_tui import BANNER, TNY, Screen, Term, base_env, clean
 
 TNY = os.path.abspath(TNY)
@@ -72,6 +73,7 @@ class Provider:
                     self.end_headers()
 
                     def event(value):
+                        value = code_chat_frames([value])[0]
                         self.wfile.write(
                             ("data: " + json.dumps(value) + "\n\n").encode()
                         )
@@ -597,6 +599,7 @@ class ContinuationProvider:
                             }
                         ]
                     }
+                event = code_chat_frames([event])[0]
                 self.wfile.write(("data: " + json.dumps(event) + "\n\n").encode())
                 self.wfile.write(b"data: [DONE]\n\n")
 

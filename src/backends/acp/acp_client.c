@@ -239,11 +239,7 @@ static int ac_set_session_options(ac_impl *o, yyjson_val *result, const char *si
     return 0;
 }
 
-const char *ac_agent_cwd(const ac_impl *o) {
-    return o->ctx->ssh_host || o->ctx->workspace_read_only || o->ctx->acp_require_tools_authority
-               ? tny_acp_bridge_directory(o->bridge)
-               : o->ctx->cwd;
-}
+const char *ac_agent_cwd(const ac_impl *o) { return tny_acp_bridge_directory(o->bridge); }
 
 /* ---------- vtable ---------- */
 
@@ -415,25 +411,10 @@ static int ac_connect(tny_backend *b, char *errbuf, size_t errlen) {
         agent_name && strcmp(agent_name, "@agentclientprotocol/claude-agent-acp") == 0;
     o->claude_verified = o->claude_agent && agent_version && strcmp(agent_version, "0.75.1") == 0;
     yyjson_doc_free(doc);
-    if (o->ctx->ssh_host && !o->claude_verified) {
+    if (!o->claude_verified) {
         snprintf(errbuf, errlen,
-                 "acp: --ssh requires verified Claude ACP 0.75.1 tools-only support; other "
-                 "external agents may execute workspace tools locally");
-        ac_disconnect(b);
-        return ac_setup_failed(o, errbuf, errlen);
-    }
-    if ((o->ctx->acp_require_tools_authority || o->ctx->workspace_read_only) &&
-        !o->claude_verified) {
-        snprintf(errbuf, errlen,
-                 "acp: managed or read-only work requires verified Claude ACP 0.75.1 "
-                 "tools-only support; adapter identity did not match");
-        ac_disconnect(b);
-        return ac_setup_failed(o, errbuf, errlen);
-    }
-    if (o->ctx->max_steps > 0 && !o->claude_verified) {
-        snprintf(errbuf, errlen,
-                 "acp: --max-steps requires verified Claude ACP 0.75.1 maxTurns support; "
-                 "this agent cannot enforce the requested limit");
+                 "acp: exclusive run_code requires verified Claude ACP 0.75.1 tools-only "
+                 "support; adapter identity did not match");
         ac_disconnect(b);
         return ac_setup_failed(o, errbuf, errlen);
     }
@@ -559,14 +540,15 @@ static int ac_send(tny_backend *b, const char *prompt, const char **images, tny_
     buf_appends(&p, ",\"prompt\":[");
     buf_appends(
         &context,
-        "tny harness context: use the tny MCP server tools for workspace operations so harness "
-        "permissions and events apply. External agent built-in tools have separate semantics.\n");
+        "tny harness context: use only the tny MCP server run_code tool. Workspace operations "
+        "execute through its nested tools so harness permissions and events apply.\n");
     if (o->ctx->ssh_host)
         buf_appendf(&context,
                     "Workspace tools run remotely over SSH. Remote cwd: %s. The agent local cwd is "
                     "private staging, never your workspace.\n",
                     o->ctx->ssh_cwd);
     tny_swarm_policy(o->ctx, &context);
+    buf_appends(&context, tools_code_instructions());
     instructions_collect(o->ctx, &context);
     if (o->ctx->task_instructions && *o->ctx->task_instructions) tny_task_collect(o->ctx, &context);
     if (o->ctx->system_prompt && *o->ctx->system_prompt) {

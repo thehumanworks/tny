@@ -76,6 +76,7 @@ def run_case(command, expected_output, expected_body):
                 PATH=f"{shim}{os.pathsep}{os.environ.get('PATH', '')}",
                 OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
                 OPENAI_API_KEY="synthetic-openai-key",
+                TNY_TOOLS="all",
             )
             result = subprocess.run(
                 [TNY, "--cwd", ws, "ask", "--json", "edit the notes"],
@@ -90,7 +91,9 @@ def run_case(command, expected_output, expected_body):
             )
             parsed = json.loads(result.stdout)
             assert parsed["exit_code"] == 0, parsed
-            assert [t["name"] for t in parsed["tool_calls"]] == ["terminal"], parsed
+            assert [
+                t["name"] for t in parsed["tool_calls"] if t["name"] != "run_code"
+            ] == ["terminal"], parsed
             assert parsed["tool_calls"][0]["status"] == "success", parsed
             with open(notes, encoding="utf-8") as f:
                 assert f.read() == expected_body, command

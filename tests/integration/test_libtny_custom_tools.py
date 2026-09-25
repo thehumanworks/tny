@@ -124,6 +124,11 @@ def python_consumer(library: Path, workspace: Path, url: str) -> None:
     lib.tny_event_get_kind.restype = ctypes.c_uint32
     lib.tny_event_stop_reason.argtypes = [ctypes.c_void_p]
     lib.tny_event_stop_reason.restype = ctypes.c_uint32
+    for name in ("tny_event_tool_name", "tny_event_tool_detail"):
+        getattr(lib, name).argtypes = [ctypes.c_void_p]
+        getattr(lib, name).restype = TnyBytes
+    lib.tny_event_tool_ok.argtypes = [ctypes.c_void_p]
+    lib.tny_event_tool_ok.restype = ctypes.c_uint32
     lib.tny_event_free.argtypes = [ctypes.c_void_p]
     lib.tny_session_free.argtypes = [ctypes.c_void_p]
     lib.tny_tool_registration_unregister.argtypes = [
@@ -192,6 +197,7 @@ def python_consumer(library: Path, workspace: Path, url: str) -> None:
         prompt_raw and lib.tny_session_send(session, prompt, ctypes.byref(error)) == 0
     )
     terminals = 0
+    tool_ends = 0
     while True:
         event = ctypes.c_void_p()
         status = lib.tny_session_next_event(
@@ -200,11 +206,20 @@ def python_consumer(library: Path, workspace: Path, url: str) -> None:
         if status == 3:
             break
         assert status == 1 and event.value
+        if lib.tny_event_get_kind(event) == 3:
+            tool_ends += 1
+            name = lib.tny_event_tool_name(event)
+            detail = lib.tny_event_tool_detail(event)
+            assert ctypes.string_at(name.ptr, name.len) == b"run_code"
+            message = ctypes.string_at(detail.ptr, detail.len)
+            assert lib.tny_event_tool_ok(event) == 0
+            assert b"execution server unavailable" in message
+            assert b"no direct fallback" in message
         if lib.tny_event_get_kind(event) == 7:
             terminals += 1
             assert lib.tny_event_stop_reason(event) == 0
         lib.tny_event_free(event)
-    assert invocations == 1 and terminals == 1
+    assert invocations == 0 and terminals == 1 and tool_ends == 1
     lib.tny_session_free(session)
     assert lib.tny_tool_registration_unregister(registration, ctypes.byref(error)) == 0
     lib.tny_runtime_free(runtime)

@@ -17,7 +17,7 @@ static const char *const vars[] = {"HOME", "CODEX_HOME", "CHATGPT_ACCESS_TOKEN",
 static char *saved[5];
 
 static bool schema_speak(tools_env *env) {
-    char *schema = tools_schema_json(env);
+    char *schema = tools_catalog_json(env);
     bool found = schema && strstr(schema, "\"name\":\"speak\"");
     free(schema);
     return found;

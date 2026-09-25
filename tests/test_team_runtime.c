@@ -162,7 +162,7 @@ TEST swarm_count_and_failed_resume_are_bounded(void) {
 
 TEST collective_mailbox_schema_and_permission_identity(void) {
     tools_env env = {0};
-    char *schema = tools_schema_json(&env);
+    char *schema = tools_catalog_json(&env);
     ASSERT(schema);
     yyjson_doc *doc = jparse(schema, strlen(schema));
     ASSERT(doc);
@@ -328,17 +328,17 @@ TEST swarm_message_profile_and_unsupported_boundaries_are_explicit(void) {
     const char *prior = getenv("TNY_SWARM_NAME");
     char *saved = prior ? xstrdup(prior) : NULL;
     setenv("TNY_SWARM_NAME", "reviewer", 1);
-    char *schema = tools_schema_json(&env);
+    char *schema = tools_catalog_json(&env);
     ASSERT(schema && schema_has(schema, "swarm_message"));
     free(schema);
 
     ctx.tool_profile = TNY_TOOLS_TERMINAL;
-    schema = tools_schema_json(&env);
+    schema = tools_catalog_json(&env);
     ASSERT(schema && !schema_has(schema, "swarm_message"));
     free(schema);
     ctx.tool_profile = TNY_TOOLS_ALL;
     ctx.ssh_host = "fixture.invalid";
-    schema = tools_schema_json(&env);
+    schema = tools_catalog_json(&env);
     ASSERT(schema && !schema_has(schema, "swarm_message"));
     free(schema);
     const char *request = "{\"to\":\"root\",\"kind\":\"finding\",\"topic\":\"t\",\"text\":\"x\"}";
@@ -352,7 +352,7 @@ TEST swarm_message_profile_and_unsupported_boundaries_are_explicit(void) {
     buf_free(&output);
     ctx.ssh_host = NULL;
     ctx.library_mode = true;
-    schema = tools_schema_json(&env);
+    schema = tools_catalog_json(&env);
     ASSERT(schema && !schema_has(schema, "swarm_message"));
     free(schema);
     err[0] = 0;

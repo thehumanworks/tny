@@ -30,6 +30,13 @@ typedef struct {
     int n_mem_results;
     int lock_fd;    /* <dir>/lock flock fd, -1 when not held */
     bool persisted; /* opened or successfully published; missing storage is an error */
+    /* Private execution snapshot: mutate working state, but only its owning
+     * harness may publish session.json/task.md after merging the RPC delta. */
+    bool execution_snapshot;
+    /* Private synchronous save boundary; never serialized. A snapshot cannot
+     * report save success before its owner has merged and persisted state. */
+    int (*execution_save)(void *ud);
+    void *execution_save_ud;
     /* Exact resolved task instructions are persisted in the private
      * <session>/task.md sidecar. Public session JSON carries metadata only. */
     char *task_body;
@@ -42,6 +49,8 @@ tny_session_state *session_open(tny_ctx *ctx, const char *id_or_last);
 /* Reload the resolved durable state and reconcile its task while retaining an
  * already-held writer lock. Failure leaves the working document unchanged. */
 int session_reload_locked(tny_session_state *s, char *err, size_t errsz);
+/* Execution snapshots synchronously request owner publication; missing save
+ * callbacks fail closed. Ordinary ephemeral sessions retain no-write behavior. */
 int session_save(tny_session_state *s);
 void session_close(tny_session_state *s);
 

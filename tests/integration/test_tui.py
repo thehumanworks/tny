@@ -29,6 +29,8 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from code_mode_fixture import code_response_events
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 TNY = (
@@ -318,6 +320,7 @@ def test_tilde_cwd_is_tui_workspace(_home, ws):
             t.close()
     print("ok  TUI --cwd ~/project selects home project from a different launch cwd")
 
+
 def test_shell_mode_without_provider(home, ws):
     """A real pty proves the ! mode switch and immediate local output."""
     t = Term([TNY], base_env(home), ws)
@@ -510,7 +513,7 @@ class ApprovalHandler(BaseHTTPRequestHandler):
                 },
                 {"type": "response.completed", "response": {"status": "completed"}},
             ]
-        for e in events:
+        for e in code_response_events(events):
             self._chunk(("data: %s\n\n" % json.dumps(e)).encode())
         self._chunk(b"")
 

@@ -112,7 +112,7 @@ static void write_settings(const char *json) {
 }
 
 static bool tool_schema_has(tools_env *env, const char *wanted) {
-    char *json = tools_schema_json(env);
+    char *json = tools_catalog_json(env);
     yyjson_doc *doc = json ? jparse(json, strlen(json)) : NULL;
     yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
     bool found = false;
@@ -130,7 +130,7 @@ static bool tool_schema_has(tools_env *env, const char *wanted) {
 }
 
 static size_t tool_schema_count(tools_env *env) {
-    char *json = tools_schema_json(env);
+    char *json = tools_catalog_json(env);
     yyjson_doc *doc = json ? jparse(json, strlen(json)) : NULL;
     size_t count = doc ? yyjson_arr_size(yyjson_doc_get_root(doc)) : 0;
     yyjson_doc_free(doc);
@@ -3751,10 +3751,33 @@ TEST responses_input_skips_malformed(void) {
 /* The whole builtin tool schema must flatten: every entry keeps its name,
  * description, and parameters at the top level and loses the nested
  * "function" object the chat wire uses. */
+TEST provider_schema_is_only_bounded_code(void) {
+    tools_env env = {0};
+    char *schema = tools_schema_json(&env);
+    ASSERT(schema);
+    yyjson_doc *doc = jparse(schema, strlen(schema));
+    ASSERT(doc);
+    yyjson_val *tools = yyjson_doc_get_root(doc);
+    ASSERT_EQ(1, yyjson_arr_size(tools));
+    yyjson_val *fn = jget(yyjson_arr_get(tools, 0), "function");
+    ASSERT_STR_EQ("run_code", jget_str(fn, "name"));
+    yyjson_val *params = jget(fn, "parameters");
+    ASSERT(yyjson_is_false(jget(params, "additionalProperties")));
+    ASSERT_EQ(1, yyjson_arr_size(jget(params, "required")));
+    ASSERT_STR_EQ("code", yyjson_get_str(yyjson_arr_get(jget(params, "required"), 0)));
+    yyjson_val *properties = jget(params, "properties");
+    ASSERT_EQ(2, yyjson_obj_size(properties));
+    ASSERT_STR_EQ("string", jget_str(jget(properties, "code"), "type"));
+    ASSERT_STR_EQ("integer", jget_str(jget(properties, "timeout_ms"), "type"));
+    yyjson_doc_free(doc);
+    free(schema);
+    PASS();
+}
+
 TEST responses_tools_flatten(void) {
     tools_env env;
     memset(&env, 0, sizeof env);
-    char *chat = tools_schema_json(&env);
+    char *chat = tools_catalog_json(&env);
     ASSERT(chat);
     char *flat = tny_openai_responses_tools(chat);
     ASSERT(flat);
@@ -3835,7 +3858,7 @@ TEST embedded_tool_schema_has_no_process_spawning_tools(void) {
     perm_engine *perm = perm_new(ctx);
     ASSERT(perm);
     tools_env env = {.ctx = ctx, .perm = perm};
-    char *schema = tools_schema_json(&env);
+    char *schema = tools_catalog_json(&env);
     ASSERT(schema);
     yyjson_doc *doc = jparse(schema, strlen(schema));
     ASSERT(doc);
@@ -4943,13 +4966,13 @@ TEST wire_api_resolution(void) {
 
 /* The pipe's read end reuses fd 0; child cleanup must retain that endpoint. */
 TEST acp_spawn_preserves_reused_stdin(void) {
+    ensure_env();
     pid_t probe = fork();
     ASSERT(probe >= 0);
     if (probe == 0) {
         signal(SIGALRM, SIG_DFL);
         signal(SIGPIPE, SIG_IGN);
         alarm(5);
-        close(STDIN_FILENO);
         char *argv[] = {(char *)TNY_SHELL_PATH, (char *)"-c",
                         (char *)"IFS= read -r value || exit 13; printf '%s' \"$value\"; "
                                 "printf diagnostic >&2",
@@ -4957,6 +4980,9 @@ TEST acp_spawn_preserves_reused_stdin(void) {
         tny_ctx ctx = {.cwd = (char *)".", .agent_argv = argv};
         ac_impl agent = {.ctx = &ctx, .in_fd = -1, .out_fd = -1, .err_fd = -1};
         char error[256];
+        agent.bridge = tny_acp_bridge_new(&ctx, error, sizeof error);
+        if (!agent.bridge) _exit(3);
+        close(STDIN_FILENO);
         if (ac_spawn_agent(&agent, error, sizeof error) != 0) _exit(1);
         bool sent = write(agent.in_fd, "payload\n", 8) == 8;
         close(agent.in_fd);
@@ -4970,6 +4996,7 @@ TEST acp_spawn_preserves_reused_stdin(void) {
         int status = 0;
         pid_t reaped;
         do { reaped = waitpid(agent.pid, &status, 0); } while (reaped < 0 && errno == EINTR);
+        tny_acp_bridge_destroy(agent.bridge);
         _exit(sent && out_len == 7 && strcmp(output, "payload") == 0 && err_len == 10 &&
                       strcmp(diagnostic, "diagnostic") == 0 && reaped == agent.pid &&
                       WIFEXITED(status) && WEXITSTATUS(status) == 0
@@ -6131,6 +6158,7 @@ SUITE(core_suite) {
     RUN_TEST(responses_input_honors_compact_boundary);
     RUN_TEST(responses_input_translates_image_parts);
     RUN_TEST(responses_input_skips_malformed);
+    RUN_TEST(provider_schema_is_only_bounded_code);
     RUN_TEST(responses_tools_flatten);
     RUN_TEST(responses_tools_preserve_optional_and_explicit_strict);
     RUN_TEST(embedded_tool_schema_has_no_process_spawning_tools);

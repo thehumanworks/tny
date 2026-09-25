@@ -5,6 +5,7 @@
 #include "core/shellwords.h"
 #include "core/shlex.h"
 #include "util/process.h"
+#include "util/execution_command.h"
 #include "util/terminal_task.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
@@ -255,27 +256,41 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
         tny_sandbox_command_free(&sandbox);
         return tool_err("pipe failed");
     }
-    pid_t pid = fork();
-    if (pid < 0) {
-        tny_sandbox_command_free(&sandbox);
-        close(pipefd[0]);
-        close(pipefd[1]);
-        return tool_err("fork failed");
+    int lifeline = -1;
+    pid_t pid = -1;
+    if (env->execution_server) {
+        int rc = tny_exec_command_start(sandbox.argv, env->ctx->cwd, (int)(timeout_s * 1000),
+                                        env->session_sock, env->session_id,
+                                        tny_perm_mode_name(env->ctx->perm_mode),
+                                        !env->ctx->no_self_improve, pipefd[1], &pid, &lifeline);
+        if (rc) {
+            tny_sandbox_command_free(&sandbox);
+            close(pipefd[0]);
+            close(pipefd[1]);
+            return tool_err("execution command guardian failed: %s", strerror(rc));
+        }
+    } else {
+        pid = fork();
+        if (pid < 0) {
+            tny_sandbox_command_free(&sandbox);
+            close(pipefd[0]);
+            close(pipefd[1]);
+            return tool_err("fork failed");
+        }
+        if (pid == 0) {
+            close(pipefd[0]);
+            dup2(pipefd[1], 1);
+            dup2(pipefd[1], 2);
+            close(pipefd[1]);
+            shell_control_env(env);
+            if (chdir(env->ctx->cwd) != 0) _exit(127);
+            setpgid(0, 0);
+            execv(sandbox.argv[0], sandbox.argv);
+            _exit(127);
+        }
+        /* Cancellation before child setpgid must still find its owned group. */
+        setpgid(pid, pid);
     }
-    if (pid == 0) {
-        close(pipefd[0]);
-        dup2(pipefd[1], 1);
-        dup2(pipefd[1], 2);
-        close(pipefd[1]);
-        shell_control_env(env);
-        if (chdir(env->ctx->cwd) != 0) _exit(127);
-        setpgid(0, 0);
-        execv(sandbox.argv[0], sandbox.argv);
-        _exit(127);
-    }
-    /* Also set from here: a cancellation that arrives before the child's own
-     * setpgid(2) must still find the group this process kills. */
-    setpgid(pid, pid);
     tny_sandbox_kind sandbox_kind = sandbox.kind;
     tny_sandbox_command_free(&sandbox);
     close(pipefd[1]);
@@ -366,6 +381,22 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     }
     /* The unreaped child pins its pid, so the sweep below owns exactly this
      * command and its descendants — never an unrelated process. */
+    if (lifeline >= 0) {
+        /* Closing asks the guardian to reap its own shell tree even if this
+         * execution server disappears before cleanup completes. */
+        close(lifeline);
+        lifeline = -1;
+        int64_t cleanup_deadline = monotonic_ms() + 9000;
+        while (!reaped && monotonic_ms() < cleanup_deadline) {
+            pid_t done = waitpid(pid, &status, WNOHANG);
+            if (done == pid) {
+                reaped = true;
+                break;
+            }
+            if (done < 0 && errno != EINTR) break;
+            (void)tny_poll(NULL, 0, 20);
+        }
+    }
     if (!reaped && (cancelled || timed_out || output_limited)) tny_process_kill_tree(pid);
     while (!reaped && waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
     if (result_fd >= 0) close(result_fd);

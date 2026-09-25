@@ -15,6 +15,7 @@ import threading
 import unittest
 from pathlib import Path
 
+from code_mode_fixture import code_chat_frames, code_response_events
 from test_image_workflow import TNY, WASM, Handler, ImageFixture, png, sha
 
 
@@ -48,7 +49,8 @@ class PreviewHandler(Handler):
                 {"type": "response.completed", "response": {"status": "completed"}}
             )
             wire = "".join(
-                f"event: {e['type']}\ndata: {json.dumps(e)}\n\n" for e in events
+                f"event: {e['type']}\ndata: {json.dumps(e)}\n\n"
+                for e in code_response_events(events)
             )
         else:
             delta = {"content": "done"}
@@ -77,7 +79,7 @@ class PreviewHandler(Handler):
                 },
             ]
             wire = (
-                "".join(f"data: {json.dumps(e)}\n\n" for e in events)
+                "".join(f"data: {json.dumps(e)}\n\n" for e in code_chat_frames(events))
                 + "data: [DONE]\n\n"
             )
         self.reply(200, "text/event-stream", wire.encode())
@@ -173,6 +175,13 @@ class PreviewWorkflow(ImageFixture):
             self.assertEqual(result["preview"]["representation"], "original_bytes")
         return result
 
+    def assert_dynamic_preview_refused(self):
+        """Dynamic CLI callbacks cannot make the owning harness reopen images."""
+        result = self.assert_preview("unsupported", 0)
+        self.assertEqual(result["preview"]["error_code"], "execution_server_required")
+        self.assertIsNone(result["preview"]["receipt_id"])
+        return result
+
     def test_generate_default_false_true_both_wires(self):
         for wire in ("chat", "responses"):
             for preview in (None, False, True):
@@ -251,7 +260,7 @@ class PreviewWorkflow(ImageFixture):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assert_preview()
 
-    def test_real_cli_through_runner_socket_both_wires(self):
+    def test_dynamic_cli_preview_refuses_parent_capture_both_wires(self):
         if WASM:
             self.skipTest(
                 "no AF_UNIX runner on wasm; clean CLI refusal is tested separately"
@@ -266,10 +275,11 @@ class PreviewWorkflow(ImageFixture):
                     [("terminal", {"command": "sh produce.sh"})], wire, socket_cli=True
                 )
                 self.assertEqual(run.returncode, 0, run.stderr)
-                value = self.assert_preview()
-                self.assertTrue(value["preview"]["receipt_id"])
+                value = self.assert_dynamic_preview_refused()
+                self.assertTrue(value["ok"])
+                self.assertEqual(self.out.read_bytes(), self.state["image"])
 
-    def test_relative_cli_preview_tracks_producer_cwd(self):
+    def test_dynamic_cli_preview_preserves_producer_cwd_without_capture(self):
         if WASM:
             self.skipTest(
                 "native runner socket required; wasm refusal tested separately"
@@ -299,7 +309,7 @@ class PreviewWorkflow(ImageFixture):
                             socket_cli=True,
                         )
                         self.assertEqual(run.returncode, 0, run.stderr)
-                        value = self.assert_preview()
+                        value = self.assert_dynamic_preview_refused()
                         self.assertEqual(value["path"], "result.png")
                         self.assertEqual(
                             value["preview"]["selected"]["path"],
@@ -313,6 +323,21 @@ class PreviewWorkflow(ImageFixture):
                             self.assertIsNone(
                                 value["preview"]["selected"]["manifest_path"]
                             )
+                        # The same artifact remains available through the typed
+                        # execution API, retaining the actual producer cwd.
+                        before = len(self.image_requests())
+                        selected = (
+                            ("read_image", {"path": str(subdir / "result.png")})
+                            if no_manifest
+                            else ("image_preview", {"manifest": value["manifest_path"]})
+                        )
+                        follow = self.ask([selected], wire)
+                        self.assertEqual(follow.returncode, 0, follow.stderr)
+                        self.assertEqual(
+                            self.pixels(self.state["chat"][-1]), [self.state["image"]]
+                        )
+                        self.assertEqual(len(self.image_requests()), before)
+                        self.assertEqual(self.out.read_bytes(), png(3, 3))
 
     def test_selected_failure_keeps_large_lineage_typed_and_intercept_json(self):
         refs = [self.home / (str(i) + "reference" * 22 + ".png") for i in range(5)]
@@ -427,7 +452,7 @@ int connect(int fd, const struct sockaddr *address, socklen_t len) {
                 self.assertEqual(run.stdout, b"")
                 self.assertIn(b"could not write to session socket", run.stderr)
 
-    def test_cli_edit_replay_export_sheet_reach_actual_next_request(self):
+    def test_intercept_previews_queue_and_dynamic_cli_callbacks_refuse_capture(self):
         if WASM:
             self.skipTest("wasm socket-only CLI controls are tested as unsupported")
         generated = self.result(self.generate("--json"))
@@ -444,30 +469,42 @@ int connect(int fd, const struct sockaddr *address, socklen_t len) {
         script = self.home / "produce.sh"
         for wire in ("chat", "responses"):
             for command in commands:
-                with self.subTest(wire=wire, command=command):
-                    script.write_text(command.replace("TNY", shlex.quote(TNY)) + "\n")
-                    # Explicit exports do not overwrite existing outputs by default.
-                    for name in ("export.png", "contact-sheet.png"):
-                        (self.home / name).unlink(missing_ok=True)
-                    run = self.ask(
-                        [("terminal", {"command": "sh produce.sh"})],
-                        wire,
-                        socket_cli=True,
-                    )
-                    self.assertEqual(run.returncode, 0, run.stderr)
-                    value = self.result_object()
-                    self.assertEqual(value["preview"]["status"], "queued")
-                    self.assertEqual(
-                        self.pixels(self.state["chat"][-1]),
-                        [(self.home / value["path"]).read_bytes()],
-                    )
-                    self.assertEqual(
-                        value["preview"]["selected"]["sha256"],
-                        sha((self.home / value["path"]).read_bytes()),
-                    )
-                    if "--no-manifest" in command:
-                        self.assertTrue(value["preview"]["selected"]["derived"])
-                        self.assertIsNone(value["preview"]["selected"]["manifest_path"])
+                for dynamic in (False, True):
+                    with self.subTest(wire=wire, command=command, dynamic=dynamic):
+                        script.write_text(
+                            command.replace("TNY", shlex.quote(TNY)) + "\n"
+                        )
+                        for name in ("export.png", "contact-sheet.png"):
+                            (self.home / name).unlink(missing_ok=True)
+                        issued = (
+                            "sh produce.sh"
+                            if dynamic
+                            else command.replace("TNY", "tny")
+                        )
+                        run = self.ask(
+                            [("terminal", {"command": issued})],
+                            wire,
+                            socket_cli=dynamic,
+                        )
+                        self.assertEqual(run.returncode, 0, run.stderr)
+                        value = self.result_object()
+                        produced = (self.home / value["path"]).read_bytes()
+                        self.assertTrue(value["ok"])
+                        if dynamic:
+                            self.assert_dynamic_preview_refused()
+                        else:
+                            self.assertEqual(value["preview"]["status"], "queued")
+                            self.assertEqual(
+                                self.pixels(self.state["chat"][-1]), [produced]
+                            )
+                        self.assertEqual(
+                            value["preview"]["selected"]["sha256"], sha(produced)
+                        )
+                        if "--no-manifest" in command:
+                            self.assertTrue(value["preview"]["selected"]["derived"])
+                            self.assertIsNone(
+                                value["preview"]["selected"]["manifest_path"]
+                            )
 
     def test_manifest_selected_typed_intercept_cli_without_generation(self):
         record = self.result(self.generate("--json"))["manifest_path"]
@@ -496,7 +533,11 @@ int connect(int fd, const struct sockaddr *address, socklen_t len) {
                         socket_cli=call[1].get("command") == "sh select.sh",
                     )
                     self.assertEqual(run.returncode, 0, run.stderr)
-                    value = self.assert_preview()
+                    value = (
+                        self.assert_dynamic_preview_refused()
+                        if call[1].get("command") == "sh select.sh"
+                        else self.assert_preview()
+                    )
                     self.assertEqual(
                         value["preview"]["selected"]["manifest_path"], record
                     )
@@ -655,14 +696,14 @@ int connect(int fd, const struct sockaddr *address, socklen_t len) {
         self.assertEqual(json.loads(run.stdout)["preview"]["status"], expected)
         self.assertEqual(len(self.image_requests()), 1)
 
-    def test_producer_replacement_after_commit_refuses_exact_expected_identity(self):
+    def test_dynamic_cli_replacement_is_refused_before_parent_capture(self):
         if WASM:
             self.skipTest("fault relay uses the native runner socket")
         replacement = png(3, 3)
         relay = self.home / "replace_at_capture.py"
-        # A fault relay does not decide admission. It replaces only this
-        # fixture's output after the real CLI has committed and supplied its
-        # digest, then forwards the same request to the actual owning runner.
+        # A controlled relay replaces this fixture's output after the CLI
+        # supplies its expected digest. The active runner must refuse the
+        # dynamic callback before reopening either version of that path.
         relay.write_text(f"""import json, os, socket, subprocess, threading
 from pathlib import Path
 real = os.environ['TNY_SESSION_SOCK']
@@ -699,9 +740,8 @@ raise SystemExit(run.returncode)
             socket_cli=True,
         )
         self.assertEqual(run.returncode, 0, run.stderr)
-        value = self.assert_preview("failed", 0)
+        value = self.assert_dynamic_preview_refused()
         self.assertTrue(value["ok"])
-        self.assertEqual(value["preview"]["error_code"], "hash_mismatch")
         self.assertEqual(
             value["preview"]["selected"]["sha256"], sha(self.state["image"])
         )

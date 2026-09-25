@@ -21,6 +21,19 @@ See [image preview](../images.md#explicit-conversation-preview-adr-0097).
 
 Native loop only, unless noted.
 
+## Code-only agent interface
+
+Agents receive exactly `run_code({code, timeout_ms?})`. Bounded Lua composes
+the tools below through `tools.call(name, arguments_json)`, with discovery via
+`tools.list()` and `tools.describe(name)`. Results are strings; `json.encode`
+and `json.decode` provide explicit JSON conversion. Native cells run in a
+fresh execution process; direct provider tool names are rejected. Wasm returns
+a clean unsupported-execution error. Native runner permissions cross a checked
+owner reply channel; user waits pause the code deadline (bounded to five minutes).
+The catalog below names nested operations,
+not separately advertised provider functions. See
+[ADR 0174](../adr/0174-execution-server-code-mode.md).
+
 ## Built-in tools
 
 Keep tool names stable so task prompts and agent integrations transfer:
@@ -38,7 +51,7 @@ Keep tool names stable so task prompts and agent integrations transfer:
 | Team messages | `team_mailbox` (`send`, `inbox`, `read`, `ack`, `retire`): bounded durable collaboration context. Native local only; private member capabilities or the recorded submitting session establish membership, never supplied sender/session IDs. See [mailboxes](../team-mailbox.md) |
 | Task workspaces | `job_workspace_inspect`, `job_workspace_integrate`, `job_workspace_cleanup`: explicit operations with separate permissions on proven-owned, terminal isolated task worktrees. Native local only. See [managed workspaces](../task-workspaces.md) |
 | Jobs | `job_submit`, `job_control` (`cancel`/`retry`/`rm`), `job_status` (`status`/`wait`/`logs`/`list`): durable ask/image work that outlives the turn ([jobs.md](../jobs.md), [ADR 0093](../adr/0093-durable-native-jobs-and-verified-retry.md)). Native only; hidden in embedded runtimes, under `--ssh`, and — for the execution tools — wherever no child process can be owned |
-| MCP | `mcp_search_tools`, `mcp_select_tool`, `mcp_features` only; namespaced `server/tool` names ride a system-prompt catalog, never the tools array ([ADR 0049](../adr/0049-mcp-background-warmup.md)) |
+| MCP | `mcp_search_tools`, `mcp_select_tool`, `mcp_features` only; namespaced `server/tool` names are discovered inside code, never separate provider functions ([ADR 0174](../adr/0174-execution-server-code-mode.md)) |
 | Speech | `speak` (text, optional voice): automatic ephemeral playback using the Codex login, independent of the chat provider; advertised only with credentials and a player. [Speech contract](../speech.md) |
 | Runtime | `ask_user_question`, `memory`, `read_tool_result` |
 
@@ -113,13 +126,13 @@ No browser/CDP tools in v1.
 A single simple `tny …` command typed into `terminal` is **not** run as a
 nested process. tny recognises it while preparing the tool call and dispatches
 it in-process, so it keeps the permission engine, session grants, `/undo`, the
-warmed MCP client, and the `--ssh` route:
+execution cell's MCP client, and the `--ssh` route:
 
 | Command | Runs | Permission identity |
 | --- | --- | --- |
 | `tny edit [--json] [--marker M] FILE` | the shared exact-match editor with the `edit_file` undo hook; over `--ssh`, `cat` + local replace + atomic write-back on the remote host | `edit_file` + resolved path |
-| `tny mcp call SERVER/TOOL` | one `tools/call` on the session's already-warmed client — never a second server | `mcp:server/tool` |
-| `tny mcp tools SERVER`, `tny mcp describe SERVER/TOOL` | the warmed client's cached `tools/list`: argument names, or one tool's full input schema | `mcp_search_tools` |
+| `tny mcp call SERVER/TOOL` | one `tools/call` on the execution cell's client | `mcp:server/tool` |
+| `tny mcp tools SERVER`, `tny mcp describe SERVER/TOOL` | the execution client's `tools/list`: argument names, or one tool's full input schema | `mcp_search_tools` |
 | `tny memory get\|set\|list …` | the `memory` tool | `memory` |
 | `tny skill show NAME` | the `skill` tool | `skill` |
 | `tny image attach PATH` | the same queue as `read_image`, allowed roots only | `read_image` |
@@ -139,14 +152,13 @@ The result is the verb's own contract — an `exit: N` line then its stdout and
 stderr — not a shell transcript, and `tool_start` names the verb
 (`tny edit docs/x.md`) instead of the raw command.
 
-A deeper child process that only has `TNY_SESSION_SOCK` reaches the same queue
-over the control channel, where a third tool-role operation, `image_preview`,
-admits an explicitly requested generated-image preview under stricter rules
-(configured-true `image_input`, allowed roots, tool-batch readiness and an
-expected-hash check) and answers an explicit status
-([`tny ask-user` and `tny image attach`](../cli.md#runner-control-verbs-ask-user-and-image-attach),
-[ADR 0096](../adr/0096-captured-image-queue-and-preview-lifecycle.md)). No
-shipped command sends it yet.
+A deeper shell child with `TNY_SESSION_SOCK` cannot ask the harness to read
+image bytes while a code cell is active: tool-role `image_attach` and
+`image_preview` control requests are refused with an instruction to use nested
+`read_image` or `image_preview`. Simple first-party terminal commands that the
+execution server intercepts still use its own prepared tool path. This keeps
+filesystem reads in the execution server; see
+[ADR 0174](../adr/0174-execution-server-code-mode.md).
 
 **Payloads still ride stdin.** Two shapes are understood: a here-doc
 (`tny edit FILE <<'EOF' … EOF`) and one left-hand producer piped in
@@ -160,7 +172,7 @@ pipe, a substitution or variable (`$(…)`, `` ` ` ``, `$VAR`), a glob, an
 env-assignment prefix (`FOO=bar tny …`), a global flag other than `--json`
 before the verb, `background: true`, or any verb not in the table. The
 standalone binary still works there — it just runs cold, without the session's
-permissions, undo, or warm MCP client.
+permissions, undo, or execution-cell MCP client.
 
 Every `terminal` child is started with `TNY_NESTED=1` and `TNY_NESTED_MODE`
 naming the turn's effective permission mode; a nested tny cannot widen it (see
@@ -197,18 +209,17 @@ retention and loss semantics. Foreground timeout/cancellation is unchanged.
 
 ### Web search providers
 
-The builtin Codex ChatGPT Responses profile uses hosted `web_search` with live
-web access; its search items and clickable citations persist across follow-ups.
-A shadowing settings provider named codex does not inherit that inline declaration.
-For other native providers/models (including Grok), the same `web_search` function
-uses a separate Codex search-only request whenever a Codex/ChatGPT login exists.
+Every native provider uses `web_search` as a nested code operation. The
+conversation request advertises only `run_code`; unsolicited provider-hosted
+search is rejected. The nested operation uses a separate Codex search-only
+request whenever a Codex/ChatGPT login exists.
 The active model, its credentials, transcript and project instructions are not
 sent to the search service. Only absence of that login selects DuckDuckGo; API-key-only
 Codex auth is not a subscription login. Invalid/failed logged-in search reports an
 error rather than silently changing service. Shell tool profiles expose `tny web search "QUERY"` and `tny web fetch URL` through the
 terminal tool's in-process first-party command handling.
 
-Explicit search settings take precedence over hosted search and the fallback
+Explicit search settings take precedence over the search service and fallback
 ([ADR 0109](../adr/0109-provider-independent-codex-search.md), amending ADR0106).
 The CLI always shares this routing and does not resolve or refresh an unrelated
 conversation provider. Host-owned tools can call this CLI without tny modifying
@@ -240,10 +251,10 @@ search phrase, if the command wants human-readable text. If both keys are set,
 }
 ```
 
-wasm: hosted search and URL/DuckDuckGo fetch use the shared HTTP seam (subject
-to endpoint CORS; a blocked request reports its transport error); `web_search_command` returns
-the clean error `web_search_command is not available in wasm`, while the tool
-stays advertised because a provider is configured.
+wasm: standalone URL/DuckDuckGo and search-service HTTP use the shared seam
+(subject to endpoint CORS). Command overrides remain unsupported. Agent calls
+through `run_code` return a clean unsupported-execution error because wasm
+cannot start a native execution server.
 
 For a token-efficient setup that saves result pages to disk and hands the
 model only an index to `read_file`, see
@@ -287,13 +298,22 @@ session id, or teardown round trip.
 tny never parses `text/event-stream`, opens a GET event stream, or falls back
 to deprecated HTTP+SSE. An SSE response or GET-only endpoint returns an
 actionable unsupported-transport error telling the user to configure the
-Streamable HTTP POST endpoint or use a local stdio proxy. wasm:
-HTTP MCP is remote-only over `fetch()` (subject to CORS); stdio spawn stays a
-clean error.
+Streamable HTTP POST endpoint or use a local stdio proxy. The wasm HTTP transport
+exists over `fetch()` (subject to CORS), but model-driven MCP calls require the
+native execution server and are unavailable on wasm.
 
-Startup ([ADR 0049](../adr/0049-mcp-background-warmup.md)): a native session warms every profile server in the background at session start — TUI after first paint, `tny ask` overlapping its connect (after the `-B` fork) — one detached thread per server opening its transport, negotiating the protocol era, and running `tools/list`. Never for `--help`/`--version`, or libtny. A call that names a server mid-warm waits out its handshake (the prewarm-take contract); a failed warm-up is silent until a call names it, which retries and reports the usual error.
+Execution-server startup ([ADR 0174](../adr/0174-execution-server-code-mode.md))
+is lazy. CLI/TUI session setup no longer warms MCP servers. A fresh execution
+cell owns its MCP client and starts transports only when the nested operation
+needs them. Help and version never start these resources.
+Calls within one cell share its MCP connections. Connections close when that
+cell ends; stateful MCP workflows must keep dependent calls in the same cell.
+Cross-cell transport/session continuity is not preserved in this implementation.
 
-Catalog, not schemas: the per-request system prompt lists the cached tools as `server/tool — one-line description` (capped per tool and per session; overflow says to use `mcp_search_tools`), so the model knows what exists with no extra round trip. Full MCP JSON schemas are never promoted into the function-schema `tools` array — the only MCP entries there are `mcp_search_tools`, `mcp_select_tool`, `mcp_features`, and every call goes through `mcp_select_tool` so the permission identity stays `mcp:server/tool`.
+The provider function array contains only `run_code`. MCP discovery and calls
+remain nested operations (`mcp_search_tools`, `mcp_select_tool`, `mcp_features`);
+full MCP schemas are not promoted into provider function entries. The permission
+identity remains `mcp:server/tool`.
 
 `mcp_search_tools` AND-matches whitespace-separated tokens against name + description; an empty query lists the cached catalog without starting or waiting for any server. Re-check permissions immediately before `tools/call`. Treat server output as untrusted data, not instructions.
 
@@ -303,9 +323,10 @@ Bearer token. Literal `Authorization` values are rejected. Configured and
 resolved header values and `Mcp-Session-Id` are treated as secrets: they are
 never logged, included in errors, events, transcripts, or diagnostics.
 
-Wasm behavior: **remote-only**. HTTP entries work lazily through the existing
-fetch/ReadableStream transport, subject to browser CORS. Stdio entries retain
-the clean spawn-unavailable error. There is no extra wasm protocol
+Wasm behavior: **model tool calls unavailable**. The underlying HTTP transport
+remains remote-only through fetch/ReadableStream, subject to browser CORS, but
+`run_code` fails before using it. Stdio entries retain the clean spawn-unavailable
+error. There is no extra wasm protocol
 implementation and every blocking body wait still goes through `tny_poll`.
 
 From a shell ([ADR 0057](../adr/0057-shell-first-native-loop.md), [ADR 0064](../adr/0064-cli-verb-conventions.md)): `tny mcp call SERVER/TOOL`
@@ -331,15 +352,15 @@ argument names; the MCP catalog header under shell profiles names both verbs.
 As a backstop, a `tny mcp call` that the server rejects (JSON-RPC error or
 `isError: true`) prints the tool's input schema after the error — on stderr
 and as `input_schema` in `--json` — so the retry is informed. Neither verb
-calls the tool; inside a session both are answered by the warmed client under
+calls the tool; inside code both use the execution cell's client under
 the `mcp_search_tools` identity.
 
 Cross-harness rules are unchanged by the CLI: servers come from the
 user-global `~/.tny/mcp.json` plus any `mcp.import_from` source; a project
 `.mcp.json` is never read on its own. A one-shot `tny mcp call` outside a
 session pays a cold start (spawn, `initialize`, `tools/list`) and shuts the
-server down again on exit; inside a running tny session the warmed client
-answers instead. Server output stays untrusted data and is bounded like a
+server down again on exit; inside code the execution cell's client
+answers and is released when the cell exits. Server output stays untrusted data and is bounded like a
 tool result: above `max_tool_result_bytes` the preview is capped and the full
 result is written to a `0600` file under `~/.tny/results/` whose path is
 printed (`result_file` in `--json`). wasm: HTTP servers work remote-only,

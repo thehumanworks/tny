@@ -144,8 +144,14 @@ def test_foreground_json_shape(ctx, port):
     assert r.returncode == 0, r.stderr.decode()
     fg = json.loads(r.stdout)
     assert "MOCK-OK" in fg["output"], fg
-    assert [t["name"] for t in fg["tool_calls"]] == ["list_files", "glob_files"], fg
-    assert [t["status"] for t in fg["tool_calls"]] == ["success", "success"], fg
+    assert [t["name"] for t in fg["tool_calls"] if t["name"] != "run_code"] == [
+        "list_files",
+        "glob_files",
+    ], fg
+    assert [t["status"] for t in fg["tool_calls"] if t["name"] != "run_code"] == [
+        "success",
+        "success",
+    ], fg
     _, doc = ctx.newest_doc()
     assert {k: v for k, v in doc["result"].items() if k != "session_id"} == {
         k: v for k, v in fg.items() if k != "session_id"

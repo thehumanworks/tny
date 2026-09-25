@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <string>
 
 struct State {
     int invoked = 0;
@@ -89,11 +90,19 @@ int main(int argc, char **argv) {
             if (status == TNY_STATUS_DRAINED) break;
             if (status != TNY_STATUS_EVENT || !event) return 6;
             if (tny_event_get_kind(event) == TNY_EVENT_TOOL_END) {
-                if (tny_event_tool_ok(event) != (state.completion_oom ? 0u : 1u)) return 10;
+                tny_bytes name = tny_event_tool_name(event);
+                tny_bytes detail = tny_event_tool_detail(event);
+                std::string message(detail.ptr ? static_cast<const char *>(detail.ptr) : "",
+                                    static_cast<size_t>(detail.len));
+                if (tny_event_tool_ok(event) || name.len != 8 ||
+                    std::memcmp(name.ptr, "run_code", 8) != 0 ||
+                    message.find("execution server unavailable") == std::string::npos ||
+                    message.find("no direct fallback") == std::string::npos)
+                    return 10;
                 tool_ends++;
             }
             if (tny_event_get_kind(event) == TNY_EVENT_TURN_END) {
-                /* Callback failures become tool errors; the mock then finishes. */
+                /* Explicit embedded refusal is a tool error; the mock then finishes. */
                 if (tny_event_stop_reason(event) != TNY_STOP_REASON_DONE) return 7;
                 terminals++;
             }
@@ -102,11 +111,11 @@ int main(int argc, char **argv) {
         if (tool_ends != 1) return 10;
     }
     tny_session_free(session);
-    if (tny_tool_registration_unregister(registration, nullptr) != 0 || state.invoked != turns ||
-        terminals != turns || state.failed_completions != (inject_oom ? 2 : 0))
+    if (tny_tool_registration_unregister(registration, nullptr) != 0 || state.invoked != 0 ||
+        terminals != turns || state.failed_completions != 0)
         return 8;
     tny_runtime_free(runtime);
-    std::cout << "libtny-custom-tools: C++ callback passed; completion OOMs="
-              << state.failed_completions << '\n';
+    std::cout << "libtny-custom-tools: C++ registration/refusal passed; callbacks=" << state.invoked
+              << '\n';
     return 0;
 }

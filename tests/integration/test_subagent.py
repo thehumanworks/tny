@@ -23,6 +23,8 @@ import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from code_mode_fixture import code_call
+
 TNY = os.path.abspath(
     sys.argv[1] if len(sys.argv) > 1 else os.environ.get("TNY", "build/tny")
 )
@@ -92,12 +94,12 @@ def user_texts(body, wire):
 def tool_outputs(body, wire):
     if wire == "chat":
         return [
-            m.get("content")
+            m.get("content", "").removesuffix("\n")
             for m in body.get("messages", [])
             if m.get("role") == "tool"
         ]
     return [
-        i.get("output")
+        i.get("output", "").removesuffix("\n")
         for i in body.get("input", [])
         if isinstance(i, dict) and i.get("type") == "function_call_output"
     ]
@@ -106,6 +108,7 @@ def tool_outputs(body, wire):
 def chat_frames(text=None, call=None):
     if call:
         cid, name, args = call
+        name, args = code_call(name, args)
         delta = {
             "role": "assistant",
             "tool_calls": [
@@ -136,6 +139,7 @@ def responses_frames(text=None, call=None):
     events = [{"type": "response.created", "response": {"status": "in_progress"}}]
     if call:
         cid, name, args = call
+        name, args = code_call(name, args)
         item = {
             "type": "function_call",
             "id": "fc_" + cid,
@@ -281,11 +285,11 @@ class Provider:
             "effort": body.get("reasoning_effort")
             if wire == "chat"
             else (body.get("reasoning") or {}).get("effort"),
-            "subagent_schema": next(
+            "run_code_schema": next(
                 (
                     t.get("function", t)
                     for t in body.get("tools") or []
-                    if t.get("function", t).get("name") == "subagent"
+                    if t.get("function", t).get("name") == "run_code"
                 ),
                 None,
             ),
@@ -312,15 +316,6 @@ class Provider:
             if len(outputs) < len(steps):
                 tool, args = steps[len(outputs)]
                 args = args() if callable(args) else args
-                if wire == "responses" and tool == "subagent":
-                    schema = next(t for t in body["tools"] if t.get("name") == tool)
-                    # Emulate a schema-conforming model after Responses' default
-                    # strict normalization. Optional string fields become required;
-                    # instructions saying "omit id" cannot override that schema.
-                    if schema.get("strict") is not False:
-                        args = dict(args)
-                        for field in ("id", "prompt", "provider", "model", "effort"):
-                            args.setdefault(field, "")
                 cid = f"call_{scenario}_{len(outputs)}"
                 h._send(200, ctype, frames(call=(cid, tool, json.dumps(args))))
             else:
@@ -444,7 +439,11 @@ def session_bytes(home, sid):
 
 
 def statuses(payload):
-    return [(c["name"], c["status"]) for c in payload.get("tool_calls", [])]
+    return [
+        (c["name"], c["status"])
+        for c in payload.get("tool_calls", [])
+        if c["name"] != "run_code"
+    ]
 
 
 def success_text(sid, output):
@@ -497,7 +496,7 @@ def scenario_reproduce(provider, home, workspace):
     payload = run_parent(env, workspace, s)
     check(payload.get("output") == "PARENT-OK", payload)
     first = provider.parent_requests(s)[0]
-    check("subagent" in first["tools"], f"subagent not advertised: {first['tools']}")
+    check(first["tools"] == ["run_code"], f"unexpected tool surface: {first['tools']}")
     check(
         statuses(payload)
         == [("subagent", "success"), ("terminal", "success")]
@@ -786,10 +785,9 @@ def scenario_selectors(provider, home, workspace, wire):
         )
         payload = run_parent(env, workspace, s, flags=flags)
         check(statuses(payload) == [("subagent", "success")] * len(cases), payload)
-        schema = provider.parent_requests(s)[0]["subagent_schema"]["parameters"]
-        check(schema["required"] == ["action"], schema)
-        for field in ("provider", "model", "effort"):
-            check(schema["properties"][field]["type"] == "string", schema)
+        schema = provider.parent_requests(s)[0]["run_code_schema"]["parameters"]
+        check(schema["required"] == ["code"], schema)
+        check(schema["properties"]["code"]["type"] == "string", schema)
         for i, (pick, model, effort, child_wire, key) in enumerate(cases):
             tag = f"{s}-{i}"
             req = provider.child_requests(tag)[0]

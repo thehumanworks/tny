@@ -20,6 +20,8 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from code_mode_fixture import code_chat_frames
+
 ROOT = Path(__file__).resolve().parents[2]
 TNY = str(Path(os.environ.get("TNY", ROOT / "build/tny")).resolve())
 WASM = "wasm" in TNY
@@ -95,7 +97,7 @@ class Handler(BaseHTTPRequestHandler):
             200,
             "text/event-stream",
             (
-                "".join(f"data: {json.dumps(f)}\n\n" for f in frames)
+                "".join(f"data: {json.dumps(f)}\n\n" for f in code_chat_frames(frames))
                 + "data: [DONE]\n\n"
             ).encode(),
         )
@@ -224,7 +226,7 @@ class ImageInputTests(unittest.TestCase):
         self.settings({"image_input": {"openai": False}})
         r = self.run_tny("ask", "--no-save", "inspect the screenshot")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertNotIn("read_image", self.tool_names(self.state["chat"][0]))
+        self.assertEqual(self.tool_names(self.state["chat"][0]), ["run_code"])
         results = [
             m for m in self.state["chat"][1]["messages"] if m.get("role") == "tool"
         ]
@@ -238,7 +240,7 @@ class ImageInputTests(unittest.TestCase):
         self.settings({"image_input": {"openai": True}})
         r = self.run_tny("ask", "--no-save", "inspect the screenshot")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("read_image", self.tool_names(self.state["chat"][0]))
+        self.assertEqual(self.tool_names(self.state["chat"][0]), ["run_code"])
         results = [
             m for m in self.state["chat"][1]["messages"] if m.get("role") == "tool"
         ]

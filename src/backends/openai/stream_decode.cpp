@@ -199,7 +199,10 @@ void usage(batch &b, yyjson_val *value, bool chat) {
         event.usage_fields |= 8;
 }
 void hosted_item(decoder_state &s, batch &b, yyjson_val *item, bool hosted) {
-    if (!hosted) return;
+    if (!hosted) {
+        if (is(item, "type", "web_search_call")) failure(b, jget(item, "type"));
+        return;
+    }
     const char *type = jget_str(item, "type"), *id = jget_str(item, "id");
     if (!type || !id) return;
     bool search = std::strcmp(type, "web_search_call") == 0;
@@ -304,6 +307,15 @@ void chat_decode(decoder_state &s, batch &b, oa_callset *calls, yyjson_val *root
             }
         }
     }
+    size_t i, n;
+    yyjson_val *tc;
+    yyjson_arr_foreach(jget(delta, "tool_calls"), i, n, tc) {
+        yyjson_val *name = jget(jget(tc, "function"), "name");
+        if (yyjson_is_str(name) && strlen(yyjson_get_str(name)) != yyjson_get_len(name)) {
+            failure(b, name);
+            return;
+        }
+    }
     if (oa_calls_feed(calls, jget(delta, "tool_calls")) != TNY_PARSE_OK) throw std::bad_alloc();
 }
 void incomplete(batch &b, yyjson_val *response) {
@@ -313,7 +325,10 @@ void incomplete(batch &b, yyjson_val *response) {
 }
 void call_item(oa_callset *calls, int64_t index, yyjson_val *item, bool whole = false) {
     const char *args = jget_str(item, "arguments");
-    if (oa_calls_item(calls, index, jget_str(item, "call_id"), jget_str(item, "name"),
+    size_t name_len = 0;
+    const char *name = jget_strn(item, "name", &name_len);
+    if (name && strlen(name) != name_len) name = "invalid tool name";
+    if (oa_calls_item(calls, index, jget_str(item, "call_id"), name,
                       args && (*args || whole) ? args : nullptr, true, false) != TNY_PARSE_OK)
         throw std::bad_alloc();
 }

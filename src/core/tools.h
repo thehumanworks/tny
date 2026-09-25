@@ -9,6 +9,7 @@
 #include "core/perm.h"
 #include "core/events.h"
 #include "core/backend.h"
+#include "backends/openai/openai.h"
 #include "core/image_preview.h"
 #include "core/learning.h"
 #include "util/terminal_task.h"
@@ -91,7 +92,15 @@ typedef struct tools_env {
     struct mcp_client *mcp;
     /* set true when a PROMPT could not be resolved (ask-mode CLI) */
     bool perm_blocked;
+    /* Set inside the code execution server; nested run_code is forbidden. */
+    bool execution_server;
+    /* Reverse RPC from nested calls to the owning runtime extension hooks. */
+    tny_openai_control_cb execution_control;
+    void *execution_control_ud;
+    void (*execution_observe)(void *ud);
+    void *execution_observe_ud;
     tny_image_preview_admit preview_admit;
+    bool (*preview_ready)(void *ud); /* observation only; shares preview_ud */
     void *preview_ud;
     /* ONE pending-image queue, flushed as a user-role image_url message after
      * the role:tool results (docs/adr/0008, docs/adr/0096). Entry i is the
@@ -100,6 +109,9 @@ typedef struct tools_env {
      *
      * Every admission, including --ssh read_image, retains exact bytes. Paths
      * are provenance only and are never reopened by flush. */
+    /* Execution-server admission reserves the owning harness queue capacity. */
+    int reserved_image_count;
+    size_t reserved_image_bytes;
     char *pending_images[9];
     tools_pending_capture pending_capture[9];
     int n_pending_images;
@@ -138,10 +150,12 @@ typedef struct {
  * ACP clients see the verb rather than an opaque shell blob. */
 const char *tools_call_label(const tools_call *call);
 
-/* OpenAI "tools" array JSON for every built-in. MCP tools are never
- * promoted here; they ride the system-prompt catalog (docs/adr/0049).
- * malloc'd. */
+/* Model-facing OpenAI tools array: exactly run_code. malloc'd. */
 char *tools_schema_json(tools_env *env);
+/* Discoverable nested tools, subject to the current runtime/profile. malloc'd. */
+char *tools_catalog_json(tools_env *env);
+/* Shared native/ACP instructions for the code execution interface. */
+const char *tools_code_instructions(void);
 
 /* Execute one call. Returns a malloc'd string for the role:"tool" message.
  * `all` bounds large output behind a session handle; shell profiles give
@@ -184,7 +198,6 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
 char *tool_web_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled);
 /* Search uses explicit overrides, else a Codex login, else DuckDuckGo. */
 bool tool_web_search_configured(tny_ctx *ctx);
-bool tool_web_search_native(tny_ctx *ctx);
 char *tool_web_search_parse_ddg(const char *html);
 /* Shared Codex service: handled=false only without a ChatGPT login. */
 char *tool_web_search_codex(tools_env *env, const char *query, bool *handled);

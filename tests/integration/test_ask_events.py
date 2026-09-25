@@ -21,6 +21,8 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from code_mode_fixture import code_chat_frames
+
 TNY = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("TNY", "build/tny")
 TNY = os.path.abspath(TNY)
 RUN_TIMEOUT = float(os.environ.get("TNY_TEST_TURN_TIMEOUT", "60"))
@@ -154,6 +156,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _stream(self, frames, hold=0.0):
+        frames = code_chat_frames(frames)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Transfer-Encoding", "chunked")
@@ -257,6 +260,7 @@ class Workspace:
                 "OPENAI_WIRE_API": "chat",
                 "OPENAI_DEFAULT_MODEL": "mock-model",
                 "TNY_TEST_SUITE": "ask-events",
+                "TNY_TOOLS": "all",
             }
         )
         self.env = env
@@ -371,8 +375,12 @@ def case_tool_events(ws):
     events = parse_stream(run.stdout)
     assert_envelope(events)
     one_terminal(events)
-    starts = [e for e in events if e["type"] == "tool_start"]
-    ends = [e for e in events if e["type"] == "tool_end"]
+    starts = [
+        e for e in events if e["type"] == "tool_start" and e["tool_name"] != "run_code"
+    ]
+    ends = [
+        e for e in events if e["type"] == "tool_end" and e["tool_name"] != "run_code"
+    ]
     check(len(starts) == 1 and len(ends) == 1, [e["type"] for e in events])
     check(starts[0]["tool_name"] == "list_files", starts)
     check(ends[0]["tool_ok"] is True, ends)
@@ -381,6 +389,10 @@ def case_tool_events(ws):
         events.index(starts[0]) < events.index(ends[0]),
         "tool_end preceded tool_start",
     )
+    wrappers = [e for e in events if e.get("tool_name") == "run_code"]
+    check([e["type"] for e in wrappers] == ["tool_start", "tool_end"], wrappers)
+    check(wrappers[0]["tool_id"] == wrappers[1]["tool_id"], wrappers)
+    check(wrappers[1]["tool_ok"] is True, wrappers)
     # the human tool lines stay on stderr
     check(b"list_files" in run.stderr, run.stderr)
 
@@ -486,7 +498,7 @@ def case_progress_none(ws):
     events = parse_stream(quiet.stdout)
     check(
         [e["type"] for e in events if e["type"].startswith("tool_")]
-        == ["tool_start", "tool_end"],
+        == ["tool_start", "tool_start", "tool_end", "tool_end"],
         "progress=none dropped tool events from the stream",
     )
     loud = ws.run("ask", "--ephemeral", "--events=jsonl", "TOOL list files")
@@ -732,8 +744,10 @@ def case_interrupt_while_blocked(ws):
         mcp_children = [
             row for row in descendants(proc.pid) if marker in row[2] or "sh" in row[2]
         ]
-        check(mcp_children, "the owned MCP child never started")
-        owned_pid = mcp_children[0][0]
+        # Code mode starts MCP inside an execution cell only when requested.
+        # A text-only blocked writer must not create a prewarm child. Active
+        # shell-tree cleanup is exercised by test_execution_command.py.
+        check(not mcp_children, "text-only streaming started an MCP child")
         started = time.monotonic()
         os.kill(proc.pid, signal.SIGINT)
         # A writer that ignores the interrupt while stalled would wait for a
@@ -749,12 +763,6 @@ def case_interrupt_while_blocked(ws):
         check(proc.returncode == 130, f"interrupted exit {proc.returncode}")
         diag = json.loads(stderr.decode().strip().splitlines()[-1])
         check(diag["code"] == "cancelled", diag)
-        deadline = time.monotonic() + 10
-        while alive(owned_pid) and time.monotonic() < deadline:
-            time.sleep(0.1)
-        check(
-            not alive(owned_pid), f"owned MCP child {owned_pid} survived the interrupt"
-        )
         check(sentinel.poll() is None, "an unrelated process was killed")
         check(
             fcntl.fcntl(read_fd, fcntl.F_GETFL) & os.O_NONBLOCK == 0

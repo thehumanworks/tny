@@ -520,7 +520,7 @@ TEST image_tool_schema_permission_and_interception(void) {
     ASSERT(env.perm);
     const char *args = "{\"prompt\":\"hello\",\"output_file\":\"out.png\",\"images\":[\"first."
                        "png\",\"second.png\"]}";
-    char *schema = tools_schema_json(&env);
+    char *schema = tools_catalog_json(&env);
     ASSERT(schema);
     ASSERT(strstr(schema, "image_generate"));
     ASSERT(strstr(schema, "image_edit"));
@@ -554,7 +554,7 @@ TEST image_tool_schema_permission_and_interception(void) {
         tools_call_free(&call);
     }
     ctx.tool_profile = TNY_TOOLS_TERMINAL;
-    schema = tools_schema_json(&env);
+    schema = tools_catalog_json(&env);
     ASSERT(schema);
     ASSERT(!strstr(schema, "image_generate"));
     free(schema);
@@ -571,7 +571,7 @@ TEST image_tool_schema_permission_and_interception(void) {
     tools_call_free(&call);
     ctx.tool_profile = TNY_TOOLS_ALL;
     ctx.library_mode = true;
-    schema = tools_schema_json(&env);
+    schema = tools_catalog_json(&env);
     ASSERT(schema);
     ASSERT(!strstr(schema, "image_edit"));
     free(schema);
@@ -802,7 +802,7 @@ TEST image_export_tools_carry_the_whole_operation(void) {
     const char *args =
         "{\"sources\":[{\"image\":\"export-src.png\"}],\"output_file\":\"export-out.png\","
         "\"size\":\"32x32\",\"fit\":\"crop\",\"gravity\":\"north\"}";
-    char *schema = tools_schema_json(&env);
+    char *schema = tools_catalog_json(&env);
     ASSERT(schema);
     ASSERT(strstr(schema, "image_export"));
     ASSERT(strstr(schema, "image_contact_sheet"));
@@ -881,7 +881,7 @@ TEST image_export_tools_carry_the_whole_operation(void) {
     tools_call_free(&call);
     /* Runtimes without a local process seam hide and refuse both tools. */
     ctx.library_mode = true;
-    schema = tools_schema_json(&env);
+    schema = tools_catalog_json(&env);
     ASSERT(schema);
     ASSERT(!strstr(schema, "image_export"));
     ASSERT(!strstr(schema, "image_contact_sheet"));

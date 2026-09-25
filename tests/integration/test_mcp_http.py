@@ -8,6 +8,8 @@ import sys
 import tempfile
 import time
 
+from code_mode_fixture import lua_string
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TNY = os.environ.get("TNY", os.path.join(ROOT, "build", "tny"))
 MCP_MOCK = os.path.join(ROOT, "tests", "integration", "mock_mcp_http.py")
@@ -41,11 +43,16 @@ def run_case(mcp_port, endpoint, expected_output):
         {"server": "remote", "tool": "echo", "arguments": {"text": "hello"}},
         separators=(",", ":"),
     )
+    code = ""
+    if endpoint in ("modern", "legacy"):
+        # Discovery is explicit inside this cell; session startup never warms MCP.
+        code = 'tools.call("mcp_search_tools", \'{"query":"echo"}\'); '
+    code += f'print(tools.call("mcp_select_tool", {lua_string(arguments)}))'
     provider_env = dict(
         os.environ,
         MOCK_EXPECT_WIRE="responses",
-        MOCK_CUSTOM_TOOL="mcp_select_tool",
-        MOCK_CUSTOM_ARGUMENTS=arguments,
+        MOCK_CUSTOM_TOOL="run_code",
+        MOCK_CUSTOM_ARGUMENTS=json.dumps({"code": code}),
         MOCK_EXPECT_TOOL_OUTPUT=expected_output,
     )
     provider, provider_port = start(OPENAI_MOCK, provider_env)
@@ -73,6 +80,7 @@ def run_case(mcp_port, endpoint, expected_output):
                 MCP_TEST_TOKEN=SECRET,
                 OPENAI_BASE_URL=f"http://127.0.0.1:{provider_port}/v1",
                 OPENAI_API_KEY="synthetic-openai-key",
+                TNY_TOOLS="all",
             )
             result = subprocess.run(
                 [TNY, "--cwd", ws, "--ephemeral", "ask", "--json", "call remote echo"],
@@ -92,7 +100,9 @@ def run_case(mcp_port, endpoint, expected_output):
             )
             parsed = json.loads(result.stdout)
             assert parsed["exit_code"] == 0, parsed
-            assert parsed["tool_calls"][0]["name"] == "mcp_select_tool", parsed
+            assert any(
+                call["name"] == "mcp_select_tool" for call in parsed["tool_calls"]
+            ), parsed
     finally:
         stop(provider)
 
@@ -130,8 +140,8 @@ def main():
             assert state["modern"].get("server/discover", 0) >= 1, state
             assert state["modern"].get("initialize", 0) == 0, state
             assert state["modern"].get("notifications/initialized", 0) == 0, state
-            # wasm has no warm-up threads, so the catalog prefetch (tools/list)
-            # is lazy and may not run before the calls above.
+            # Both supported endpoints explicitly discover their nested catalog
+            # before calling, within the same execution cell.
             if not os.environ.get("TNY_TEST_EXPECT_WASM"):
                 assert state["modern"].get("tools/list", 0) >= 1, state
             assert state["modern"].get("tools/call", 0) == 1, state

@@ -62,6 +62,7 @@ def record(event):
             "session_id": event.session_id,
             "turn_id": event.turn_id,
             "tool_id": getattr(event, "tool_id", ""),
+            "tool_name": getattr(event, "tool_name", ""),
             "permission_id": getattr(event, "permission_id", ""),
             "detail": getattr(event, "message", getattr(event, "text", "")),
             "metadata": dict(getattr(event, "metadata", {})),
@@ -102,35 +103,35 @@ def setup(api):
             return deny_tool("integration deny")
         if os.environ.get("TNY_TEST_INVALID_REWRITE") == "1" and event.tool_name == "write_file":
             return rewrite_tool({"path": "invalid.txt"})
-        if os.environ.get("TNY_TEST_REWRITE") == "1" and event.tool_id == "call_1":
+        if os.environ.get("TNY_TEST_REWRITE") == "1" and event.tool_name == "list_files":
             return rewrite_tool({"path": "missing"})
 
     @api.on(PreToolUseEvent)
     def final_rewrite(event):
-        if os.environ.get("TNY_TEST_REWRITE") == "1" and event.tool_id == "call_1":
+        if os.environ.get("TNY_TEST_REWRITE") == "1" and event.tool_name == "list_files":
             return rewrite_tool({"path": "."})
 
     @api.on(PostToolUseEvent)
     def annotate_result(event):
         if (os.environ.get("TNY_TEST_REPLACE") == "1" or
                 os.environ.get("TNY_TEST_ANNOTATE_ONLY") == "1" or
-                os.environ.get("TNY_TEST_STOP_POST") == "1") and event.tool_id == "call_1":
+                os.environ.get("TNY_TEST_STOP_POST") == "1") and event.tool_name == "list_files":
             return annotate_tool("integration annotation")
 
     @api.on(PostToolUseEvent)
     def annotate_result_second(event):
         if (os.environ.get("TNY_TEST_REPLACE") == "1" or
-                os.environ.get("TNY_TEST_ANNOTATE_ONLY") == "1") and event.tool_id == "call_1":
+                os.environ.get("TNY_TEST_ANNOTATE_ONLY") == "1") and event.tool_name == "list_files":
             return annotate_tool("integration annotation second", display=False)
 
     @api.on(PostToolUseEvent)
     def replace_result(event):
-        if os.environ.get("TNY_TEST_REPLACE") == "1" and event.tool_id == "call_1":
+        if os.environ.get("TNY_TEST_REPLACE") == "1" and event.tool_name == "list_files":
             return replace_tool_result("REPLACED-TOOL-RESULT")
 
     @api.on(PostToolUseEvent)
     def stop_after_result(event):
-        if os.environ.get("TNY_TEST_STOP_POST") == "1" and event.tool_id == "call_1":
+        if os.environ.get("TNY_TEST_STOP_POST") == "1" and event.tool_name == "list_files":
             return stop("stop after first tool")
 
     @api.on(PostToolFailureEvent)
@@ -195,6 +196,7 @@ def main():
                 HOME=home,
                 OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
                 OPENAI_API_KEY="test-key-not-real",
+                TNY_TOOLS="all",
                 TNY_TEST_EXTENSION_LOG=event_log,
                 TNY_TEST_REWRITE="1",
                 TNY_TEST_REPLACE="1",
@@ -258,7 +260,9 @@ def main():
             tool_audit = [
                 entry
                 for entry in session_doc.get("extension_audit", [])
-                if entry.get("kind") == "tool" and entry.get("id") == "call_1"
+                if entry.get("kind") == "tool"
+                and entry.get("tool") != "run_code"
+                and entry.get("tool") == "list_files"
             ]
             assert len(tool_audit) == 1, tool_audit
             assert tool_audit[0]["original_arguments"] == '{"path": "."}', tool_audit
@@ -318,27 +322,30 @@ def main():
             first_pre = next(
                 i
                 for i, event in enumerate(events)
-                if event["type"] == "pre_tool_use" and event["tool_id"] == "call_1"
+                if event["type"] == "pre_tool_use"
+                and event["tool_name"] == "list_files"
             )
             first_start = next(
                 i
                 for i, event in enumerate(events)
-                if event["type"] == "tool_start" and event["tool_id"] == "call_1"
+                if event["type"] == "tool_start" and event["tool_name"] == "list_files"
             )
             first_end = next(
                 i
                 for i, event in enumerate(events)
-                if event["type"] == "tool_end" and event["tool_id"] == "call_1"
+                if event["type"] == "tool_end" and event["tool_name"] == "list_files"
             )
             first_post = next(
                 i
                 for i, event in enumerate(events)
-                if event["type"] == "post_tool_use" and event["tool_id"] == "call_1"
+                if event["type"] == "post_tool_use"
+                and event["tool_name"] == "list_files"
             )
             second_pre = next(
                 i
                 for i, event in enumerate(events)
-                if event["type"] == "pre_tool_use" and event["tool_id"] == "call_2"
+                if event["type"] == "pre_tool_use"
+                and event["tool_name"] == "glob_files"
             )
             batch = kinds.index("post_tool_batch")
             assert (
@@ -425,6 +432,7 @@ def main():
                         entry
                         for entry in resumed_doc.get("extension_audit", [])
                         if entry.get("kind") == "tool"
+                        and entry.get("tool") != "run_code"
                     ]
                 )
                 == 1
@@ -616,7 +624,7 @@ def main():
                 permission_stopped_audit = [
                     entry
                     for entry in permission_stopped_doc.get("extension_audit", [])
-                    if entry.get("kind") == "tool"
+                    if entry.get("kind") == "tool" and entry.get("tool") != "run_code"
                 ]
                 assert permission_stopped_audit[0]["control_extension"] == "integration"
                 assert (
@@ -692,7 +700,7 @@ def main():
                 invalid_audit = [
                     entry
                     for entry in invalid_doc.get("extension_audit", [])
-                    if entry.get("kind") == "tool"
+                    if entry.get("kind") == "tool" and entry.get("tool") != "run_code"
                 ]
                 assert len(invalid_audit) == 1, invalid_audit
                 assert (
@@ -786,9 +794,11 @@ def main():
                     message.get("content") == "integration annotation"
                     for message in stopped_json["extension_messages"]
                 ), stopped_json
-                assert len(stopped_json["tool_calls"]) == 2, stopped_json
-                assert stopped_json["tool_calls"][0]["status"] == "success"
-                assert stopped_json["tool_calls"][1]["status"] == "error"
+                assert stopped_json["tool_calls"] == [
+                    {"name": "list_files", "status": "success"},
+                    {"name": "run_code", "status": "success"},
+                    {"name": "run_code", "status": "error"},
+                ], stopped_json
 
                 invalid_observe = subprocess.run(
                     [
@@ -852,7 +862,9 @@ def main():
                 annotated_audit = [
                     entry
                     for entry in annotated_doc.get("extension_audit", [])
-                    if entry.get("kind") == "tool" and entry.get("id") == "call_1"
+                    if entry.get("kind") == "tool"
+                    and entry.get("tool") != "run_code"
+                    and entry.get("tool") == "list_files"
                 ]
                 assert len(annotated_audit) == 1, annotated_audit
                 assert len(annotated_audit[0]["annotations"]) == 2, annotated_audit
@@ -884,6 +896,11 @@ def main():
                 )
                 assert transformed.returncode == 0, transformed.stderr.decode()
                 transformed_json = json.loads(transformed.stdout)
+                transformed_json["tool_calls"] = [
+                    call
+                    for call in transformed_json["tool_calls"]
+                    if call["name"] != "run_code"
+                ]
                 assert len(transformed_json["tool_calls"]) == 2, transformed_json
                 assert transformed_json["tool_calls"][0] == {
                     "name": "list_files",
@@ -944,7 +961,9 @@ def main():
                 assert batch_stopped.returncode == 130, batch_stopped.stderr.decode()
                 batch_stopped_json = json.loads(batch_stopped.stdout)
                 assert [
-                    tool["status"] for tool in batch_stopped_json["tool_calls"]
+                    tool["status"]
+                    for tool in batch_stopped_json["tool_calls"]
+                    if tool["name"] != "run_code"
                 ] == ["success", "success"], batch_stopped_json
             finally:
                 stop_mock.terminate()

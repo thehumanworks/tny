@@ -156,15 +156,13 @@ shadowing user profile, see below).
 
 ## Native web search
 
-Builtin ChatGPT Responses requests include
-`{"type":"web_search","external_web_access":true}`. The service executes
-search; tny displays its progress and clickable source links, saves hosted
-search and annotated message items, and echoes them on later requests. Hosted
-items never run again as local function tools. Explicit `web_search_command`
-or `web_search_url` settings retain priority and disable this hosted declaration;
-all other profiles use the shared search service. **The Codex login also powers
-search for Grok and configured OpenAI-compatible and other conversation providers.**
-`tny web search QUERY` uses that same independent service even with Codex selected.
+Builtin ChatGPT Responses requests expose only `run_code`, like other native
+profiles. Code calls the shared `web_search` operation; provider-hosted search
+is not an alternate execution path. Unsolicited hosted search is rejected and
+historical hosted search items are not replayed to the provider.
+Explicit `web_search_command` or `web_search_url` settings retain priority.
+**The Codex login powers search independently of the conversation provider.**
+`tny web search QUERY` uses that same independent service with Codex selected.
 It defaults to a separate `gpt-5.6-sol` search model (`web_search_model` overrides),
 without changing the conversation model. Only absence of a Codex/ChatGPT login
 selects DuckDuckGo; failed or invalid logged-in requests are errors, not fallback.

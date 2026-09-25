@@ -1,5 +1,14 @@
 # Python and TypeScript SDKs
 
+Agent tool execution is currently unavailable in library-hosted sessions under
+[ADR 0174](adr/0174-execution-server-code-mode.md): `run_code` fails closed
+rather than executing inside the embedding process. Installing a matching CLI
+does not enable this path. Custom-tool and host-service callback registration
+APIs retain their ABI, but their callbacks are not invoked by this execution
+path. No-tool inference and standalone SDK toolkit services remain separate.
+See the [execution evidence](verification/execution-code-mode/evidence.md) for
+verified coverage and remaining gates.
+
 tny ships two language adapters over the same native `libtny` runtime. Neither
 adapter reimplements provider wire protocols or the agent/tool loop.
 

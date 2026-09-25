@@ -51,7 +51,8 @@ regeneration, retry, or manual attachment fallback.
 Cancellation, denial, extension stops, persistence errors, policy changes and
 step exhaustion report `IMAGE_PREVIEW_NOT_DELIVERED` before clearing pending
 bytes and constructed-but-unsent image messages. A later turn cannot inherit
-them. Existing manual attachment semantics are unchanged.
+them. Manual attachment uses its existing queue semantics, but runner-socket
+attachment waits until any active code cell ends.
 
 Wasm's native tools use the same backend admission and queue. Socket-only CLI
 preview has a clean `unsupported` fallback. External transforms and job controls
@@ -865,3 +866,18 @@ optional ImageMagick 7 and decodes the resulting pixels in Python; set
 `TNY_TEST_MAGICK` to point at an executable that is not on `PATH`. Its
 converter-independent cases — validation, aliases, permissions and the
 missing-dependency path — run everywhere.
+
+### Code-mode execution boundary
+
+Agent image operations run through `run_code` and its typed nested tools.
+While a cell is active, every otherwise permitted runner-socket request for
+`image_attach` or `image_preview` is refused before image file access. Existing
+role restrictions remain unchanged: an owner, including one attaching to a
+detached background turn, cannot issue those operations. Manual image attachment
+through the frontend must wait until the active code cell ends; idle attachment
+remains available. Use nested `read_image`
+or `image_preview`, or a simple first-party command intercepted inside the
+execution server. Dynamic shell commands cannot use the socket as an alternate
+image-reading route. Captured image transfer from the code server is limited
+to 4 MiB; larger captures return an explicit error. See
+[ADR 0174](adr/0174-execution-server-code-mode.md).

@@ -14,6 +14,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from code_mode_fixture import code_call
 from test_tui import TNY, Term, base_env
 
 TNY = str(Path(TNY).resolve())
@@ -327,12 +328,13 @@ class Fixture:
                         if fixture.terminal
                         else {"query": QUERY}
                     )
+                    name, tool_arguments = code_call(name, json.dumps(args))
                     if responses:
                         call = {
                             "type": "function_call",
                             "call_id": "call-search",
                             "name": name,
-                            "arguments": json.dumps(args),
+                            "arguments": tool_arguments,
                         }
                         self.send(
                             event(
@@ -358,7 +360,7 @@ class Fixture:
                                     "type": "function",
                                     "function": {
                                         "name": name,
-                                        "arguments": json.dumps(args),
+                                        "arguments": tool_arguments,
                                     },
                                 }
                             ]

@@ -21,6 +21,8 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from code_mode_fixture import code_chat_frames
+
 TNY = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("TNY", "build/tny")
 TNY = os.path.abspath(TNY)
 # The interrupt must land well inside these; a case that needs them has failed.
@@ -58,6 +60,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _stream(self, frames):
+        frames = code_chat_frames(frames)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Transfer-Encoding", "chunked")
@@ -273,11 +276,18 @@ def assert_cancelled_turn(code, stdout, pids, sentinel, elapsed):
         check(len(terminals) == 1, [e.get("type") for e in events])
         # TNY_STOP_INTERRUPTED: one consumed signal still ends the turn.
         check(terminals[0]["stop_reason"] == 1, terminals[0])
-        ends = [e for e in events if e.get("type") == "tool_end"]
+        ends = [
+            e
+            for e in events
+            if e.get("type") == "tool_end" and e.get("tool_name") == "run_code"
+        ]
         check(len(ends) == 1, [e.get("type") for e in events])
         detail = ends[0]["tool_detail"]
         check("cancelled" in detail, f"no cancellation in the result: {detail!r}")
-        check("130" in detail, f"the result hid the interrupted status: {detail!r}")
+        check(
+            "outcome unknown" in detail and "not replayed" in detail,
+            f"code cancellation must preserve uncertain effect outcome: {detail!r}",
+        )
         deadline = time.monotonic() + CHILD_DEADLINE
         for name, pid in pids.items():
             while alive(pid) and time.monotonic() < deadline:

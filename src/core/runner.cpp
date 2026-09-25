@@ -9,6 +9,7 @@ extern "C" {
 #include "core/checkpoint.h"
 #include "core/extensions.h"
 #include "util/jobs_host.h"
+#include "util/alloc.h"
 #include "util/process.h"
 #include <sys/wait.h>
 #include "core/perm.h"
@@ -324,6 +325,9 @@ typedef struct {
     int64_t permission_deadline;
     char *permission_summary;
     int permission_options;
+    bool synchronous_permission_active;
+    bool synchronous_permission_done;
+    tny_perm_decision synchronous_permission_decision;
     tny_stop_reason stop;
     int64_t started_ms;
     int64_t last_ckpt;
@@ -380,6 +384,7 @@ static int rn_owner(rn_state *r) {
 static void rn_question_fail(rn_state *r, const char *error);
 static int rn_control_pump(void *ud, int timeout_ms);
 static char *rn_ask_user(const char *question, void *ud);
+static tny_perm_decision rn_prompt(const char *tool, const char *summary, void *ud);
 static bool rn_background_marker(rn_state *r);
 static void rn_background_notice(rn_state *r);
 
@@ -389,6 +394,18 @@ static const char *rn_role_name(tny_runner_role role) {
     case TNY_RUNNER_OBSERVER: return "observer";
     case TNY_RUNNER_TOOL: return "tool";
     default: return "unknown";
+    }
+}
+
+/* A synchronous tool owns the engine stack. Its answer is observed by the
+ * waiting callback; only a parked asynchronous permission resumes the engine. */
+static void rn_permission_answer(rn_state *r, const char *id, tny_perm_decision decision) {
+    r->pending_perm[0] = 0;
+    if (r->synchronous_permission_active) {
+        r->synchronous_permission_decision = decision;
+        r->synchronous_permission_done = true;
+    } else if (r->engine) {
+        tny_engine_respond_permission(r->engine, id, decision);
     }
 }
 
@@ -405,8 +422,7 @@ static void rn_client_drop(rn_state *r, int i) {
         if (r->pending_perm[0] && r->engine && !r->background_permissions) {
             char id[sizeof r->pending_perm];
             snprintf(id, sizeof id, "%s", r->pending_perm);
-            r->pending_perm[0] = 0;
-            tny_engine_respond_permission(r->engine, id, TNY_PERM_DECISION_DENY);
+            rn_permission_answer(r, id, TNY_PERM_DECISION_DENY);
         }
         if (r->question_pending && !r->background_permissions)
             rn_question_fail(r, "owning frontend disconnected");
@@ -846,7 +862,7 @@ static int rn_ensure_engine(rn_state *r, char *err, size_t errlen) {
         bk->destroy(bk);
         return -1;
     }
-    tny_engine *engine = tny_engine_new(r->ctx, r->session, r->perm, NULL, NULL);
+    tny_engine *engine = tny_engine_new(r->ctx, r->session, r->perm, rn_prompt, r);
     if (!engine) {
         bk->disconnect(bk);
         bk->destroy(bk);
@@ -1029,6 +1045,20 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
         rn_op_error(r, ci, root, "operation is not allowed for this client role");
         return;
     }
+    /* A model's terminal child can reach this socket and claim a vacant
+     * owner role. All active-cell image reads must stay inside the execution
+     * server; manual frontend attachment remains available while idle. */
+    if (r->control_pumping &&
+        (strcmp(op, "image_attach") == 0 || strcmp(op, "image_preview") == 0)) {
+        const char *id = rn_string(root, "id", sizeof r->question_id - 1);
+        const char *error =
+            "use nested read_image/image_preview through run_code while a tool is running";
+        if (id && strcmp(op, "image_preview") == 0)
+            rn_send_control_result_ex(r, ci, id, NULL, error, "unsupported",
+                                      "execution_server_required");
+        else rn_op_error(r, ci, root, error);
+        return;
+    }
     if ((jget(root, "id") && !rn_string(root, "id", sizeof r->question_id - 1)) ||
         (jget(root, "path") && !rn_string(root, "path", 4095))) {
         rn_op_error(r, ci, root, "control id/path must be bounded strings without NUL");
@@ -1101,8 +1131,7 @@ static void rn_handle_op(rn_state *r, int ci, yyjson_val *root) {
         tny_perm_decision dec = strcmp(d, "allow") == 0          ? TNY_PERM_DECISION_ALLOW
                                 : strcmp(d, "allow_always") == 0 ? TNY_PERM_DECISION_ALLOW_ALWAYS
                                                                  : TNY_PERM_DECISION_DENY;
-        r->pending_perm[0] = 0;
-        tny_engine_respond_permission(r->engine, id, dec);
+        rn_permission_answer(r, id, dec);
     } else if (strcmp(op, "ask_user") == 0) {
         const char *id = jget_str(root, "id");
         const char *question = rn_string(root, "question", RN_QUESTION_MAX);
@@ -1265,6 +1294,54 @@ static int rn_control_pump(void *ud, int timeout_ms) {
             rn_client_drop(r, i);
     }
     return 0;
+}
+
+static tny_perm_decision rn_prompt(const char *tool, const char *summary, void *ud) {
+    rn_state *r = static_cast<rn_state *>(ud);
+    if (!r || r->quit || !r->turn_active || r->pending_perm[0] ||
+        r->synchronous_permission_active || (rn_owner(r) < 0 && !r->background_permissions))
+        return TNY_PERM_DECISION_DENY;
+    char *id = gen_id();
+    char *owned_summary = xstrdup(summary ? summary : "");
+    if (!id || !owned_summary || strlen(id) >= sizeof r->pending_perm) {
+        free(id);
+        free(owned_summary);
+        return TNY_PERM_DECISION_DENY;
+    }
+    snprintf(r->pending_perm, sizeof r->pending_perm, "%s", id);
+    free(id);
+    free(r->permission_summary);
+    r->permission_summary = owned_summary;
+    r->permission_options = TNY_PERM_ALLOW_ONCE | TNY_PERM_ALLOW_ALWAYS | TNY_PERM_DENY;
+    r->permission_deadline = monotonic_ms() + 300000;
+    r->synchronous_permission_active = true;
+    r->synchronous_permission_done = false;
+    r->synchronous_permission_decision = TNY_PERM_DECISION_DENY;
+    tny_backend_event event{};
+    event.kind = TNY_EV_PERMISSION;
+    event.tool_name = tool;
+    event.perm_id = r->pending_perm;
+    event.perm_summary = r->permission_summary;
+    event.perm_options = r->permission_options;
+    rn_broadcast_event(r, &event);
+    while (!r->synchronous_permission_done && !r->quit && !tny_alloc_scope_failed()) {
+        if (rn_cancel_probe(r)) {
+            /* Keep cancellation visible to the owning engine when the tool
+             * unwinds; do not re-enter its dispatcher from this callback. */
+            g_rn_stop = 1;
+            break;
+        }
+        if (monotonic_ms() >= r->permission_deadline ||
+            (rn_owner(r) < 0 && !r->background_permissions) || rn_control_pump(r, 50) != 0)
+            break;
+    }
+    tny_perm_decision decision = r->synchronous_permission_done ? r->synchronous_permission_decision
+                                                                : TNY_PERM_DECISION_DENY;
+    r->pending_perm[0] = 0;
+    r->synchronous_permission_active = false;
+    r->synchronous_permission_done = false;
+    r->synchronous_permission_decision = TNY_PERM_DECISION_DENY;
+    return decision;
 }
 
 static char *rn_ask_user(const char *question, void *ud) {
@@ -1521,7 +1598,6 @@ failed:
     if (released) {
         char err[256];
         session_write_pid(r->session, getpid());
-        mcp_warm_start(r->ctx);
         if (r->ctx->extensions_enabled)
             r->ctx->extensions =
                 tny_extensions_new(r->ctx->tny_dir, r->ctx->cwd, r->ctx->extension_timeout_ms);
@@ -1630,10 +1706,6 @@ static bool rn_consume_checkpoint(rn_state *r) {
     signal(SIGPIPE, SIG_IGN);
     signal(SIGHUP, SIG_IGN);
 
-    /* MCP servers must be our children so the stop group-signal reaches
-     * them; threads do not survive fork (docs/adr/0031, 0049). */
-    if (!restart && ctx->backend == TNY_BK_OPENAI) mcp_warm_start(ctx);
-
     rn_state r{};
 
     r.ctx = ctx;
@@ -1696,7 +1768,6 @@ static bool rn_consume_checkpoint(rn_state *r) {
             (rn_exchange_byte(3, 'C', true) != 0 || rn_exchange_byte(3, 'X', false) != 0))
             _exit(2);
         if (!from_disk) close(3);
-        mcp_warm_start(ctx);
         rn_control_pump(&r, 0);
         if (g_rn_stop) {
             g_rn_stop = 0;
@@ -1794,8 +1865,7 @@ static bool rn_consume_checkpoint(rn_state *r) {
             rn_broadcast_status(&r, "Background permission timed out waiting for reattachment");
             char id[sizeof r.pending_perm];
             snprintf(id, sizeof id, "%s", r.pending_perm);
-            r.pending_perm[0] = 0;
-            tny_engine_respond_permission(r.engine, id, TNY_PERM_DECISION_DENY);
+            rn_permission_answer(&r, id, TNY_PERM_DECISION_DENY);
             rn_drain_engine(&r);
         }
         if (r.question_pending && monotonic_ms() >= r.question_deadline)

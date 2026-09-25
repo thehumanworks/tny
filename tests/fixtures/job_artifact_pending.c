@@ -2,6 +2,8 @@
  * after the permission event, then grants once. Two turns share one engine. */
 #include "backends/openai/openai.h"
 #include "core/config.h"
+#include "core/execution.h"
+#include "util/execution_command.h"
 #include "util/tny_poll.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +11,7 @@
 
 static char *permission;
 static bool ended;
+static int questions;
 
 static void event(const tny_backend_event *ev, void *ud) {
     (void)ud;
@@ -35,7 +38,24 @@ static void action(const char *expected) {
     if (strcmp(line, expected) != 0) abort();
 }
 
+static tny_perm_decision blocking_prompt(const char *tool, const char *summary, void *ud) {
+    (void)tool;
+    (void)ud;
+    tny_backend_event ev = {.kind = TNY_EV_PERMISSION,
+                            .perm_id = "fixture-nested-permission",
+                            .perm_summary = summary,
+                            .perm_options = TNY_PERM_ALLOW_ONCE | TNY_PERM_DENY};
+    event(&ev, NULL);
+    ++questions;
+    action("allow");
+    free(permission);
+    permission = NULL;
+    return TNY_PERM_DECISION_ALLOW;
+}
+
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--exec-server") == 0) return tny_execution_server_main();
+    if (argc == 2 && strcmp(argv[1], "--exec-command") == 0) return tny_exec_command_main();
     if (argc != 5) return 2;
     char *state = path_tny_dir();
     tny_ctx ctx = {.cwd = argv[1],
@@ -59,11 +79,11 @@ int main(int argc, char **argv) {
         tny_session_state *session = session_new(&ctx);
         tny_backend *backend = tny_backend_openai_new(&ctx);
         if (!session || !backend) abort();
-        tny_backend_openai_bind(backend, session, perm, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                                NULL, NULL, NULL);
+        tny_backend_openai_bind(backend, session, perm, blocking_prompt, NULL, NULL, NULL, NULL,
+                                NULL, NULL, NULL, NULL, NULL);
         char err[512];
         ended = false;
-        int questions = 0;
+        questions = 0;
         if (backend->connect(backend, err, sizeof err) ||
             backend->create_or_resume(backend, NULL, err, sizeof err) ||
             backend->send(backend, "fixture image", NULL, event, NULL, err, sizeof err)) {

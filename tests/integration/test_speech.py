@@ -16,6 +16,8 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from code_mode_fixture import code_chat_frames
+
 ROOT = Path(__file__).resolve().parents[2]
 TNY = str(Path(os.environ.get("TNY", ROOT / "build/tny")).resolve())
 WASM = "wasm" in TNY
@@ -146,7 +148,9 @@ class Handler(BaseHTTPRequestHandler):
             {"choices": [{"index": 0, "delta": {}, "finish_reason": reason}]},
         ]
         data = (
-            "".join(f"data: {json.dumps(frame)}\n\n" for frame in frames)
+            "".join(
+                f"data: {json.dumps(frame)}\n\n" for frame in code_chat_frames(frames)
+            )
             + "data: [DONE]\n\n"
         )
         self.reply(200, "text/event-stream", data.encode())
@@ -510,7 +514,7 @@ sys.exit(int(os.environ.get("SPEECH_PLAYER_EXIT", "0")))
             )
             self.assertEqual(r.returncode, 0, r.stderr)
             names = [t["function"]["name"] for t in self.state["chat"][0]["tools"]]
-            self.assertEqual("speak" in names, tool == "speak" and logged_in)
+            self.assertEqual(names, ["run_code"])
             self.assertEqual(self.log.exists(), logged_in)
             speech = [
                 req for req in self.state["requests"] if "pronunciation" in req[0]

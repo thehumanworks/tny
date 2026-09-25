@@ -27,6 +27,10 @@ MOCK = os.path.join(ROOT, "tests", "integration", "mock_openai.py")
 IS_WASM = "/wasm/" in TNY.replace("\\", "/")
 
 
+def nested_tool_calls(output):
+    return [call for call in output["tool_calls"] if call["name"] != "run_code"]
+
+
 def free_port():
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
@@ -642,6 +646,7 @@ def main():
                 HOME=home,
                 OPENAI_BASE_URL=f"http://127.0.0.1:{port}/v1",
                 OPENAI_API_KEY="test-key-not-real",
+                TNY_TOOLS="all",
             )
 
             if IS_WASM:
@@ -749,10 +754,10 @@ def main():
             # the mock streams TWO parallel function calls; both must be
             # assembled (fragmented arguments, late call_id/name on the
             # second) and both must succeed
-            assert len(out["tool_calls"]) == 2, out
-            assert out["tool_calls"][0]["name"] == "list_files", out
-            assert out["tool_calls"][1]["name"] == "glob_files", out
-            assert all(t["status"] == "success" for t in out["tool_calls"]), out
+            assert len(nested_tool_calls(out)) == 2, out
+            assert nested_tool_calls(out)[0]["name"] == "list_files", out
+            assert nested_tool_calls(out)[1]["name"] == "glob_files", out
+            assert all(t["status"] == "success" for t in nested_tool_calls(out)), out
             sid = out["session_id"]
             assert sid, out
 
@@ -944,7 +949,7 @@ def main():
                     )
                     assert attached.returncode == 0, attached.stderr.decode()
                     attached_out = json.loads(attached.stdout)
-                    assert attached_out["tool_calls"][0]["name"] == "terminal", (
+                    assert nested_tool_calls(attached_out)[0]["name"] == "terminal", (
                         attached_out
                     )
                     assert "MOCK-OK" in attached_out["output"], attached_out
@@ -987,7 +992,7 @@ def main():
                 assert denied.returncode == 2, denied.stderr.decode()
                 denied_out = json.loads(denied.stdout)
                 assert denied_out["exit_code"] == 2, denied_out
-                assert denied_out["tool_calls"] == [
+                assert nested_tool_calls(denied_out) == [
                     {"name": "write_file", "status": "error"}
                 ], denied_out
                 assert not os.path.exists(target), "ask mode executed a denied write"
@@ -1009,7 +1014,7 @@ def main():
                 )
                 assert allowed.returncode == 0, allowed.stderr.decode()
                 allowed_out = json.loads(allowed.stdout)
-                assert allowed_out["tool_calls"] == [
+                assert nested_tool_calls(allowed_out) == [
                     {"name": "write_file", "status": "success"}
                 ], allowed_out
                 assert open(target).read() == "allowed"
@@ -1476,7 +1481,7 @@ def main():
                 out12 = json.loads(r12.stdout)
                 assert "MOCK-OK" in out12["output"], out12
                 assert out12["steps"] == 2, out12
-                assert out12["tool_calls"][0]["name"] == "list_files", out12
+                assert nested_tool_calls(out12)[0]["name"] == "list_files", out12
 
                 # 2. --wire-api chat (flag beats the responses default)
                 r13 = subprocess.run(
@@ -1726,9 +1731,11 @@ def main():
                 out11 = json.loads(r11.stdout)
                 assert "PARALLEL-OK" in out11["output"], out11
                 assert out11["steps"] == 2, out11
-                names = [t["name"] for t in out11["tool_calls"]]
+                names = [t["name"] for t in nested_tool_calls(out11)]
                 assert names == ["read_file", "read_file", "list_files"], out11
-                assert all(t["status"] == "success" for t in out11["tool_calls"]), out11
+                assert all(
+                    t["status"] == "success" for t in nested_tool_calls(out11)
+                ), out11
             finally:
                 pmock.terminate()
                 pmock.wait(timeout=5)

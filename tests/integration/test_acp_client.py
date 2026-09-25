@@ -38,6 +38,8 @@ def clean_env(home: Path) -> dict[str, str]:
         TNY_SELF_IMPROVE="0",
         TNY_ACP_BRIDGE_EXECUTABLE=str(TNY),
         TNY_ACP_RPC_TIMEOUT_MS="3000",
+        ACP_FIXTURE_NAME="@agentclientprotocol/claude-agent-acp",
+        ACP_FIXTURE_VERSION="0.75.1",
     )
     return env
 
@@ -182,7 +184,7 @@ class AcpClientTest(unittest.TestCase):
         self.assertEqual(first["provider"], "acp")
         facts = self.state_json()
         self.assertEqual(facts["initialize"]["protocolVersion"], 1)
-        self.assertEqual(facts["new_cwd"], str(self.workspace.resolve()))
+        self.assertNotEqual(facts["new_cwd"], str(self.workspace.resolve()))
         self.assertEqual(facts["model_at_prompt"], "selected-model")
         self.assertEqual(facts["mcp_in_new"], 1)
         self.assertTrue(first["session_id"])
@@ -207,7 +209,7 @@ class AcpClientTest(unittest.TestCase):
             with self.subTest(mode=mode):
                 self.ask("--model", "selected-model", mode=mode)
                 self.assertEqual(self.state_json()["model_at_prompt"], "selected-model")
-        self.assertEqual(self.state_json()["set_config"]["configId"], "engine")
+        self.assertEqual(self.state_json()["set_model_config"]["configId"], "engine")
         self.assertEqual(self.state_json()["set_model"]["modelId"], "selected-model")
 
     def test_explicit_model_errors_precede_prompt(self):
@@ -442,10 +444,13 @@ class AcpClientTest(unittest.TestCase):
             "fixture@example.test",
             "--ssh-cwd",
             str(remote),
-            env={"PATH": str(bins) + os.pathsep + self.env["PATH"]},
+            env={
+                "PATH": str(bins) + os.pathsep + self.env["PATH"],
+                "ACP_FIXTURE_NAME": "fixture",
+            },
             success=False,
         )
-        self.assertIn("acp: --ssh requires verified Claude ACP", result.stderr)
+        self.assertIn("verified Claude ACP", result.stderr)
         self.assertFalse(self.state_json().get("prompted"))
         self.assertNotIn("new_cwd", self.state_json())
 
@@ -474,18 +479,16 @@ class AcpClientTest(unittest.TestCase):
         self.assertEqual(len(results), len(calls))
         self.assertIn("ACP file contents", json.dumps(results[1]))
         self.assertIn("ACP-SHELL-OK", json.dumps(results[2]))
-        self.assertTrue(
-            results[3].get("result", {}).get("isError") or "error" in results[3]
-        )
-        self.assertTrue(
-            results[4].get("result", {}).get("isError") or "error" in results[4]
-        )
+        # Lua executed successfully; nested tool failures remain result text.
+        self.assertIn("error", json.dumps(results[3]).lower())
+        self.assertIn("error", json.dumps(results[4]).lower())
         self.assertTrue(output.get("tool_calls"), output)
         for profile in ("all", "terminal"):
             if profile != "all":
                 self.ask(env={"ACP_FIXTURE_MCP": "1", "TNY_TOOLS": profile})
                 facts = self.state_json()
             bridge_tools = {tool["name"]: tool for tool in facts["tools"]}
+            self.assertEqual(set(bridge_tools), {"run_code"})
             server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), NativeCapture)
             thread = threading.Thread(target=server.serve_forever)
             thread.start()
@@ -681,7 +684,7 @@ class AcpClientTest(unittest.TestCase):
             self.assertTrue(facts["session_meta"]["disableBuiltInTools"])
             self.assertEqual(facts["selected_mode"], "bypassPermissions")
 
-    def test_claude_bridge_events_are_authoritative_and_generic_events_preserved(self):
+    def test_claude_bridge_events_are_authoritative_and_unknown_agents_rejected(self):
         (self.workspace / "read.txt").write_text("SAFE-READ")
         calls = [
             {"name": "read_file", "arguments": {"path": "read.txt"}},
@@ -696,20 +699,29 @@ class AcpClientTest(unittest.TestCase):
         ]
         for name, version, expected in (
             ("@agentclientprotocol/claude-agent-acp", "0.75.1", 3),
-            ("@agentclientprotocol/claude-agent-acp", "unverified", 6),
-            ("fixture", "1", 6),
+            ("@agentclientprotocol/claude-agent-acp", "unverified", 0),
+            ("fixture", "1", 0),
         ):
             with self.subTest(name=name, version=version):
+                self.state.unlink(missing_ok=True)
                 output = self.ask(
+                    success=bool(expected),
                     env={
                         "ACP_FIXTURE_NAME": name,
                         "ACP_FIXTURE_VERSION": version,
                         "ACP_FIXTURE_MCP": "1",
                         "ACP_FIXTURE_CALLS": json.dumps(calls),
                         "ACP_FIXTURE_TOOL_UPDATES": "1",
-                    }
+                    },
                 )
-                self.assertEqual(len(output["tool_calls"]), expected, output)
+                if not expected:
+                    self.assertIn("verified Claude ACP", output.stderr)
+                    self.assertFalse(self.state_json().get("prompted"))
+                    continue
+                nested = [
+                    call for call in output["tool_calls"] if call["name"] != "run_code"
+                ]
+                self.assertEqual(len(nested), expected, output)
                 results = self.state_json()["tool_results"]
                 self.assertEqual(len(results), 3)
                 self.assertTrue(
@@ -918,7 +930,8 @@ def setup(api):
         result = self.state_json()["tool_results"][0]["result"]
         self.assertTrue(result["isError"])
         self.assertFalse(any(block["type"] == "image" for block in result["content"]))
-        self.assertIn("limit", json.dumps(result).lower())
+        self.assertIn("4 mib", json.dumps(result).lower())
+        self.assertIn("exceeds", json.dumps(result).lower())
 
     def test_cancel_pending_bridge_tool_is_bounded(self):
         calls = [

@@ -1,3 +1,6 @@
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
 #include "util/process.h"
 
 #include "util/util.h"
@@ -468,6 +471,22 @@ static int spawn_mapped(char *const argv[], char *const envp[], const tny_fd_map
             e = posix_spawn_file_actions_addopen(&actions, std, "/dev/null",
                                                  std == STDIN_FILENO ? O_RDONLY : O_WRONLY, 0);
     }
+    /* Mapped descriptors are the entire child capability set. Do not rely on
+     * every embedding caller having marked unrelated descriptors CLOEXEC. */
+    int highest = 2;
+    for (int i = 0; i < n_maps; i++)
+        if (maps[i].target > highest) highest = maps[i].target;
+    for (int fd = 3; fd <= highest && !e; fd++) {
+        bool mapped = false;
+        for (int i = 0; i < n_maps; i++)
+            if (maps[i].target == fd) mapped = true;
+        if (!mapped) e = posix_spawn_file_actions_addclose(&actions, fd);
+    }
+#if defined(__linux__) && defined(__GLIBC__)
+    /* The supported glibc floor is 2.34. A direct reference also retains
+     * the close-from action in static libc builds. */
+    if (!e) e = posix_spawn_file_actions_addclosefrom_np(&actions, highest + 1);
+#endif
     if (!e) {
         e = posix_spawnattr_init(&attr);
         attr_ready = e == 0;
@@ -484,6 +503,9 @@ static int spawn_mapped(char *const argv[], char *const envp[], const tny_fd_map
     if (!e && !child_calls_setsid) e = posix_spawnattr_setpgroup(&attr, 0);
     if (!e) {
         short flags = POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK;
+#ifdef POSIX_SPAWN_CLOEXEC_DEFAULT
+        flags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
+#endif
         if (!child_calls_setsid) flags |= POSIX_SPAWN_SETPGROUP;
         e = posix_spawnattr_setflags(&attr, flags);
     }

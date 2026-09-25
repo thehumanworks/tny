@@ -71,6 +71,9 @@ PARSED_WITHOUT_HELP = {
         "--resume-*",
         "--runner-restart",
         "--runner-start",
+        # Private execution/guardian entries require inherited IPC endpoints.
+        "--exec-server",
+        "--exec-command",
         "--child-context",
         # Private ACP stdio MCP relay, launched only with runtime-owned IPC.
         "--acp-mcp-bridge",
@@ -255,6 +258,15 @@ class HelpFlagAlignmentTest(unittest.TestCase):
         self.assertEqual(
             unparsed, set(), f"root help flags absent from parser: {sorted(unparsed)}"
         )
+
+    def test_execution_entries_remain_private(self) -> None:
+        for arguments in (("--help",), ("ask", "--help")):
+            result = subprocess.run(
+                [str(TNY), *arguments], capture_output=True, text=True, timeout=5
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for private in ("--exec-server", "--exec-command"):
+                self.assertNotIn(private, result.stdout + result.stderr)
 
     def test_subcommand_flags_match_help(self) -> None:
         global_flags = flags_in_functions(GLOBAL_PARSERS, follow_calls=False)

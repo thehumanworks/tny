@@ -162,8 +162,9 @@ class ManifestPermissions(ImageFixture):
 class PendingManifestPermissions(ImageFixture):
     @classmethod
     def setUpClass(cls):
-        # Link the real native backend and tools; no substituted executor or
-        # permission hook. The fixture lives in the existing fixtures directory.
+        # Link the real native backend, fresh execution server and tools. The
+        # owner prompt pauses on stdin while Python mutates filesystem state;
+        # only image-service ownership/fault sites are instrumented.
         supplied = os.environ.get("TNY_MANIFEST_PENDING_BIN")
         if supplied:
             cls.binary = supplied
@@ -184,7 +185,9 @@ pending-variables:
         ).splitlines()
         compiler, cxx, flags, linker, objects = map(shlex.split, variables)
         # Rename only this translation unit's allocation/ownership calls. The
-        # fixture still runs the real parser, prepare, pending move and backend.
+        # fixture still runs real preparation, owner approval and execution.
+        # Fresh server entries receive fault selectors through test-only env
+        # and publish ownership counters to a private file after server exit.
         objects.remove("build/pic/src/core/image_service.o")
         service = str(Path(cls.build.name) / "image-service.o")
         subprocess.run(
@@ -380,6 +383,7 @@ pending-variables:
                     self.assertEqual(
                         pending["event"], "ended", "failed prepare must not ask"
                     )
+                    self.assertTrue(pending["stats_available"])
                     self.assertEqual(pending["questions"], 0)
                     self.assertEqual(pending["grants"], 0)
                     self.assertEqual(pending["injected"], 1)
@@ -447,7 +451,23 @@ pending-variables:
                 end = receive()
                 self.assertEqual(end["event"], "ended")
                 self.assertEqual(end["grants"], 0)
+                self.assertEqual(
+                    end["destroy_requested"], turn == 0 and change == "destroy"
+                )
+                if end["stats_available"]:
+                    self.assertEqual(end["live"], 0)
+                    self.assertEqual(end["acquired"], end["disposed"])
+                else:
+                    self.assertEqual(turn, 0)
+                    self.assertIn(change, ("cancel", "destroy"))
+                    print(
+                        f"ownership snapshot unavailable after intentional {change}: "
+                        "server terminated before publication; provider/file/next-turn "
+                        "checks remain enforced",
+                        flush=True,
+                    )
                 if turn == 0 and change == "destination":
+                    self.assertTrue(end["stats_available"])
                     self.assertEqual(end["questions"], 1)
                     self.assertEqual(end["injected"], 1)
                     self.assertEqual(end["live"], 0)
@@ -548,8 +568,10 @@ pending-variables:
                     case.tearDown()
 
     def test_pending_permission_matrix(self):
-        # Every row crosses the native pending tools_call transfer. Repeated
-        # identical permission detail must ask again: ALLOW_ONCE stored no grant.
+        # Every row retains a prepared tools_call inside the execution server
+        # while the owner waits for approval. Repeated identical permission
+        # detail must ask again: ALLOW_ONCE stored no grant. Destroy is deferred
+        # until prompt/dispatch unwinds; cancellation terminates the child now.
         for caller in ("typed", "terminal"):
             for source in ("artifact", "replay"):
                 for change in ("unchanged", "mapping", "bytes", "cancel", "destroy"):

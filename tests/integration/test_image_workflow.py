@@ -30,6 +30,8 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from code_mode_fixture import code_chat_frames
+
 ROOT = Path(__file__).resolve().parents[2]
 TNY = str(Path(os.environ.get("TNY", ROOT / "build/tny")).resolve())
 WASM = "wasm" in TNY
@@ -229,7 +231,7 @@ class Handler(BaseHTTPRequestHandler):
             200,
             "text/event-stream",
             (
-                "".join(f"data: {json.dumps(f)}\n\n" for f in frames)
+                "".join(f"data: {json.dumps(f)}\n\n" for f in code_chat_frames(frames))
                 + "data: [DONE]\n\n"
             ).encode(),
         )
@@ -391,6 +393,22 @@ class ImageFixture(unittest.TestCase):
             capture_output=True,
             timeout=60,
         )
+
+    def image_catalog(self):
+        code = (
+            "local selected = {}; for _, entry in ipairs(json.decode(tools.list())) do "
+            'local name = entry["function"].name; '
+            'if name == "image_generate" or name == "image_edit" then '
+            "selected[#selected + 1] = entry end end; print(json.encode(selected))"
+        )
+        run = self.agent("all", {"code": code}, tool_name="run_code")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        names = [tool["function"]["name"] for tool in self.state["chat"][0]["tools"]]
+        self.assertEqual(names, ["run_code"])
+        return {
+            entry["function"]["name"]: entry["function"]
+            for entry in json.loads(self.tool_result())
+        }
 
     def tool_result(self):
         return next(
@@ -953,6 +971,7 @@ class Dimensions(ImageFixture):
         self.assertIn(b"size_status", run.stdout)
 
     def test_typed_tool_exposes_strict_size_and_dimensions(self):
+        schema = self.image_catalog()
         self.state["image"] = png(1935, 811)
         run = self.agent(
             "all",
@@ -963,10 +982,6 @@ class Dimensions(ImageFixture):
             },
         )
         self.assertEqual(run.returncode, 0, run.stderr)
-        schema = {
-            tool["function"]["name"]: tool["function"]
-            for tool in self.state["chat"][0]["tools"]
-        }
         for name in ("image_generate", "image_edit"):
             properties = schema[name]["parameters"]["properties"]
             self.assertEqual(properties["strict_size"]["type"], "boolean")
@@ -1968,6 +1983,7 @@ class Manifest(ImageFixture):
     # --- the other callers ---------------------------------------------------
 
     def test_typed_tool_shares_the_manifest_options(self):
+        catalog = self.image_catalog()
         self.state["image"] = png(24, 24)
         run = self.agent("all", {"prompt": "A blue robot", "output_file": "agent.png"})
         self.assertEqual(run.returncode, 0, run.stderr)
@@ -1978,10 +1994,7 @@ class Manifest(ImageFixture):
         )
         self.assertEqual(record["operation_id"], result["operation_id"])
         self.assertEqual(record["prompt"], "A blue robot")
-        schema = {
-            tool["function"]["name"]: tool["function"]["parameters"]["properties"]
-            for tool in self.state["chat"][0]["tools"]
-        }
+        schema = {name: fn["parameters"]["properties"] for name, fn in catalog.items()}
         self.assertEqual(
             schema["image_generate"]["persist_manifest"]["type"], "boolean"
         )

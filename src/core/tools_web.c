@@ -98,12 +98,6 @@ static char *fetch_url(tools_env *env, const char *url, int redirects, bool raw)
 
 bool tool_web_search_configured(tny_ctx *ctx) { return ctx != NULL; }
 
-bool tool_web_search_native(tny_ctx *ctx) {
-    return ctx && tny_codex_chatgpt_mode(ctx) && !tny_wire_is_chat(ctx->wire_api) &&
-           !tny_settings_get_str(ctx, "web_search_command") &&
-           !tny_settings_get_str(ctx, "web_search_url");
-}
-
 static void append_query_encoded(buf_t *out, const char *q) {
     for (const char *p = q; *p; p++) {
         if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') ||

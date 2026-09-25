@@ -446,7 +446,7 @@ class ManagedAcp(JobsFixture):
             check=False,
         )
         self.assertNotEqual(refused.returncode, 0, refused.stdout)
-        self.assertIn("max-steps", refused.stderr.decode())
+        self.assertIn("verified Claude ACP", refused.stderr.decode())
         generic = self.facts()[0]
         self.assertIn("initialize", generic)
         self.assertNotIn("new_cwd", generic)
@@ -670,9 +670,19 @@ class ManagedAcp(JobsFixture):
         final = self.assert_success(jobs[0])
         self.assertEqual(len(final["items"]), 2)
         self.assertEqual(final["admission"]["cap"], 2)
+        # Coordinators also use private cwd now; identify workers by the
+        # actual participant prompt, not by the old cwd distinction.
+        self.assertTrue(
+            all(f.get("process_cwd") != str(self.workspace) for f in self.facts())
+        )
         workers = [
-            f for f in self.facts() if f.get("process_cwd") != str(self.workspace)
+            f
+            for f in self.facts()
+            if f.get("prompt", [{}])[-1]
+            .get("text", "")
+            .startswith("Purposeful swarm participant.")
         ]
+
         self.assertCountEqual(
             [f.get("tag") for f in workers], ["manifestwriter", "manifestreviewer"]
         )

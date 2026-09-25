@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic production bridge permission deadlines, without wall-clock waits."""
+"""Production ACP run_code permission timing, denial and unsupported async boundary."""
 
 from __future__ import annotations
 
@@ -32,7 +32,12 @@ def main():
             / ("acp-bridge-deadline.exe" if os.name == "nt" else "acp-bridge-deadline")
         )
     with tempfile.TemporaryDirectory(prefix="tny-acp-deadline-") as directory:
-        subprocess.run([str(binary), directory], timeout=15, check=True)
+        subprocess.run(
+            [str(binary), directory],
+            env=dict(os.environ, TNY_TOOLS="all", TNY_SELF_IMPROVE="0"),
+            timeout=15,
+            check=True,
+        )
 
 
 if __name__ == "__main__":

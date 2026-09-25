@@ -2,7 +2,8 @@
 
 ACP runs an external **agent**, with its own inference loop. tny remains the
 owner of its session runner, tools, permissions and user interface. The external
-agent receives a stdio MCP server containing the current tny tool registry.
+agent receives a stdio MCP server exposing only `run_code`; nested discovery
+and execution use the current permission-filtered tny catalog.
 Native HTTP remains the default and requires no vendor executable.
 
 ```sh
@@ -19,20 +20,18 @@ Reusable settings:
 {
   "acp": {
     "agents": {
-      "claude": { "command": ["claude-agent-acp"], "model": "sonnet" },
-      "pi": { "command": ["pi-acp"] }
+      "claude": { "command": ["claude-agent-acp"], "model": "sonnet" }
     }
   }
 }
 ```
 
 Use `tny --provider acp:claude ask '...'` or select `acp:claude` in the TUI.
-The executable name `pi-acp` is an example, **not a compatibility guarantee**:
-choose an adapter implementing ACP client-supplied `mcpServers`. In particular,
-[`regadas/pi-acp`](https://github.com/regadas/pi-acp#limitations) rejects nonempty `mcpServers`, so it cannot use this bridge.
-The [`@geohar/pi-acp`](https://pi.dev/packages/@geohar/pi-acp) adapter documents MCP forwarding via a separately installed
-`pi-mcp-adapter`; actual compatibility requires testing the installed versions.
-No pi live validation is claimed here.
+Model turns currently require the verified
+`@agentclientprotocol/claude-agent-acp` version `0.75.1`. Other adapter
+identities or versions fail closed. Catalog discovery is not a promise that an
+adapter is admitted for execution. Use an absolute executable path or a PATH
+command; relative paths containing a slash are rejected.
 
 The requested model must appear in the adapter's session catalog. tny confirms
 `session/set_config_option`'s returned selection (or the older `set_model`
@@ -51,27 +50,19 @@ Reasoning effort is selectable only when the agent advertises a compatible
 
 ## Tools and policy
 
-The bridge converts **the current native schema**, including custom SDK tools,
-into MCP `tools/list`. Calls use the same prepared-tool validation, permissions,
-intercepts, tool dispatch, result bounds and custom async completion as HTTP.
-Imported MCP servers are reachable through tny's normal MCP tools. Hooks cover
-bridge pre-tool, permission, post-tool and batch boundaries. Provider request
-hooks cannot observe the external agent's model connection. Generic agents retain their reported tool events. Verified Claude tools-only
-mode suppresses duplicate adapter notifications; tny MCP executions are authoritative.
+The bridge exposes the same singleton `run_code` schema as native HTTP.
+Bounded Lua discovers and calls the filtered native catalog through
+`tools.list`, `tools.describe` and `tools.call`. Direct MCP calls to native tool
+names are rejected. Nested operations retain prepared validation, permissions,
+intercepts and result limits. See [ADR 0174](../adr/0174-execution-server-code-mode.md).
 
-For the recognized Claude adapter, tny requests a tools-only agent using its
-vendor metadata (`tools: []`, `settingSources: []`, `strictMcpConfig: true`). The standard ACP fs and
-terminal callbacks are deliberately not advertised: all such operations use
-tny's native tool bridge. Unknown agents may retain built-in tools; those tools
-are outside tny's schema, intercept and path-rule enforcement. Their reported
-ACP permission requests are still handled by tny's selected permission mode.
-
-`--ssh` is enabled only for the specifically verified Claude adapter version
-`0.75.1`, whose metadata disables built-in tools and settings. The adapter starts
-in a private local scratch directory and receives that directory as ACP cwd;
-workspace tools and project AGENTS.md use the existing remote tny seam. Generic
-or unverified adapters fail closed. This version gate avoids promising remote
-confinement from an extension a different adapter might silently ignore.
+Every admitted turn uses the verified Claude adapter's tools-only metadata
+(`tools: []`, `settingSources: []`, `strictMcpConfig: true`). Standard ACP fs and
+terminal callbacks are not advertised. The adapter starts in a private scratch
+directory and receives that directory as ACP cwd. Workspace operations use the
+execution server's trusted snapshot; under `--ssh`, they use the existing remote
+seam. Reported adapter tool notifications are suppressed in favor of tny's
+execution events. Unknown adapters cannot retain unmediated built-in tools.
 
 ## Sessions, embedding and limits
 
@@ -85,10 +76,10 @@ presented as resumed.
 
 For C/Python/Node embedding, configure the ACP command explicitly and set
 `TNY_ACP_BRIDGE_EXECUTABLE` to an absolute executable path of the matching tny
-binary. The bridge cannot assume the embedding process is tny. Custom tools
-remain in the embedding runtime; the relay never reconstructs them in a child.
-Only owner-thread event-loop dispatch invokes their callbacks. Async completion
-and cancellation use the existing public custom-tool contract.
+binary. The bridge cannot assume the embedding process is tny. Library-hosted agent tool execution and pointer-bearing custom tools cannot
+currently enter the execution child. A matching bridge executable does not
+enable that execution path; it fails closed. Consult the [evidence ledger](../verification/execution-code-mode/evidence.md)
+for the verified embedding coverage.
 
 Native mid-turn checkpoint restart, steering, compaction, generated-image preview
 continuation and automatic recovery-policy learning are not exposed by this

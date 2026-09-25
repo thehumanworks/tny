@@ -572,6 +572,13 @@ See [ADR 0063](adr/0063-in-process-intercept-of-first-party-verbs.md).
 
 ## Runner control verbs: `ask-user` and `image attach`
 
+With code-mode execution (ADR 0174), an active shell child cannot use the
+runner socket to make the harness read image files. Use nested `read_image`
+or `image_preview`; a simple intercepted `tny image attach PATH` command also
+executes in the code server. Dynamic shell forms that fall through to the
+socket return an explicit refusal. The control protocol below still describes
+idle/owner operations and the question channel.
+
 Shell commands launched by the native `terminal` tool receive the runner's
 resolved socket path and session id as `TNY_SESSION_SOCK` and
 `TNY_SESSION_ID`. This includes the short per-user fallback socket used when a

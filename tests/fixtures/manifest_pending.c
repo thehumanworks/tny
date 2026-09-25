@@ -1,14 +1,18 @@
-/* Drive the real native pending-permission move, not the synchronous prompt
- * hook. Python changes files after "permission", before "allow" or "cancel".
+/* Drive production code-mode preparation in a fresh execution process.
+ * Python mutates files while the owning harness waits for a prompt response.
  * Two turns share one permission engine; no ALLOW_ALWAYS is ever sent. */
 #include "backends/openai/openai.h"
 #include "core/config.h"
+#include "core/execution.h"
+#include "util/execution_command.h"
+#include "util/process.h"
 #include "core/image_manifest.h"
 #include "core/image_service.h"
 #include "util/tny_poll.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* Only image_service.c is compiled with these link aliases. Track every owned
  * setting, resolved path and loaded source record across failed preparation.
@@ -78,6 +82,10 @@ void manifest_test_manifest_free(tny_image_manifest *m) {
 static char *permission;
 static bool ended;
 static int stop_reason;
+static int questions;
+static bool destroy_requested;
+static tny_backend *active_backend;
+static perm_engine *active_perm;
 
 static void event(const tny_backend_event *ev, void *ud) {
     (void)ud;
@@ -107,7 +115,60 @@ static void read_action(char *action, size_t cap) {
     action[strcspn(action, "\n")] = 0;
 }
 
+static tny_perm_decision blocking_prompt(const char *tool, const char *summary, void *ud) {
+    (void)tool;
+    (void)ud;
+    tny_backend_event ev = {.kind = TNY_EV_PERMISSION,
+                            .perm_id = "manifest-nested-permission",
+                            .perm_summary = summary,
+                            .perm_options = TNY_PERM_ALLOW_ONCE | TNY_PERM_DENY};
+    event(&ev, NULL);
+    ++questions;
+    if (questions != 1 || perm_grant_count(active_perm) != 0) abort();
+    char action[32];
+    read_action(action, sizeof action);
+    free(permission);
+    permission = NULL;
+    if (strcmp(action, "allow") == 0) return TNY_PERM_DECISION_ALLOW;
+    if (strcmp(action, "cancel") != 0 && strcmp(action, "destroy") != 0) abort();
+    destroy_requested = strcmp(action, "destroy") == 0;
+    /* Cancel now, destroy only after dispatch unwinds from this callback. */
+    active_backend->cancel(active_backend);
+    return TNY_PERM_DECISION_DENY;
+}
+static void publish_stats(const char *path) {
+    buf_t json = {0};
+    buf_appendf(&json,
+                "{\"injected\":%zu,\"live\":%zu,\"acquired\":%zu,"
+                "\"disposed\":%zu,\"destination_owned\":%zu}",
+                injected, live, acquired, disposed, destination_owned);
+    if (buf_oom(&json) || file_write_atomic(path, json.data, json.len)) abort();
+    buf_free(&json);
+}
+static bool collect_stats(const char *path) {
+    yyjson_doc *d = jparse_file(path);
+    if (!d) return false;
+    yyjson_val *root = yyjson_doc_get_root(d);
+    injected = (size_t)jget_int(root, "injected", -1);
+    live = (size_t)jget_int(root, "live", -1);
+    acquired = (size_t)jget_int(root, "acquired", -1);
+    disposed = (size_t)jget_int(root, "disposed", -1);
+    destination_owned = (size_t)jget_int(root, "destination_owned", -1);
+    yyjson_doc_free(d);
+    return true;
+}
+
 int main(int argc, char **argv) {
+    if (tny_process_scope_admit() != 0) return 2;
+    if (argc == 2 && strcmp(argv[1], "--exec-server") == 0) {
+        fail_lineage = getenv("TNY_TEST_MANIFEST_LINEAGE");
+        fail_destination = getenv("TNY_TEST_MANIFEST_DESTINATION") != NULL;
+        int rc = tny_execution_server_main();
+        const char *stats = getenv("TNY_TEST_MANIFEST_STATS");
+        if (stats) publish_stats(stats);
+        return rc;
+    }
+    if (argc == 2 && strcmp(argv[1], "--exec-command") == 0) return tny_exec_command_main();
     if (argc != 5 && argc != 6 && argc != 7) return 2;
     bool destination = argc == 6 && strcmp(argv[5], "destination") == 0;
     if (argc == 6 && !destination) fail_lineage = argv[5];
@@ -144,19 +205,32 @@ int main(int argc, char **argv) {
                rc, injected, live, acquired, disposed, destination_owned);
         return 0;
     }
+    char stats_path[] = "/tmp/tny-manifest-stats-XXXXXX";
+    int stats_fd = mkstemp(stats_path);
+    if (stats_fd < 0 || setenv("TNY_TEST_MANIFEST_STATS", stats_path, 1)) abort();
+    close(stats_fd);
     perm_engine *perm = perm_new(&ctx);
     if (!perm) abort();
+    active_perm = perm;
     for (int round = 0; round < 2; round++) {
         tny_session_state *session = session_new(&ctx);
         tny_backend *backend = tny_backend_openai_new(&ctx);
         if (!session || !backend) abort();
-        tny_backend_openai_bind(backend, session, perm, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                                NULL, NULL, NULL);
+        active_backend = backend;
+        tny_backend_openai_bind(backend, session, perm, blocking_prompt, NULL, NULL, NULL, NULL,
+                                NULL, NULL, NULL, NULL, NULL);
         char err[512], action[32];
         ended = false;
         stop_reason = -1;
-        int questions = 0;
-        bool destroyed = false;
+        questions = 0;
+        destroy_requested = false;
+        (void)unlink(stats_path);
+        if (fail_lineage) {
+            if (setenv("TNY_TEST_MANIFEST_LINEAGE", fail_lineage, 1)) abort();
+        } else if (unsetenv("TNY_TEST_MANIFEST_LINEAGE")) abort();
+        if (destination && round == 0) {
+            if (setenv("TNY_TEST_MANIFEST_DESTINATION", "1", 1)) abort();
+        } else if (unsetenv("TNY_TEST_MANIFEST_DESTINATION")) abort();
         if (backend->connect(backend, err, sizeof err) ||
             backend->create_or_resume(backend, NULL, err, sizeof err) ||
             backend->send(backend, "fixture image", NULL, event, NULL, err, sizeof err)) {
@@ -164,46 +238,39 @@ int main(int argc, char **argv) {
             abort();
         }
         while (!ended) {
-            if (permission) {
-                questions++;
-                if (questions != 1 || perm_grant_count(perm) != 0) abort();
-                read_action(action, sizeof action);
-                if (strcmp(action, "allow") == 0) {
-                    /* Arm only after actual preparation and pending transfer. */
-                    fail_destination = destination && round == 0;
-                    backend->respond_permission(backend, permission, TNY_PERM_DECISION_ALLOW);
-                } else if (strcmp(action, "cancel") == 0) backend->cancel(backend);
-                else if (strcmp(action, "destroy") == 0) {
-                    backend->destroy(backend);
-                    destroyed = ended = true;
-                } else abort();
-                free(permission);
-                permission = NULL;
-                continue;
-            }
+            /* run_code owns a synchronous prompt callback; a second parked
+             * permission path would silently bypass the execution server. */
+            if (permission) abort();
             struct pollfd fds[TNY_BACKEND_POLLFD_MAX];
             int n = backend->pollfds(backend, fds, TNY_BACKEND_POLLFD_MAX);
             if (tny_poll(fds, (nfds_t)n, 10) < 0) abort();
             if (backend->dispatch(backend, fds, n) < 0 && !ended) abort();
         }
+        bool stats_available = collect_stats(stats_path);
+        if (!stats_available) injected = live = acquired = disposed = destination_owned = 0;
         bool allocation_failure = fail_lineage && round == 0;
         if (questions != (allocation_failure ? 0 : 1) || perm_grant_count(perm) != 0) abort();
         /* Failed prepare must release everything before backend destruction,
          * not leave an approved or pending plan for teardown to rescue. */
-        if (allocation_failure && (injected != 1 || live || acquired < 3 || acquired != disposed))
+        if (allocation_failure &&
+            (!stats_available || injected != 1 || live || acquired < 3 || acquired != disposed))
             abort();
         /* Execution failure must release the transferred plan before teardown. */
         if (destination && round == 0 &&
-            (injected != 1 || destination_owned < 8 || live || acquired != disposed))
+            (!stats_available || injected != 1 || destination_owned < 8 || live ||
+             acquired != disposed))
             abort();
-        if (!destroyed) backend->destroy(backend);
+        if (!stats_available && stop_reason != TNY_STOP_INTERRUPTED && !destroy_requested) abort();
+        backend->destroy(backend);
+        active_backend = NULL;
         session_close(session);
         if (live) abort();
         printf("{\"event\":\"ended\",\"round\":%d,\"grants\":%d,\"stop\":%d,"
                "\"questions\":%d,\"injected\":%zu,\"live\":%zu,\"acquired\":%zu,\"disposed\":%zu,"
-               "\"destination_owned\":%zu}\n",
+               "\"destination_owned\":%zu,\"stats_available\":%s,\"destroy_requested\":%s}\n",
                round, perm_grant_count(perm), stop_reason, questions, injected, live, acquired,
-               disposed, destination_owned);
+               disposed, destination_owned, stats_available ? "true" : "false",
+               destroy_requested ? "true" : "false");
         fail_lineage = NULL;
         fail_destination = false;
         fflush(stdout);
@@ -213,5 +280,9 @@ int main(int argc, char **argv) {
         }
     }
     perm_free(perm);
+    (void)unlink(stats_path);
+    (void)unsetenv("TNY_TEST_MANIFEST_STATS");
+    (void)unsetenv("TNY_TEST_MANIFEST_LINEAGE");
+    (void)unsetenv("TNY_TEST_MANIFEST_DESTINATION");
     return 0;
 }
