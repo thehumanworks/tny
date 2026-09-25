@@ -94,6 +94,59 @@ release and fault-library commands, then compiles the real compatibility header.
 The complete build suite passed 19 tests with one explicit Emscripten skip on
 macOS. Hosted Linux/musl artifact checks remain the authoritative end-to-end gate.
 
+## Independent review and follow-up
+
+A read-only Claude Fable review checked the actual authority/protocol source.
+Its actionable settlement, permission-event, policy-stop and stdio MCP teardown
+findings received focused before/after regressions in a separate snapshot.
+The session-size and host-capability findings are explicit limits in ADR 0174.
+
+The follow-up source passed 17 production execution cases (16 native passes,
+one wasm-only skip), seven runner-permission cases, two guardian cases, the
+30-case MCP suite, and the ACP deadline fixture. Its complete native unit gate
+passed 588 cases (587 passes, one platform skip; 32,596 assertions). Scoped
+Clang-Tidy/strict warnings, style and the unchanged source-linked protocol proof
+also passed. These are separately recorded snapshot checks; the combined
+native gates and hosted PR checks verify integration with the portability fixes.
+
+The delayed-ACK tests use an actual private execution child and an owner that
+persists the received state before delaying acknowledgement. They prove a
+bounded non-executing settlement phase, not an fsync performance guarantee.
+A delayed mid-cell acknowledgement cannot authorize a second write after the
+code deadline; a final acknowledgement delayed beyond its separate bound fails
+without replay. Policy-stop tests preserve completed effects and stop a Lua loop.
+The stubborn-MCP-child test fails before the close fix and passes afterward,
+while cooperative EOF, idempotent close and nonchild protection remain checked.
+
+## Final CI reconciliation
+
+Linux Clang-Tidy found an uninitialized socket-address read in the private
+entrypoint. The peer address is now zero-initialized and its returned length
+must contain the family field before it is inspected. Production entrypoint
+regressions reject pipes, Unix datagrams and connected TCP sockets for both
+private modes; valid Unix stream protocol tests remain. The complete execution
+suite then passed 18 cases (17 native passes and one wasm-only skip).
+
+The C reference conformance adapter still expected embedded permission prompts
+although the Python and TypeScript adapters had already migrated. It now probes
+actual no-fallback refusal and zero effects under all three permission modes,
+reports the two unavailable permission scenarios as unsupported, and retains
+the other eight passing conformance scenarios. The release validator remains
+unchanged and continues rejecting unsupported *applicable* scenarios.
+
+The combined native gate (`quality`, unit, native mutations, runtime ownership,
+allocation faults and formal checking) passed on the reviewed source. Its
+subsequent extension integration exposed an old expectation that a policy-stopped
+code cell was successful. The corrected test requires its completed nested
+operation to remain successful, both cancelled/unstarted code cells to fail,
+and exactly one provider request; the complete extension script passes.
+
+An independent Debian Linux run of the repaired provider lifecycle binary
+passed all 43 cases under Valgrind 3.22.0. The sandbox's original Valgrind 3.19
+could not handle pidfd_open and produced unsupported-syscall failures; that
+instrumentation result was not called a production memory defect or a pass.
+The supported Valgrind run and the hosted job are separate actual observations.
+
 ## Source-linked formal evidence
 
 `make verify-formal` checks the actual Clang AST of the pure admission predicate
@@ -131,3 +184,21 @@ token saving, or general operating-system sandbox guarantee is claimed.
 Raw local logs, atomic statuses, input manifests and the full integration plan
 are retained in `/tmp/tny-execution-code-mode` on the development host. Hosted
 results and their source revisions are visible on PR #193.
+
+## Combined local delivery check
+
+The final main-checkout `make -j6 quality test-unit lib-shared-active` exited 0,
+with 588 unit cases (587 passed, one platform skip; 32,596 assertions) and both
+extra restricted-profile regressions passing. All executable, build and test
+inputs in its 1,510-file manifest remained unchanged; only the conformance
+README was clarified during the run. A separate final macOS `make leaks` exited
+0 with zero leaks. The final C reference report passed eight applicable
+scenarios and explicitly classified two embedded permission scenarios as
+unsupported. The complete extension integration and all 18 execution cases
+(17 native passes, one wasm-only skip) passed after the final repairs.
+
+The earlier combined gate also passed all native mutations, runtime ownership,
+allocation-fault sweeps and formal obligations on the reviewed execution source.
+The final repairs add socket metadata initialization, conformance assertions and
+policy-stop fixture corrections; no allocation failure injection, negative
+validator scenario or memory-check diagnostic was suppressed.

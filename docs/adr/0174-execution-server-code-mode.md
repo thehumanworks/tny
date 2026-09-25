@@ -74,6 +74,29 @@ local scratch cwd and explicit tools-only metadata. Unknown adapters cannot
 silently retain an unmediated built-in execution path. Model catalog operations
 and platform errors remain distinct from prompt admission.
 
+## Settlement and cleanup
+
+Completed nested calls have a separate 1,000 ms state/event/post-hook settlement
+window. It does not extend the Lua or tool execution deadline. After Lua
+returns, final state marks the cell finished; no further callbacks are admitted.
+The final ACK/result window is also bounded to 1,000 ms. The client holds the
+result until EOF and successful executor reap, with a separate aggregate
+10,000 ms teardown wait. Owner-side callback time does not consume its transport
+watchdog; only bounded human waits extend the server's execution budget.
+
+Without a synchronous permission owner, unresolved permissions deny without
+emitting an unanswerable permission request. An extension stop immediately ends
+Lua authority and is reported as owner-policy cancellation, retaining completed
+effects instead of replaying them or misclassifying the stop as an ordinary timeout.
+
+Stdio MCP shutdown allows cooperative EOF for 100 ms, then uses the existing
+generation-safe owned-tree seam for an unreaped direct child. It never signals
+an unrelated or already-reaped PID. Multiple pathological peers can exceed the
+aggregate teardown window and fail closed. Executor EOF/reap is not a certificate
+that arbitrary descendants disappeared: external executor SIGKILL, escaped MCP
+peers and identity/allocation failures are outside this new teardown guarantee.
+The command guardian's separate crash tests cover guardian-owned shell work.
+
 ## Platform and compatibility consequences
 
 Native agent calls now require the execution child even for ephemeral and

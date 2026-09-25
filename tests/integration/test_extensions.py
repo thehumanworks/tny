@@ -794,11 +794,14 @@ def main():
                     message.get("content") == "integration annotation"
                     for message in stopped_json["extension_messages"]
                 ), stopped_json
+                # The nested effect completed, but policy cancelled its code
+                # cell. Neither that cell nor the unstarted next cell succeeds.
                 assert stopped_json["tool_calls"] == [
                     {"name": "list_files", "status": "success"},
-                    {"name": "run_code", "status": "success"},
+                    {"name": "run_code", "status": "error"},
                     {"name": "run_code", "status": "error"},
                 ], stopped_json
+                assert stopped_json["usage"]["requests"] == 1, stopped_json
 
                 invalid_observe = subprocess.run(
                     [

@@ -15,6 +15,9 @@
 #include <string.h>
 #include <unistd.h>
 
+#define SETTLEMENT_MS 1000
+#define TEARDOWN_MS   10000
+
 typedef struct {
     tools_env env;
     int fd;
@@ -25,6 +28,7 @@ typedef struct {
     const char *cell_id;
     bool failed;
     bool stopped;
+    bool finished;
     bool can_prompt;
     bool can_ask;
     bool can_control;
@@ -47,8 +51,8 @@ static char *message_from_doc(uint64_t id, tny_exec_kind kind, yyjson_mut_doc *d
 
 static bool server_cancelled(void *ud) {
     execution_server *s = ud;
-    return s->failed || s->stopped || s->env.perm_blocked || monotonic_ms() >= s->deadline ||
-           tny_exec_host_disconnected(s->fd);
+    return s->failed || s->stopped || s->finished || s->env.perm_blocked ||
+           monotonic_ms() >= s->deadline || tny_exec_host_disconnected(s->fd);
 }
 
 /* Every reverse message is a request with an ack. There are no notifications,
@@ -111,13 +115,19 @@ static void server_control(execution_server *s, const tny_openai_control_request
         s->failed = true;
         response->deny = true;
     }
-    if (response->stop) s->stopped = true;
+    if (response->stop) {
+        s->stopped = true;
+        /* Shorten authority immediately. The Lua budget check on callback return
+         * (and every instruction hook) now unwinds even pure Lua loops. */
+        s->deadline = 0;
+    }
     yyjson_doc_free(reply);
     yyjson_mut_doc_free(d);
 }
 
 static tny_perm_decision server_prompt(const char *tool, const char *summary, void *ud) {
     execution_server *s = ud;
+    if (!s->can_prompt) return TNY_PERM_DECISION_DENY;
     yyjson_mut_doc *d = object_doc();
     yyjson_mut_val *r = d ? yyjson_mut_doc_get_root(d) : NULL;
     char id[80];
@@ -184,6 +194,7 @@ static bool server_state(execution_server *s) {
         d ? tny_execution_state_encode(d, &s->env,
                                        s->baseline ? yyjson_doc_get_root(s->baseline) : NULL, false)
           : NULL;
+    if (r && !yyjson_mut_obj_add_bool(d, r, "finished", s->finished)) r = NULL;
     if (d) yyjson_mut_doc_set_root(d, r);
     yyjson_doc *reply = r ? server_rpc(s, TNY_EXEC_STATE, d) : NULL;
     bool ok = reply && jget_bool(rpc_result(reply), "ok", false);
@@ -302,7 +313,7 @@ static char *server_tool(void *ud, const char *name, const char *args) {
         if (!s->failed && !response.stop && !response.deny) {
             if (response.permission == TNY_OPENAI_PERMISSION_ALLOW_ONCE)
                 decision = TNY_PERM_DECISION_ALLOW;
-            else if (response.permission == TNY_OPENAI_PERMISSION_ABSTAIN)
+            else if (response.permission == TNY_OPENAI_PERMISSION_ABSTAIN && s->can_prompt)
                 decision = server_prompt(call.name, call.summary, s);
         }
         if (response.extension) {
@@ -341,8 +352,9 @@ static char *server_tool(void *ud, const char *name, const char *args) {
     }
     /* Push state even when code later fails. Side effects are never rolled back
      * or replayed; ACK precedes post hooks so they observe the committed state. */
-    if (monotonic_ms() >= s->deadline && !s->settlement_deadline)
-        s->settlement_deadline = monotonic_ms() + 500;
+    /* This phase only settles the completed call. It never changes the code /
+     * tool deadline, and the runtime checks that deadline before resuming Lua. */
+    s->settlement_deadline = monotonic_ms() + SETTLEMENT_MS;
     (void)server_state(s);
     if (began) server_subagent_control(s, &call, id, true, result);
     tny_backend_event event = {.kind = TNY_EV_TOOL_END,
@@ -364,6 +376,7 @@ static char *server_tool(void *ud, const char *name, const char *args) {
     }
     tny_execution_control_response_free(&response);
 cleanup:
+    s->settlement_deadline = 0;
     tools_call_free(&call);
     free(effective);
     free(attribution);
@@ -425,14 +438,6 @@ static yyjson_mut_doc *client_callback(tools_env *env, tny_exec_kind kind, yyjso
         if (ok) {
             tny_perm_decision decision = TNY_PERM_DECISION_DENY;
             if (env->prompt) decision = env->prompt(tool, summary, env->prompt_ud);
-            else if (env->ev_cb) {
-                tny_backend_event event = {.kind = TNY_EV_PERMISSION,
-                                           .perm_id = id,
-                                           .perm_summary = summary,
-                                           .perm_options = TNY_PERM_ALLOW_ONCE |
-                                                           TNY_PERM_ALLOW_ALWAYS | TNY_PERM_DENY};
-                env->ev_cb(&event, env->ev_ud);
-            }
             ok = yyjson_mut_obj_add_int(d, r, "decision", decision);
         }
     } else if (ok && kind == TNY_EXEC_ASK) {
@@ -532,6 +537,7 @@ char *tny_execution_run(tools_env *env, const char *arguments_json) {
     uint64_t expected = 2;
     bool completed = false;
     bool settling = false;
+    bool finished = false;
     while (!rc && !completed) {
         char *line =
             tny_exec_host_receive(host.fd, deadline, settling ? NULL : client_cancelled, env);
@@ -555,6 +561,11 @@ char *tny_execution_run(tools_env *env, const char *arguments_json) {
                 if (!output) rc = ENOMEM;
             }
         } else {
+            if (finished) {
+                yyjson_doc_free(d);
+                rc = EPROTO;
+                break;
+            }
             if (settling) {
                 tny_openai_control_request settled_request = {0};
                 bool allowed = kind == TNY_EXEC_STATE || kind == TNY_EXEC_EVENT ||
@@ -568,14 +579,23 @@ char *tny_execution_run(tools_env *env, const char *arguments_json) {
                     break;
                 }
             }
+            if (kind == TNY_EXEC_STATE && jget_bool(body, "finished", false)) {
+                /* Lua has returned: only its final ACK/result may follow.
+                 * Authority is over; this is a separate, non-executing phase. */
+                finished = true;
+                deadline = monotonic_ms() + SETTLEMENT_MS;
+            }
             int64_t callback_started = monotonic_ms();
             yyjson_mut_doc *reply = client_callback(env, kind, body);
             if (kind == TNY_EXEC_CONTROL && reply &&
                 yyjson_mut_get_bool(yyjson_mut_obj_get(yyjson_mut_doc_get_root(reply), "stop"))) {
                 settling = true;
-                if (deadline > monotonic_ms() + 500) deadline = monotonic_ms() + 500;
+                if (deadline > monotonic_ms() + SETTLEMENT_MS)
+                    deadline = monotonic_ms() + SETTLEMENT_MS;
             }
-            if (kind == TNY_EXEC_PROMPT || kind == TNY_EXEC_ASK) {
+            if (!settling && !finished) {
+                /* Owner callback time must not consume the client's transport
+                 * watchdog. Only human waits extend the server's code budget. */
                 int64_t waited = monotonic_ms() - callback_started;
                 if (waited > 300000) waited = 300000;
                 deadline += waited;
@@ -592,7 +612,8 @@ char *tny_execution_run(tools_env *env, const char *arguments_json) {
         yyjson_doc_free(d);
     }
     if (completed && !rc &&
-        tny_exec_host_expect_eof(host.fd, deadline, settling ? NULL : client_cancelled, env))
+        tny_exec_host_expect_eof(host.fd, monotonic_ms() + TEARDOWN_MS,
+                                 settling ? NULL : client_cancelled, env))
         rc = errno ? errno : EPROTO;
     int cleanup = tny_exec_host_close(&host, completed && !rc);
     if (rc || !completed || cleanup) {
@@ -684,20 +705,22 @@ int tny_execution_server_main(void) {
         catalog ? tny_code_run_with_deadline(code, &s.deadline, catalog, server_tool, &s) : NULL;
     free(catalog);
     if (!output) output = tool_err("execution runtime allocation failure");
-    if (monotonic_ms() >= s.deadline) {
-        if (!s.settlement_deadline) s.settlement_deadline = monotonic_ms() + 500;
+    if (s.stopped || monotonic_ms() >= s.deadline) {
         free(output);
-        output =
-            tool_err("execution timeout; completed effects retained, uncertain calls not replayed");
+        output = tool_err("execution %s; completed effects retained, uncertain calls not replayed",
+                          s.stopped ? "cancelled by owner policy" : "timeout");
     }
+    s.finished = true;
+    s.settlement_deadline = monotonic_ms() + SETTLEMENT_MS;
     if (!s.failed) (void)server_state(&s);
-    /* Stop server-owned MCP children before signalling a completed response. */
-    mcp_shutdown_all();
     yyjson_mut_doc *result = object_doc();
     yyjson_mut_val *r = result ? yyjson_mut_doc_get_root(result) : NULL;
     bool ok = !s.failed && r && yyjson_mut_obj_add_strcpy(result, r, "output", output);
     char *reply = ok ? message_from_doc(1, TNY_EXEC_RESULT, result) : NULL;
-    int rc = reply ? tny_exec_host_send(s.fd, reply, monotonic_ms() + 1000, NULL, NULL) : -1;
+    int rc = reply ? tny_exec_host_send(s.fd, reply, s.settlement_deadline, NULL, NULL) : -1;
+    /* The client holds the result until EOF and successful reap. Teardown has
+     * its own bounded wait and cannot grant more Lua/tool execution. */
+    mcp_shutdown_all();
     secure_free(reply);
     yyjson_mut_doc_free(result);
     free(output);

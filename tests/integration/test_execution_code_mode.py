@@ -362,6 +362,250 @@ print(json.encode({answer = value.value + 1}))
         finally:
             other.doCleanups()
 
+    def private_cell(
+        self,
+        code,
+        *,
+        timeout=150,
+        permission=2,
+        delay_state=0,
+        delay_seconds=0.25,
+        stop_control=0,
+    ):
+        """Real exec-server with a trusted owner fixture delaying durable ACKs."""
+        owner, peer = socket.socketpair()
+        owner.settimeout(4)
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import os,sys; os.dup2(int(sys.argv[1]),3); os.set_inheritable(3,True); "
+                "os.execv(sys.argv[2],[sys.argv[2],'--exec-server'])",
+                str(peer.fileno()),
+                TNY,
+            ],
+            env=self.env,
+            cwd=self.workspace,
+            pass_fds=(peer.fileno(),),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        peer.close()
+        state = {
+            "session": None,
+            "grants": [],
+            "mem_results": [],
+            "images": [],
+            "learning": {
+                "valid": False,
+                "ok": False,
+                "event": 0,
+                "scope": 0,
+                "intent": 0,
+            },
+            "pending_count": 0,
+            "perm_blocked": False,
+        }
+        params = {
+            "context": {
+                "cwd": str(self.workspace),
+                "tny_dir": str(self.home / ".tny"),
+                "perm_mode": permission,
+                "tool_profile": 0,
+            },
+            "state": state,
+            "arguments": {"code": code, "timeout_ms": timeout},
+            "prompt": False,
+            "ask": False,
+            "control": bool(stop_control),
+            "pending_bytes": 0,
+            "preview_ready": False,
+            "preview_available": False,
+            "cell_id": "0123456789abcdef",
+            "session_sock": None,
+            "session_id": None,
+        }
+
+        def send(value):
+            data = json.dumps(dict(jsonrpc="2.0", version=1, **value)).encode()
+            owner.sendall(struct.pack(">I", len(data)) + data)
+
+        def receive_bytes(count):
+            data = b""
+            while len(data) < count:
+                part = owner.recv(count - len(data))
+                if not part:
+                    raise EOFError("execution server disconnected before result")
+                data += part
+            return data
+
+        observed = []
+        states = 0
+        try:
+            send({"id": 1, "method": "execute", "params": params})
+            while True:
+                length = struct.unpack(">I", receive_bytes(4))[0]
+                message = json.loads(receive_bytes(length))
+                if "method" not in message:
+                    self.assertEqual(message["id"], 1)
+                    self.assertEqual(owner.recv(1), b"")
+                    stdout, stderr = process.communicate(timeout=3)
+                    self.assertEqual(process.returncode, 0, (stdout, stderr))
+                    return message["result"]["output"], observed
+                kind = message["method"]
+                observed.append(kind)
+                reply = {"ok": True, "pending_count": 0, "pending_bytes": 0}
+                if kind == "state":
+                    states += 1
+                    if states == delay_state:
+                        # An owner persistence/ACK delay, never extra tool authority.
+                        (self.home / "ack-state.json").write_text(
+                            json.dumps(message["params"])
+                        )
+                        time.sleep(delay_seconds)
+                elif kind == "prompt":
+                    reply = {"decision": 2}
+                elif kind == "control":
+                    reply = {
+                        "arguments_json": None,
+                        "result": None,
+                        "extension": None,
+                        "reason": None,
+                        "permission": 0,
+                        "deny": False,
+                        "stop": message["params"]["kind"] == stop_control,
+                        "result_replaced": False,
+                        "result_is_error": False,
+                    }
+                else:
+                    self.assertEqual(kind, "event")
+                send({"id": message["id"], "result": reply})
+        finally:
+            owner.close()
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=5)
+
+    def test_final_ack_has_separate_nonexecuting_budget(self):
+        result, _ = self.private_cell(
+            """print(tools.call("write_file", '{"path":"once.txt","content":"once"}')); """
+            'print("settled")',
+            delay_state=2,
+        )
+        self.assertIn("settled", result)
+        self.assertNotIn("error", result)
+        self.assertEqual((self.workspace / "once.txt").read_text(), "once")
+
+    def test_final_ack_window_is_bounded_without_replay(self):
+        started = time.monotonic()
+        with self.assertRaises((BrokenPipeError, ConnectionResetError, EOFError)):
+            self.private_cell(
+                """tools.call("write_file", '{"path":"once.txt","content":"once"}')""",
+                delay_state=2,
+                delay_seconds=1.3,
+            )
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertEqual((self.workspace / "once.txt").read_text(), "once")
+
+    def test_post_effect_ack_does_not_extend_execution_budget(self):
+        result, _ = self.private_cell(
+            """tools.call("write_file", '{"path":"once.txt","content":"once"}'); """
+            """tools.call("write_file", '{"path":"late.txt","content":"forbidden"}')""",
+            delay_state=1,
+        )
+        self.assertIn("timeout", result)
+        self.assertNotIn("outcome unknown", result)
+        self.assertEqual((self.workspace / "once.txt").read_text(), "once")
+        self.assertFalse((self.workspace / "late.txt").exists())
+
+    def test_no_prompt_owner_denies_without_phantom_request(self):
+        result, observed = self.private_cell(
+            """print(tools.call("write_file", '{"path":"denied.txt","content":"no"}'))""",
+            timeout=1000,
+            permission=0,
+        )
+        self.assertIn("permission", result)
+        self.assertNotIn("prompt", observed)
+        self.assertFalse((self.workspace / "denied.txt").exists())
+
+    def test_owner_stop_interrupts_lua_and_retains_completed_effect(self):
+        # A controlled owner proves the returned diagnostic, including stop
+        # before an effect and after an effect. The real extension follows.
+        for kind in (1, 3):
+            with self.subTest(control_kind=kind):
+                result, _ = self.private_cell(
+                    """tools.call("write_file", '{"path":"policy.txt","content":"once"}'); """
+                    "while true do end",
+                    timeout=5000,
+                    stop_control=kind,
+                )
+                self.assertIn("cancelled by owner policy", result)
+                self.assertNotIn("timeout", result)
+                self.assertEqual((self.workspace / "policy.txt").exists(), kind == 3)
+        directory = self.home / ".tny/extensions"
+        directory.mkdir(parents=True)
+        (directory / "stopper.py").write_text(
+            "from tny_ext import PostToolUseEvent, stop\n"
+            "def setup(api):\n"
+            "    @api.on(PostToolUseEvent)\n"
+            "    def after(event):\n"
+            "        if event.tool_name == 'write_file': return stop('fixture policy stop')\n"
+        )
+        process = self.start(
+            """tools.call("write_file", '{"path":"once.txt","content":"once"}'); """
+            "while true do end"
+        )
+        started = time.monotonic()
+        stdout, stderr = process.communicate(timeout=8)
+        self.assertLess(time.monotonic() - started, 4)
+        self.assertEqual((self.workspace / "once.txt").read_text(), "once")
+        self.assertEqual(process.returncode, 130, (stdout, stderr))
+        self.assertEqual(json.loads(stdout)["exit_code"], 130)
+        self.assertEqual(len(self.server.bodies), 1)
+
+    def test_private_entry_requires_connected_unix_stream(self):
+        def reject(descriptor):
+            for option in ("--exec-server", "--exec-command"):
+                with self.subTest(option=option, descriptor=descriptor):
+                    process = subprocess.run(
+                        [
+                            sys.executable,
+                            "-c",
+                            "import os,sys; os.dup2(int(sys.argv[1]),3); "
+                            "os.set_inheritable(3,True); "
+                            "os.execv(sys.argv[2],[sys.argv[2],sys.argv[3]])",
+                            str(descriptor),
+                            TNY,
+                            option,
+                        ],
+                        env=self.env,
+                        cwd=self.workspace,
+                        pass_fds=(descriptor,),
+                        capture_output=True,
+                        timeout=3,
+                    )
+                    expected = 2 if option == "--exec-server" else 125
+                    self.assertEqual(process.returncode, expected, process.stderr)
+                    self.assertEqual(process.stdout, b"")
+
+        read_fd, write_fd = os.pipe()
+        try:
+            reject(read_fd)
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+        left, right = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+        with left, right:
+            reject(left.fileno())
+        with socket.socket() as listener, socket.socket() as client:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            client.connect(listener.getsockname())
+            server, _ = listener.accept()
+            with server:
+                reject(server.fileno())
+        self.assertEqual(list(self.workspace.iterdir()), [])
+
     def test_private_protocol_rejects_malformed_unknown_and_eof(self):
         envelope = {
             "jsonrpc": "2.0",

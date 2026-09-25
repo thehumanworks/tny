@@ -30,6 +30,11 @@ STEER_TIMEOUT = int(os.environ.get("TNY_CONFORMANCE_STEER_TIMEOUT", "30"))
 if STEER_TIMEOUT < 1:
     raise ValueError("TNY_CONFORMANCE_STEER_TIMEOUT must be positive")
 
+EMBEDDED_REFUSAL = (
+    "error: execution server unavailable for embedded host/custom callbacks; "
+    "no direct fallback"
+)
+
 CURRENT_STAGE = "startup"
 
 
@@ -248,6 +253,11 @@ def collect(
             "session_id": copied(view.session_id),
             "turn_id": copied(view.turn_id),
         }
+        if record["type"] in ("tool_start", "tool_end"):
+            record["tool_name"] = copied(view.tool_name)
+        if record["type"] == "tool_end":
+            record["tool_ok"] = bool(view.tool_ok)
+            record["tool_detail"] = copied(view.tool_detail)
         if view.kind == 7:
             record["stop_reason"] = STOP_REASONS[int(view.stop_reason)]
         if view.kind == 8:
@@ -626,31 +636,51 @@ def live_probe(libpath: str, secret: str):
             process.terminate()
             process.wait(timeout=5)
 
-        for scenario, decision in (
-            ("permission_allow_and_stale_reject", 0),
-            ("permission_deny", 2),
-        ):
-            process, url = start_mock(MOCK_SENSITIVE="1")
+        # Public embedding has no trusted execution-server launcher. Verify
+        # actual refusal and no effects for every mode instead of claiming
+        # interactive permission behavior that cannot occur in this ABI cut.
+        for permission_mode in (0, 1, 2):
+            process, url = start_mock(
+                MOCK_SENSITIVE="1",
+                MOCK_EXPECT_TOOL_NAMES="run_code",
+                MOCK_EXPECT_TOOL_OUTPUT=EMBEDDED_REFUSAL,
+            )
+            runtime = session = error = None
             try:
                 runtime, session, error, keep = create_handles(
                     lib,
                     url,
                     str(workspace),
                     str(state),
-                    permission_mode=0,
+                    permission_mode=permission_mode,
                     api_key=secret,
                 )
                 assert keep
-                traces[scenario], _ = collect(
-                    lib, session, error, "write permission.txt", decision=decision
-                )
-                kinds = [event["type"] for event in traces[scenario]]
-                assert kinds[0] == "permission_request"
-                if decision == 2:
-                    assert "tool_start" not in kinds
-                lib.tny_session_free(session)
-                lib.tny_runtime_free(runtime)
+                events, _ = collect(lib, session, error, "write permission.txt")
+                assert not any(e["type"] == "permission_request" for e in events)
+                tools = [e for e in events if e["type"] in ("tool_start", "tool_end")]
+                assert [(e["type"], e["tool_name"]) for e in tools] == [
+                    ("tool_start", "run_code"),
+                    ("tool_end", "run_code"),
+                ]
+                assert not tools[-1]["tool_ok"]
+                assert tools[-1]["tool_detail"] == EMBEDDED_REFUSAL
+                assert [
+                    e["stop_reason"] for e in events if e["type"] == "turn_end"
+                ] == ["done"]
+                assert sorted(p.name for p in workspace.iterdir()) == [
+                    "a.txt",
+                    "b.txt",
+                    "c.txt",
+                ]
+                assert all(p.read_bytes() == b"x\n" for p in workspace.iterdir())
             finally:
+                if session:
+                    lib.tny_session_free(session)
+                if runtime:
+                    lib.tny_runtime_free(runtime)
+                if error:
+                    lib.tny_error_free(error)
                 process.terminate()
                 process.wait(timeout=5)
 
@@ -747,13 +777,6 @@ def main() -> int:
                     "second_turn_same_session",
                 )
                 + qualified(
-                    "permission_allow_and_stale_reject",
-                    "parked_before_response",
-                    "stale_id_bad_state",
-                    "duplicate_id_bad_state",
-                )
-                + qualified("permission_deny", "denied_tool_not_executed")
-                + qualified(
                     "cancel_and_drain",
                     "cancel_idempotent",
                     "exactly_one_terminal",
@@ -808,7 +831,7 @@ def main() -> int:
     library_version = copied(lib.tny_library_version())
     capabilities = {
         "native_openai": bool(snapshot["provider_available_mask"] & 1),
-        "permissions": True,
+        "permissions": False,
         "cancellation": bool(snapshot["feature_available_mask"] & 128),
         "persistence": bool(snapshot["feature_available_mask"] & 2),
         "steering": True,
@@ -831,8 +854,6 @@ def main() -> int:
     evidence = {
         "success_two_turns": ["live_abi_probe"],
         "resume_and_steer_rejection": ["live_steer_resume_probe"],
-        "permission_allow_and_stale_reject": ["live_abi_probe"],
-        "permission_deny": ["live_abi_probe"],
         "cancel_and_drain": ["live_abi_probe"],
         "auth_error": ["live_abi_probe"],
         "unknown_future_event": ["unknown_event_probe"],
@@ -849,6 +870,12 @@ def main() -> int:
         identifier = scenario["id"]
         scenarios.append(
             {
+                "id": identifier,
+                "status": "unsupported",
+                "reason": "Embedded run_code execution is unavailable before permission dispatch; no direct fallback (ADR 0174).",
+            }
+            if "permissions" in scenario["requires"]
+            else {
                 "id": identifier,
                 "status": "pass",
                 "assertions": scenario["assertions"],

@@ -6,10 +6,14 @@
 #include "core/tools.h"
 #include "mcp/mcp.h"
 #include "mcp/mcp_import.h"
+#include "mcp/mcp_priv.h"
 #include "util/toml.h"
 #include "util/util.h"
 
 #include <arpa/inet.h>
+#include <errno.h>
+#include <signal.h>
+#include <sys/wait.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -1466,7 +1470,93 @@ TEST intercepted_mcp_call_reuses_the_warmed_server(void) {
     PASS();
 }
 
+/* Private direct-child fixture: no external server or descendant processes.
+ * Synchronize signal setup before close, then prove close consumed wait status. */
+TEST stdio_close_reaps_peer_ignoring_sigterm(void) {
+    int input[2], output[2];
+    ASSERT_EQ(0, pipe(input));
+    ASSERT_EQ(0, pipe(output));
+    pid_t pid = fork();
+    ASSERT(pid >= 0);
+    if (pid == 0) {
+        close(input[1]);
+        close(output[0]);
+        signal(SIGTERM, SIG_IGN);
+        if (write(output[1], "R", 1) != 1) _exit(2);
+        for (;;) pause();
+    }
+    close(input[0]);
+    close(output[1]);
+    char ready = 0;
+    ASSERT_EQ(1, read(output[0], &ready, 1));
+    ASSERT_EQ('R', ready);
+    mcp_conn c = {
+        .transport = MCP_TRANSPORT_STDIO, .pid = pid, .in_fd = input[1], .out_fd = output[0]};
+    int64_t started = monotonic_ms();
+    mcp_conn_close(&c);
+    int64_t elapsed = monotonic_ms() - started;
+    errno = 0;
+    pid_t remaining = waitpid(pid, NULL, WNOHANG);
+    int wait_error = errno;
+    /* Clean up the fixture even when testing the unfixed implementation. */
+    if (remaining == 0) {
+        kill(pid, SIGKILL);
+        while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+    }
+    ASSERT_EQ(-1, remaining);
+    ASSERT_EQ(ECHILD, wait_error);
+    ASSERT(elapsed < 1500);
+    PASS();
+}
+
+TEST stdio_close_allows_cooperative_eof(void) {
+    int input[2], output[2], receipt[2];
+    ASSERT_EQ(0, pipe(input));
+    ASSERT_EQ(0, pipe(output));
+    ASSERT_EQ(0, pipe(receipt));
+    pid_t pid = fork();
+    ASSERT(pid >= 0);
+    if (pid == 0) {
+        close(input[1]);
+        close(output[0]);
+        close(receipt[0]);
+        char byte;
+        while (read(input[0], &byte, 1) > 0) {}
+        if (write(receipt[1], "E", 1) != 1) _exit(2);
+        _exit(0);
+    }
+    close(input[0]);
+    close(output[1]);
+    close(receipt[1]);
+    mcp_conn c = {
+        .transport = MCP_TRANSPORT_STDIO, .pid = pid, .in_fd = input[1], .out_fd = output[0]};
+    mcp_conn_close(&c);
+    char observed = 0;
+    ssize_t received = read(receipt[0], &observed, 1);
+    close(receipt[0]);
+    ASSERT_EQ(1, received);
+    ASSERT_EQ('E', observed);
+    ASSERT_EQ(-1, waitpid(pid, NULL, WNOHANG));
+    ASSERT_EQ(ECHILD, errno);
+    mcp_conn_close(&c); /* repeated close cannot act on a retired PID */
+    PASS();
+}
+
+TEST stdio_close_does_not_signal_nonchild(void) {
+    int input[2];
+    ASSERT_EQ(0, pipe(input));
+    /* This is not an owned child. Any raw TERM/KILL here would kill the test. */
+    mcp_conn c = {
+        .transport = MCP_TRANSPORT_STDIO, .pid = getpid(), .in_fd = input[0], .out_fd = input[1]};
+    mcp_conn_close(&c);
+    ASSERT_EQ(0, c.pid);
+    PASS();
+}
+
 SUITE(mcp_suite) {
+    RUN_TEST(stdio_close_allows_cooperative_eof);
+    RUN_TEST(stdio_close_does_not_signal_nonchild);
+    RUN_TEST(stdio_close_reaps_peer_ignoring_sigterm);
     RUN_TEST(warm_start_does_not_block_and_catalog_appears);
     RUN_TEST(select_waits_for_warming_server);
     RUN_TEST(hung_server_does_not_stall);

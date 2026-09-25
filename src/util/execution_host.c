@@ -5,6 +5,7 @@
 #include "util/util.h"
 #include <errno.h>
 #include <limits.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -66,13 +67,14 @@ int tny_exec_host_start(tny_exec_host *host) {
 }
 
 int tny_exec_host_accept(void) {
-    struct sockaddr_storage address;
+    struct sockaddr_storage address = {0};
     socklen_t len = sizeof address;
     int type = 0;
     socklen_t typelen = sizeof type;
     if (getsockopt(3, SOL_SOCKET, SO_TYPE, &type, &typelen) || type != SOCK_STREAM ||
-        getpeername(3, (struct sockaddr *)&address, &len) || address.ss_family != AF_UNIX ||
-        configure(3))
+        getpeername(3, (struct sockaddr *)&address, &len) ||
+        len < offsetof(struct sockaddr_storage, ss_family) + sizeof address.ss_family ||
+        address.ss_family != AF_UNIX || configure(3))
         return -1;
 #ifdef __linux__
     /* musl has no spawn close-from action. This is a fresh, single-threaded
