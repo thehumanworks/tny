@@ -122,6 +122,10 @@ trails unreal-agent and pi.
      shown separately.
    - Merge `opt/final` into `main` after the gates pass.
    - Make the claim only as far as the held-out numbers support it.
+7. **Next experiments.** After 1–6, follow
+   [harness-efficiency-ideas.md](harness-efficiency-ideas.md): a ranked,
+   data-mined list (freeform patch tool, freeform terminal, verify-in-step,
+   cheap-model extraction), each measured against `tny-final`.
 
 ## How to run things
 
