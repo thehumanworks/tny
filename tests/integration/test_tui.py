@@ -301,6 +301,23 @@ def test_first_paint_is_lazy(home, ws):
     print("ok  first paint without backend connect, /quit exits 0, tty restored")
 
 
+def test_tilde_cwd_is_tui_workspace(_home, ws):
+    # Keep the path short enough to fit in the 100-column status row.
+    with tempfile.TemporaryDirectory(prefix="tc-", dir="/tmp") as home:
+        project = os.path.join(home, "project")
+        os.mkdir(project)
+        project = os.path.realpath(project)
+        t = Term([TNY, "--cwd", "~/project"], base_env(home), ws)
+        try:
+            t.expect(BANNER)
+            t.expect_on_screen(project)
+            assert ws not in t.screen(), t.screen()
+            t.send("/quit\r")
+            assert t.wait() == 0, clean(t.buf)
+        finally:
+            t.close()
+    print("ok  TUI --cwd ~/project selects home project from a different launch cwd")
+
 def test_shell_mode_without_provider(home, ws):
     """A real pty proves the ! mode switch and immediate local output."""
     t = Term([TNY], base_env(home), ws)
@@ -994,6 +1011,7 @@ def main():
         try:
             test_version_fast_path()
             test_first_paint_is_lazy(home, ws)
+            test_tilde_cwd_is_tui_workspace(home, ws)
             test_shell_mode_without_provider(home, ws)
             test_shell_disclosure_reaches_provider(home, ws)
             test_turn_streams(home, ws, port)

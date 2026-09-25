@@ -10,6 +10,7 @@
 #include "core/runner.h"
 #include "core/acp_bridge.h"
 #include "util/process.h"
+#include "util/util.h"
 
 int main(int argc, char **argv) {
     if (tny_process_scope_admit() != 0) return 1;
@@ -56,6 +57,7 @@ int main(int argc, char **argv) {
     }
     int rc = 1;
     tny_ctx *ctx = NULL;
+    char *expanded_cwd = NULL;
     if (cmd && !cli_is_command(cmd)) {
         fprintf(stderr, "tny: unknown command '%s'\n", cmd);
         goto done;
@@ -67,6 +69,21 @@ int main(int argc, char **argv) {
         goto done;
     }
     if (cli_swarm_preflight(&g, cmd, cargc, cargv) != 0) goto done;
+    /* Expand only a local home prefix, not shell expressions or remote SSH paths.
+     * Do this before --worktree and all context/standalone command paths. */
+    if (g.cwd && g.cwd[0] == '~' && (g.cwd[1] == '\0' || g.cwd[1] == '/')) {
+        const char *home = getenv("HOME");
+        if (!home || !*home) {
+            fputs("tny: --cwd ~ requires HOME to be set\n", stderr);
+            goto done;
+        }
+        expanded_cwd = g.cwd[1] ? path_join(home, g.cwd + 2) : xstrdup(home);
+        if (!expanded_cwd) {
+            fputs("tny: --cwd: could not expand home directory\n", stderr);
+            goto done;
+        }
+        g.cwd = expanded_cwd;
+    }
     if (g.worktree) {
         if (g.ssh) {
             fputs("tny: --worktree is local and cannot be combined with --ssh\n", stderr);
@@ -207,6 +224,7 @@ int main(int argc, char **argv) {
 done:
     tny_ctx_free(ctx);
     worktree_close(g.active_worktree);
+    free(expanded_cwd);
     free(g.add_dirs);
     free(g.agent_argv);
     free(g.swarm_definition);

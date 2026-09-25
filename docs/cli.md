@@ -67,13 +67,20 @@ tny mcp describe SERVER/TOOL # one tool's description and input schema
 tny mcp call SERVER/TOOL    # one MCP tools/call; JSON arguments on stdin
 ```
 
-Global flags are **leading**:
+Global flags are **leading**. `--cwd` selects the agent's local primary
+workspace for both the TUI and headless CLI, independent of the directory from
+which tny was launched. It accepts absolute or relative paths, and a leading
+`~` or `~/` expands using the local `HOME` (not shell globbing or `~user`).
+Unlike `--ssh-cwd`, it does not select a directory on the remote host. In the
+wasm build it selects a directory in the browser's virtual filesystem; the
+browser cannot access the host machine's directories.
 
 ```text
 tny --provider openai|codex|grok|NAME [command]
                             # --backend is an alias; NAME = an OpenAI-compatible
                             # HTTP profile
-tny --cwd DIR
+tny --cwd DIR               # local primary workspace for TUI or headless CLI
+tny --cwd '~/project'       # expand ~ to local HOME (quote to avoid shell expansion)
 tny --worktree [NAME]       # create/enter ~/.tny/worktrees/NAME; random by default
 tny --model ID
 tny --effort LEVEL          # reasoning effort (--reasoning-effort is an alias)

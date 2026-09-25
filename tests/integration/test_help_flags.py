@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -293,6 +295,63 @@ class HelpFlagAlignmentTest(unittest.TestCase):
         self.assertEqual(
             missing, set(), f"subcommands absent from root help: {sorted(missing)}"
         )
+
+
+class CwdFlagTest(unittest.TestCase):
+    def test_local_cwd_selects_headless_workspace(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="tny-cwd-") as tmp:
+            home = Path(tmp) / "home"
+            workspace = home / "project with spaces"
+            launch = Path(tmp) / "launch"
+            workspace.mkdir(parents=True)
+            launch.mkdir()
+            env = dict(os.environ, HOME=str(home), TNY_SELF_IMPROVE="0")
+            for cwd, expected in (
+                (None, launch),
+                (str(workspace), workspace),
+                ("../home/project with spaces", workspace),
+                ("~", home),
+                ("~/project with spaces", workspace),
+            ):
+                with self.subTest(cwd=cwd):
+                    flags = ["--cwd", cwd] if cwd else []
+                    result = subprocess.run(
+                        [str(TNY), *flags, "--json", "workspace", "list"],
+                        cwd=launch,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(
+                        json.loads(result.stdout)["primary"], str(expected.resolve())
+                    )
+
+    def test_tilde_needs_home_and_invalid_directory_fails(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="tny-cwd-") as tmp:
+            env = dict(os.environ, HOME="", TNY_SELF_IMPROVE="0")
+            result = subprocess.run(
+                [str(TNY), "--cwd", "~/project", "workspace", "list"],
+                cwd=tmp,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("--cwd ~ requires HOME", result.stderr)
+            env["HOME"] = tmp
+            result = subprocess.run(
+                [str(TNY), "--cwd", "~/missing", "workspace", "list"],
+                cwd=tmp,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("not a directory", result.stderr)
 
 
 if __name__ == "__main__":
