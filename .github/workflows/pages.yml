@@ -75,5 +75,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "pages: publish site to docs/ [skip ci]"
+          # The release-tag render may differ from tracked site/ source until
+          # tagging; discard only generated site HTML before rebasing docs/.
+          git restore -- site
           git pull --rebase origin main
           git push origin main
