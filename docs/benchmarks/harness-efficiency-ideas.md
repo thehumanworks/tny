@@ -41,10 +41,13 @@ The fresh delta on a hit request (median 603, mean 941 tokens) is:
 | Assistant text | 54 | 2% |
 | Unexplained (provider rounding and warm-up) | ≈300/request median | — |
 
-The unexplained residue is a provider constant: the request prefix is
-byte-identical between consecutive requests in 585 of 585 pairs checked
-(tny, pi and unreal-agent alike), and pi and unreal show the same ≈200–300
-tokens per request. It is not a tny lever.
+The unexplained residue is ≈300 tokens per request at steady state plus a
+warm-up of ≈1.5–2K on requests 2–3, 3.9K per run in total. It is not a
+prefix bug: the request prefix is byte-identical between consecutive requests
+in 585 of 585 pairs checked (tny, pi and unreal-agent alike), and pi and
+unreal show the same steady-state residue. Whether the warm-up is
+tny-specific is unmeasured (unreal's early requests land in the miss bucket,
+so the per-run figures are not comparable). It stays off the ranked list.
 
 Visible output (function-call arguments plus final text), chars per run:
 
@@ -101,26 +104,47 @@ shipped), non-inferiority margin −8 pp on pass rate, and a `--fire` check
 that the feature actually fired. Cache risk is zero for every card: each is
 append-only or lives in the static prefix.
 
+**Power.** The short suite resolves ITE to about ±10% at N=36 (prefix:
+0.856 [0.765, 0.957]) and the long suite to about ±20% (12 tasks and 3
+tasks respectively). Cards predicting −2–6% cannot win on ITE alone at that
+power, so each card pre-registers a near-deterministic **mechanism endpoint**
+as its primary measure, paired by task, and uses ITE only as a
+non-inferiority guard (upper CI below 1.05). The headline ITE number comes
+from one **bundle arm** (A+B+C together) against `tny-final`, with fire
+counts attributing the parts.
+
 ### A. Freeform patch tool (custom tool type, grammar-constrained)
 
-Replace `edit_file` and `write_file` with one `apply_patch` custom tool in
-Codex's format (`*** Begin Patch` / `*** Update File:` / `@@` hunks /
-`*** Add File:` / `*** End Patch`), sent as a Responses custom tool with the
-Lark grammar. gpt-6 is trained on this format; Codex uses it through the same
-ChatGPT backend, and our recordings show `custom_tool_call` items pass through
-it. tny's serializer has no custom-tool support yet (`openai.c`), so this
-also builds the infrastructure card B needs.
+Add an `apply_patch` custom tool in Codex's format (`*** Begin Patch` /
+`*** Update File:` / `@@` hunks / `*** Add File:` / `*** End Patch`), sent
+as a Responses custom tool with the Lark grammar. gpt-6 is trained on this
+format; Codex uses it through the same ChatGPT backend, and our recordings
+show `custom_tool_call` items pass through it. Custom tools exist only on the
+Responses wire, so this is an **additive Responses-only variant**:
+`edit_file` and `write_file` stay for Chat Completions, ACP/MCP, Grok and
+wasm (AGENTS.md: native tools stay shared), and stay available in the arm so
+the model's choice between them is itself data. tny's serializer has no
+custom-tool support yet (`openai.c`), so this also builds the infrastructure
+card B needs. Needs an ADR and the tool's wasm-behaviour note.
 
 - Prior: 1.31 collapsible edit steps per run (59% of edit steps); 18 in the
   worst run. Multi-hunk, multi-file patches collapse them into one step.
-  JSON overhead on `new_string` + `content` (61% of visible output) disappears.
-  Tool definition is 252 tokens versus ≈700 for the two schemas it replaces.
-- Prediction: requests −10–15%, ITE −8–12% on the short suite, −20% or more on
-  edit-heavy tasks; wall time down with requests.
+  Update hunks carry no JSON escaping, but they echo context and `-` lines
+  much as `old_string` did, and `*** Add File:` prefixes every line with `+`,
+  so the net output change on new files is untested; do not count the 23%
+  JSON overhead as a saving here. Tool definition is 252 tokens.
+- Primary endpoint: edit-only steps per run and output tokens per edited
+  line, paired by task. Prediction: edit-only steps −40–60%, requests
+  −10–15%; ITE guard only.
 - Suite: short 12×3 first, then long 3×3. Fire check: `apply_patch` calls ≥
-  80% of all edits; watch patch-apply failures (currently 0 for `edit_file`).
-- Kill: ITE ratio CI includes 1.0, pass rate not non-inferior, or the model
-  keeps issuing one hunk per step.
+  80% of all edits; patch-apply failures (currently 0 for `edit_file`);
+  output tokens per new file versus `write_file`.
+- Kill: edit-only steps not reduced (CI includes 1.0), pass rate not
+  non-inferior, ITE guard fails, or the model keeps issuing one hunk per step.
+- Prerequisite check done: the bench proxy already records
+  `custom_tool_call`/`custom_tool_call_output` items and `result.json` counts
+  them (codex's `exec` shows up as a tool), so fire checks work. The mining
+  scripts here parse `function_call` only and need the same extension.
 - Layer: harness. Build: patch parser in C11, custom-tool serialization,
   `custom_tool_call`/`_output` items, session replay. Medium-large.
 
@@ -130,26 +154,33 @@ Once custom tools exist, make `terminal` freeform: raw shell text, no JSON.
 
 - Prior: `terminal.command` is 12% of visible output short, 58% long; JSON
   overhead 17–23% of argument tokens.
-- Prediction: ITE −2–4% short, −5–8% long. Zero quality risk.
+- Primary endpoint: argument tokens per `terminal` call, paired by task
+  (near-deterministic; the ITE effect of −2–4% short, −5–8% long is below
+  the suite's resolution). Zero quality risk.
 - Run as a third arm alongside A (A, A+B, control) so each is attributed.
-- Kill: no measurable change on the long suite.
+- Kill: argument tokens per call not reduced, or the model's command mix
+  changes (fire check: calls per run within ±10% of control).
 
 ### C. Verify in the same step
 
 Two variants, cheapest first:
 
 1. One line in the tool descriptions: calls in one response run in order, so
-   an edit and the test that checks it can go in the same step. The earlier
+   an edit and the test that checks it can go in the same step. Verified:
+   tny runs a tool batch sequentially through `tool_index` in
+   `src/backends/openai/openai.c`, so the line is true. The earlier
    batch-hint test (requests 10.0→9.5, N=6) was underpowered; rerun at N=36.
 2. An optional `then` command on the patch tool: run a command after the
    patch applies and return both results in one tool output.
 
 - Prior: edit→sh and write→sh transitions are 44 per 36 runs (1.2 per run);
   2.7 requests follow the last edit.
-- Prediction: −1 step per run, ITE −4–6%, wall −8%. Quality: breakage is seen
-  one step earlier, which is the only quality lever visible in the data.
-- Kill: requests ratio CI includes 1.0 for variant 1; for variant 2, fire
-  rate below 30% of patches.
+- Primary endpoint: steps after the last edit, and edit→sh transitions per
+  run, paired by task. Prediction: −1 step per run, wall −8%; ITE guard
+  only. Quality: breakage is seen one step earlier, which is the only
+  quality lever visible in the data.
+- Kill: steps after the last edit not reduced (CI includes 0) for variant 1;
+  for variant 2, fire rate below 30% of patches.
 - Layer: harness.
 
 ### D. Cheap-model extraction of large tool output
@@ -168,6 +199,12 @@ tokens instead of 6K, which are then also not re-read on every later request.
   run and handle re-reads per extraction.
 - Kill: pass rate not non-inferior, or handle re-reads exceed 50% of
   extractions.
+- Prerequisites: gpt-6-luna is in the ChatGPT backend's model catalog
+  (checked in the cached `/models` response), so the sidecar call goes
+  through the same proxy. `report.py` prices every request at the run's
+  model (`request_cost(row, result["model"])`); it must price each request
+  by the request's own `model` field before this arm is scored, or luna
+  calls are billed at sol's rate.
 - Layer: harness feature with a model inside; report the luna cost
   separately.
 
