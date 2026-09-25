@@ -125,7 +125,10 @@ trails unreal-agent and pi.
 7. **Next experiments.** After 1–6, follow
    [harness-efficiency-ideas.md](harness-efficiency-ideas.md): a ranked,
    data-mined list (freeform patch tool, freeform terminal, verify-in-step,
-   cheap-model extraction), each measured against `tny-final`.
+   cheap-model extraction), each measured against `tny-final`. Tracked in
+   [issue #194](https://github.com/thehumanworks/tny/issues/194), which also
+   requires Lean 4 proofs bound to the C code by golden vectors, as
+   `gui/proofs/` does (ADR 0169).
 
 ## How to run things
 
