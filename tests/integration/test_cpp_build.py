@@ -291,6 +291,70 @@ int main() { return 0; }
         finally:
             header.write_text(original)
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux libc symbol contract")
+    def test_glibc_guard_preserves_legacy_conversion_symbols(self):
+        header = (ROOT / "src/util/cxx_glibc_floor.h").read_text()
+        self.write("src/util/cxx_glibc_floor.h", header)
+        probe = """#include <stdlib.h>
+#include <stdio.h>
+#ifdef __GLIBC__
+#if __GLIBC_PREREQ(2, 38)
+int modern_glibc_marker;
+#endif
+#endif
+void conversions(const char *text) {
+    char *end;
+    int value;
+    (void)strtol(text, &end, 10);
+    (void)strtoul(text, &end, 10);
+    (void)strtoll(text, &end, 10);
+    (void)strtoull(text, &end, 10);
+    (void)sscanf(text, "%i", &value);
+}
+"""
+        for suffix, compiler, standard in (
+            ("c", os.environ.get("CC", "cc"), "c11"),
+            ("cpp", self.cxx, "c++20"),
+        ):
+            with self.subTest(language=suffix):
+                self.write("conversions." + suffix, probe)
+                assembly = "conversions-" + suffix + ".s"
+                command = [
+                    *shlex.split(compiler),
+                    "-std=" + standard,
+                    "-D_GNU_SOURCE",
+                    "-include",
+                    "src/util/cxx_glibc_floor.h",
+                    "-O0",
+                    "-S",
+                    "conversions." + suffix,
+                    "-o",
+                    assembly,
+                ]
+                self.run_command(command)
+                text = (self.root / assembly).read_text()
+                self.assertIn("strtol", text)
+                self.assertIn("sscanf", text)
+                self.assertNotIn("__isoc23_", text)
+                if "modern_glibc_marker" in text:
+                    # Prove that the derived-macro overrides matter on current
+                    # glibc, rather than checking only old headers/flag text.
+                    guard = self.root / "src/util/cxx_glibc_floor.h"
+                    mutant = header.replace(
+                        "#define __GLIBC_USE_C2X_STRTOL 0",
+                        "#define __GLIBC_USE_C2X_STRTOL 1",
+                    )
+                    mutant = mutant.replace(
+                        "#define __GLIBC_USE_C23_STRTOL 0",
+                        "#define __GLIBC_USE_C23_STRTOL 1",
+                    )
+                    try:
+                        guard.write_text(mutant)
+                        self.run_command(command)
+                        self.assertIn("__isoc23_", (self.root / assembly).read_text())
+                    finally:
+                        guard.write_text(header)
+
     def test_allocator_and_vendor_lanes_preserve_other_forced_headers(self):
         self.write(
             "src/util/cxx_glibc_floor.h",

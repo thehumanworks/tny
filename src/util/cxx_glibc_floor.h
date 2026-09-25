@@ -15,6 +15,16 @@
 #define __GLIBC_USE_ISOC23 0
 #undef __GLIBC_USE_ISOC2X
 #define __GLIBC_USE_ISOC2X 0
+/* features.h computes these derived switches before the overrides above.
+ * Reset them too; otherwise stdlib/stdio still import GLIBC_2.38 symbols. */
+#ifdef __GLIBC_USE_C2X_STRTOL
+#undef __GLIBC_USE_C2X_STRTOL
+#define __GLIBC_USE_C2X_STRTOL 0
+#endif
+#ifdef __GLIBC_USE_C23_STRTOL
+#undef __GLIBC_USE_C23_STRTOL
+#define __GLIBC_USE_C23_STRTOL 0
+#endif
 #endif
 #endif
 

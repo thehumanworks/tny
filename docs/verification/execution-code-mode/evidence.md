@@ -241,3 +241,11 @@ fixture: native required-capability mode observed reaping (one test, no skips),
 and Valgrind 3.22 observed the unsupported-signal refusal path (one test, no
 skips), zero live heap blocks, zero memory errors and zero suppressions. The
 changed `tools.c` translation unit also passed Linux GCC `-fanalyzer`.
+
+The remaining glibc floor failure was reproduced with verified Ubuntu 24.04
+libc 2.39 headers: the guard disabled base ISO feature macros but left the
+derived `C2X_STRTOL` switch enabled, so `strtol` still referenced
+`__isoc23_strtol`. The guard now also resets derived switches. A Linux C/C++
+assembly-symbol regression covers all four integer conversions and `sscanf`,
+plus a counterexample mutation on modern glibc. The published 2.34 artifact
+floor is unchanged and remains an actual release gate.
