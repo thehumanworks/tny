@@ -88,7 +88,16 @@ jobs:
           valgrind --version
 
       - name: make valgrind
-        run: make valgrind && make test-native-leaks SANITIZE=0
+        run: |
+          make valgrind
+          make test-native-leaks SANITIZE=0
+          # Valgrind lacks pidfd_send_signal. Its full unit run checks the
+          # unavailable-capability refusal and memory cleanup. This independent
+          # native invocation must exercise generation-safe reaping, not skip.
+          TNY_TEST_REQUIRE_PROCESS_TREE=1 ./build/leakcheck/tny-test \
+            -s mcp_suite -t stdio_close_reaps_peer_ignoring_sigterm -e > /tmp/mcp-reaping.log
+          cat /tmp/mcp-reaping.log
+          grep -F '1 test - 1 passed, 0 failed, 0 skipped' /tmp/mcp-reaping.log
 
   build:
     name: ${{ matrix.name }}

@@ -202,3 +202,42 @@ allocation-fault sweeps and formal obligations on the reviewed execution source.
 The final repairs add socket metadata initialization, conformance assertions and
 policy-stop fixture corrections; no allocation failure injection, negative
 validator scenario or memory-check diagnostic was suppressed.
+
+## Final build-rule and instrumentor reconciliation
+
+The allocator/vendor recipes previously removed every `-include` token while
+removing allocator instrumentation, leaving the glibc guard as a second input
+file. All five recipes now remove only the exact allocator-header option pair.
+A new negative-before/positive-after test checks ten actual compile commands
+across PIC, fault, sanitizer, TSan and fuzz objects, then compiles the allocator
+and vendor objects. The complete build suite passes 20 cases with one explicit
+Emscripten skip on macOS.
+
+Valgrind 3.22 supports pidfd_open but not pidfd_send_signal; the inspected
+3.27.1 source has the same missing wrapper. No third-party tool patch was
+installed or claimed verified. The MCP case now tests actual safe refusal and
+memory cleanup when that capability is unavailable, and actual reaping when it
+is available. CI additionally requires the exact native case with a mandatory
+capability flag and one-test/no-skip receipt. This keeps the whole memory gate
+without weakening production signalling or pretending instrumented refusal
+proves native cleanup. No Valgrind suppression was added.
+
+The instrumented MCP regression now probes both handle opening and a no-op
+handle-based signal. The existing host seam reports nominal platform/handle
+availability, which alone does not establish an instrumentor's syscall
+coverage. Production process code remains unchanged: unavailable signalling
+still returns unknown cleanup without a raw-PID fallback. The required native
+invocation must support the operation and actually reap its child.
+
+GCC's deeper analyzer additionally identified a nullable-string assumption in
+`run_code` preparation. An explicit pointer check now precedes `strlen`, with
+a 24-assertion malformed/missing/empty/NUL argument regression and a valid-code
+control. The changed production translation unit passed Linux GCC analysis.
+
+Final repair observations: the full native quality/unit gate passed after the
+explicit argument guard; only Linux-specific lines in the MCP test changed
+after that gate. The revised exact-operation probe passed in the real Linux
+fixture: native required-capability mode observed reaping (one test, no skips),
+and Valgrind 3.22 observed the unsupported-signal refusal path (one test, no
+skips), zero live heap blocks, zero memory errors and zero suppressions. The
+changed `tools.c` translation unit also passed Linux GCC `-fanalyzer`.

@@ -9,6 +9,7 @@
 #include "mcp/mcp_priv.h"
 #include "util/toml.h"
 #include "util/util.h"
+#include "util/process.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -23,6 +24,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <stdarg.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif
 
 static char m_home[512], m_ws[520], m_bin[sizeof m_home + sizeof "/fake-mcp.sh"];
 
@@ -1473,6 +1477,16 @@ TEST intercepted_mcp_call_reuses_the_warmed_server(void) {
 /* Private direct-child fixture: no external server or descendant processes.
  * Synchronize signal setup before close, then prove close consumed wait status. */
 TEST stdio_close_reaps_peer_ignoring_sigterm(void) {
+    bool supported = tny_process_tree_supported();
+#ifdef __linux__
+    /* The host seam's nominal platform/handle probe does not certify every
+     * syscall exposed by an instrumentor. Probe this test's exact operation
+     * with signal zero; never substitute raw-PID signalling for production. */
+    int probe = (int)syscall(SYS_pidfd_open, getpid(), 0);
+    supported = supported && probe >= 0 && syscall(SYS_pidfd_send_signal, probe, 0, NULL, 0) == 0;
+    if (probe >= 0) close(probe);
+#endif
+    if (getenv("TNY_TEST_REQUIRE_PROCESS_TREE")) ASSERT(supported);
     int input[2], output[2];
     ASSERT_EQ(0, pipe(input));
     ASSERT_EQ(0, pipe(output));
@@ -1503,9 +1517,21 @@ TEST stdio_close_reaps_peer_ignoring_sigterm(void) {
         kill(pid, SIGKILL);
         while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
     }
-    ASSERT_EQ(-1, remaining);
-    ASSERT_EQ(ECHILD, wait_error);
-    ASSERT(elapsed < 1500);
+    if (supported) {
+        ASSERT_EQ(-1, remaining);
+        ASSERT_EQ(ECHILD, wait_error);
+        ASSERT(elapsed < 1500);
+    } else {
+        /* Valgrind currently cannot forward pidfd_send_signal. Exercise the
+         * actual failed-generation path and its memory cleanup, not a fake
+         * successful signal or an unsafe raw-PID fallback. The dedicated CI
+         * invocation above requires real host capability and observed reaping. */
+        ASSERT_EQ(0, remaining);
+        ASSERT_EQ(0, wait_error);
+        ASSERT(elapsed < 6500);
+        fprintf(stderr, "mcp close: verified unavailable-signal refusal, not native reaping\n");
+    }
+    ASSERT_EQ(0, c.pid);
     PASS();
 }
 

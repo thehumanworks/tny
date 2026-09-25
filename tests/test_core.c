@@ -3751,6 +3751,32 @@ TEST responses_input_skips_malformed(void) {
 /* The whole builtin tool schema must flatten: every entry keeps its name,
  * description, and parameters at the top level and loses the nested
  * "function" object the chat wire uses. */
+TEST code_arguments_require_nonempty_string(void) {
+    const char *invalid[] = {NULL,
+                             "null",
+                             "[]",
+                             "{}",
+                             "{\"code\":null}",
+                             "{\"code\":42}",
+                             "{\"code\":true}",
+                             "{\"code\":[]}",
+                             "{\"code\":{}}",
+                             "{\"code\":\"\"}",
+                             "{\"code\":\"print(1)\\u0000ignored\"}"};
+    tools_env env = {0};
+    for (size_t i = 0; i < sizeof invalid / sizeof invalid[0]; i++) {
+        tools_call call = {0};
+        ASSERT_EQ(-1, tools_call_prepare(&env, "run_code", invalid[i], &call));
+        ASSERT(call.error);
+        tools_call_free(&call);
+    }
+    tools_call call = {0};
+    ASSERT_EQ(0, tools_call_prepare(&env, "run_code", "{\"code\":\"print(1)\"}", &call));
+    ASSERT_EQ(PERM_ALLOW, call.verdict);
+    tools_call_free(&call);
+    PASS();
+}
+
 TEST provider_schema_is_only_bounded_code(void) {
     tools_env env = {0};
     char *schema = tools_schema_json(&env);
@@ -6158,6 +6184,7 @@ SUITE(core_suite) {
     RUN_TEST(responses_input_honors_compact_boundary);
     RUN_TEST(responses_input_translates_image_parts);
     RUN_TEST(responses_input_skips_malformed);
+    RUN_TEST(code_arguments_require_nonempty_string);
     RUN_TEST(provider_schema_is_only_bounded_code);
     RUN_TEST(responses_tools_flatten);
     RUN_TEST(responses_tools_preserve_optional_and_explicit_strict);

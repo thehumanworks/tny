@@ -432,23 +432,23 @@ $(OBJ_DBG)/%.o: %.c | $(VERSION_H)
 
 $(OBJ_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(PIC_CFLAGS)) -MMD -MP -c -o $@ $<
+	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(subst -include src/util/alloc_override.h,,$(PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(OBJ_FAULT_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FAULT_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FAULT_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
+	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(subst -include src/util/alloc_override.h,,$(FAULT_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FAULT_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(OBJ_FAULT_SAN_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FAULT_SAN_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FAULT_SAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
+	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(subst -include src/util/alloc_override.h,,$(FAULT_SAN_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FAULT_SAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(OBJ_TSAN_PIC)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(TSAN_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(TSAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
+	$(CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(subst -include src/util/alloc_override.h,,$(TSAN_PIC_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(TSAN_PIC_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(OBJ_FUZZ)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
-	$(FUZZ_CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(filter-out -include src/util/alloc_override.h,$(FUZZ_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FUZZ_CFLAGS)) -MMD -MP -c -o $@ $<
+	$(FUZZ_CC) $(if $(or $(findstring third_party,$<),$(findstring src/util/alloc.c,$<)),$(subst -include src/util/alloc_override.h,,$(FUZZ_CFLAGS)) $(if $(findstring third_party,$<),-Wno-error -w,),$(FUZZ_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(OBJ_REL)/%.cpp.o: %.cpp | $(VERSION_H)
 	@mkdir -p $(@D)

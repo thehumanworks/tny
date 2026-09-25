@@ -291,6 +291,45 @@ int main() { return 0; }
         finally:
             header.write_text(original)
 
+    def test_allocator_and_vendor_lanes_preserve_other_forced_headers(self):
+        self.write(
+            "src/util/cxx_glibc_floor.h",
+            (ROOT / "src/util/cxx_glibc_floor.h").read_text(),
+        )
+        self.write("src/util/alloc.c", "int allocator_probe(void) { return 0; }\n")
+        self.write("third_party/probe.c", "int vendor_probe(void) { return 0; }\n")
+        lanes = ("pic", "fault-pic", "fault-san-pic", "tsan-pic", "fuzz-libfuzzer/obj")
+        targets = [
+            f"build/{lane}/{name}.o"
+            for lane in lanes
+            for name in ("src/util/alloc", "third_party/probe")
+        ]
+        output = self.make(
+            "-n",
+            "-B",
+            *targets,
+            "UNAME_S=Linux",
+            "UNAME_M=x86_64",
+            "CC=fixture-cc",
+            "CXX=fixture-cxx",
+            "FUZZ_CC=fixture-cc",
+        )
+        commands = [
+            shlex.split(line)
+            for line in output.splitlines()
+            if line.startswith("fixture-cc ") and " -c " in line
+        ]
+        self.assertEqual(len(commands), len(targets))
+        for command in commands:
+            with self.subTest(target=command[command.index("-o") + 1]):
+                guard = command.index("src/util/cxx_glibc_floor.h")
+                self.assertEqual(command[guard - 1], "-include")
+                self.assertNotIn("src/util/alloc_override.h", command)
+                self.assertEqual(command.count("-include"), 1)
+
+        # Compile both actual pattern-rule paths, not just inspect strings.
+        self.make(*targets[:2], "UNAME_S=Linux", "UNAME_M=x86_64")
+
     def test_linux_c_and_cpp_share_early_glibc_compatibility_flags(self):
         # Use the real compatibility header, not a fixture transcription. The
         # host can be macOS: the Linux command graph is checked without linking.

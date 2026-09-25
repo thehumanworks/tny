@@ -797,7 +797,8 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         if (valid != 0) return -1;
         yyjson_val *code = jget(call->args, "code");
         yyjson_val *timeout = jget(call->args, "timeout_ms");
-        if (!yyjson_get_len(code) || strlen(yyjson_get_str(code)) != yyjson_get_len(code)) {
+        const char *source = yyjson_get_str(code);
+        if (!source || !yyjson_get_len(code) || strlen(source) != yyjson_get_len(code)) {
             call->error = tool_err("run_code code must be nonempty and contain no NUL bytes");
             return -1;
         }

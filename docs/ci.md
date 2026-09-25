@@ -177,6 +177,15 @@ stack and DTV for threads alive at exit, never a first-party leak, so
 `--errors-for-leak-kinds=definite,indirect` decides the exit code.
 
 A `valgrind` job on `ubuntu-24.04` runs `make valgrind` on every PR.
+The instrumentor does not implement `pidfd_send_signal` (also absent from the
+inspected 3.27.1 syscall table). The stubborn-MCP-peer case still runs under
+Memcheck and asserts safe capability refusal, no raw-PID signalling, bounded
+return and memory cleanup. The same job then runs that exact case natively with
+`TNY_TEST_REQUIRE_PROCESS_TREE=1`; missing capability, zero selected tests,
+skips or failure to reap are fatal. Thus instrumented refusal is not presented
+as proof of native reaping. The normal native sanitizer suite also exercises
+the supported path. No memory diagnostics or test groups are suppressed for
+this kernel-instrumentation mismatch.
 `tests/valgrind.supp` suppresses only the dynamic loader and the dlopen'd
 system OpenSSL that `src/net/stream.c` deliberately never closes; first-party
 leaks are never suppressed.
