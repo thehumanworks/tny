@@ -36,10 +36,11 @@ int tui_runner_ensure(tui *t, bool quiet) {
         if (!quiet) tui_err(t, "saved view requires explicit ownership via /continue");
         return -1;
     }
-    /* Reap runners that ended earlier (provider switches, /new, bye). In
-     * runner mode this shell's only children are runners and inline-waited
-     * editor spawns, so a WNOHANG sweep cannot steal anyone's status. */
-    while (waitpid(-1, NULL, WNOHANG) > 0) {}
+    /* Reap runners that ended earlier (provider switches, /new, bye).
+     * A local ! command also owns a child now: its exit status must remain
+     * available to tui_shell_drain for the next-message disclosure. */
+    if (t->shell_pid <= 0)
+        while (waitpid(-1, NULL, WNOHANG) > 0) {}
     if (!t->session) t->session = session_new(t->ctx);
     if (!t->session) {
         if (!quiet) tui_err(t, "could not create a session");

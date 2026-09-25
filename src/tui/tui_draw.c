@@ -203,7 +203,7 @@ static void queue_row(tui *t, buf_t *b, int *rows, int maxw) {
     row_sep(b, rows);
     buf_t line;
     buf_init(&line);
-    buf_appendf(&line, "queued (%d): %s", t->n_queue, t->queue[0]);
+    buf_appendf(&line, "queued (%d): %s", t->n_queue, tui_shell_visible(t->queue[0]));
     if (t->n_queue > 1) buf_appends(&line, " …");
     buf_appends(&line, " · sends when this turn ends · esc drops");
     buf_appends(b, tui_attr(t, "\x1b[2m"));
@@ -387,7 +387,7 @@ static void composer_rows(tui *t, buf_t *b, int *rows, int maxw, int *cur_row, i
         if (le > ls && data[le - 1] == '\n') le--;
         buf_appends(b, tui_attr(t, "\x1b[1m"));
         buf_appends(b, tui_c(t, "\x1b[32m"));
-        buf_appends(b, ls == 0 ? "> " : "  ");
+        buf_appends(b, ls == 0 ? (t->shell_mode ? "! " : "> ") : "  ");
         buf_appends(b, tui_attr(t, "\x1b[0m"));
         if (vr == caret_row) {
             *cur_row = *rows - 1;
