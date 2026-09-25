@@ -120,6 +120,10 @@ void tui_pick_refresh(tui *t) {
         return;
     }
 
+    if (t->shell_mode) {
+        tui_pick_close(t);
+        return;
+    }
     const char *d = t->input.len ? t->input.data : "";
     size_t cur = t->cur;
 
@@ -212,6 +216,16 @@ static void pick_accept(tui *t, bool run) {
 /* ---- key handling ---- */
 
 static void submit_current(tui *t) {
+    if (t->shell_pid > 0) {
+        tui_sys(t, "wait for the shell command to finish");
+        return;
+    }
+    if (t->shell_mode && t->input.len && !tui_shell_start(t, t->input.data)) return;
+    if (t->shell_mode && t->input.len) {
+        set_input(t, NULL);
+        t->dirty = true;
+        return;
+    }
     /* backslash continuation: "\" at the very end opens a new line */
     if (t->input.len && t->input.data[t->input.len - 1] == '\\') {
         t->input.data[t->input.len - 1] = '\n';
@@ -512,6 +526,12 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
 
     switch (k) {
     case TUI_K_CHAR:
+        if (chlen == 1 && ch[0] == '!' && !t->input.len && !t->shell_mode && !t->wiz_step &&
+            !t->background_view && !t->session_readonly) {
+            t->shell_mode = true;
+            t->dirty = true;
+            break;
+        }
         ins(t, ch, chlen);
         t->dirty = true;
         tui_pick_refresh(t);
@@ -607,6 +627,12 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         caret_visual_move(t, 1);
         break;
     case TUI_K_ESC:
+        if (t->shell_mode) {
+            t->shell_mode = false;
+            set_input(t, NULL);
+            t->dirty = true;
+            break;
+        }
         if (popover) {
             tui_pick_close(t);
             t->dirty = true;
@@ -626,6 +652,13 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         }
         break;
     case TUI_K_CTRLC:
+        if (t->shell_mode) {
+            if (t->shell_pid > 0) tui_shell_stop(t);
+            t->shell_mode = false;
+            set_input(t, NULL);
+            t->dirty = true;
+            break;
+        }
         if (t->turn_active) {
             tui_cancel_turn(t);
             break;
@@ -653,7 +686,10 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         }
         break;
     case TUI_K_CTRLD:
-        if (t->turn_active || !t->input.len) t->quit = true;
+        if (t->shell_mode && !t->input.len) {
+            t->shell_mode = false;
+            t->dirty = true;
+        } else if (t->turn_active || !t->input.len) t->quit = true;
         else {
             del_range(t, t->cur, next_ch(t, t->cur));
             t->dirty = true;

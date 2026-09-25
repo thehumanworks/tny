@@ -174,8 +174,8 @@ SRC_ALL := $(C_SRC_ALL) $(CPP_SRC)
 # from the wasm build wholesale rather than #ifdef-riddled; src/net/net_wasm.c
 # replaces the whole seam there (fetch, browser WebSocket, pseudo-fd registry).
 SRC_NATIVE := src/backends/acp/acp_proc.c src/net/tcp.c src/net/stream.c src/net/http1.c src/net/http_server.c \
-              src/util/tny_poll.c
-SRC_WASM_ONLY := src/net/net_wasm.c src/backends/acp/acp_proc_wasm.c
+              src/util/tny_poll.c src/util/tui_shell_host.c
+SRC_WASM_ONLY := src/net/net_wasm.c src/backends/acp/acp_proc_wasm.c src/util/tui_shell_host_wasm.c
 SRC_SHARED := $(filter-out $(SRC_NATIVE) $(SRC_WASM_ONLY),$(SRC_ALL))
 SRC := $(SRC_SHARED) $(SRC_NATIVE)
 

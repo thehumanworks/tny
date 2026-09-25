@@ -609,9 +609,7 @@ static void after_turn(tui *t) {
     t->dirty = true;
     if (t->n_queue) {
         if (t->stop == TNY_STOP_DONE && !t->quit) {
-            char *next = queue_pop(t);
-            tui_submit(t, next);
-            free(next);
+            if (t->shell_pid <= 0) tui_shell_queue_ready(t);
         } else {
             char m[80];
             snprintf(m, sizeof m, "dropped %d queued message%s", t->n_queue,
@@ -653,11 +651,12 @@ void tui_cancel_turn(tui *t) {
     }
 }
 
-void tui_submit(tui *t, const char *text) {
+static void tui_submit_inner(tui *t, const char *text) {
     if (!text) return;
     tui_overlay_clear(t); /* the menu interaction is over */
     const char *s = text;
     while (*s == ' ' || *s == '\t') s++;
+    const char *shown = tui_shell_visible(s);
     /* Defense in depth: stale wizard state must not bypass replica guards or
      * consume /continue as a setup answer, even if a future transition forgets
      * to cancel the foreground wizard. */
@@ -688,7 +687,7 @@ void tui_submit(tui *t, const char *text) {
     }
     if (t->background_view && !t->rc && !tui_agents_continue(t, true)) return;
     if (t->turn_active) {
-        tui_hist_add(t, s);
+        tui_hist_add(t, shown);
         char err[256];
         bool steered = false;
         if (!t->cancel_ms && !t->n_queue) {
@@ -700,8 +699,8 @@ void tui_submit(tui *t, const char *text) {
              * order; the backend owns the text now and hands it back via
              * STEER_REJECTED if the host refuses it (docs/adr/0013) */
             tui_bol(t);
-            tui_linef(t, "%s› %s%s %ssteer%s", tui_attr(t, "\x1b[1m"), s, tui_attr(t, "\x1b[0m"),
-                      tui_attr(t, "\x1b[2m"), tui_attr(t, "\x1b[0m"));
+            tui_linef(t, "%s› %s%s %ssteer%s", tui_attr(t, "\x1b[1m"), shown,
+                      tui_attr(t, "\x1b[0m"), tui_attr(t, "\x1b[2m"), tui_attr(t, "\x1b[0m"));
             t->gap = 1;
         } else {
             tui_queue_push(t, s, false); /* sent when this turn ends */
@@ -710,8 +709,8 @@ void tui_submit(tui *t, const char *text) {
         return;
     }
 
-    tui_hist_add(t, s);
-    tui_linef(t, "%s› %s%s", tui_attr(t, "\x1b[1m"), s, tui_attr(t, "\x1b[0m"));
+    tui_hist_add(t, shown);
+    tui_linef(t, "%s› %s%s", tui_attr(t, "\x1b[1m"), shown, tui_attr(t, "\x1b[0m"));
     t->gap = 1; /* one blank line before the first agent output */
     /* connect/send below can block for a while: show the echoed prompt and a
      * status note now so Enter never looks like a freeze */
@@ -788,6 +787,56 @@ void tui_submit(tui *t, const char *text) {
     t->dirty = true;
 }
 
+void tui_shell_queue_ready(tui *t) {
+    if (t->shell_pid > 0 || t->turn_active || !t->n_queue || t->quit) return;
+    char *next = queue_pop(t);
+    bool shell_mode = t->shell_mode;
+    t->shell_mode = false;
+    tui_submit(t, next);
+    t->shell_mode = shell_mode;
+    free(next);
+}
+
+void tui_submit(tui *t, const char *text) {
+    if (!text) return;
+    if (t->shell_mode) {
+        if (!*text) {
+            t->shell_mode = false;
+            t->dirty = true;
+        } else if (t->shell_pid > 0) tui_sys(t, "shell command still running");
+        else tui_shell_start(t, text);
+        return;
+    }
+    /* Builtins and setup answers are not agent messages. Preserve the record.
+     * Match the same leading-space rule as tui_submit_inner. */
+    const char *s = text;
+    while (*s == ' ' || *s == '\t') s++;
+    bool builtin = false;
+    if (t->shell_pending.len && *s == '/') {
+        size_t len = strcspn(s + 1, " \t\n");
+        char *name = xstrndup(s + 1, len);
+        builtin = tui_command_is_builtin(name) || !tui_skill_exists(t, name);
+        free(name);
+    }
+    if (!t->shell_pending.len || builtin || t->wiz_step || !*s) {
+        tui_submit_inner(t, text);
+        return;
+    }
+    char *prompt = tui_shell_prompt(t, text);
+    if (!prompt) {
+        tui_sys(t, "shell context out of memory");
+        return;
+    }
+    bool active = t->turn_active;
+    int queued = t->n_queue;
+    tui_submit_inner(t, prompt);
+    if (t->turn_active || t->n_queue > queued || (active && !t->cancel_ms)) {
+        buf_clear(&t->shell_pending);
+        t->shell_truncated = false;
+    }
+    free(prompt);
+}
+
 /* ---- run loop ---- */
 
 static void banner(tui *t) {
@@ -795,7 +844,7 @@ static void banner(tui *t) {
               tui_attr(t, "\x1b[0m"), tny_provider_name(t->ctx),
               t->ctx->model ? t->ctx->model : "default model",
               tny_perm_mode_name(t->ctx->perm_mode));
-    tui_sys(t, "/help for commands · @ files · $ skills · ctrl-c twice to exit");
+    tui_sys(t, "/help for commands · @ files · $ skills · ! local shell · ctrl-c twice to exit");
     if (!t->tty) tui_sys(t, "not a terminal: status bar disabled, approvals auto-deny");
 }
 
@@ -805,6 +854,8 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     t.ctx = ctx;
     t.g = g;
     t.worktree = t.worktrees = g->active_worktree;
+    t.shell_fd = -1;
+    buf_init(&t.shell_pending);
     buf_init(&t.out);
     buf_init(&t.partial);
     buf_init(&t.input);
@@ -886,7 +937,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         if (t.agents_dashboard && monotonic_ms() >= t.agents_refresh) tui_agents_refresh(&t);
         tui_render(&t);
 
-        struct pollfd fds[2 * TNY_BACKEND_POLLFD_MAX + 2];
+        struct pollfd fds[2 * TNY_BACKEND_POLLFD_MAX + 3];
         fds[0].fd = STDIN_FILENO;
         fds[0].events = POLLIN;
         fds[0].revents = 0;
@@ -905,7 +956,9 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         if (t.dictation) fds[nfds++] = (struct pollfd){tny_dictation_fd(t.dictation), POLLIN, 0};
         int no = tny_optimise_pollfds(t.optimise, fds + nfds, TNY_BACKEND_POLLFD_MAX);
         if (no > 0) nfds += (nfds_t)no;
-        int pr = tny_poll(fds, nfds, t.turn_active || t.dictation || t.optimise ? 40 : 400);
+        if (t.shell_fd >= 0) fds[nfds++] = (struct pollfd){t.shell_fd, POLLIN, 0};
+        int pr = tny_poll(fds, nfds,
+                          t.turn_active || t.dictation || t.optimise || t.shell_pid > 0 ? 40 : 400);
         if (pr < 0 && errno != EINTR) break;
 
         if (g_exit_signal) {
@@ -919,7 +972,8 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         }
         if (g_sigint) {
             g_sigint = 0;
-            if (t.optimise) tny_optimise_cancel(t.optimise);
+            if (t.shell_pid > 0) tui_shell_stop(&t);
+            else if (t.optimise) tny_optimise_cancel(t.optimise);
             else if (t.dictation) tny_dictation_cancel(t.dictation);
             else if (t.turn_active) tui_cancel_turn(&t);
             else {
@@ -939,6 +993,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
             if (tui_read_input(&t) < 0) t.quit = true;
         }
         if (t.quit) break; /* stop before consuming more provider output */
+        if (t.shell_pid > 0) tui_shell_drain(&t);
         if (rn_fd >= 0) {
             tui_runner_dispatch(&t);
         } else if (t.turn_active && t.engine) {
@@ -961,6 +1016,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         }
     }
 
+    tui_shell_stop(&t);
     tny_optimise_free(t.optimise);
     t.optimise = NULL;
     tny_dictation_free(t.dictation);
@@ -1007,6 +1063,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     buf_free(&t.note);
     buf_free(&t.last_reply);
     buf_free(&t.prompt_text);
+    buf_free(&t.shell_pending);
     if (t.owns_ctx) tny_ctx_free(t.ctx);
     while (t.worktrees) {
         tny_worktree *next = t.worktrees->next;

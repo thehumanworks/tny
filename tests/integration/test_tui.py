@@ -301,6 +301,28 @@ def test_first_paint_is_lazy(home, ws):
     print("ok  first paint without backend connect, /quit exits 0, tty restored")
 
 
+def test_shell_mode_without_provider(home, ws):
+    """A real pty proves the ! mode switch and immediate local output."""
+    t = Term([TNY], base_env(home), ws)
+    try:
+        t.expect(BANNER)
+        t.send("!")
+        t.expect_on_screen("! ")
+        t.send("printf shell-stdout; printf shell-stderr >&2; pwd; exit 7\r")
+        t.expect("shell-stdout")
+        t.expect("shell-stderr")
+        t.expect(ws)
+        t.expect("shell exit 7")
+        assert "no API key" not in clean(t.buf), clean(t.buf)
+        t.send("\r")  # empty Enter leaves shell mode
+        t.send("/quit\r")
+        assert t.wait() == 0, clean(t.buf)
+        assert t.restored()
+    finally:
+        t.close()
+    print("ok  ! executes in host cwd and streams stdout/stderr without a provider")
+
+
 def test_turn_streams(home, ws, port):
     env = base_env(
         home,
@@ -357,6 +379,71 @@ def test_slash_palette(home, ws):
         t.close()
         os.remove(os.path.join(home, ".tny", "settings.json"))
     print("ok  slash palette filters, /help and /permissions work")
+
+
+class ShellRecordHandler(BaseHTTPRequestHandler):
+    """Capture the actual first provider request, not just the UI echo."""
+
+    protocol_version = "HTTP/1.1"
+    requests = []
+
+    def log_message(self, *a):
+        pass
+
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        self.requests.append(json.loads(body))
+        event = (
+            b'data: {"type":"response.output_text.delta",'
+            b'"output_index":0,"delta":"RECORD-OK"}\n\n'
+            b'data: {"type":"response.completed",'
+            b'"response":{"status":"completed"}}\n\n'
+        )
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Content-Length", str(len(event)))
+        self.end_headers()
+        self.wfile.write(event)
+
+
+def test_shell_disclosure_reaches_provider(home, ws):
+    ShellRecordHandler.requests = []
+    srv = HTTPServer(("127.0.0.1", 0), ShellRecordHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    env = base_env(
+        home,
+        {
+            "OPENAI_BASE_URL": f"http://127.0.0.1:{srv.server_port}/v1",
+            "OPENAI_API_KEY": "synthetic-test-key",
+        },
+    )
+    t = Term([TNY], env, ws)
+    try:
+        t.expect(BANNER)
+        t.send("!printf local-output; printf local-error >&2; pwd\r")
+        t.expect("shell exit 0")
+        t.send("\x03")  # Ctrl-C leaves shell mode without an ESC timing race
+        t.expect_on_screen("\n>")
+        t.send("inspect this\r")
+        t.expect("› inspect this", 20.0)
+        t.expect("RECORD-OK", 20.0)
+        assert ShellRecordHandler.requests
+        body = json.dumps(ShellRecordHandler.requests[0])
+        for part in (
+            "Command: printf local-output",
+            "local-error",
+            ws,
+            "Exit status: 0",
+            "inspect this",
+            "untrusted data",
+        ):
+            assert part in body, (part, body)
+        t.send("/quit\r")
+        assert t.wait() == 0
+    finally:
+        t.close()
+        srv.shutdown()
+    print("ok  next provider request discloses command, output, cwd and exit")
 
 
 class ApprovalHandler(BaseHTTPRequestHandler):
@@ -907,6 +994,8 @@ def main():
         try:
             test_version_fast_path()
             test_first_paint_is_lazy(home, ws)
+            test_shell_mode_without_provider(home, ws)
+            test_shell_disclosure_reaches_provider(home, ws)
             test_turn_streams(home, ws, port)
             test_slash_palette(home, ws)
             test_approval_ui(home, ws)
