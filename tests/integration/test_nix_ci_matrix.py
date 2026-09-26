@@ -39,7 +39,7 @@ def main() -> int:
         assert "needs.windows" not in text
         assert "  windows:" not in text
         assert "continue-on-error:" not in text
-    assert "needs: [quality, build, musl, wasm, tsan, fuzz]" in ci
+    assert "needs: [quality, build, musl, wasm, tsan, fuzz, lean-proofs]" in ci
     assert "needs: [build, musl, validate-registries]" in release
     assert "workflows: [ci, sdk]" in auto
     assert ".github/workflows/nix.yml" not in auto
