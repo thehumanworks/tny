@@ -111,6 +111,7 @@ static bool parse_entry(yyjson_val *key, yyjson_val *value, tny_dictionary_entry
 
 /* Entries of a validated, allocated root object; stops at the first error. */
 static bool parse_entries(yyjson_val *root, tny_dictionary *out, char *err, size_t errlen) {
+    if (!out->entries) return fail(err, errlen, "out of memory", NULL);
     size_t i, max;
     yyjson_val *key, *value;
     yyjson_obj_foreach(root, i, max, key, value) {
@@ -118,10 +119,11 @@ static bool parse_entries(yyjson_val *root, tny_dictionary *out, char *err, size
         size_t name_len = yyjson_get_len(key);
         if (!name) return fail(err, errlen, "must be a JSON object of word entries", NULL);
         if (!strcmp(name, "$schema") && yyjson_is_str(value)) continue;
-        for (size_t j = 0; j < out->n; j++)
-            if (name_len == strlen(out->entries[j].word) &&
-                memcmp(out->entries[j].word, name, name_len) == 0)
-                return fail(err, errlen, "repeats word", out->entries[j].word);
+        for (size_t j = 0; j < out->n; j++) {
+            const char *seen = out->entries[j].word; /* set by every parsed entry */
+            if (seen && strlen(seen) == name_len && memcmp(seen, name, name_len) == 0)
+                return fail(err, errlen, "repeats word", seen);
+        }
         if (out->n == TNY_DICTIONARY_ENTRIES_MAX)
             return fail(err, errlen, "has more than 256 words", NULL);
         /* Count the entry before parsing so free() releases partial fields. */
@@ -141,8 +143,8 @@ bool tny_dictionary_parse(const char *json, size_t len, tny_dictionary *out, cha
     size_t n = ok ? yyjson_obj_size(root) : 0;
     if (ok && n > TNY_DICTIONARY_ENTRIES_MAX + 1)
         ok = fail(err, errlen, "has more than 256 words", NULL);
-    if (ok && n) {
-        out->entries = calloc(n, sizeof *out->entries);
+    if (ok) {
+        out->entries = calloc(n ? n : 1, sizeof *out->entries);
         if (!out->entries) ok = fail(err, errlen, "out of memory", NULL);
     }
     if (ok) ok = parse_entries(root, out, err, errlen);

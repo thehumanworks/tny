@@ -151,8 +151,22 @@ Local (Linux x86_64, 2026-09-26), synthetic credentials and loopback mocks only:
   timeout, effort rejected and retried without the field (and no retry when no
   field was sent), invalid dictionary/configuration with no request, SIGINT with
   no stdout, and TUI Esc mid-normalization inserting the raw draft.
-* Targeted mutation run (`--focus dictation-normalize`): see the PR for the
-  final counts.
+* `#print axioms` on the headline theorems shows only Lean's standard
+  `propext`, `Quot.sound` and `Classical.choice`.
+* Wasm (Emscripten 6.0.8, Node 22): `TNY=build/wasm/tny tests/integration/test_dictation.py`
+  ran **37 of 51** tests (14 native-only skipped), including **11 normalization
+  tests** over the fetch transport for both adapters and both xAI credential
+  paths. `make wasm-web` and `make wasm-size-check` pass.
+* Targeted mutation run (`tests/mutation/mutate.py --focus dictation-normalize`)
+  over the verifier, lifecycle and fail-open paths: **95 valid mutants, 95
+  killed** (88 by the unit suite, 7 by the integration suite), 2 rejected by the
+  compiler, 0 survivors. Earlier rounds found real gaps (punctuation-only
+  dictionary spans, 3-digit leading groups, 15-digit numerals, empty trailing
+  replacements, a reachable uninitialised DP cell), each closed with a Lean
+  golden case or unit test; the four annotated equivalent mutants are
+  banded-DP bounds and `min` updates that cannot change a value.
+* `make quality` with the pinned tools (clang-format 23.1.0, clang-tidy 22.1.8,
+  ruff 0.16.6, ShellCheck 0.11.0, actionlint 1.7.12) passes.
 
 Pending, requiring explicitly authorized live accounts (not available to this
 change):
