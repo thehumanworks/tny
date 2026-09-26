@@ -182,3 +182,4 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0173: Local interactive shell mode](0173-interactive-shell-mode.md) — host shell commands stream into the TUI and are disclosed to the next agent prompt.
 
 - [0174: Isolated execution server and code-only agent tools](0174-execution-server-code-mode.md) — bounded Lua and one provider tool surface.
+- [0175: Dictation transcript normalization](0175-dictation-transcript-normalization.md) — opt-in rewrite on the STT subscription's small model with a user dictionary; verified in C against Lean-proven golden tables, raw transcript on any failure.

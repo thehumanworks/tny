@@ -377,9 +377,31 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  lean-proofs:
+    # Lean 4 proofs of dictation normalization (ADR 0175). `make test` replays
+    # the committed golden tables against the C verifier and lifecycle; this
+    # job proves the definitions they come from and fails when regenerating
+    # the tables changes them, so proofs, tables and C cannot drift apart.
+    name: lean-proofs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: tests/formal/dictation
+          auto-config: false
+          build: true
+      - name: Golden tables match the proven definitions
+        working-directory: tests/formal/dictation
+        run: |
+          set -eu
+          lake exe export golden
+          git diff --exit-code -- golden
+
   ci:
     name: ci
-    needs: [quality, build, musl, wasm, tsan, fuzz]
+    needs: [quality, build, musl, wasm, tsan, fuzz, lean-proofs]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -392,3 +414,4 @@ jobs:
           test "${{ needs.wasm.result }}" = "success"
           test "${{ needs.tsan.result }}" = "success"
           test "${{ needs.fuzz.result }}" = "success"
+          test "${{ needs.lean-proofs.result }}" = "success"

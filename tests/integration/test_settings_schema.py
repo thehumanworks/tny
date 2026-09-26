@@ -29,6 +29,68 @@ except ImportError:  # pragma: no cover - depends on the environment
     jsonschema = None
 
 
+DICTIONARY = json.loads((ROOT / "schemas/dictionary.schema.json").read_text())
+
+
+class DictationSchemaTests(unittest.TestCase):
+    """dictation.normalize and dictionary.json (docs/adr/0175)."""
+
+    def test_normalize_accepts_documented_shapes(self):
+        if jsonschema is None:
+            self.skipTest("jsonschema is not installed in this environment")
+        for doc in (
+            {"dictation": {"normalize": True}},
+            {"dictation": {"normalize": {"enabled": True, "model": "gpt-6-luna"}}},
+            {
+                "dictation": {
+                    "normalize": {
+                        "enabled": True,
+                        "model": {"codex": "gpt-6-luna", "xai": "grok-4.7"},
+                        "effort": "omit",
+                        "fast": False,
+                        "timeout_seconds": 120,
+                    }
+                }
+            },
+        ):
+            jsonschema.validate(doc, SCHEMA)
+        for doc in (
+            {"dictation": {"normalize": "yes"}},
+            {"dictation": {"normalize": {"timeout_seconds": 0}}},
+            {"dictation": {"normalize": {"model": {"claude": "x"}}}},
+            {"dictation": {"normalize": {"conversation_model": True}}},
+            {"dictation": {"stt": "codex"}},
+        ):
+            with self.assertRaises(jsonschema.ValidationError, msg=doc):
+                jsonschema.validate(doc, SCHEMA)
+
+    def test_dictionary_schema_matches_runtime_limits(self):
+        (pattern,) = DICTIONARY["patternProperties"].keys()
+        word = re.compile(pattern)
+        for key in ("tny", "kubectl", "Claude Code", ".NET", "C++", "世界"):
+            self.assertTrue(word.fullmatch(key), key)
+        for key in ("", " padded", "...", "x" * 65, "bad\u001bword"):
+            self.assertFalse(word.fullmatch(key), key)
+        entry = DICTIONARY["patternProperties"][pattern]["oneOf"][1]
+        self.assertEqual(entry["properties"]["aliases"]["maxItems"], 8)
+        self.assertEqual(entry["properties"]["case"]["enum"], ["exact", "insensitive"])
+        self.assertFalse(entry["additionalProperties"])
+        if jsonschema is None:
+            return
+        jsonschema.validate(
+            {
+                "$schema": "https://example.invalid/dictionary.schema.json",
+                "tny": "the agent harness",
+                "kubectl": {"aliases": ["kube cuddle"]},
+                "Jev": {"context": "decision engine", "case": "exact"},
+            },
+            DICTIONARY,
+        )
+        for doc in ({"tny": 1}, {"tny": {"weight": 2}}, {"tny": {"case": "upper"}}):
+            with self.assertRaises(jsonschema.ValidationError, msg=doc):
+                jsonschema.validate(doc, DICTIONARY)
+
+
 class SettingsSchemaTests(unittest.TestCase):
     def setUp(self):
         self.image_input = SCHEMA["properties"]["image_input"]
@@ -62,7 +124,7 @@ class SettingsSchemaTests(unittest.TestCase):
         (profile_pattern,) = SCHEMA["patternProperties"].keys()
         pattern = re.compile(profile_pattern)
         self.assertFalse(pattern.fullmatch("image_input"))
-        for reserved in ("fast", "effort", "models", "acp", "mcp"):
+        for reserved in ("fast", "effort", "models", "acp", "mcp", "dictation"):
             self.assertFalse(pattern.fullmatch(reserved), reserved)
         self.assertTrue(pattern.fullmatch("openrouter"))
 

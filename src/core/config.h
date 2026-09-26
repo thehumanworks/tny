@@ -258,6 +258,14 @@ int tny_codex_http_post(const char *url, const char *content_type, const char *b
 int tny_codex_login(tny_ctx *ctx, bool device);
 int tny_codex_logout(void); /* delete ~/.tny/codex-auth.json */
 bool tny_grok_auth_present(void);
+/* Grok subscription chat proxy and public API (docs/backends/openai-compatible.md).
+ * The proxy version-gates on x-grok-client-version and 426s requests that
+ * claim less than its rolling minimum. Pinned to a known-accepted grok-build
+ * release; TNY_GROK_CLIENT_VERSION overrides without a rebuild. */
+#define TNY_GROK_PROXY_BASE_URL "https://cli-chat-proxy.grok.com/v1"
+#define TNY_GROK_PROXY_HEADER   "X-XAI-Token-Auth: xai-grok-cli"
+#define TNY_GROK_PROXY_VERSION  "0.1.202"
+#define TNY_GROK_API_BASE_URL   "https://api.x.ai/v1"
 /* Session token from ~/.grok/auth.json (tny's own login or the grok
  * CLI's). malloc'd. */
 char *tny_grok_session_token(void);

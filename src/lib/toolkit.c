@@ -286,6 +286,8 @@ static int run_dictation(tny_toolkit_job *job, tny_ctx *ctx, yyjson_val *r, char
                                  .input_file = input,
                                  .device = jget_str(r, "device"),
                                  .seconds = (int)yyjson_get_uint(jget(r, "seconds")),
+                                 /* The embedding ABI keeps raw transcripts. */
+                                 .normalize = TNY_DICTATION_NORMALIZE_OFF,
                                  .cancelled = stopped,
                                  .userdata = job};
     tny_dictation *d = tny_alloc_scope_failed() ? NULL : tny_dictation_start(ctx, &req, err, len);

@@ -54,6 +54,82 @@
       },
       "additionalProperties": false
     },
+    "dictation": {
+      "type": "object",
+      "description": "Dictation defaults (docs/dictation.md). Only normalize is configurable here; STT credentials stay per adapter.",
+      "properties": {
+        "normalize": {
+          "description": "Opt-in transcript normalization (ADR 0175): one structured rewrite on a small model from the STT adapter's own subscription, verified in C, with the raw transcript kept on any failure. true/false or an object; an object enables it only with enabled: true. TNY_DICTATION_NORMALIZE and tny dictate --normalize/--no-normalize take precedence.",
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "model": {
+                  "description": "Normalizer model, never the conversation model. A string, or per STT adapter. Defaults: codex gpt-6-luna, xai grok-4.7. TNY_DICTATION_NORMALIZE_MODEL overrides it.",
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[!-~]+$"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "codex": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[!-~]+$",
+                          "default": "gpt-6-luna"
+                        },
+                        "xai": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[!-~]+$",
+                          "default": "grok-4.7"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "effort": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32,
+                  "pattern": "^[!-~]+$",
+                  "default": "off",
+                  "description": "Reasoning effort for the rewrite: a canonical level (off maps to none, light to low) or a provider token, or omit to send no field. A rejected value is retried once without the field. TNY_DICTATION_NORMALIZE_EFFORT overrides it."
+                },
+                "fast": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Codex only: send service_tier priority. Never inherited from the conversation's --fast."
+                },
+                "timeout_seconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 120,
+                  "default": 20,
+                  "description": "Deadline for the whole normalization, including an effort retry."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "effort": {
       "$ref": "#/$defs/providerStringDefault",
       "description": "Reasoning effort globally or by provider. Canonical values: off, light, medium, high, xhigh, max, default; provider-advertised values are also accepted."
@@ -194,7 +270,7 @@
     }
   },
   "patternProperties": {
-    "^(?!\\$schema$|provider$|model$|models$|optimise$|effort$|fast$|image_input$|permission_mode$|tools$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_command$|web_search_url$|web_search_model$|web_search_timeout_seconds$|mcp$)[A-Za-z0-9_-]+$": {
+    "^(?!\\$schema$|provider$|model$|models$|optimise$|dictation$|effort$|fast$|image_input$|permission_mode$|tools$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_command$|web_search_url$|web_search_model$|web_search_timeout_seconds$|mcp$)[A-Za-z0-9_-]+$": {
       "$ref": "#/$defs/openAIProfile",
       "description": "Named OpenAI-compatible provider profile."
     }

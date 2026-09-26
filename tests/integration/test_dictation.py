@@ -28,6 +28,19 @@ MICROPHONE = not WASM and sys.platform not in ("win32", "cygwin", "msys")
 TOKEN, ACCOUNT = "fixture-dictation-token", "fixture-dictation-account"
 TEXT = "Check the changes, 世界."
 OPTIMISED = "Review the changes and report regressions, 世界."
+SPOKEN = "ask tiny to run kube cuddle on twenty three pods"
+NORMALIZED = "Ask tny to run kubectl on 23 pods."
+CORRECTIONS = [
+    {"span": "ask", "replacement": "Ask", "reason": "case"},
+    {"span": "tiny", "replacement": "tny", "reason": "dictionary"},
+    {"span": "kube cuddle", "replacement": "kubectl", "reason": "dictionary"},
+    {"span": "twenty three", "replacement": "23", "reason": "number"},
+    {"span": "pods", "replacement": "pods.", "reason": "punctuation"},
+]
+DICTIONARY = {
+    "tny": {"context": "the agent harness", "aliases": ["tiny"], "case": "exact"},
+    "kubectl": {"context": "Kubernetes CLI", "aliases": ["kube cuddle"]},
+}
 
 
 def wav_bytes():
@@ -54,11 +67,65 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def normalize(self, state, headers, body):
+        """Structured rewrite: Codex Responses or xAI chat, streamed as SSE."""
+        request = json.loads(body)
+        state["normalize"].append((self.path, headers, request))
+        chat = self.path.endswith("/chat/completions")
+        effort = request.get("reasoning_effort" if chat else "reasoning")
+        mode = state["norm_mode"]
+        if mode == "effort400" and effort is not None:
+            self.reply(400, b'{"error":{"message":"unsupported reasoning effort"}}')
+            return
+        if isinstance(mode, int):
+            self.reply(mode, b'{"error":{"message":"' + SPOKEN.encode() + b'"}}')
+            return
+        if mode == "stall":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", "100000")
+            self.end_headers()
+            state["norm_ready"].set()
+            state["release"].wait(15)
+            return
+        proposal = state["proposal"]
+        payload = (
+            proposal
+            if isinstance(proposal, str)
+            else json.dumps(proposal, ensure_ascii=False)
+        )
+        pieces = [payload[i : i + 7] for i in range(0, len(payload), 7)]
+        if chat:
+            frames = [
+                {
+                    "choices": [
+                        {"index": 0, "delta": {"content": p}, "finish_reason": None}
+                    ]
+                }
+                for p in pieces
+            ] + [{"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}]
+        else:
+            frames = [
+                {"type": "response.output_text.delta", "delta": p} for p in pieces
+            ] + [
+                {
+                    "type": "response.completed",
+                    "response": {"status": "completed", "output": []},
+                }
+            ]
+        data = "".join(
+            f"data: {json.dumps(f, ensure_ascii=False)}\n\n" for f in frames
+        ) + ("data: [DONE]\n\n" if chat else "")
+        self.reply(200, data.encode(), "text/event-stream")
+
     def do_POST(self):
         state = self.server.state
         body = self.rfile.read(int(self.headers["Content-Length"]))
         headers = {k.lower(): v for k, v in self.headers.items()}
         state["requests"].append((self.path, headers, body))
+        if self.path in ("/backend-api/codex/responses", "/xai/v1/chat/completions"):
+            self.normalize(state, headers, body)
+            return
         if self.path == "/v1/chat/completions":
             request = json.loads(body)
             state["chat"].append(request)
@@ -228,6 +295,10 @@ while True: time.sleep(1)
             "chat": [],
             "ready": threading.Event(),
             "release": threading.Event(),
+            "normalize": [],
+            "norm_mode": "accept",
+            "norm_ready": threading.Event(),
+            "proposal": {"text": NORMALIZED, "corrections": CORRECTIONS},
         }
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.server.state = self.state
@@ -252,7 +323,7 @@ while True: time.sleep(1)
         self.server.server_close()
         self.tmp.cleanup()
 
-    def run_dictate(self, *args, env=None, audio=True, prefix=()):
+    def run_dictate(self, *args, env=None, audio=True, prefix=(), cwd=None):
         return subprocess.run(
             [
                 self.tny,
@@ -266,6 +337,7 @@ while True: time.sleep(1)
             capture_output=True,
             text=True,
             timeout=20,
+            cwd=cwd,
         )
 
     def check_failure(self, p, code=1):
@@ -510,7 +582,242 @@ while True: time.sleep(1)
                 p.kill()
                 p.wait()
 
-    def start_tui(self, prefix=()):
+    # ---- normalization (ADR 0175) ----
+
+    def normalize_workspace(self, settings=None, user=None, project=None):
+        """Spoken transcript, user + project dictionaries, optional settings."""
+        self.state["text"] = SPOKEN
+        tny = self.home / ".tny"
+        tny.mkdir(exist_ok=True)
+        (tny / "dictionary.json").write_text(
+            json.dumps(user if user is not None else {"kubectl": DICTIONARY["kubectl"]})
+        )
+        if settings is not None:
+            (tny / "settings.json").write_text(json.dumps(settings))
+        ws = self.home / "ws"
+        (ws / ".tny").mkdir(parents=True, exist_ok=True)
+        (ws / ".tny/dictionary.json").write_text(
+            json.dumps(project if project is not None else {"tny": DICTIONARY["tny"]})
+        )
+        return ws
+
+    def normalized_json(self, *args, ws=None, code=0):
+        p = self.run_dictate("--json", *args, cwd=ws or self.normalize_workspace())
+        self.assertEqual(p.returncode, code, p.stderr)
+        self.assertNotIn(TOKEN, p.stdout + p.stderr)
+        return json.loads(p.stdout), p
+
+    def assert_normalizer_request(self, request, effort="none"):
+        path, headers, body = request
+        self.assertEqual(path, "/backend-api/codex/responses")
+        self.assertEqual(headers["authorization"], f"Bearer {TOKEN}")
+        self.assertEqual(headers["chatgpt-account-id"], ACCOUNT)
+        self.assertEqual(body["model"], "gpt-6-luna")
+        self.assertIs(body["store"], False)
+        self.assertIs(body["stream"], True)
+        self.assertEqual(body["text"]["format"]["type"], "json_schema")
+        self.assertEqual(
+            body["text"]["format"]["schema"]["properties"]["corrections"]["items"][
+                "properties"
+            ]["reason"]["enum"],
+            ["dictionary", "case", "punctuation", "number"],
+        )
+        self.assertEqual(body.get("reasoning"), {"effort": effort} if effort else None)
+        self.assertEqual(body["input"][0]["content"][0]["text"], SPOKEN)
+        # Only dictionary entries travel with the transcript.
+        self.assertIn('"word":"tny"', body["instructions"])
+        self.assertIn('"aliases":["kube cuddle"]', body["instructions"])
+        self.assertNotIn("settings", body["instructions"])
+        self.assertNotIn(str(self.home), json.dumps(body))
+
+    def test_normalize_off_by_default_with_credentials_present(self):
+        ws = self.normalize_workspace()
+        p = self.run_dictate("--json", cwd=ws)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(
+            json.loads(p.stdout),
+            {"kind": "dictate", "provider": "codex", "text": SPOKEN},
+        )
+        p = self.run_dictate(cwd=ws)
+        self.assertEqual(p.stdout, SPOKEN + "\n")
+        # An explicit off beats the environment and settings.
+        self.normalize_workspace(settings={"dictation": {"normalize": True}})
+        env = {**self.env, "TNY_DICTATION_NORMALIZE": "1"}
+        p = self.run_dictate("--no-normalize", env=env, cwd=ws)
+        self.assertEqual(p.stdout, SPOKEN + "\n")
+        self.assertFalse(self.state["normalize"])
+
+    def test_normalize_accepted_rewrite_with_merged_dictionary(self):
+        out, p = self.normalized_json("--normalize")
+        self.assertEqual(
+            out,
+            {
+                "kind": "dictate",
+                "provider": "codex",
+                "text": NORMALIZED,
+                "raw": SPOKEN,
+                "normalized": True,
+                "model": "gpt-6-luna",
+                "effort": "none",
+                "service_tier": None,
+                "corrections": CORRECTIONS,
+            },
+        )
+        self.assertEqual(len(self.state["normalize"]), 1)
+        self.assert_normalizer_request(self.state["normalize"][0])
+        self.assertIn("Normalizing", p.stderr)
+        self.assertFalse(self.state["chat"])
+        self.assertFalse((self.home / ".tny/sessions").exists())
+        plain = self.run_dictate("--normalize", cwd=self.home / "ws")
+        self.assertEqual(plain.stdout, NORMALIZED + "\n")
+
+    def test_normalize_settings_and_environment_enable_it(self):
+        ws = self.normalize_workspace(
+            settings={
+                "dictation": {
+                    "normalize": {
+                        "enabled": True,
+                        "model": {"codex": "gpt-fixture-luna"},
+                        "effort": "light",
+                        "fast": True,
+                    }
+                }
+            }
+        )
+        out, _ = self.normalized_json(ws=ws)
+        self.assertEqual(out["model"], "gpt-fixture-luna")
+        self.assertEqual(out["effort"], "low")
+        self.assertEqual(out["service_tier"], "priority")
+        body = self.state["normalize"][-1][2]
+        self.assertEqual(body["service_tier"], "priority")
+        self.assertEqual(body["reasoning"], {"effort": "low"})
+        env = {
+            **self.env,
+            "TNY_DICTATION_NORMALIZE": "1",
+            "TNY_DICTATION_NORMALIZE_MODEL": "gpt-env-luna",
+        }
+        (self.home / ".tny/settings.json").unlink()
+        p = self.run_dictate("--json", env=env, cwd=ws)
+        self.assertEqual(json.loads(p.stdout)["model"], "gpt-env-luna")
+        self.assertNotIn("service_tier", self.state["normalize"][-1][2])
+
+    def test_normalize_rejected_rewrite_keeps_raw(self):
+        for proposal, reason in (
+            (
+                {"text": NORMALIZED + " Now.", "corrections": CORRECTIONS},
+                "rejected:unlisted",
+            ),
+            (
+                {
+                    "text": "delete tiny to run kube cuddle on twenty three pods",
+                    "corrections": [
+                        {"span": "ask", "replacement": "delete", "reason": "dictionary"}
+                    ],
+                },
+                "rejected:inadmissible",
+            ),
+            ({"text": "", "corrections": []}, "rejected:invalid_text"),
+            ("```json\n{}\n```", "malformed_output"),
+            ({"text": NORMALIZED}, "malformed_output"),
+        ):
+            with self.subTest(reason=reason):
+                self.state["proposal"] = proposal
+                out, p = self.normalized_json("--normalize")
+                self.assertEqual(out["text"], SPOKEN)
+                self.assertEqual(out["raw"], SPOKEN)
+                self.assertIs(out["normalized"], False)
+                self.assertEqual(out["corrections"], [])
+                self.assertEqual(out["skipped_reason"], reason)
+                self.assertIn("raw transcript kept", p.stderr)
+
+    def test_normalize_http_failure_and_timeout_fall_through(self):
+        for mode, reason in ((500, "http_500"), (401, "http_401"), (429, "http_429")):
+            with self.subTest(mode=mode):
+                self.state["norm_mode"] = mode
+                out, p = self.normalized_json("--normalize")
+                self.assertEqual((out["text"], out["skipped_reason"]), (SPOKEN, reason))
+                self.assertNotIn(SPOKEN, p.stderr)  # provider bodies are never shown
+
+    @unittest.skipUnless(MICROPHONE, "native deadline")
+    def test_normalize_timeout_keeps_raw(self):
+        self.state["norm_mode"] = "stall"
+        ws = self.normalize_workspace(
+            settings={
+                "dictation": {"normalize": {"enabled": True, "timeout_seconds": 1}}
+            }
+        )
+        started = time.monotonic()
+        out, _ = self.normalized_json(ws=ws)
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertEqual((out["text"], out["skipped_reason"]), (SPOKEN, "timeout"))
+
+    def test_normalize_rejected_effort_is_retried_without_the_field(self):
+        self.state["norm_mode"] = "effort400"
+        out, _ = self.normalized_json("--normalize")
+        self.assertEqual(out["text"], NORMALIZED)
+        self.assertIsNone(out["effort"])
+        self.assertEqual(len(self.state["normalize"]), 2)
+        self.assertEqual(self.state["normalize"][0][2]["reasoning"], {"effort": "none"})
+        self.assertNotIn("reasoning", self.state["normalize"][1][2])
+        # Without an effort field a 400 is an ordinary failure: no retry.
+        self.state["normalize"].clear()
+        self.state["norm_mode"] = 400
+        out, _ = self.normalized_json(
+            "--normalize",
+            ws=self.normalize_workspace(
+                settings={"dictation": {"normalize": {"effort": "omit"}}}
+            ),
+        )
+        self.assertEqual((out["text"], out["skipped_reason"]), (SPOKEN, "http_400"))
+        self.assertEqual(len(self.state["normalize"]), 1)
+
+    def test_normalize_invalid_dictionary_or_config_makes_no_request(self):
+        ws = self.normalize_workspace(project={"tny": {"case": "upper"}})
+        out, p = self.normalized_json("--normalize", ws=ws)
+        self.assertEqual(
+            (out["text"], out["skipped_reason"]), (SPOKEN, "dictionary_invalid")
+        )
+        self.assertIn("dictionary.json", p.stderr)
+        ws = self.normalize_workspace(
+            settings={"dictation": {"normalize": {"timeout_seconds": 0}}}
+        )
+        out, _ = self.normalized_json("--normalize", ws=ws)
+        self.assertEqual(out["skipped_reason"], "invalid_config")
+        self.assertFalse(self.state["normalize"])
+
+    def test_normalize_without_login_keeps_raw_and_never_uses_chat_key(self):
+        ws = self.normalize_workspace()
+        env = {**self.env, "OPENAI_API_KEY": "chat-key"}
+        self.state["norm_mode"] = 401
+        p = self.run_dictate("--normalize", "--json", env=env, cwd=ws)
+        self.assertEqual(json.loads(p.stdout)["text"], SPOKEN)
+        for _, headers, _ in self.state["requests"]:
+            self.assertNotEqual(headers.get("authorization"), "Bearer chat-key")
+
+    @unittest.skipUnless(MICROPHONE, "native signals")
+    def test_normalize_sigint_has_no_partial_stdout(self):
+        self.state["norm_mode"] = "stall"
+        ws = self.normalize_workspace()
+        p = subprocess.Popen(
+            [self.tny, "dictate", "--input-file", str(self.wav), "--normalize"],
+            env=self.env,
+            cwd=ws,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            self.assertTrue(self.state["norm_ready"].wait(10))
+            p.send_signal(signal.SIGINT)
+            out, err = p.communicate(timeout=4)
+            self.assertEqual(p.returncode, 130, err)
+            self.assertEqual(out, "")
+        finally:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+
+    def start_tui(self, prefix=(), cwd=None):
         from test_tui import Term
 
         settings = self.home / ".tny/settings.json"
@@ -531,7 +838,7 @@ while True: time.sleep(1)
         term = Term(
             [self.tny, *prefix, "--provider", "grok", "--ephemeral", "--no-extensions"],
             self.env,
-            str(self.home),
+            str(cwd or self.home),
         )
         try:
             term.expect_on_screen("grok-fixture")
@@ -658,12 +965,49 @@ while True: time.sleep(1)
             term.close()
             term.proc.wait(timeout=5)
 
+    @unittest.skipUnless(MICROPHONE, "native TUI")
+    def test_tui_normalizes_then_esc_mid_normalization_inserts_raw(self):
+        ws = self.normalize_workspace()
+        self.env["TNY_DICTATION_NORMALIZE"] = "1"
+        term = self.start_tui(cwd=ws)
+        try:
+            term.send("\x12")
+            term.expect_on_screen("Listening")
+            self.wait_recorded(term)
+            term.send("\r")
+            term.expect_on_screen("Dictation ready (normalized)")
+            term.expect_on_screen(NORMALIZED)
+            self.assertEqual(len(self.state["normalize"]), 1)
+            term.send("\x15")  # clear the draft
+            self.state["norm_mode"] = "stall"
+            self.log.unlink()
+            term.send("\x12")
+            term.expect_on_screen("Listening")
+            self.wait_recorded(term)
+            term.send("\r")
+            term.expect_on_screen("Normalizing")
+            self.assertTrue(self.state["norm_ready"].wait(5))
+            term.send("\x1b")
+            term.expect_on_screen("Normalization cancelled")
+            term.expect_on_screen(SPOKEN)
+            self.assertFalse(self.state["chat"])
+            term.send("\r")
+            term.expect("CHAT-OK")
+            self.assertEqual(self.state["chat"][-1]["messages"][-1]["content"], SPOKEN)
+            term.send("/quit\r")
+            self.assertEqual(term.wait(), 0)
+        finally:
+            term.close()
+            term.proc.wait(timeout=5)
+
 
 class XaiDictationTests(unittest.TestCase):
     """Only the adapter URL differs in this never-installed fixture build."""
 
     tearDown = DictationTests.tearDown
     run_dictate = DictationTests.run_dictate
+    normalize_workspace = DictationTests.normalize_workspace
+    normalized_json = DictationTests.normalized_json
     check_failure = DictationTests.check_failure
     start_tui = DictationTests.start_tui
     wait_recorded = DictationTests.wait_recorded
@@ -701,6 +1045,7 @@ class XaiDictationTests(unittest.TestCase):
             TNY_STT_PROVIDER="xai",
             XAI_API_KEY=TOKEN,
             TNY_DICTATION_FIXTURE_URL=self.url + "/v1/stt",
+            TNY_DICTATION_FIXTURE_NORMALIZE_URL=self.url + "/xai/v1",
         )
 
     def settings(self, **fields):
@@ -763,7 +1108,71 @@ class XaiDictationTests(unittest.TestCase):
     def test_production_binary_has_no_fixture_endpoint_override(self):
         artifact = Path(TNY).with_suffix(".wasm") if WASM else Path(TNY)
         self.assertNotIn(b"TNY_DICTATION_FIXTURE_URL", artifact.read_bytes())
+        self.assertNotIn(b"TNY_DICTATION_FIXTURE_NORMALIZE_URL", artifact.read_bytes())
         self.assertIn(b"https://api.x.ai/v1/stt", artifact.read_bytes())
+        self.assertIn(b"https://cli-chat-proxy.grok.com/v1", artifact.read_bytes())
+
+    def xai_request(self, key=TOKEN, login=False, effort="none"):
+        path, headers, body = self.state["normalize"][-1]
+        self.assertEqual(path, "/xai/v1/chat/completions")
+        self.assertEqual(headers["authorization"], f"Bearer {key}")
+        self.assertEqual(body["model"], "grok-4.7")
+        self.assertIs(body["stream"], True)
+        self.assertEqual(body["messages"][1], {"role": "user", "content": SPOKEN})
+        self.assertEqual(body.get("reasoning_effort"), effort)
+        self.assertNotIn("service_tier", body)
+        self.assertNotIn("chatgpt-account-id", headers)
+        if login:
+            self.assertEqual(headers["x-xai-token-auth"], "xai-grok-cli")
+            self.assertEqual(headers["x-grok-model-override"], "grok-4.7")
+            self.assertIn("x-grok-client-version", headers)
+            self.assertNotIn("response_format", body)
+            self.assertIn(
+                "Respond with only the JSON object", body["messages"][0]["content"]
+            )
+        else:
+            for name in ("x-xai-token-auth", "x-grok-model-override"):
+                self.assertNotIn(name, headers)
+            self.assertEqual(body["response_format"]["type"], "json_schema")
+
+    def test_normalize_api_key_uses_public_chat_with_schema(self):
+        out, _ = self.normalized_json("--normalize")
+        self.assertEqual(
+            (out["provider"], out["text"], out["model"], out["normalized"]),
+            ("xai", NORMALIZED, "grok-4.7", True),
+        )
+        self.assertIsNone(out["service_tier"])
+        self.xai_request()
+
+    def test_normalize_grok_login_uses_proxy_headers_and_prompt_json(self):
+        del self.env["XAI_API_KEY"]
+        self.login()
+        out, _ = self.normalized_json("--normalize")
+        self.assertEqual(out["text"], NORMALIZED)
+        self.xai_request(login=True)
+
+    def test_normalize_off_by_default_and_failures_keep_raw(self):
+        ws = self.normalize_workspace()
+        p = self.run_dictate("--json", cwd=ws)
+        self.assertEqual(json.loads(p.stdout)["text"], SPOKEN)
+        self.assertFalse(self.state["normalize"])
+        for mode, reason in ((503, "http_503"), ("effort400", None)):
+            with self.subTest(mode=mode):
+                self.state["norm_mode"] = mode
+                out, _ = self.normalized_json("--normalize")
+                if reason:
+                    self.assertEqual(
+                        (out["text"], out["skipped_reason"]), (SPOKEN, reason)
+                    )
+                else:
+                    self.assertEqual(out["text"], NORMALIZED)
+                    self.assertNotIn("reasoning_effort", self.state["normalize"][-1][2])
+        self.state["norm_mode"] = "accept"
+        self.state["proposal"] = {"text": "run it", "corrections": []}
+        out, _ = self.normalized_json("--normalize")
+        self.assertEqual(
+            (out["text"], out["skipped_reason"]), (SPOKEN, "rejected:unlisted")
+        )
 
     def test_response_survives_every_header_and_body_split(self):
         self.state["mode"] = "split"

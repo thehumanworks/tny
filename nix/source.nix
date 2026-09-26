@@ -62,6 +62,8 @@ let
     ../docs
     # tests/formal is included by the ../tests fileset below; make test reads
     # its SMT-LIB obligations and checker with the Z3 input from nix/tests.nix.
+    # The committed Lean golden tables (tests/formal/dictation/golden) are
+    # replayed by the C unit suite; the sandbox needs no Lean toolchain.
     ../examples # tests/extensions/test_examples.py loads every shipped example
     ../flake.nix
     ../default.nix

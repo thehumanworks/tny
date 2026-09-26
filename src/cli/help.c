@@ -422,7 +422,14 @@ bool help_for(const char *command) {
                "  --device NAME        Microphone (TNY_AUDIO_DEVICE, default default)\n"
                "  --seconds N          Stop recording after N seconds (1–300)\n"
                "  --check              Check local credentials/recorder without network\n"
-               "  --json               One result object with provider and text\n"
+               "  --normalize          Rewrite the transcript with the STT subscription's\n"
+               "                       small model and ~/.tny + .tny dictionary.json, then\n"
+               "                       verify it; any failure keeps the raw transcript\n"
+               "  --no-normalize       Force normalization off (TNY_DICTATION_NORMALIZE,\n"
+               "                       settings dictation.normalize; default off)\n"
+               "  --json               One result object with provider and text (plus raw,\n"
+               "                       normalized, model, effort, service_tier, corrections\n"
+               "                       and skipped_reason when normalization is enabled)\n"
                "  -h, --help           Show this help\n\n"
                "xAI credentials: leading --xai-api-key KEY > XAI_API_KEY > xai settings\n"
                "profile > Grok login (tny --provider grok login). Never uses chat URLs.\n"
@@ -434,6 +441,7 @@ bool help_for(const char *command) {
                "  tny dictate --seconds 10\n"
                "  tny --provider grok dictate --seconds 10\n"
                "  tny dictate --input-file speech.wav --json\n"
+               "  tny dictate --input-file speech.wav --normalize --json\n"
                "In the TUI: Ctrl-R or /dictate xai records into the composer; Enter sends.\n";
     else if (strcmp(command, "edit") == 0) text = edit_help;
     else if (strcmp(command, "ask-user") == 0)

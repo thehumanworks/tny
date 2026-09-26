@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/thehumanworks/tny/main/schemas/dictionary.schema.json",
+  "title": "tny dictation dictionary",
+  "description": "~/.tny/dictionary.json (user) and <workspace>/.tny/dictionary.json (project; wins per word). Words the transcript normalizer may restore, with known mishearings. Only these entries are sent with a transcript (ADR 0175, docs/dictation.md).",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    }
+  },
+  "patternProperties": {
+    "^(?=[^\\x00-\\x1f\\x7f]{1,64}$)(?=.*[0-9A-Za-z\\u0080-\\uffff])\\S(.*\\S)?$": {
+      "description": "A dictionary word: at most 64 bytes, a letter or digit, no surrounding space or control characters.",
+      "oneOf": [
+        {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Context: what the word means here."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "context": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "aliases": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "description": "Known mishearings. A correction whose span has more than one word must match one of these."
+            },
+            "case": {
+              "enum": [
+                "exact",
+                "insensitive"
+              ],
+              "default": "insensitive",
+              "description": "exact: the replacement must match the word byte for byte."
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "maxProperties": 257
+}

@@ -2,7 +2,7 @@
  * the service owns recording, bounds, cancellation and validated prompt text. */
 #ifndef TNY_DICTATION_PROVIDER_H
 #define TNY_DICTATION_PROVIDER_H
-#include "core/dictation.h"
+#include "core/dictation_normalize.h"
 
 typedef struct {
     const char *name;
@@ -12,6 +12,10 @@ typedef struct {
     /* -1 pending, 0 complete, 1 local/protocol error, 2 HTTP rejection. */
     int (*step)(void *, buf_t *text, char *, size_t);
     void (*destroy)(void *);
+    /* Normalizer endpoint from the credential this adapter transcribes with;
+     * never the conversation profile (ADR 0175). */
+    const char *normalize_model;
+    bool (*normalize_target)(const tny_ctx *, const char *model, tny_norm_target *, char *, size_t);
 } tny_dictation_provider;
 
 extern const tny_dictation_provider tny_dictation_codex;
