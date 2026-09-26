@@ -411,6 +411,9 @@ TEST normalize_numbers_accept_only_exact_cardinals(void) {
                  {"1,23", false, 0},
                  {"12,345,", true, 12345},
                  {"12,34,567", false, 0},
+                 {"0,123", false, 0},
+                 {"01,234", false, 0},
+                 {"1234,567", false, 0},
                  {"1234567890123456", false, 0},
                  {"minus five", false, 0},
                  {"", false, 0}};

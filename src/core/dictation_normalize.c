@@ -314,8 +314,9 @@ tny_norm_job *tny_norm_job_start(const tny_norm_target *t, const tny_norm_config
     j->deadline = deadline;
     sse_parser_init(&j->parser);
     build_body(&body, t, c, j->effort, d, raw);
+    static const char user_agent[] = "User-Agent: tny/" TNY_VERSION;
     const char *headers[16] = {"Content-Type: application/json", "Accept: text/event-stream",
-                               "User-Agent: tny/" TNY_VERSION};
+                               user_agent};
     size_t h = 3;
     for (size_t i = 0; i < sizeof t->headers / sizeof t->headers[0] && t->headers[i]; i++)
         headers[h++] = t->headers[i];

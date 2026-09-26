@@ -159,8 +159,9 @@ static void norm_settle(tny_dictation *d, const char *reason) {
         }
         buf_appends(&d->corrections, "]");
         if (d->text.oom || d->corrections.oom) {
-            /* Never lose the transcript to an allocation failure. */
-            buf_clear(&d->text);
+            /* Never lose the transcript to an allocation failure: oom is
+             * sticky, so start from a fresh buffer. */
+            private_free(&d->text);
             buf_append(&d->text, d->raw.data, d->raw.len);
             d->norm.outcome = TNY_NORM_RAW;
             reason = "out_of_memory";

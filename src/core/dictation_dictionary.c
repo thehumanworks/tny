@@ -92,8 +92,9 @@ static bool parse_entry(yyjson_val *key, yyjson_val *value, tny_dictionary_entry
         size_t n = yyjson_arr_size(aliases);
         if (!yyjson_is_arr(aliases) || n > TNY_DICTIONARY_ALIASES_MAX)
             return fail(err, len, "aliases must be an array of at most 8 strings", word);
-        e->aliases = n ? calloc(n, sizeof *e->aliases) : NULL;
-        if (n && !e->aliases) return fail(err, len, "out of memory", NULL);
+        /* One slot even when empty keeps every later access non-null. */
+        e->aliases = calloc(n ? n : 1, sizeof *e->aliases);
+        if (!e->aliases) return fail(err, len, "out of memory", NULL);
         size_t i, max;
         yyjson_val *alias;
         yyjson_arr_foreach(aliases, i, max, alias) {
@@ -126,10 +127,16 @@ bool tny_dictionary_parse(const char *json, size_t len, tny_dictionary *out, cha
     size_t i, max;
     yyjson_val *key, *value;
     yyjson_obj_foreach(ok ? root : NULL, i, max, key, value) {
-        if (!strcmp(yyjson_get_str(key), "$schema") && yyjson_is_str(value)) continue;
+        const char *name = yyjson_get_str(key);
+        size_t name_len = yyjson_get_len(key);
+        if (!name) {
+            ok = fail(err, errlen, "must be a JSON object of word entries", NULL);
+            break;
+        }
+        if (!strcmp(name, "$schema") && yyjson_is_str(value)) continue;
         for (size_t j = 0; j < out->n; j++)
-            if (yyjson_get_len(key) == strlen(out->entries[j].word) &&
-                !memcmp(out->entries[j].word, yyjson_get_str(key), yyjson_get_len(key)))
+            if (name_len == strlen(out->entries[j].word) &&
+                memcmp(out->entries[j].word, name, name_len) == 0)
                 ok = fail(err, errlen, "repeats word", out->entries[j].word);
         if (ok && out->n == TNY_DICTIONARY_ENTRIES_MAX)
             ok = fail(err, errlen, "has more than 256 words", NULL);

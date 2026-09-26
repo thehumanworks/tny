@@ -139,14 +139,10 @@ static int sem_nonempty(span_t a) {
 /* One group: nonempty digits, no leading zero unless alone. Several groups:
  * `d{1,3}(,ddd)+` without a leading zero. At most 15 digits either way. */
 static bool numeral_value(span_t s, uint64_t *value) {
-    size_t groups = 1, first = s.n;
-    for (size_t i = 0; i < s.n; i++) {
-        if (s.s[i] != ',') continue;
-        if (groups == 1) first = i;
-        groups++;
-    }
+    const char *comma = s.n ? memchr(s.s, ',', s.n) : NULL;
+    size_t first = comma ? (size_t)(comma - s.s) : s.n;
     if (!first) return false;
-    if (groups == 1 ? first > 1 && s.s[0] == '0' : first > 3 || s.s[0] == '0') return false;
+    if (comma ? first > 3 || s.s[0] == '0' : first > 1 && s.s[0] == '0') return false;
     uint64_t v = 0;
     size_t digits = 0, run = 0;
     for (size_t i = 0; i <= s.n; i++) {
@@ -200,7 +196,7 @@ static bool below100(const span_t *ws, size_t n, size_t i, uint64_t *v, size_t *
     if (t < 0) return false;
     int u2 = i + 1 < n ? unit_of(ws[i + 1]) : -1;
     if (u2 >= 1 && u2 <= 9) {
-        *v = (uint64_t)(t + u2);
+        *v = (uint64_t)t + (uint64_t)u2;
         *next = i + 2;
     } else {
         *v = (uint64_t)t;
@@ -311,13 +307,12 @@ static int admissible(const tny_dictionary *d, const tny_norm_correction *c) {
     case TNY_NORM_REASON_CASE: return folded_equal(span, repl);
     case TNY_NORM_REASON_PUNCTUATION: return sem_equal(span, repl);
     case TNY_NORM_REASON_NUMBER: return number_ok(span, repl);
-    case TNY_NORM_REASON_DICTIONARY:
-        for (size_t i = 0; d && i < d->n; i++) {
-            if (!word_matches(&d->entries[i], repl)) continue;
-            int ok = span_ok(&d->entries[i], span);
-            if (ok) return ok;
-        }
-        return 0;
+    case TNY_NORM_REASON_DICTIONARY: break;
+    }
+    for (size_t i = 0; d && i < d->n; i++) {
+        if (!word_matches(&d->entries[i], repl)) continue;
+        int ok = span_ok(&d->entries[i], span);
+        if (ok) return ok;
     }
     return 0;
 }
@@ -343,10 +338,10 @@ static bool reconstructs(const char *raw, size_t raw_len, const tny_norm_proposa
         const char *at = find(raw + cursor, raw_len - cursor, c->span, c->span_len);
         if (!at) return false;
         size_t gap = (size_t)(at - (raw + cursor));
-        if (gap > p->text_len - out || memcmp(p->text + out, raw + cursor, gap)) return false;
+        if (gap > p->text_len - out || memcmp(p->text + out, raw + cursor, gap) != 0) return false;
         out += gap;
         if (c->replacement_len > p->text_len - out ||
-            memcmp(p->text + out, c->replacement, c->replacement_len))
+            memcmp(p->text + out, c->replacement, c->replacement_len) != 0)
             return false;
         out += c->replacement_len;
         cursor += gap + c->span_len;

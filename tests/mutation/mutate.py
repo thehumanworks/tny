@@ -902,6 +902,8 @@ EQUIVALENT = [
     "dictation_verify.c:if (prev[j] + 1 < v) v = prev[j] + 1;",
     "dictation_verify.c:if (cur[j - 1] + 1 < v) v = cur[j - 1] + 1;",
     "dictation_verify.c:cur[j] = v < inf ? v : inf;",
+    # Differs only when a row allocation fails; both then reject the rewrite.
+    "dictation_verify.c:bool ok = prev && cur;",
     # Assigning zero to an already-zero caller remainder and clamping an equal
     # backend/caller remainder are exact no-ops. The backend_timeout >= 0 guard
     # is on a separate line and remains mutated/tested (not allowlisted).

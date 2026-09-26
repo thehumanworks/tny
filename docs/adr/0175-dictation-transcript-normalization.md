@@ -115,8 +115,8 @@ through `tny_norm_step`, a C translation of `Dictation.Lifecycle.step`. The Lean
   (`@[csimp]`, used by the exporter).
 
 `lake exe export golden` writes `lifecycle.tsv` (all 180 states × 8 events),
-`dictionaries.tsv` and `verify.tsv` (1,320 generated proposals covering every
-verdict). The C unit suite replays all three against `tny_norm_step`,
+`dictionaries.tsv` and `verify.tsv` (1,332 generated and targeted proposals
+covering every verdict). The C unit suite replays all three against `tny_norm_step`,
 `tny_dictionary_parse`, `tny_norm_proposal_parse` and `tny_norm_verify`; the CI
 `lean-proofs` job rebuilds the proofs, regenerates the tables and fails on any
 difference. As with ADR 0171, the proofs cover the specification and the
@@ -142,7 +142,7 @@ Local (Linux x86_64, 2026-09-26), synthetic credentials and loopback mocks only:
 
 * `lake build` (Lean 4.30.0) proves every theorem above with no `sorry`;
   `lake exe export golden` reproduces the committed tables.
-* `make test-dictation`: **17 unit tests** (11,945 assertions, including both
+* `make test-dictation`: **18 unit tests** (11,986 assertions, including both
   golden replays and a 2,000-case banded-vs-full Levenshtein cross-check) and
   **51 integration tests**. New fixtures cover both adapters and both xAI
   credential paths: off by default with credentials present, accepted

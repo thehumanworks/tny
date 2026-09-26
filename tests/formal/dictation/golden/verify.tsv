@@ -1321,6 +1321,8 @@ project	ask Cube Control	{"text":"ask kubectl","corrections":[{"span":"Cube Cont
 project	ask cube controls	{"text":"ask kubectl","corrections":[{"span":"cube controls","replacement":"kubectl","reason":"dictionary"}]}	inadmissible	ask cube controls
 none	about 1234, maybe	{"text":"about 1,234, maybe","corrections":[{"span":"1234,","replacement":"1,234,","reason":"number"}]}	ok	about 1,234, maybe
 none	pay 123456 now	{"text":"pay 123,456 now","corrections":[{"span":"123456","replacement":"123,456","reason":"number"}]}	ok	pay 123,456 now
+none	pay 123 now	{"text":"pay 0,123 now","corrections":[{"span":"123","replacement":"0,123","reason":"number"}]}	inadmissible	pay 123 now
+none	pay 1234567 now	{"text":"pay 1234,567 now","corrections":[{"span":"1234567","replacement":"1234,567","reason":"number"}]}	inadmissible	pay 1234567 now
 none	id 999999999999999	{"text":"id 999,999,999,999,999","corrections":[{"span":"999999999999999","replacement":"999,999,999,999,999","reason":"number"}]}	ok	id 999,999,999,999,999
 none	please stop.	{"text":"please stop","corrections":[{"span":".","replacement":"","reason":"punctuation"}]}	ok	please stop
 none	please stop.	{"text":"please sto","corrections":[{"span":"p.","replacement":"","reason":"punctuation"}]}	inadmissible	please stop.
