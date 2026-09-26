@@ -241,12 +241,15 @@ static void append_text(tny_norm_job *j, const char *s, size_t n) {
 }
 
 static void responses_output(tny_norm_job *j, yyjson_val *output) {
-    size_t i, n, k, m;
-    yyjson_val *item, *part;
-    yyjson_arr_foreach(output, i, n, item) {
+    /* Iterators end on NULL, which keeps GCC's analyzer on solid ground. */
+    yyjson_arr_iter items = yyjson_arr_iter_with(output);
+    yyjson_val *item;
+    while ((item = yyjson_arr_iter_next(&items))) {
         const char *type = jget_str(item, "type");
         if (!type || strcmp(type, "message") != 0) continue;
-        yyjson_arr_foreach(jget(item, "content"), k, m, part) {
+        yyjson_arr_iter parts = yyjson_arr_iter_with(jget(item, "content"));
+        yyjson_val *part;
+        while ((part = yyjson_arr_iter_next(&parts))) {
             const char *pt = jget_str(part, "type");
             size_t len = 0;
             const char *text = jget_strn(part, "text", &len);

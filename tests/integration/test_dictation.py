@@ -94,6 +94,26 @@ class Handler(BaseHTTPRequestHandler):
             if isinstance(proposal, str)
             else json.dumps(proposal, ensure_ascii=False)
         )
+        if mode in ("completed", "json") and not chat:
+            # No deltas: the text only arrives as completed output items,
+            # streamed in response.completed or as one JSON Response body.
+            response = {
+                "status": "completed",
+                "output": [
+                    {"type": "reasoning", "id": "rs_1"},
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": payload}],
+                    },
+                ],
+            }
+            if mode == "json":
+                self.reply(200, json.dumps(response, ensure_ascii=False).encode())
+            else:
+                frame = {"type": "response.completed", "response": response}
+                data = f"data: {json.dumps(frame, ensure_ascii=False)}\n\n"
+                self.reply(200, data.encode(), "text/event-stream")
+            return
         pieces = [payload[i : i + 7] for i in range(0, len(payload), 7)]
         if chat:
             frames = [
@@ -670,6 +690,13 @@ while True: time.sleep(1)
         self.assertFalse((self.home / ".tny/sessions").exists())
         plain = self.run_dictate("--normalize", cwd=self.home / "ws")
         self.assertEqual(plain.stdout, NORMALIZED + "\n")
+
+    def test_normalize_reads_completed_items_and_json_bodies(self):
+        for mode in ("completed", "json"):
+            with self.subTest(mode=mode):
+                self.state["norm_mode"] = mode
+                out, _ = self.normalized_json("--normalize")
+                self.assertEqual((out["text"], out["normalized"]), (NORMALIZED, True))
 
     def test_normalize_settings_and_environment_enable_it(self):
         ws = self.normalize_workspace(
