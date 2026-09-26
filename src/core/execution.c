@@ -330,8 +330,20 @@ static char *server_tool(void *ud, const char *name, const char *args) {
         if (decision == TNY_PERM_DECISION_ALLOW_ALWAYS) tools_call_grant(&s->env, &call);
         else if (decision != TNY_PERM_DECISION_ALLOW) {
             s->env.perm_blocked = true;
-            result =
-                tool_err("permission required or denied for %s; no approval available", call.name);
+            /* The summary is the public, secret-safe approval detail. No
+             * permission request is emitted (nobody can answer it); a status
+             * line still tells the human what was refused. */
+            const char *detail = call.summary ? call.summary : call.name;
+            result = tool_err("permission required or denied for %s; no approval available: %s",
+                              call.name, detail);
+            char note[512];
+            int n = snprintf(note, sizeof note, "denying (no approval available): %s", detail);
+            tny_backend_event status = {.kind = TNY_EV_STATUS,
+                                        .text = note,
+                                        .text_len = n < 0                     ? 0
+                                                    : (size_t)n < sizeof note ? (size_t)n
+                                                                              : sizeof note - 1};
+            server_event(&status, s);
         }
     }
     bool began = false;

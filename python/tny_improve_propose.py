@@ -166,12 +166,15 @@ def propose(args: argparse.Namespace, request: dict) -> dict:
             raise ValueError(
                 "tny returned no valid session ID; recovering by workspace"
             )
-        session = candidate_id
+        # Publish before adopting: an interrupt between the two then recovers
+        # by workspace (and prints recovered_session_id) instead of cancelling
+        # a session the receipt never named.
         print(
-            json.dumps({"session_id": session, "workspace": workspace}),
+            json.dumps({"session_id": candidate_id, "workspace": workspace}),
             file=sys.stderr,
             flush=True,
         )
+        session = candidate_id
         code, text = call(
             [
                 *base,

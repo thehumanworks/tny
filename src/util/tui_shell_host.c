@@ -20,9 +20,13 @@ int tui_shell_host_start(const char *command, pid_t *pid) {
     if (!child) {
         if (setpgid(0, 0) != 0) _exit(127);
         int nullfd = open("/dev/null", O_RDONLY);
-        if (nullfd < 0 || dup2(nullfd, STDIN_FILENO) < 0 || dup2(p[1], STDOUT_FILENO) < 0 ||
-            dup2(p[1], STDERR_FILENO) < 0)
-            _exit(127);
+        if (nullfd < 0) _exit(127);
+        /* Keep the results: GCC's analyzer reports a discarded dup2 result as
+         * a leaked descriptor. The child exits on any failure. */
+        int in = dup2(nullfd, STDIN_FILENO);
+        int out = dup2(p[1], STDOUT_FILENO);
+        int err = dup2(p[1], STDERR_FILENO);
+        if (in < 0 || out < 0 || err < 0) _exit(127);
         close(nullfd);
         close(p[0]);
         close(p[1]);
