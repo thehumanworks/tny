@@ -314,7 +314,7 @@ void conversions(const char *text) {
 """
         for suffix, compiler, standard in (
             ("c", os.environ.get("CC", "cc"), "c11"),
-            ("cpp", self.cxx, "c++20"),
+            ("cpp", os.environ.get("CXX", "c++"), "c++20"),
         ):
             with self.subTest(language=suffix):
                 self.write("conversions." + suffix, probe)
