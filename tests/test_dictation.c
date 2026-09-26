@@ -619,7 +619,7 @@ TEST normalize_dictionary_project_wins_per_word(void) {
     PASS();
 }
 
-TEST normalize_config_is_off_by_default_and_explicit(void) {
+TEST normalize_config_is_on_by_default_and_explicit(void) {
     tny_ctx ctx = {0};
     tny_norm_config c;
     char err[160];
@@ -631,7 +631,7 @@ TEST normalize_config_is_off_by_default_and_explicit(void) {
     ctx.settings = jparse(json, strlen(json));
     ASSERT(ctx.settings);
     tny_norm_config_resolve(&ctx, "codex", TNY_DICTATION_NORMALIZE_DEFAULT, &c, err, sizeof err);
-    ASSERT(!c.enabled); /* object without enabled:true stays off */
+    ASSERT(c.enabled && c.valid); /* object without enabled inherits the default */
     tny_norm_config_resolve(&ctx, "xai", TNY_DICTATION_NORMALIZE_ON, &c, err, sizeof err);
     ASSERT(c.enabled && c.valid);
     ASSERT_STR_EQ("grok-x", c.model);
@@ -640,12 +640,26 @@ TEST normalize_config_is_off_by_default_and_explicit(void) {
     ASSERT_EQ(7, c.timeout_seconds);
     tny_norm_config_resolve(&ctx, "codex", TNY_DICTATION_NORMALIZE_ON, &c, err, sizeof err);
     ASSERT_STR_EQ("", c.model); /* the adapter default applies */
+    yyjson_doc_free(ctx.settings);
+    ctx.settings = jparse("{}", 2);
+    tny_norm_config_resolve(&ctx, "codex", TNY_DICTATION_NORMALIZE_DEFAULT, &c, err, sizeof err);
+    ASSERT(c.enabled && c.valid); /* no dictation settings */
+    yyjson_doc_free(ctx.settings);
+    json = "{\"dictation\":{\"normalize\":{\"enabled\":false}}}";
+    ctx.settings = jparse(json, strlen(json));
+    tny_norm_config_resolve(&ctx, "codex", TNY_DICTATION_NORMALIZE_DEFAULT, &c, err, sizeof err);
+    ASSERT(!c.enabled);
     setenv("TNY_DICTATION_NORMALIZE", "1", 1);
     setenv("TNY_DICTATION_NORMALIZE_EFFORT", "omit", 1);
     tny_norm_config_resolve(&ctx, "codex", TNY_DICTATION_NORMALIZE_DEFAULT, &c, err, sizeof err);
     ASSERT(c.enabled && c.valid);
     ASSERT_STR_EQ("", c.effort);
     tny_norm_config_resolve(&ctx, "codex", TNY_DICTATION_NORMALIZE_OFF, &c, err, sizeof err);
+    ASSERT(!c.enabled);
+    setenv("TNY_DICTATION_NORMALIZE", "0", 1);
+    tny_norm_config_resolve(&ctx, "codex", TNY_DICTATION_NORMALIZE_ON, &c, err, sizeof err);
+    ASSERT(c.enabled); /* explicit CLI flag wins */
+    tny_norm_config_resolve(&ctx, "codex", TNY_DICTATION_NORMALIZE_DEFAULT, &c, err, sizeof err);
     ASSERT(!c.enabled);
     setenv("TNY_DICTATION_NORMALIZE", "yes", 1);
     tny_norm_config_resolve(&ctx, "codex", TNY_DICTATION_NORMALIZE_DEFAULT, &c, err, sizeof err);
@@ -680,5 +694,5 @@ SUITE(dictation_suite) {
     RUN_TEST(normalize_proposal_parse_is_strict);
     RUN_TEST(normalize_dictionary_parse_validates_and_bounds);
     RUN_TEST(normalize_dictionary_project_wins_per_word);
-    RUN_TEST(normalize_config_is_off_by_default_and_explicit);
+    RUN_TEST(normalize_config_is_on_by_default_and_explicit);
 }

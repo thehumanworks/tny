@@ -39,9 +39,14 @@ void tny_norm_config_resolve(const tny_ctx *ctx, const char *adapter, int mode, 
                              char *err, size_t len) {
     memset(c, 0, sizeof *c);
     c->valid = true;
+    /* Dictation start checks local provider availability before any request. */
+    c->enabled = true;
     c->timeout_seconds = TNY_NORMALIZE_TIMEOUT_DEFAULT;
     if (len) *err = 0;
-    if (mode == TNY_DICTATION_NORMALIZE_OFF) return;
+    if (mode == TNY_DICTATION_NORMALIZE_OFF) {
+        c->enabled = false;
+        return;
+    }
     /* Standalone dictation has no loaded context: read only user settings. */
     yyjson_doc *loaded = NULL;
     yyjson_doc *settings = ctx ? ctx->settings : NULL;
@@ -66,7 +71,7 @@ void tny_norm_config_resolve(const tny_ctx *ctx, const char *adapter, int mode, 
         yyjson_val *enabled = jget(object, "enabled");
         if (enabled && !yyjson_is_bool(enabled))
             invalid(c, err, len, "dictation.normalize.enabled must be true or false");
-        c->enabled = yyjson_get_bool(enabled);
+        if (enabled) c->enabled = yyjson_get_bool(enabled);
     } else if (option) {
         c->enabled = true;
         invalid(c, err, len, "dictation.normalize must be a boolean or an object");

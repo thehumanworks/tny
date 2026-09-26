@@ -44,13 +44,13 @@ tny dictate --no-normalize            # force raw output despite settings/env
 ```
 
 Plain stdout contains only the transcript plus a newline; progress and errors
-go to stderr. JSON success is one object:
+go to stderr. With normalization explicitly off, JSON success is one object:
 
 ```json
 {"kind":"dictate","provider":"codex","text":"Please review these changes."}
 ```
 
-When normalization is enabled the same object gains the normalization record;
+By default the object also includes the normalization record;
 `text` is what plain stdout prints and what the TUI inserts:
 
 ```json
@@ -64,7 +64,8 @@ When the rewrite did not apply, `normalized` is `false`, `text` equals `raw`,
 `corrections` is `[]`, and `skipped_reason` says why (see below). `effort` is
 the value sent on the last request (`null` when omitted or after an effort
 retry); `service_tier` is `"priority"` only when `fast` was sent. With
-normalization off the object is unchanged from the example above.
+normalization off the object has only `kind`, `provider`, and `text`, as in the
+first example.
 
 `--check` emits `{"kind":"dictate","available":true}` or `false`; it does not
 open the microphone or the input file, make requests, or refresh credentials.
@@ -155,20 +156,24 @@ transport, with browser CORS restrictions.
 ## Normalization and the dictionary
 
 STT mangles project vocabulary (`kube cuddle` for `kubectl`, `tiny` for
-`tny`), and neither adapter accepts a vocabulary hint. Normalization is an
-opt-in, second request from the **same subscription credential that just
-transcribed**, to a small model, followed by a deterministic check in C
+`tny`), and neither adapter accepts a vocabulary hint. Normalization is a default-on, second request from the **same subscription
+credential that just transcribed**, to a small model, followed by a
+deterministic check in C
 ([ADR 0175](adr/0175-dictation-transcript-normalization.md)).
 
-Enable it with `tny dictate --normalize`, `TNY_DICTATION_NORMALIZE=1`, or
-`~/.tny/settings.json`:
+When the selected provider's local credentials and dictation prerequisites are
+available, successful dictation normalizes by default. It makes no extra
+request when dictation is unavailable. Disable it with `--no-normalize` on
+`tny dictate`, `TNY_DICTATION_NORMALIZE=0`, or `~/.tny/settings.json`.
+Explicit enablement with `--normalize` or `TNY_DICTATION_NORMALIZE=1` is
+also supported:
 
 ```json
 { "dictation": { "normalize": { "enabled": true, "timeout_seconds": 20 } } }
 ```
 
 `"normalize": true` is shorthand. Precedence is `--normalize`/`--no-normalize`,
-then `TNY_DICTATION_NORMALIZE` (`1`/`0`), then settings, then off. The TUI
+then `TNY_DICTATION_NORMALIZE` (`1`/`0`), then settings, then on. The TUI
 (Ctrl-R, `/dictate`) follows the environment and settings.
 
 | STT adapter | Model (default) | Request |
@@ -181,7 +186,7 @@ Settings `dictation.normalize`:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `enabled` | `false` | Turn normalization on (an object alone does not). |
+| `enabled` | `true` | Turn normalization off with `false`; an object without `enabled` inherits the default. |
 | `model` | adapter default | String, or `{"codex": …, "xai": …}`. `TNY_DICTATION_NORMALIZE_MODEL` wins. Never the conversation model. |
 | `effort` | `off` | Canonical level (`off` → `none`, `light` → `low`) or a provider token; `omit` sends no field. `TNY_DICTATION_NORMALIZE_EFFORT` wins. A rejected value (HTTP 400/422) is retried once without the field. |
 | `fast` | `false` | Codex only: `service_tier: "priority"`. Never inherited from the conversation's `--fast`. |

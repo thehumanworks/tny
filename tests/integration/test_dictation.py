@@ -335,6 +335,9 @@ while True: time.sleep(1)
             "TNY_CODEX_BASE_URL": self.url + "/backend-api/codex/",
             "DICTATION_RECORDER_LOG": str(self.log),
             "TNY_ISOLATE": "0",
+            # Legacy raw-transcript tests opt out explicitly; default-on tests
+            # remove this key to exercise the real product default.
+            "TNY_DICTATION_NORMALIZE": "0",
         }
 
     def tearDown(self):
@@ -650,19 +653,33 @@ while True: time.sleep(1)
         self.assertNotIn("settings", body["instructions"])
         self.assertNotIn(str(self.home), json.dumps(body))
 
-    def test_normalize_off_by_default_with_credentials_present(self):
+    def test_normalize_on_by_default_with_credentials_present(self):
+        self.env.pop("TNY_DICTATION_NORMALIZE")
         ws = self.normalize_workspace()
         p = self.run_dictate("--json", cwd=ws)
         self.assertEqual(p.returncode, 0, p.stderr)
+        out = json.loads(p.stdout)
+        self.assertEqual(
+            (out["text"], out["raw"], out["normalized"]), (NORMALIZED, SPOKEN, True)
+        )
+        self.assertEqual(len(self.state["normalize"]), 1)
+        self.assert_normalizer_request(self.state["normalize"][0])
+        p = self.run_dictate(cwd=ws)
+        self.assertEqual(p.stdout, NORMALIZED + "\n")
+        # Both settings and environment can opt out; CLI off wins over both.
+        self.state["normalize"].clear()
+        self.normalize_workspace(
+            settings={"dictation": {"normalize": {"enabled": False}}}
+        )
+        p = self.run_dictate("--json", cwd=ws)
         self.assertEqual(
             json.loads(p.stdout),
             {"kind": "dictate", "provider": "codex", "text": SPOKEN},
         )
-        p = self.run_dictate(cwd=ws)
-        self.assertEqual(p.stdout, SPOKEN + "\n")
-        # An explicit off beats the environment and settings.
-        self.normalize_workspace(settings={"dictation": {"normalize": True}})
-        env = {**self.env, "TNY_DICTATION_NORMALIZE": "1"}
+        env = {**self.env, "TNY_DICTATION_NORMALIZE": "0"}
+        p = self.run_dictate("--json", env=env, cwd=ws)
+        self.assertEqual(json.loads(p.stdout)["text"], SPOKEN)
+        env["TNY_DICTATION_NORMALIZE"] = "1"
         p = self.run_dictate("--no-normalize", env=env, cwd=ws)
         self.assertEqual(p.stdout, SPOKEN + "\n")
         self.assertFalse(self.state["normalize"])
@@ -699,6 +716,7 @@ while True: time.sleep(1)
                 self.assertEqual((out["text"], out["normalized"]), (NORMALIZED, True))
 
     def test_normalize_settings_and_environment_enable_it(self):
+        self.env.pop("TNY_DICTATION_NORMALIZE")
         ws = self.normalize_workspace(
             settings={
                 "dictation": {
@@ -767,6 +785,7 @@ while True: time.sleep(1)
 
     @unittest.skipUnless(MICROPHONE, "native deadline")
     def test_normalize_timeout_keeps_raw(self):
+        self.env.pop("TNY_DICTATION_NORMALIZE")
         self.state["norm_mode"] = "stall"
         ws = self.normalize_workspace(
             settings={
@@ -1162,6 +1181,15 @@ class XaiDictationTests(unittest.TestCase):
                 self.assertNotIn(name, headers)
             self.assertEqual(body["response_format"]["type"], "json_schema")
 
+    def test_normalize_on_by_default_with_xai_credentials(self):
+        self.env.pop("TNY_DICTATION_NORMALIZE")
+        out, _ = self.normalized_json()
+        self.assertEqual(
+            (out["text"], out["raw"], out["normalized"]), (NORMALIZED, SPOKEN, True)
+        )
+        self.assertEqual(len(self.state["normalize"]), 1)
+        self.xai_request()
+
     def test_normalize_api_key_uses_public_chat_with_schema(self):
         out, _ = self.normalized_json("--normalize")
         self.assertEqual(
@@ -1178,7 +1206,7 @@ class XaiDictationTests(unittest.TestCase):
         self.assertEqual(out["text"], NORMALIZED)
         self.xai_request(login=True)
 
-    def test_normalize_off_by_default_and_failures_keep_raw(self):
+    def test_normalize_explicit_off_and_failures_keep_raw(self):
         ws = self.normalize_workspace()
         p = self.run_dictate("--json", cwd=ws)
         self.assertEqual(json.loads(p.stdout)["text"], SPOKEN)

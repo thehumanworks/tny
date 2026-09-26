@@ -426,7 +426,7 @@ bool help_for(const char *command) {
                "                       small model and ~/.tny + .tny dictionary.json, then\n"
                "                       verify it; any failure keeps the raw transcript\n"
                "  --no-normalize       Force normalization off (TNY_DICTATION_NORMALIZE,\n"
-               "                       settings dictation.normalize; default off)\n"
+               "                       settings dictation.normalize; default on when available)\n"
                "  --json               One result object with provider and text (plus raw,\n"
                "                       normalized, model, effort, service_tier, corrections\n"
                "                       and skipped_reason when normalization is enabled)\n"
