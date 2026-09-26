@@ -141,6 +141,20 @@ static void complete(tny_dictation *d, int rc) {
     if (rc && !*d->error) snprintf(d->error, sizeof d->error, "dictation failed");
 }
 
+/* The accepted corrections as the JSON array tny dictate --json prints. */
+static void corrections_json(buf_t *out, const tny_norm_proposal *p) {
+    buf_appends(out, "[");
+    for (size_t i = 0; i < p->n; i++) {
+        const tny_norm_correction *c = &p->corrections[i];
+        buf_appends(out, i ? ",{\"span\":" : "{\"span\":");
+        jescape(out, c->span);
+        buf_appends(out, ",\"replacement\":");
+        jescape(out, c->replacement);
+        buf_appendf(out, ",\"reason\":\"%s\"}", tny_norm_reason_name(c->reason));
+    }
+    buf_appends(out, "]");
+}
+
 /* Deliver the raw transcript or the accepted rewrite; see Lean deliver. */
 static void norm_settle(tny_dictation *d, const char *reason) {
     if (d->norm.phase == TNY_NORM_NORMALIZING) return;
@@ -148,26 +162,19 @@ static void norm_settle(tny_dictation *d, const char *reason) {
         secure_zero(d->text.data, d->text.len); /* d->raw keeps the transcript */
         buf_clear(&d->text);
         buf_append(&d->text, d->accepted.text, d->accepted.text_len);
-        buf_appends(&d->corrections, "[");
-        for (size_t i = 0; i < d->accepted.n; i++) {
-            const tny_norm_correction *c = &d->accepted.corrections[i];
-            buf_appends(&d->corrections, i ? ",{\"span\":" : "{\"span\":");
-            jescape(&d->corrections, c->span);
-            buf_appends(&d->corrections, ",\"replacement\":");
-            jescape(&d->corrections, c->replacement);
-            buf_appendf(&d->corrections, ",\"reason\":\"%s\"}", tny_norm_reason_name(c->reason));
-        }
-        buf_appends(&d->corrections, "]");
+        corrections_json(&d->corrections, &d->accepted);
         if (d->text.oom || d->corrections.oom) {
             /* Never lose the transcript to an allocation failure: oom is
-             * sticky, so start from a fresh buffer. */
+             * sticky, so start from a fresh buffer. This downgrade to raw
+             * is the one outcome change outside tny_norm_step. */
             private_free(&d->text);
             buf_append(&d->text, d->raw.data, d->raw.len);
             d->norm.outcome = TNY_NORM_RAW;
             reason = "out_of_memory";
         }
     }
-    if (d->norm.outcome == TNY_NORM_RAW && d->norm.requests)
+    /* Reported only when normalization was enabled (requests > 0). */
+    if (d->norm.outcome != TNY_NORM_NORMALIZED)
         snprintf(d->skipped, sizeof d->skipped, "%s", reason ? reason : "not_normalized");
     tny_norm_proposal_free(&d->accepted);
     complete(d, d->text.oom ? 1 : 0);

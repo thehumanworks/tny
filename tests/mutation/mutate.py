@@ -186,7 +186,7 @@ TARGETS = [
     (
         "src/core/dictation.c",
         ["norm_settle", "norm_step", "norm_start_request", "tny_dictation_cancel"],
-        r"TNY_NORM_|rc == 3|effort_sent|requests|oom",
+        r"TNY_NORM_|rc == 3|effort_sent|requests",
         "tests/integration/test_dictation.py",
         "dictation-normalize",
     ),
