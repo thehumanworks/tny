@@ -409,14 +409,16 @@ def case_permission_event(ws):
     events = parse_stream(run.stdout)
     assert_envelope(events)
     one_terminal(events)
+    # Nested code-mode calls have no synchronous approval owner in ask: they
+    # deny without an unanswerable permission_request (ADR 0174).
     requests = [e for e in events if e["type"] == "permission_request"]
-    check(len(requests) == 1, [e["type"] for e in events])
-    check(requests[0]["permission_id"] != "", requests)
-    check(isinstance(requests[0]["permission_options"], int), requests)
-    check(requests[0]["permission_options"] > 0, requests)
-    ends = [e for e in events if e["type"] == "tool_end"]
-    check(ends and ends[0]["tool_ok"] is False, ends)
-    check(b"denying" in run.stderr, run.stderr)
+    check(requests == [], [e["type"] for e in events])
+    nested = [e for e in events if e.get("tool_name") not in (None, "run_code")]
+    check([e["type"] for e in nested] == ["tool_end"], nested)
+    check(nested[0]["tool_ok"] is False, nested)
+    check("no approval available" in nested[0]["tool_detail"], nested)
+    wrappers = [e for e in events if e.get("tool_name") == "run_code"]
+    check([e["type"] for e in wrappers] == ["tool_start", "tool_end"], wrappers)
 
 
 def case_provider_error(ws_factory):

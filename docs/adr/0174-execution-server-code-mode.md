@@ -85,7 +85,9 @@ result until EOF and successful executor reap, with a separate aggregate
 watchdog; only bounded human waits extend the server's execution budget.
 
 Without a synchronous permission owner, unresolved permissions deny without
-emitting an unanswerable permission request. An extension stop immediately ends
+emitting an unanswerable permission request. The nested error result carries
+the tool's public approval summary, and a `denying (no approval available)`
+status line tells the human what was refused without a permission event. An extension stop immediately ends
 Lua authority and is reported as owner-policy cancellation, retaining completed
 effects instead of replaying them or misclassifying the stop as an ordinary timeout.
 
