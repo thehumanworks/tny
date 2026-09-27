@@ -318,7 +318,107 @@ TEST code_policy_boundaries(void) {
     PASS();
 }
 
+static char *exact_name_tool(void *userdata, const char *name, const char *args) {
+    (void)args;
+    unsigned *calls = userdata;
+    ++*calls;
+    return xstrdup(name);
+}
+
+TEST code_tool_names_preserve_exact_bytes(void) {
+    unsigned calls = 0;
+    const char *source = "names = ['echo', 'echo\\n', '\\nleading', 'two\\nlines', 'with:colon', "
+                         "'\\u00e9', 'x' * 256]\n"
+                         "for name in names:\n"
+                         "    assert tools.call(name, '{}') == name\n"
+                         "print('exact')\n";
+    char *out = tny_code_run(source, 5000, NULL, exact_name_tool, &calls);
+    ASSERT(out);
+    ASSERT_STR_EQ("exact\n", out);
+    ASSERT_EQ(7u, calls);
+    free(out);
+    PASS();
+}
+
+TEST code_json_reentrant_container_lifetimes(void) {
+    const char *source = "values = [object(), object()]\n"
+                         "def shrink(value):\n"
+                         "    values.clear()\n"
+                         "    return 7\n"
+                         "assert json.dumps(values, default=shrink) == '[7]'\n"
+                         "class Broken(dict):\n"
+                         "    def items(self):\n"
+                         "        return [1]\n"
+                         "try:\n"
+                         "    json.dumps(Broken(a=1))\n"
+                         "except (TypeError, ValueError):\n"
+                         "    pass\n"
+                         "else:\n"
+                         "    raise AssertionError('malformed item was accepted')\n"
+                         "pairs = [('a', object()), ('b', 2)]\n"
+                         "class Mutable(dict):\n"
+                         "    def items(self):\n"
+                         "        return pairs\n"
+                         "def change(value):\n"
+                         "    pairs.clear()\n"
+                         "    return 3\n"
+                         "assert json.loads(json.dumps(Mutable(a=1), default=change)) == {'a': 3}\n"
+                         "print('containers')\n";
+    char *out = tny_code_run(source, 5000, NULL, NULL, NULL);
+    ASSERT(out);
+    ASSERT_STR_EQ("containers\n", out);
+    free(out);
+    PASS();
+}
+
+TEST code_json_error_metadata_and_describe_boundaries(void) {
+    const char *source = "text = '[1,]'\n"
+                         "try:\n"
+                         "    json.loads(text)\n"
+                         "except json.JSONDecodeError as error:\n"
+                         "    assert error.doc == text\n"
+                         "    assert isinstance(error.msg, str)\n"
+                         "    assert error.lineno == 1 and error.colno >= 1 and error.pos >= 0\n"
+                         "assert json.dumps({'a': 1}, separators=[',', ':']) == '{\"a\":1}'\n"
+                         "try:\n"
+                         "    tools.describe('echo\\x00other')\n"
+                         "except ValueError:\n"
+                         "    pass\n"
+                         "else:\n"
+                         "    raise AssertionError('NUL name silently truncated')\n"
+                         "assert tools.describe('echo') is not None\n"
+                         "print('metadata')\n";
+    char *out = tny_code_run(source, 5000, "[{\"name\":\"echo\"}]", NULL, NULL);
+    ASSERT(out);
+    ASSERT_STR_EQ("metadata\n", out);
+    free(out);
+    PASS();
+}
+
+TEST code_fatal_quota_does_not_run_finally_or_following_bytecode(void) {
+    unsigned calls = 0;
+    const char *source = "try:\n"
+                         "    print('x' * 70000)\n"
+                         "finally:\n"
+                         "    tools.call('echo', '{\"finally\":true}')\n"
+                         "tools.call('echo', '{\"after\":true}')\n";
+    char *out = tny_code_run(source, 5000, NULL, fake_tool, &calls);
+    ASSERT(out);
+    ASSERT(strstr(out, "output limit exceeded"));
+    ASSERT_EQ(0u, calls);
+    free(out);
+    out = tny_code_run("print('fresh')\n", 5000, NULL, NULL, NULL);
+    ASSERT(out);
+    ASSERT_STR_EQ("fresh\n", out);
+    free(out);
+    PASS();
+}
+
 SUITE(code_runtime_suite) {
+    RUN_TEST(code_tool_names_preserve_exact_bytes);
+    RUN_TEST(code_json_reentrant_container_lifetimes);
+    RUN_TEST(code_json_error_metadata_and_describe_boundaries);
+    RUN_TEST(code_fatal_quota_does_not_run_finally_or_following_bytecode);
     RUN_TEST(code_composes_calls_and_json);
     RUN_TEST(code_state_is_fresh_and_loading_names_absent);
     RUN_TEST(code_limits_are_enforced);

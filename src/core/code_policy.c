@@ -30,7 +30,7 @@ bool tny_code_memory_admit(uint64_t used, uint64_t request, uint64_t header, uin
 bool tny_code_frame_admit(int phase, int type, uint64_t payload_bytes, uint64_t calls_done) {
     return phase == TNY_CODE_PHASE_RUNNING && payload_bytes >= 1 &&
            ((type == TNY_CODE_FRAME_CALL && calls_done < TNY_CODE_TOOL_CALLS &&
-             payload_bytes <= TNY_CODE_NAME_BYTES + 2 + TNY_CODE_ARGUMENT_BYTES) ||
+             payload_bytes <= TNY_CODE_NAME_BYTES + 4 + TNY_CODE_ARGUMENT_BYTES) ||
             (type == TNY_CODE_FRAME_DONE && payload_bytes <= TNY_CODE_RESULT_TEXT_BYTES + 1));
 }
 

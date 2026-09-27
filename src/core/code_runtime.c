@@ -104,14 +104,22 @@ char *tny_code_run_with_deadline(const char *code, const int64_t *deadline,
             output = failure ? cell_error(failure) : xstrdup(frame + 1);
             if (!output) error = "result allocation failed";
         } else {
-            char *name = frame + 1;
-            char *newline = strchr(name, '\n');
-            char *arguments = newline ? newline + 1 : NULL;
-            size_t name_len = newline ? (size_t)(newline - name) : 0;
-            size_t args_len = arguments ? len - (size_t)(arguments - frame) : 0;
-            if (newline) *newline = 0;
-            if (!newline || !tny_code_call_admit(calls, name_len, strcmp(name, "run_code") == 0,
-                                                 args_len, is_json_object(arguments, args_len))) {
+            /* A fixed three-digit decimal byte length makes the name exact,
+             * including punctuation/newlines. Never reinterpret part of a
+             * name as JSON whitespace or scan a missing argument pointer. */
+            bool prefix = len >= 4 && frame[1] >= '0' && frame[1] <= '9' && frame[2] >= '0' &&
+                          frame[2] <= '9' && frame[3] >= '0' && frame[3] <= '9';
+            size_t name_len = prefix ? (size_t)(frame[1] - '0') * 100 +
+                                           (size_t)(frame[2] - '0') * 10 + (size_t)(frame[3] - '0')
+                                     : 0;
+            char name[TNY_CODE_NAME_BYTES + 1] = {0};
+            bool complete =
+                prefix && name_len >= 1 && name_len <= TNY_CODE_NAME_BYTES && len >= 4 + name_len;
+            const char *arguments = complete ? frame + 4 + name_len : NULL;
+            size_t args_len = complete ? len - 4 - name_len : 0;
+            if (complete) memcpy(name, frame + 4, name_len);
+            if (!complete || !tny_code_call_admit(calls, name_len, strcmp(name, "run_code") == 0,
+                                                  args_len, is_json_object(arguments, args_len))) {
                 error = "cell protocol violation";
             } else {
                 ++calls;
@@ -181,12 +189,16 @@ static int64_t child_wait(void) {
 static char *child_call(void *ud, const char *name, const char *arguments) {
     cell_child *c = ud;
     size_t name_len = strlen(name), args_len = strlen(arguments);
-    char *payload = malloc(name_len + 1 + args_len + 1);
+    char *payload = malloc(3 + name_len + args_len + 1);
     int rc = -1;
     if (payload) {
-        snprintf(payload, name_len + 1 + args_len + 1, "%s\n%s", name, arguments);
-        rc = send_frame(c->fd, TNY_CODE_FRAME_CALL, payload, name_len + 1 + args_len, NULL, 0,
-                        child_wait(), NULL, NULL);
+        int prefix = snprintf(payload, 4, "%03u", (unsigned)name_len);
+        if (prefix == 3 && name_len >= 1 && name_len <= TNY_CODE_NAME_BYTES) {
+            memcpy(payload + 3, name, name_len);
+            memcpy(payload + 3 + name_len, arguments, args_len + 1);
+            rc = send_frame(c->fd, TNY_CODE_FRAME_CALL, payload, 3 + name_len + args_len, NULL, 0,
+                            child_wait(), NULL, NULL);
+        }
         free(payload);
     }
     char *reply = rc ? NULL : tny_exec_host_receive(c->fd, child_wait(), NULL, NULL);

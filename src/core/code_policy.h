@@ -12,7 +12,7 @@
 
 /* Parent-side cell protocol frame types (first payload byte). */
 #define TNY_CODE_FRAME_START  83 /* 'S' parent -> child: catalog length, catalog, code */
-#define TNY_CODE_FRAME_CALL   67 /* 'C' child -> parent: name '\n' JSON object arguments */
+#define TNY_CODE_FRAME_CALL   67 /* 'C' child -> parent: 3 decimal name-length digits, name, JSON */
 #define TNY_CODE_FRAME_RESULT 82 /* 'R' parent -> child: tool result text */
 #define TNY_CODE_FRAME_FAIL   70 /* 'F' parent -> child: terminal failure, no more calls */
 #define TNY_CODE_FRAME_DONE   68 /* 'D' child -> parent: final cell output */

@@ -8,6 +8,7 @@
 #include <string.h>
 #ifndef __EMSCRIPTEN__
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -187,6 +188,52 @@ TEST execution_transport_max_frame_and_closed_peer(void) {
     close(fds[1]);
     PASS();
 }
+
+/* A final response and EOF are not proof of a successful child exit. Exercise
+ * the same completed-close seam that production code cells use, with an owned
+ * child reporting success, failure, signal termination or an overlong teardown. */
+TEST execution_completed_result_requires_successful_reap(void) {
+    for (int mode = 0; mode < 4; ++mode) {
+        int fds[2];
+        ASSERT_EQ(0, transport_pair(fds));
+        pid_t child = fork();
+        ASSERT(child >= 0);
+        if (!child) {
+            close(fds[0]);
+            if (tny_exec_host_send(fds[1], "Dfinished", monotonic_ms() + 3000, NULL, NULL))
+                _exit(91);
+            close(fds[1]);
+            if (mode == 2) {
+                signal(SIGTERM, SIG_DFL);
+                raise(SIGTERM);
+            }
+            if (mode == 3) usleep(1800000);
+            _exit(mode == 1 ? 7 : 0);
+        }
+        close(fds[1]);
+        tny_exec_host host = {.fd = fds[0], .pid = child, .reaped = false};
+        char *response = tny_exec_host_receive(host.fd, monotonic_ms() + 3000, NULL, NULL);
+        bool message_ok = response && strcmp(response, "Dfinished") == 0;
+        free(response);
+        int eof = tny_exec_host_expect_eof(host.fd, monotonic_ms() + 3000, NULL, NULL);
+        int closed = tny_exec_host_close(&host, true);
+        /* Even an instrumentor without the owned-tree stop syscall must reap
+         * this finite-lived fixture. A successful forced stop is not success. */
+        if (!host.reaped) {
+            int status = 0;
+            pid_t got;
+            do { got = waitpid(child, &status, 0); } while (got < 0 && errno == EINTR);
+            host.reaped = got == child;
+        }
+        ASSERT(message_ok);
+        ASSERT_EQ(0, eof);
+        ASSERT(host.reaped);
+        if (mode == 0) ASSERT_EQ(0, closed);
+        else ASSERT(closed != 0);
+    }
+    PASS();
+}
+
 #endif
 
 /* Keep allocator-only transport coverage in macOS leaks. The two fork-based
@@ -202,6 +249,7 @@ SUITE(execution_transport_suite) {
 
 SUITE(execution_transport_process_suite) {
 #ifndef __EMSCRIPTEN__
+    RUN_TEST(execution_completed_result_requires_successful_reap);
     RUN_TEST(execution_transport_every_split_boundary);
     RUN_TEST(execution_transport_max_frame_and_closed_peer);
 #endif

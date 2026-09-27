@@ -260,7 +260,7 @@ static PyObject *tools_call(PyObject *self, PyObject *const *args, Py_ssize_t na
         return NULL;
     }
     bool recursive = strcmp(name, "run_code") == 0;
-    if (!name_len || name_len > TNY_CODE_NAME_BYTES || memchr(name, '\n', (size_t)name_len)) {
+    if (!name_len || name_len > TNY_CODE_NAME_BYTES) {
         PyErr_SetString(PyExc_ValueError, "invalid tool name");
         return NULL;
     }

@@ -175,3 +175,19 @@ CPython (6,165,632 > 4,668,312 B); its final 36 vs 35 is one task. Decision:
 **CPython 3.14.7, pinned and statically embedded**, isolated in an
 OS-confined cell process. The production wording is not worse than PR #197's
 on held-out tasks (observed 2.8% fewer output tokens, interval spans zero).
+
+### 2026-09-27T18:20:05.979102+01:00 — integrated review checkpoints
+Merged codec ownership/metadata corrections and process-terminal quota handling;
+child DONE+EOF now also requires successful exit. Replaced newline name framing
+with a fixed three-digit byte count, preserving exact names and bounded arguments.
+Added persistent production regressions: 14/14 runtime cases, 125 assertions;
+3/3 transport/process cases, 383 assertions. No assertion or sanitizer suppressed.
+
+The independent Opus/high proof worker completed normally (exit 0). Integrated
+its typed Clang-AST → Lean BitVec translation, source mutations and runtime-choice
+proof; the superseded simpler checker is retained only in history. On the amended
+frame bounds, Lean 4.12.0 proved 36 specifications, one helper, 17 generated
+no-wrap obligations; 6,070 compiled GCC/Clang UBSan vectors matched Lean kernel
+evaluation. Thirteen selection theorems plus 371 replay vectors passed. This does
+not prove interpreter/OS or all call-site implementation correctness. Full mutation
+suite remains pending a durable completed run (one tool waiter timed out).

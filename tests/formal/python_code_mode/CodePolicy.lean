@@ -55,11 +55,11 @@ def JArray : Nat := 5
 def JObject : Nat := 6
 def JDefault : Nat := 7
 
-/-- A CALL frame is 'C', the name, '\n' and the JSON arguments; DONE is 'D' and
+/-- A CALL frame is 'C', a three-digit byte length, the exact name and JSON arguments; DONE is 'D' and
 the final text: bounded output plus at most one error line. -/
 def FrameSpec (phase type : Int) (payload calls : Nat) : Prop :=
   phase = Running ∧ 1 ≤ payload ∧
-    ((type = FrameCall ∧ calls < ToolCalls ∧ payload ≤ 1 + NameBytes + 1 + ArgumentBytes) ∨
+    ((type = FrameCall ∧ calls < ToolCalls ∧ payload ≤ 1 + 3 + NameBytes + ArgumentBytes) ∨
      (type = FrameDone ∧ payload ≤ 1 + OutputBytes + ErrorLineBytes))
 
 /-- First matching Python type test wins: None, then bool (an int subclass),
@@ -248,8 +248,8 @@ theorem no_call_frame_after_budget (p : BitVec 32) (n c : BitVec 64) (h : ToolCa
 
 theorem frame_boundaries :
     let run := 1#32; let call := 67#32; let done := 68#32
-    tny_code_frame_admit run call 262402#64 63#64 = true ∧
-    tny_code_frame_admit run call 262403#64 0#64 = false ∧
+    tny_code_frame_admit run call 262404#64 63#64 = true ∧
+    tny_code_frame_admit run call 262405#64 0#64 = false ∧
     tny_code_frame_admit run call 1#64 64#64 = false ∧
     tny_code_frame_admit run done 66049#64 64#64 = true ∧
     tny_code_frame_admit run done 66050#64 0#64 = false ∧
@@ -262,9 +262,9 @@ theorem frame_boundaries :
   decide
 
 /-- Parent and child gates agree: every call the child admits yields a CALL
-frame ('C' + name + '\n' + arguments) that the parent admits. -/
+frame ('C' + three-digit name length + name + arguments) that the parent admits. -/
 theorem admitted_call_fits_call_frame (c n a p : BitVec 64) (r o : Bool)
-    (h : tny_code_call_admit c n r a o = true) (hp : p.toNat = 1 + n.toNat + 1 + a.toNat) :
+    (h : tny_code_call_admit c n r a o = true) (hp : p.toNat = 1 + 3 + n.toNat + a.toNat) :
     tny_code_frame_admit (1#32) (67#32) p c = true := by
   have := (call_admit_iff c n a r o).mp h
   rw [frame_admit_iff]
