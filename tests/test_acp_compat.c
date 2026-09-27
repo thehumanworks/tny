@@ -7,7 +7,7 @@
 TEST acp_versions_match_lean(void) {
     FILE *f = fopen("tests/formal/acp/golden/versions.tsv", "r");
     ASSERT(f);
-    char line[1024];
+    static char line[1024];
     ASSERT(fgets(line, sizeof line, f));
     ASSERT_STR_EQ("name\tversion\taccepted\n", line);
     size_t rows = 0;
@@ -65,7 +65,7 @@ TEST acp_versions_fail_closed(void) {
 }
 
 TEST acp_versions_numeric_order(void) {
-    char version[64];
+    static char version[64];
     for (unsigned int major = 0; major < 3; major++) {
         for (unsigned int minor = 0; minor <= 110; minor++) {
             for (unsigned int patch = 0; patch < 4; patch++) {
