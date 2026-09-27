@@ -1,4 +1,4 @@
-# 0175 — Retain Lua after the Codex code-mode language benchmark
+# 0178 — Retain Lua after the Codex code-mode language benchmark
 
 Date: 2026-09-27
 Status: accepted

@@ -1,5 +1,19 @@
 # Sources
 
+## Claude ACP tools-only compatibility (ADR 0177)
+
+- https://github.com/agentclientprotocol/claude-agent-acp — upstream adapter.
+- https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp — installed
+  mise package `0.81.2`; locally inspected `package.json` and `dist/acp-agent.js`
+  (`OPTION_REBUILDS_SESSION`, tools resolution and query option assembly).
+  The package accepts `tools`, `settingSources`, and `strictMcpConfig` overrides
+  under `_meta.claudeCode.options` and pins Claude Agent SDK `0.3.280`.
+- An initialize-only exchange against that installed package reported exact name
+  `@agentclientprotocol/claude-agent-acp`, version `0.81.2`, protocol `1` and
+  `loadSession: true`. No session creation or live inference was needed.
+- https://semver.org/spec/v2.0.0.html — numeric core ordering and build metadata;
+  tny deliberately accepts stable releases only, with uint32 core components.
+
 ## TypeSafe Jev decision engine (tnyjev)
 
 Primary API documentation consulted 2026-09-22; model default `jev-latest`

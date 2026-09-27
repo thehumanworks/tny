@@ -1,5 +1,8 @@
 # ACP client restoration verification contract
 
+[Minimum-compatible version validation](minimum-version.md) covers ADR 0177's
+newer stable releases and Lean 4 admission/lifecycle proofs.
+
 Base revision: `ee4aa6c9a81395c8260f7b9c1536aeba16027fd9`.
 Implementation and delivery use the isolated `feat/restore-acp-client` worktree.
 Final follow-up gates are recorded in [delivery-validation.json](delivery-validation.json). Current results belong in [evidence.md](evidence.md).
@@ -46,7 +49,7 @@ are authorized only for small ACP validation using Sonnet; never expose secrets.
 | Same-process repeated turns | Same external session; guarded managed turns reconnect with advertised load |
 | Detached runner/client reattach | Existing runner transport; external turn stays in runner |
 | Mid-turn checkpoint/restart, steer, compaction | Native-loop features unavailable on ACP |
-| Managed jobs/DAGs/admission/read-only teams/swarms | Persisted tools-authority requirement; every owned child verifies pinned Claude before session setup. Commands/selectors and retry scopes are frozen. Native platform/workspace/nesting ceilings remain |
+| Managed jobs/DAGs/admission/read-only teams/swarms | Persisted tools-authority requirement; every owned child verifies the Claude identity and stable minimum version before session setup (ADR 0177). Commands/selectors and retry scopes are frozen. Native platform/workspace/nesting ceilings remain |
 | Per-item ACP providers | Separate canonical ACP profile branch; native HTTP validation unchanged; parent HTTP credentials excluded |
 | Cleanup-sensitive claims | Require owned descendant cleanup proof and per-attempt receipt; uncertainty retains capacity/workspace holds |
 | Explicit max-steps | Verified Claude maps to SDK maxTurns (conversation turns); generic unsupported adapters reject before session creation |
@@ -55,7 +58,7 @@ are authorized only for small ACP validation using Sonnet; never expose secrets.
 | Fast tier/reasoning effort | Fast unsupported; thought_level selected and confirmed when advertised |
 | Provider wire request/response hooks | Unavailable: no visibility into agent's model connection |
 | Usage and cost | Only fields the adapter actually reports; no inferred accounting |
-| SSH | Verified Claude ACP 0.75.1 tools-only mode with private local cwd; generic/unverified adapters rejected before session creation |
+| SSH | Verified Claude ACP stable >= 0.75.1 tools-only mode with private local cwd; generic/unverified adapters rejected before session creation |
 | wasm | Clean unsupported diagnostic, no spawn |
 | HTTP/SSE MCP bridge | Not used; mandatory stdio avoids optional capability assumptions |
 

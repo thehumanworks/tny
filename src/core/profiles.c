@@ -16,13 +16,10 @@
  * particular CLI release. TNY_CODEX_CLIENT_VERSION can override it. */
 #define CODEX_CATALOG_CLIENT_VERSION "999.999.999"
 #define CODEX_DEFAULT_MODEL          "gpt-5.6-sol"
-#define GROK_PROXY_BASE_URL          "https://cli-chat-proxy.grok.com/v1"
-#define GROK_PROXY_HEADER            "X-XAI-Token-Auth: xai-grok-cli"
-/* The proxy version-gates on x-grok-client-version and 426s requests that
- * claim less than its rolling minimum. Pinned to a known-accepted grok-build
- * release; TNY_GROK_CLIENT_VERSION overrides without a rebuild. */
-#define GROK_PROXY_VERSION "0.1.202"
-#define GROK_API_BASE_URL  "https://api.x.ai/v1"
+#define GROK_PROXY_BASE_URL          TNY_GROK_PROXY_BASE_URL
+#define GROK_PROXY_HEADER            TNY_GROK_PROXY_HEADER
+#define GROK_PROXY_VERSION           TNY_GROK_PROXY_VERSION
+#define GROK_API_BASE_URL            TNY_GROK_API_BASE_URL
 /* Both modes: the proxy routes the model-override header, api.x.ai the
  * JSON body — same catalog, one default. */
 #define GROK_DEFAULT_MODEL "grok-4.6"

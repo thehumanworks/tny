@@ -20,6 +20,32 @@ static bool cancelled(void *ud) {
     return interrupted != 0;
 }
 
+static const char *progress(tny_dictation_state state) {
+    return state == TNY_DICTATION_RECORDING
+               ? "Listening… Enter to transcribe, Ctrl-C to cancel (5-minute limit).\n"
+           : state == TNY_DICTATION_NORMALIZING ? "Normalizing… Ctrl-C to cancel.\n"
+                                                : "Transcribing… Ctrl-C to cancel.\n";
+}
+
+/* --json adds the normalization record only when it was enabled. */
+static void append_normalization(buf_t *out, const tny_dictation_normalization *n) {
+    buf_appends(out, ",\"raw\":");
+    jescape(out, n->raw);
+    buf_appendf(out, ",\"normalized\":%s,\"model\":", n->normalized ? "true" : "false");
+    jescape(out, n->model);
+    buf_appends(out, ",\"effort\":");
+    if (n->effort) jescape(out, n->effort);
+    else buf_appends(out, "null");
+    buf_appends(out, ",\"service_tier\":");
+    if (n->service_tier) jescape(out, n->service_tier);
+    else buf_appends(out, "null");
+    buf_appendf(out, ",\"corrections\":%s", n->corrections_json);
+    if (n->skipped_reason) {
+        buf_appends(out, ",\"skipped_reason\":");
+        jescape(out, n->skipped_reason);
+    }
+}
+
 int cmd_dictate(const cli_globals *g, int argc, char **argv) {
     tny_dictation_request r = {.cancelled = cancelled};
     bool json = g->json, check = false;
@@ -35,6 +61,11 @@ int cmd_dictate(const cli_globals *g, int argc, char **argv) {
         }
         if (strcmp(a, "--check") == 0) {
             check = true;
+            continue;
+        }
+        if (strcmp(a, "--normalize") == 0 || strcmp(a, "--no-normalize") == 0) {
+            r.normalize = strcmp(a, "--normalize") == 0 ? TNY_DICTATION_NORMALIZE_ON
+                                                        : TNY_DICTATION_NORMALIZE_OFF;
             continue;
         }
         if (strcmp(a, "--seconds") == 0) {
@@ -85,10 +116,7 @@ int cmd_dictate(const cli_globals *g, int argc, char **argv) {
     int rc = interrupted ? 130 : 1;
     if (d) {
         tny_dictation_state state = tny_dictation_get_state(d);
-        fputs(state == TNY_DICTATION_RECORDING
-                  ? "Listening… Enter to transcribe, Ctrl-C to cancel (5-minute limit).\n"
-                  : "Transcribing… Ctrl-C to cancel.\n",
-              stderr);
+        fputs(progress(state), stderr);
         while (tny_dictation_get_state(d) != TNY_DICTATION_DONE) {
             if (interrupted) {
                 tny_dictation_cancel(d);
@@ -99,7 +127,7 @@ int cmd_dictate(const cli_globals *g, int argc, char **argv) {
             if (next == TNY_DICTATION_DONE) break;
             if (next != state) {
                 state = next;
-                fputs("Transcribing… Ctrl-C to cancel.\n", stderr);
+                fputs(progress(state), stderr);
             }
             struct pollfd pf[2] = {
                 {tny_dictation_fd(d), POLLIN, 0},
@@ -123,6 +151,12 @@ int cmd_dictate(const cli_globals *g, int argc, char **argv) {
         } else {
             const char *text, *error;
             rc = tny_dictation_result(d, &text, &error);
+            tny_dictation_normalization norm;
+            bool normalizing = !rc && tny_dictation_normalization_info(d, &norm);
+            if (normalizing && norm.skipped_reason)
+                fprintf(stderr,
+                        "tny: dictate: normalization skipped (%s%s%s); raw transcript kept\n",
+                        norm.skipped_reason, *norm.detail ? ": " : "", norm.detail);
             if (rc) snprintf(err, sizeof err, "%s", error);
             else if (json) {
                 buf_t out = {0};
@@ -130,6 +164,7 @@ int cmd_dictate(const cli_globals *g, int argc, char **argv) {
                 jescape(&out, tny_dictation_provider_name(d));
                 buf_appends(&out, ",\"text\":");
                 jescape(&out, text);
+                if (normalizing) append_normalization(&out, &norm);
                 buf_appends(&out, "}\n");
                 if (out.oom || fwrite(out.data, 1, out.len, stdout) != out.len) rc = 1;
                 buf_free(&out);

@@ -11,9 +11,12 @@ hashes each input file and actual native executable at launch, including files
 that were not yet committed. Later formatting, watchdog reconciliation, audit
 helpers and CI integration do not replace that original manifest.
 
-Production `src/`, `include/`, `third_party/` and the existing native runtime tests
-are unchanged from the baseline. The alternatives are optional development probes,
-not runtime options shipped to users. `data/decision.json`, the report and ADR 0175
+The benchmark feature adds no production `src/`, `include/`, `third_party/` or
+existing native runtime-test changes relative to current main. Main advanced
+during the experiment and was merged at `d09a287`; the actual Lua runtime, its
+vendored interpreter and the production execution implementation are byte-for-
+byte unchanged from the benchmark baseline. The alternatives are optional development probes,
+not runtime options shipped to users. `data/decision.json`, the report and ADR 0178
 retain Lua. No API key, auth store, account identifier or access token was copied
 into benchmark evidence. The normal authenticated Codex CLI generated synthetic
 programs; the runner did not implement or inspect the credential flow.
@@ -143,3 +146,14 @@ native unit, execution integration, source-linked protocol and scoped quality
 logs. The evidence SHA256 manifest includes this archive. Earlier failed host
 setup attempts remain local and are explained above rather than mixed into the
 successful receipts.
+
+## Main-branch reconciliation
+
+PR #197 initially conflicted with newer ADR-index entries on main. Main at
+`d09a287` was merged, preserving its dictation/ACP changes and the original
+benchmark commits without rewriting history. This benchmark ADR is renumbered
+0178; no existing ADR was displaced. Make/Nix verification targets coexist with
+the new upstream Lean targets. The actual measured Lua/engine/execution source
+files are unchanged, so the original raw cohort and measurements remain intact.
+The original local checks above are revision-bound to the benchmark feature
+before that merge; post-merge checks are recorded separately.

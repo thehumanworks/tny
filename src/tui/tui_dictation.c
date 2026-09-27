@@ -36,8 +36,15 @@ void tui_dictation_step(tui *t) {
         const char *text, *err;
         int rc = tny_dictation_result(t->dictation, &text, &err);
         if (!rc) {
-            if (tui_dictation_insert(t, text)) tui_note(t, "Dictation ready · Enter sends");
-            else {
+            tny_dictation_normalization norm;
+            bool normalizing = tny_dictation_normalization_info(t->dictation, &norm);
+            if (tui_dictation_insert(t, text)) {
+                if (!normalizing) tui_note(t, "Dictation ready · Enter sends");
+                else if (norm.normalized) tui_note(t, "Dictation ready (normalized) · Enter sends");
+                else if (!strcmp(norm.skipped_reason, "cancelled"))
+                    tui_note(t, "Normalization cancelled · raw transcript inserted");
+                else tui_note(t, "Dictation ready (raw: %s) · Enter sends", norm.skipped_reason);
+            } else {
                 buf_clear(&t->note);
                 tui_err(t, "dictation does not fit in the composer; draft unchanged");
             }
@@ -51,8 +58,9 @@ void tui_dictation_step(tui *t) {
         t->dirty = true;
         return;
     }
-    const char *note = state == TNY_DICTATION_RECORDING
-                           ? "Listening… Enter/Ctrl-R transcribes · Esc cancels"
-                           : "Transcribing… Esc cancels";
+    const char *note =
+        state == TNY_DICTATION_RECORDING     ? "Listening… Enter/Ctrl-R transcribes · Esc cancels"
+        : state == TNY_DICTATION_NORMALIZING ? "Normalizing… Esc inserts the raw transcript"
+                                             : "Transcribing… Esc cancels";
     if (!t->note.data || strcmp(note, t->note.data) != 0) tui_note(t, "%s", note);
 }

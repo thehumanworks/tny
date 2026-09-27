@@ -1,0 +1,3 @@
+name	json
+none	{}
+project	{"tny":{"context":"the agent harness","aliases":["tiny","tee en why"],"case":"exact"},"kubectl":{"context":"Kubernetes CLI","aliases":["kube cuddle","cube control"]},"Jev":{"context":"decision engine","aliases":["jeff"],"case":"exact"},".NET":{"context":"Microsoft platform","aliases":["dot net"]},"Claude Code":{"case":"exact"},"Postgres":"database"}

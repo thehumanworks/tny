@@ -1,0 +1,10 @@
+name = "tny-dictation-proofs"
+version = "0.1.0"
+defaultTargets = ["Dictation", "export"]
+
+[[lean_lib]]
+name = "Dictation"
+
+[[lean_exe]]
+name = "export"
+root = "Export"

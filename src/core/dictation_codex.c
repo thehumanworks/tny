@@ -38,9 +38,49 @@ static void *start(const tny_ctx *ctx, const buf_t *wav, char *err, size_t len) 
     return job;
 }
 
+/* Responses on the same ChatGPT credential and trusted gateway as STT, with
+ * structured output through text.format (ADR 0175). */
+static bool normalize_target(const tny_ctx *ctx, const char *model, tny_norm_target *t, char *err,
+                             size_t len) {
+    (void)model; /* the Responses wire carries the model in the body */
+    if (!available(ctx, err, len)) return false;
+    tny_codex_creds creds;
+    tny_codex_credentials(ctx, &creds);
+    buf_t url = {0}, auth = {0}, account = {0};
+    const char *base = tny_codex_service_base_url(ctx);
+    size_t n = strlen(base);
+    while (n && base[n - 1] == '/') n--;
+    buf_append(&url, base, n);
+    buf_appends(&url, "/responses");
+    buf_appendf(&auth, "Authorization: Bearer %s", creds.access_token);
+    buf_appendf(&account, "chatgpt-account-id: %s", creds.account_id);
+    tny_codex_creds_free(&creds);
+    bool ok = !url.oom && !auth.oom && !account.oom;
+    if (ok) {
+        t->url = buf_detach(&url);
+        t->headers[0] = buf_detach(&auth);
+        t->headers[1] = buf_detach(&account);
+        t->headers[2] = xstrdup("OpenAI-Beta: responses=v1");
+        t->headers[3] = xstrdup("originator: tny");
+        ok = t->url && t->headers[0] && t->headers[1] && t->headers[2] && t->headers[3];
+        t->schema = t->tier = true;
+    }
+    if (auth.data) secure_zero(auth.data, auth.len);
+    buf_free(&url);
+    buf_free(&auth);
+    buf_free(&account);
+    if (!ok) {
+        tny_norm_target_free(t);
+        snprintf(err, len, "out of memory");
+    }
+    return ok;
+}
+
 const tny_dictation_provider tny_dictation_codex = {"codex",
                                                     available,
                                                     start,
                                                     tny_dictation_http_fd,
                                                     tny_dictation_http_step,
-                                                    tny_dictation_http_destroy};
+                                                    tny_dictation_http_destroy,
+                                                    TNY_NORMALIZE_MODEL_CODEX,
+                                                    normalize_target};

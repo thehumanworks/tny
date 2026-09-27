@@ -428,7 +428,7 @@ def main():
             result(
                 message["id"],
                 {
-                    "protocolVersion": 1,
+                    "protocolVersion": int(os.environ.get("ACP_FIXTURE_PROTOCOL", "1")),
                     "agentCapabilities": {
                         "loadSession": MODE != "no-load",
                         "promptCapabilities": {
@@ -436,7 +436,9 @@ def main():
                         },
                     },
                     "authMethods": [],
-                    "agentInfo": {
+                    "agentInfo": json.loads(os.environ["ACP_FIXTURE_AGENT_INFO"])
+                    if "ACP_FIXTURE_AGENT_INFO" in os.environ
+                    else {
                         "name": os.environ.get("ACP_FIXTURE_NAME", "fixture"),
                         "version": os.environ.get("ACP_FIXTURE_VERSION", "1"),
                     },

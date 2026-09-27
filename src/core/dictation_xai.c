@@ -15,7 +15,7 @@ static bool usable(const char *key) {
  * Presence wins: an explicitly supplied empty/invalid secret is an error, never
  * permission to fall through to a different account. A configured missing
  * api_key_env fails closed; Grok login is used only without an explicit source. */
-static char *credential(const tny_ctx *ctx, bool refresh, char *err, size_t len) {
+static char *credential(const tny_ctx *ctx, bool refresh, bool *from_login, char *err, size_t len) {
     const char *key = ctx ? ctx->xai_api_key : NULL;
     yyjson_doc *loaded = NULL;
     if (!key) key = getenv("XAI_API_KEY");
@@ -43,6 +43,7 @@ static char *credential(const tny_ctx *ctx, bool refresh, char *err, size_t len)
         }
     }
     bool login = !key;
+    if (from_login) *from_login = login;
     char *token = login ? tny_grok_session_token() : xstrdup(key);
     yyjson_doc_free(loaded);
     if (!usable(token)) goto invalid;
@@ -63,14 +64,14 @@ invalid:
 }
 
 static bool available(const tny_ctx *ctx, char *err, size_t len) {
-    char *key = credential(ctx, false, err, len);
+    char *key = credential(ctx, false, NULL, err, len);
     bool ok = key != NULL;
     secure_free(key);
     return ok;
 }
 
 static void *start(const tny_ctx *ctx, const buf_t *wav, char *err, size_t len) {
-    char *key = credential(ctx, true, err, len);
+    char *key = credential(ctx, true, NULL, err, len);
     if (!key) return NULL;
     const char *url = "https://api.x.ai/v1/stt";
 #ifdef TNY_DICTATION_FIXTURE
@@ -88,9 +89,63 @@ static void *start(const tny_ctx *ctx, const buf_t *wav, char *err, size_t len) 
     return job;
 }
 
+/* The source STT resolved: an API key uses the public chat API with a JSON
+ * schema; the Grok login uses the streaming-only CLI chat proxy, which routes
+ * on x-grok-model-override and gets JSON by instruction only (ADR 0175). */
+static bool normalize_target(const tny_ctx *ctx, const char *model, tny_norm_target *t, char *err,
+                             size_t len) {
+    bool login = false;
+    /* Transcription just refreshed a stale login; never refresh twice. */
+    char *key = credential(ctx, false, &login, err, len);
+    if (!key) return false;
+    const char *base = login ? TNY_GROK_PROXY_BASE_URL : TNY_GROK_API_BASE_URL;
+#ifdef TNY_DICTATION_FIXTURE
+    base = getenv("TNY_DICTATION_FIXTURE_NORMALIZE_URL");
+    if (!base || !str_starts(base, "http://127.0.0.1:")) {
+        secure_free(key);
+        snprintf(err, len, "dictation fixture requires a loopback normalizer URL");
+        return false;
+    }
+#endif
+    buf_t url = {0}, auth = {0}, version = {0}, route = {0};
+    buf_appends(&url, base);
+    buf_appends(&url, "/chat/completions");
+    buf_appendf(&auth, "Authorization: Bearer %s", key);
+    secure_free(key);
+    const char *v = getenv("TNY_GROK_CLIENT_VERSION");
+    buf_appendf(&version, "x-grok-client-version: %s", v && *v ? v : TNY_GROK_PROXY_VERSION);
+    buf_appendf(&route, "x-grok-model-override: %s", model);
+    bool ok = !url.oom && !auth.oom && !version.oom && !route.oom;
+    if (ok) {
+        t->url = buf_detach(&url);
+        t->headers[0] = buf_detach(&auth);
+        ok = t->url && t->headers[0];
+        if (login) {
+            t->headers[1] = xstrdup(TNY_GROK_PROXY_HEADER);
+            t->headers[2] = buf_detach(&version);
+            t->headers[3] = buf_detach(&route);
+            ok = ok && t->headers[1] && t->headers[2] && t->headers[3];
+        }
+        t->chat = true;
+        t->schema = !login;
+    }
+    if (auth.data) secure_zero(auth.data, auth.len);
+    buf_free(&url);
+    buf_free(&auth);
+    buf_free(&version);
+    buf_free(&route);
+    if (!ok) {
+        tny_norm_target_free(t);
+        snprintf(err, len, "out of memory");
+    }
+    return ok;
+}
+
 const tny_dictation_provider tny_dictation_xai = {"xai",
                                                   available,
                                                   start,
                                                   tny_dictation_http_fd,
                                                   tny_dictation_http_step,
-                                                  tny_dictation_http_destroy};
+                                                  tny_dictation_http_destroy,
+                                                  TNY_NORMALIZE_MODEL_XAI,
+                                                  normalize_target};

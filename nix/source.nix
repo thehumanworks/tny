@@ -64,6 +64,10 @@ let
     ../docs
     # tests/formal is included by the ../tests fileset below; make test reads
     # its SMT-LIB obligations and checker with the Z3 input from nix/tests.nix.
+    # Committed Lean tables in tests/formal/{dictation,acp}/golden are replayed
+    # by C unit and ACP wire integration tests. verify-acp-proofs (like
+    # verify-dictation-proofs) runs separately in CI, not in this sandbox;
+    # the default test closure needs no Lean toolchain or downloads.
     ../examples # tests/extensions/test_examples.py loads every shipped example
     ../flake.nix
     ../default.nix

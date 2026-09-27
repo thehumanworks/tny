@@ -305,6 +305,22 @@ Credentials are read when the provider resolves; the only write is the
 grok token refresh above, back into the same `~/.grok/auth.json` entry the
 token came from. tny stores env-var names otherwise.
 
+**Dictation normalization on xAI** ([ADR 0175](../adr/0175-dictation-transcript-normalization.md),
+[docs/dictation.md](../dictation.md#normalization-and-the-dictionary)) reuses the
+credential the `xai` STT adapter resolved, not this chat profile: an API key
+posts to `https://api.x.ai/v1/chat/completions` with `stream:true`,
+`response_format` (`json_schema`, strict) and `reasoning_effort`; a Grok login
+posts to `https://cli-chat-proxy.grok.com/v1/chat/completions` with
+`X-XAI-Token-Auth: xai-grok-cli`, `x-grok-client-version` and
+`x-grok-model-override: <model>` and asks for JSON in the instructions instead
+of `response_format`. The model defaults to `grok-4.7`
+(`dictation.normalize.model` or `TNY_DICTATION_NORMALIZE_MODEL` override it);
+profile `base_url`, `TNY_GROK_BASE_URL` and chat models are ignored.
+`service_tier` is never sent. A rejected `reasoning_effort` (HTTP 400/422) is
+retried once without the field. Whether `grok-4.7` accepts a reasoning
+parameter on either path and whether the proxy honours `response_format` are
+pending a live probe recorded in ADR 0175.
+
 ## Provider quirks (handle with flags, not forks)
 
 | Quirk | Flag / rewrite |

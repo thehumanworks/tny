@@ -53,6 +53,12 @@ previously took over two hours, so this change does not silently move it into
 a short native job. The macOS lane now explicitly requires ImageMagick 7 and
 runs the conversion suite, preserving coverage formerly supplied by Nix.
 
+The `lean-proofs` job builds the Lean 4 proofs of dictation normalization
+(`tests/formal/dictation`) and fails when regenerating their golden tables
+changes the committed copies; `make test` replays those tables against the C
+code on every lane ([ADR 0175](adr/0175-dictation-transcript-normalization.md)).
+It is part of the `ci` aggregate status.
+
 Runs on `main` are never cancelled by a newer push: the `ci` and `sdk`
 workflows only cancel superseded pull-request runs. Both must succeed on the
 same commit before automatic release.

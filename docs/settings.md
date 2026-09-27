@@ -50,6 +50,39 @@ be a positive integer from 1 to 86400 (one day); invalid values report an
 error before contacting the provider. Environment and config overrides also
 apply to Ctrl-O and `/optimise`. Parent step limits are not inherited.
 
+## Dictation normalization
+
+`dictation.normalize` opts dictation into one verified rewrite by the STT
+subscription's own small model with your `dictionary.json` (default off;
+[Dictation](dictation.md#normalization-and-the-dictionary),
+[ADR 0175](adr/0175-dictation-transcript-normalization.md)):
+
+```json
+{
+  "dictation": {
+    "normalize": {
+      "enabled": true,
+      "model": { "codex": "gpt-6-luna", "xai": "grok-4.7" },
+      "effort": "off",
+      "fast": false,
+      "timeout_seconds": 20
+    }
+  }
+}
+```
+
+`"normalize": true` is shorthand for the defaults. An object without
+`"enabled": true` stays off. Precedence: `tny dictate --normalize` /
+`--no-normalize`, then `TNY_DICTATION_NORMALIZE` (`1`/`0`), then settings.
+`TNY_DICTATION_NORMALIZE_MODEL` and `TNY_DICTATION_NORMALIZE_EFFORT` override
+`model` and `effort` (`omit` sends no effort field). `fast` applies only to
+codex and is never inherited from the conversation's `fast`. `timeout_seconds`
+is 1–120. Only user settings are read; a project cannot turn it on, but a
+project `.tny/dictionary.json` adds words (it wins per word over
+`~/.tny/dictionary.json`; schema
+[`schemas/dictionary.schema.json`](../schemas/dictionary.schema.json)). An
+invalid value keeps the raw transcript with `skipped_reason: "invalid_config"`.
+
 ## Task presets
 
 Task presets are intentionally not settings keys: their instruction bodies are
@@ -76,6 +109,7 @@ permission/cost escalation.
 | `web_search_command` | shell command template with `{query}` or `{{query}}` | overrides automatic Codex-login/DDG search; runs like `terminal` ([ADR 0055](adr/0055-web-search-gating-and-command-provider.md)); wins over `web_search_url` |
 | `web_search_url` | URL template with `{query}` or `{{query}}` | overrides automatic Codex-login/DDG search; fetched like `web_fetch` |
 | `web_search_model` | nonempty supported Codex model ID | Independent search service model; default `gpt-5.6-sol`, never the conversation model |
+| `dictation.normalize` | boolean, or object (`enabled`, `model`, `effort`, `fast`, `timeout_seconds`) | `tny dictate --normalize`; default off ([Dictation normalization](#dictation-normalization)) |
 | `web_search_timeout_seconds` | integer 1–300 | Independent Codex search/refresh deadline; default 120 seconds ([ADR 0109](adr/0109-provider-independent-codex-search.md)) |
 | `mcp.import_from` | array of `codex`, `claude`, `grok`, `cursor-agent` (`cursor` alias accepted) | `tny mcp list` (opt-in; off by default; project files for enabled sources are trusted, [ADR 0051](adr/0052-mcp-import-from-harnesses.md)) |
 

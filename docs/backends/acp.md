@@ -27,11 +27,20 @@ Reusable settings:
 ```
 
 Use `tny --provider acp:claude ask '...'` or select `acp:claude` in the TUI.
-Model turns currently require the verified
-`@agentclientprotocol/claude-agent-acp` version `0.75.1`. Other adapter
-identities or versions fail closed. Catalog discovery is not a promise that an
-adapter is admitted for execution. Use an absolute executable path or a PATH
-command; relative paths containing a slash are rejected.
+Model turns require the exact adapter identity
+`@agentclientprotocol/claude-agent-acp` and a **stable version >= `0.75.1`**
+([ADR 0177](../adr/0177-acp-minimum-compatible-version.md)). Newer stable releases,
+including `0.81.2`, are accepted using numeric SemVer ordering, not a version
+pin. Older releases, prereleases, malformed/missing versions and other identities
+fail closed. Versions must be canonical `MAJOR.MINOR.PATCH` with uint32
+components; valid `+build.metadata` is allowed and does not affect ordering.
+No `v` prefix, leading zeros or whitespace is accepted.
+ACP protocol version must still be `1`. Every new adapter process, including
+resume/reconnect, revalidates its own handshake. These are compatibility checks,
+not attestation of an executable or a guarantee about future upstream releases.
+Catalog discovery is not a promise that an adapter is admitted for execution.
+Use an absolute executable path or a PATH command; relative paths containing a
+slash are rejected.
 
 The requested model must appear in the adapter's session catalog. tny confirms
 `session/set_config_option`'s returned selection (or the older `set_model`

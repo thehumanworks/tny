@@ -1191,8 +1191,24 @@ model; chat/profile base URLs and models are ignored. `--check` opens no audio,
 makes no request, and performs no refresh; success means local prerequisites,
 not verified entitlement. Windows/wasm remain file-only.
 `--json` returns one object with `kind`, `provider`, and `text`.
+
+`--normalize` (or `TNY_DICTATION_NORMALIZE=1`, or settings
+`dictation.normalize`) makes one structured rewrite of the transcript with the
+STT subscription's own small model (`gpt-6-luna` for codex, `grok-4.7` for xai)
+and the user/project `dictionary.json`, verified in C before use; `--no-normalize`
+forces it off. It is off by default. Plain stdout stays transcript-only. With
+`--json` and normalization enabled, the object also carries `raw`,
+`normalized`, `model`, `effort`, `service_tier`, `corrections[]`, and
+`skipped_reason` when the rewrite did not apply. Any failure keeps the raw
+transcript with exit status 0 and one stderr line:
+
+```sh
+tny dictate --input-file speech.wav --normalize --json
+TNY_DICTATION_NORMALIZE=1 tny dictate --seconds 10 | tny ask --stdin
+```
+
 See [Dictation](dictation.md) for account credentials, devices, bounds,
-cancellation, and platform support.
+cancellation, platform support, and the dictionary format.
 
 ## Prompt optimisation
 

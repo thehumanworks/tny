@@ -11,14 +11,19 @@
 typedef enum {
     TNY_DICTATION_RECORDING,
     TNY_DICTATION_TRANSCRIBING,
+    TNY_DICTATION_NORMALIZING, /* optional rewrite, ADR 0175 */
     TNY_DICTATION_DONE
 } tny_dictation_state;
+
+/* Transcript normalization: settings/environment default, or forced. */
+enum { TNY_DICTATION_NORMALIZE_DEFAULT, TNY_DICTATION_NORMALIZE_ON, TNY_DICTATION_NORMALIZE_OFF };
 
 typedef struct {
     const char *provider;   /* NULL: TNY_STT_PROVIDER, then codex */
     const char *input_file; /* NULL: microphone; otherwise a PCM16 WAV file */
     const char *device;     /* NULL: TNY_AUDIO_DEVICE, then default input */
     int seconds;            /* 0: stop explicitly; always capped at 300 seconds */
+    int normalize;          /* TNY_DICTATION_NORMALIZE_* */
     bool (*cancelled)(void *);
     void *userdata;
 } tny_dictation_request;
@@ -36,9 +41,25 @@ int tny_dictation_fd(const tny_dictation *); /* -1 when no fd is ready to poll *
 /* Drive from the existing event loop at least every 50 ms while active. */
 void tny_dictation_step(tny_dictation *);
 void tny_dictation_finish(tny_dictation *); /* stop recording, then transcribe */
-void tny_dictation_cancel(tny_dictation *); /* discard audio/text and stop I/O */
+/* Discard audio/text and stop I/O. While NORMALIZING it stops only the rewrite
+ * and completes successfully with the raw transcript. */
+void tny_dictation_cancel(tny_dictation *);
 /* After DONE: 0 success, 1 local/protocol error, 2 HTTP rejection, 130 cancelled. */
 int tny_dictation_result(const tny_dictation *, const char **text, const char **error);
+
+/* After a successful result, when normalization was enabled for it. Borrowed
+ * strings live until tny_dictation_free. */
+typedef struct {
+    bool normalized; /* the delivered text is the verified rewrite */
+    const char *raw; /* the transcript as returned by STT */
+    const char *model;
+    const char *effort;           /* sent on the last request; NULL when omitted */
+    const char *service_tier;     /* NULL unless sent */
+    const char *skipped_reason;   /* bounded reason when not normalized, else NULL */
+    const char *detail;           /* configuration/dictionary diagnostic, or "" */
+    const char *corrections_json; /* accepted corrections as a JSON array */
+} tny_dictation_normalization;
+bool tny_dictation_normalization_info(const tny_dictation *, tny_dictation_normalization *);
 void tny_dictation_free(tny_dictation *);
 
 /* Pure shared validation, exposed for bounded fixture tests. */

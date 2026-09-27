@@ -357,6 +357,21 @@ bench-code-mode-language:
 verify-formal: verify-execution-protocol
 	python3 tests/formal/check.py
 
+# Lean 4 proofs of dictation normalization (ADR 0175): prove, regenerate the
+# golden tables the C unit suite replays, and fail if they changed. Needs
+# lake (elan); CI's lean-proofs job runs it. make test replays the tables.
+.PHONY: verify-dictation-proofs
+verify-dictation-proofs:
+	cd tests/formal/dictation && lake build && lake exe export golden
+	git diff --exit-code -- tests/formal/dictation/golden
+
+# ACP version admission and lifecycle (ADR 0177). Ordinary tests replay the
+# exported versions in C and the handshake transitions over the fixture wire.
+.PHONY: verify-acp-proofs
+verify-acp-proofs:
+	cd tests/formal/acp && lake build && lake exe export golden
+	git diff --exit-code -- tests/formal/acp/golden
+
 # This proof translates the actual production C predicate through Clang AST;
 # missing Clang/Z3 or unsupported syntax is an error, never a skipped check.
 verify-execution-protocol:
