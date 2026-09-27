@@ -31,11 +31,15 @@ selection criterion.
 - **PocketPy**: genuine syntax failures on generator expressions used by the
   published programs (`sorted(x for …)`, `all(… for …)`): eliminated on
   actual task failures.
-- **MicroPython**: dicts are not insertion-ordered, so rewriting a JSON
-  object reorders its keys (a user-visible change to edited files that the
-  published scorer does not check); also unstable `reverse=True` sorting and
-  no stepped Unicode slicing. Eliminated on semantics required by generated
-  JSON-editing programs, independent of the fixable `ensure_ascii` gap.
+- **MicroPython**: 33/36 are real passes under the published contract
+  (typed JSON values; serialized key order is not part of it); the three
+  Unicode failures are its json module's missing `ensure_ascii`, which a
+  native facade could fix. Separately, its dicts are not insertion-ordered
+  (diagnostic `dict_order`), so programs whose required output order comes
+  from dict insertion, or that rewrite existing JSON and must keep its key
+  order, behave differently from CPython; it also lacks stable
+  `reverse=True` sorting and stepped Unicode slicing. Eliminated on those
+  insertion-order semantics, independent of the fixable `ensure_ascii` gap.
 - **Monty**: 36/36 corpus. Documented subset: no `yield`, `del`, class
   inheritance/custom exceptions or `match`; eager generator expressions;
   `True + 1` raises; no `str.lower` as an unbound key; no `callable`,
@@ -95,3 +99,19 @@ Lean checks definitions generated from `policy.py`'s actual AST (same
 whitelist translator approach as PR #197): acceptance and selection gates,
 non-vacuity, and negative mutations that must fail. This does not certify
 the stochastic trial, the interpreters, or OS containment.
+
+## Notes recorded after launch (17:30, no protocol change)
+
+- Supervisor review flagged `config_merge` wording: "when both values are
+  objects, merge" versus "an empty object replaces". The oracle (`_merge`)
+  merges whenever both are objects. A check of all three fixtures finds no
+  override that is an empty object over a non-empty default object, so the
+  ambiguity cannot change any score in this cohort; wording is unchanged to
+  preserve the preregistered prompts and manifest hashes.
+- These families are held out from PR #197 but were authored **after** the
+  candidate semantic diagnostics were known. Six of twelve require explicit
+  object key order. They are targeted compatibility tasks, not an unbiased
+  sample of coding workloads; the generic frozen-corpus results stay primary.
+- The `cpython` arm's executor exposes every builtin except the import,
+  code-loading and interactive ones (`cpython_prod.c`), matching its prompt.
+  The `cpython_pr197` arm deliberately keeps PR #197's narrow whitelist.

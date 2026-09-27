@@ -113,9 +113,12 @@ three hidden variants each, same bwrap/prlimit envelope and scorer):
 
 PocketPy fails `sorted(x for x in …)` / `all(... for ...)` (syntax), and
 `json.dumps(ensure_ascii=False)`. MicroPython fails the three Unicode programs
-on `ensure_ascii`; its passes are partly an oracle artefact: the scorer parses
-JSON, so its non-insertion-ordered dict output (key order changed) is not
-penalised although user-visible JSON files would be reordered.
+on `ensure_ascii`. Its 33 passes are real passes under the published contract,
+which compares JSON objects by keys and typed values, not serialized key order.
+Separately, MicroPython dict iteration/serialization order differs from
+CPython's insertion order; that matters for tasks that explicitly require an
+ordered result or byte-stable rewrites of existing JSON, and is tested
+separately rather than retroactively added to the published corpus.
 
 Static CPython 3.14.7 (`--disable-shared`, bootstrap modules only, `-Os
 -ffunction-sections`, no LTO yet, encodings frozen via `_freeze_module`, no
