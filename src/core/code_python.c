@@ -307,8 +307,13 @@ static PyObject *tools_describe(PyObject *self, PyObject *name_obj) {
         return NULL;
     }
     if (refuse_after_limit()) return NULL;
-    const char *name = PyUnicode_AsUTF8(name_obj);
+    Py_ssize_t name_len = 0;
+    const char *name = PyUnicode_AsUTF8AndSize(name_obj, &name_len);
     if (!name) return NULL;
+    if (memchr(name, 0, (size_t)name_len)) {
+        PyErr_SetString(PyExc_ValueError, "tool name cannot contain NUL");
+        return NULL;
+    }
     const char *catalog = cell.host && cell.host->catalog ? cell.host->catalog : "[]";
     yyjson_doc *doc = yyjson_read_opts((char *)catalog, strlen(catalog), 0, &heap_json, NULL);
     if (!doc) return cell.fatal ? terminal(cell.fatal) : PyErr_NoMemory();
@@ -321,8 +326,11 @@ static PyObject *tools_describe(PyObject *self, PyObject *name_obj) {
         if (!candidate || strcmp(candidate, name) != 0) continue;
         size_t len = 0;
         char *text = yyjson_val_write_opts(entry, 0, &heap_json, &len, NULL);
-        found = text ? PyUnicode_DecodeUTF8(text, (Py_ssize_t)len, "strict") : PyErr_NoMemory();
-        if (text) json_free(NULL, text);
+        if (text) {
+            found = PyUnicode_DecodeUTF8(text, (Py_ssize_t)len, "strict");
+            json_free(NULL, text);
+        } else if (cell.fatal) terminal(cell.fatal);
+        else PyErr_NoMemory();
         break;
     }
     yyjson_doc_free(doc);
@@ -399,7 +407,10 @@ static PyObject *decode_value(yyjson_val *v) {
     }
 }
 
-static PyObject *decode_error(const char *message, const char *text, size_t byte_pos) {
+/* CPython's attributes: msg is the bare message, doc the parsed document, and
+ * str(error) the positioned text. Message wording is yyjson's, not CPython's. */
+static PyObject *decode_error(const char *message, PyObject *doc, const char *text,
+                              size_t byte_pos) {
     Py_ssize_t pos = 0, line = 1, column = 1;
     for (size_t i = 0; i < byte_pos && text[i]; ++i) {
         if (((unsigned char)text[i] & 0xC0) == 0x80) continue;
@@ -414,8 +425,10 @@ static PyObject *decode_error(const char *message, const char *text, size_t byte
         PyObject *formatted =
             PyUnicode_FromFormat("%s: line %zd column %zd (char %zd)", message, line, column, pos);
         PyObject *args = formatted ? PyTuple_Pack(1, formatted) : NULL;
-        bool ok = args && PyObject_SetAttrString(error, "args", args) == 0 &&
-                  PyObject_SetAttrString(error, "msg", PyTuple_GET_ITEM(args, 0)) == 0;
+        PyObject *bare = PyUnicode_FromString(message);
+        bool ok = args && bare && PyObject_SetAttrString(error, "args", args) == 0 &&
+                  PyObject_SetAttrString(error, "msg", bare) == 0 &&
+                  PyObject_SetAttrString(error, "doc", doc) == 0;
         PyObject *numbers[] = {PyLong_FromSsize_t(pos), PyLong_FromSsize_t(line),
                                PyLong_FromSsize_t(column)};
         const char *names[] = {"pos", "lineno", "colno"};
@@ -423,6 +436,7 @@ static PyObject *decode_error(const char *message, const char *text, size_t byte
             ok = ok && numbers[i] && PyObject_SetAttrString(error, names[i], numbers[i]) == 0;
             Py_XDECREF(numbers[i]);
         }
+        Py_XDECREF(bare);
         Py_XDECREF(args);
         Py_XDECREF(formatted);
         if (ok) PyErr_SetObject(cell.decode_error, error);
@@ -451,7 +465,7 @@ static PyObject *json_loads(PyObject *self, PyObject *args, PyObject *kwargs) {
     const char *text = PyUnicode_AsUTF8AndSize(source, &len);
     PyObject *result = NULL;
     if (text && len >= 3 && memcmp(text, "\xEF\xBB\xBF", 3) == 0)
-        decode_error("Unexpected UTF-8 BOM (decode using utf-8-sig)", text, 0);
+        decode_error("Unexpected UTF-8 BOM (decode using utf-8-sig)", source, text, 0);
     else if (text) {
         yyjson_read_err err = {0};
         yyjson_doc *doc = yyjson_read_opts((char *)text, (size_t)len, YYJSON_READ_BIGNUM_AS_RAW,
@@ -459,7 +473,7 @@ static PyObject *json_loads(PyObject *self, PyObject *args, PyObject *kwargs) {
         if (!doc) {
             if (cell.fatal) terminal(cell.fatal);
             else if (err.code == YYJSON_READ_ERROR_MEMORY_ALLOCATION) PyErr_NoMemory();
-            else decode_error(err.msg ? err.msg : "Invalid JSON", text, err.pos);
+            else decode_error(err.msg ? err.msg : "Invalid JSON", source, text, err.pos);
         } else {
             result = decode_value(yyjson_doc_get_root(doc));
             yyjson_doc_free(doc);
@@ -585,10 +599,11 @@ static void leave_container(encoder *e, PyObject *marker) {
 }
 
 static int encode_array(encoder *e, PyObject *o) {
+    /* For a list this is the list itself, which default= hooks may resize:
+     * re-read the length and own each item across its encoding, as CPython. */
     PyObject *items = PySequence_Fast(o, "expected a sequence");
     if (!items) return -1;
-    Py_ssize_t n = PySequence_Fast_GET_SIZE(items);
-    if (!n) {
+    if (!PySequence_Fast_GET_SIZE(items)) {
         Py_DECREF(items);
         return write_ascii(e, "[]");
     }
@@ -596,10 +611,12 @@ static int encode_array(encoder *e, PyObject *o) {
     int rc = enter_container(e, o, &marker);
     if (!rc) rc = PyUnicodeWriter_WriteChar(e->out, '[');
     ++e->level;
-    for (Py_ssize_t i = 0; !rc && i < n; ++i) {
+    for (Py_ssize_t i = 0; !rc && i < PySequence_Fast_GET_SIZE(items); ++i) {
+        PyObject *item = Py_NewRef(PySequence_Fast_GET_ITEM(items, i));
         if (i) rc = PyUnicodeWriter_WriteStr(e->out, e->item_separator);
         if (!rc) rc = newline_indent(e);
-        if (!rc) rc = encode(e, PySequence_Fast_GET_ITEM(items, i));
+        if (!rc) rc = encode(e, item);
+        Py_DECREF(item);
     }
     --e->level;
     if (!rc) rc = newline_indent(e);
@@ -640,6 +657,8 @@ static PyObject *object_key(encoder *e, PyObject *key) {
 
 static int encode_object(encoder *e, PyObject *o) {
     if (!PyDict_GET_SIZE(o)) return write_ascii(e, "{}");
+    /* A subclass's items() may return any list, even one a hook mutates:
+     * check each entry and own it across user code, as CPython does. */
     PyObject *items = PyMapping_Items(o);
     if (!items || (e->sort_keys && PyList_Sort(items) < 0)) {
         Py_XDECREF(items);
@@ -651,14 +670,18 @@ static int encode_object(encoder *e, PyObject *o) {
     ++e->level;
     bool first = true;
     for (Py_ssize_t i = 0; !rc && i < PyList_GET_SIZE(items); ++i) {
-        PyObject *pair = PyList_GET_ITEM(items, i);
-        PyObject *key = object_key(e, PyTuple_GET_ITEM(pair, 0));
-        if (!key) {
+        PyObject *pair = Py_NewRef(PyList_GET_ITEM(items, i));
+        if (!PyTuple_Check(pair) || PyTuple_GET_SIZE(pair) != 2) {
+            PyErr_SetString(PyExc_ValueError, "items must return 2-tuples");
+            Py_DECREF(pair);
             rc = -1;
             break;
         }
-        if (key == Py_None) {
-            Py_DECREF(key);
+        PyObject *key = object_key(e, PyTuple_GET_ITEM(pair, 0));
+        if (!key || key == Py_None) {
+            rc = key ? 0 : -1;
+            Py_XDECREF(key);
+            Py_DECREF(pair);
             continue;
         }
         if (!first) rc = PyUnicodeWriter_WriteStr(e->out, e->item_separator);
@@ -668,6 +691,7 @@ static int encode_object(encoder *e, PyObject *o) {
         if (!rc) rc = PyUnicodeWriter_WriteStr(e->out, e->key_separator);
         if (!rc) rc = encode(e, PyTuple_GET_ITEM(pair, 1));
         Py_DECREF(key);
+        Py_DECREF(pair);
     }
     --e->level;
     if (!rc && !first) rc = newline_indent(e);
@@ -743,10 +767,15 @@ static PyObject *json_dumps(PyObject *self, PyObject *args, PyObject *kwargs) {
         if (!e.indent) return NULL;
     }
     if (separators != Py_None) {
-        PyObject *item = NULL, *key = NULL;
-        if (!PyArg_ParseTuple(separators, "UU:separators", &item, &key)) goto done;
-        e.item_separator = Py_NewRef(item);
-        e.key_separator = Py_NewRef(key);
+        /* CPython unpacks any two-item iterable, e.g. a list. */
+        PyObject *pair = PySequence_Tuple(separators), *item = NULL, *key = NULL;
+        bool parsed = pair && PyArg_ParseTuple(pair, "UU:separators", &item, &key);
+        if (parsed) {
+            e.item_separator = Py_NewRef(item);
+            e.key_separator = Py_NewRef(key);
+        }
+        Py_XDECREF(pair);
+        if (!parsed) goto done;
     } else {
         e.item_separator = PyUnicode_FromString(e.indent ? "," : ", ");
         e.key_separator = PyUnicode_FromString(": ");
@@ -858,14 +887,16 @@ static PyObject *cell_globals(void) {
     PyObject *builtins = globals ? restricted_builtins() : NULL;
     PyObject *tools = builtins ? module_with("tools", tools_methods) : NULL;
     PyObject *json = tools ? module_with("json", json_methods) : NULL;
-    bool ok = json && PyModule_AddObjectRef(json, "JSONDecodeError", cell.decode_error) == 0 &&
+    PyObject *name = json ? PyUnicode_FromString("__main__") : NULL;
+    bool ok = name && PyModule_AddObjectRef(json, "JSONDecodeError", cell.decode_error) == 0 &&
               PyDict_SetItemString(globals, "__builtins__", builtins) == 0 &&
-              PyDict_SetItemString(globals, "__name__", PyUnicode_FromString("__main__")) == 0 &&
+              PyDict_SetItemString(globals, "__name__", name) == 0 &&
               PyDict_SetItemString(globals, "tools", tools) == 0 &&
               PyDict_SetItemString(globals, "json", json) == 0;
     Py_XDECREF(builtins);
     Py_XDECREF(tools);
     Py_XDECREF(json);
+    Py_XDECREF(name);
     if (!ok) Py_CLEAR(globals);
     return globals;
 }
@@ -956,20 +987,18 @@ char *tny_code_python_run(const char *code, const tny_code_python_host *host) {
     cell.finished = false;
     atomic_store(&heap.exhausted, false);
     PyObject *globals = cell_globals();
-    PyObject *compiled =
-        globals ? Py_CompileStringExFlags(code, "<code>", Py_file_input, NULL, -1) : NULL;
-    cell.active = compiled != NULL;
-    PyObject *result = compiled ? PyEval_EvalCode(compiled, globals, globals) : NULL;
+    PyObject *compiled = globals && !cell.fatal
+                             ? Py_CompileStringExFlags(code, "<code>", Py_file_input, NULL, -1)
+                             : NULL;
+    /* A budget that tripped during setup or compilation is terminal even if the
+     * unwind reserve let a code object through: never run it. */
+    cell.active = compiled && !cell.fatal;
+    PyObject *result = cell.active ? PyEval_EvalCode(compiled, globals, globals) : NULL;
     cell.active = false;
     cell.finished = true;
     char *text = NULL;
-    if (cell.fatal) {
-        PyErr_Clear();
-        size_t cap = 64 + strlen(cell.fatal);
-        text = malloc(cap);
-        if (text) snprintf(text, cap, "error: code: %s", cell.fatal);
-        text = result_text(text);
-    } else if (!result) {
+    if (cell.fatal) PyErr_Clear();
+    else if (!result) {
         PyObject *error = PyErr_GetRaisedException();
         text = error ? result_text(format_exception(error)) : NULL;
         if (!error && (text = malloc(40))) strcpy(text, "error: code: unknown failure");
@@ -985,6 +1014,15 @@ char *tny_code_python_run(const char *code, const tny_code_python_host *host) {
     Py_XDECREF(globals);
     (void)PyGC_Collect();
     PyErr_Clear();
+    /* A limit decides the result wherever it tripped, including in an
+     * exception's __str__ or a finalizer after the code returned. */
+    if (cell.fatal) {
+        free(text);
+        size_t cap = 64 + strlen(cell.fatal);
+        text = malloc(cap);
+        if (text) snprintf(text, cap, "error: code: %s", cell.fatal);
+        text = result_text(text);
+    }
     cell.host = NULL;
     cell.output = NULL;
     free(output);
