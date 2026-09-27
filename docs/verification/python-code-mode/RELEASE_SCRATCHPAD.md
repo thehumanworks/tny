@@ -59,3 +59,31 @@ supervision, baseline measurement and final main/tag/publication work.
 Runtime selection and implementation are still in progress. No Python migration,
 production success, new tag, release publication or cross-platform compatibility
 is claimed by this setup/baseline checkpoint.
+
+## Native Python runtime checkpoint and independent smoke
+
+At implementation commit `88e3d4c`, pinned static CPython runs in a separate
+OS-confined cell process with native tools retained in the execution server.
+The first development release binary is 5,538,568 bytes and has no dynamically
+linked system-Python dependency. This is a preliminary development measurement,
+not the final paired release comparison or a release claim.
+
+An independent rerun of `build/tny-test -s code_runtime_suite` passed all ten
+tests, 113 assertions. Three real production integration cases also passed:
+both provider wires with actual file effects, denied ambient file access plus
+JSON, and fresh globals across cells. The earlier failed initialization smoke
+is not relabelled as a pass; setup was corrected before these observations.
+These tests do not replace codec reentrancy/OOM checks or the full suite.
+
+The fixture conversion worker completed, exit0 with a successful Claude JSON
+result, and its scoped commits were reviewed/cherry-picked/pushed. Separate
+Opus/high workers now handle source-linked Lean gates and a scoped native JSON
+codec correctness review; both work in separate worktrees. Their future outputs
+are not counted as verified until terminal receipts and integration checks pass.
+
+The held-out trial aggregate was independently recomputed from 108 unique sample
+records, preserving all111 generations/repairs and every failure: CPython35/36
+first and final, prior-Python wording35/36 first and final, Monty35/36 first and
+36/36 final. Output-token totals are9,428/9,691/10,421 respectively. This audit
+is of identities/model/usage/aggregation, not a second implementation of every
+task oracle or a new inference run.
