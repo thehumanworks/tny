@@ -103,6 +103,7 @@ FORBIDDEN = re.compile(
 # (bits, signed) per C type spelling; the compiler probe asserts each entry.
 C_TYPES = {
     "_Bool": (1, False),
+    "bool": (1, False),  # Clang may print _Bool as the <stdbool.h> spelling
     "int": (32, True),
     "unsigned int": (32, False),
     "long": (64, True),
@@ -695,7 +696,14 @@ def main() -> None:
             results = compiled_results(compilers, src, functions, work)
             vector_text = cross_check(functions, results)
             vector_count = sum(len(r) for r in results.values())
-        names = [f"CodePolicy.{n}" for n in REQUIRED] + obligation_names
+            vector_detail = ", ".join(
+                f"{f.name.removeprefix('tny_code_')} {sum(1 for _, r in results[f.name] if r)}"
+                f"/{len(results[f.name])}"
+                for f in functions
+            )
+        declared = re.findall(r"^theorem\s+(\w+)", proofs, re.M)
+        extra = [n for n in declared if n not in REQUIRED]
+        names = [f"CodePolicy.{n}" for n in (*REQUIRED, *extra)] + obligation_names
         report = "\n".join(f"#print axioms {n}" for n in names)
         checked = "\n".join([generated, proofs, no_wrap, vector_text, report, ""])
         path = work / "CodePolicyChecked.lean"
@@ -720,7 +728,10 @@ def main() -> None:
         groups[key] = groups.get(key, 0) + 1
     print(version)
     print(f"Translated {len(functions)} production functions: {', '.join(f.name for f in functions)}")
-    print(f"Lean proved {len(REQUIRED)} specification theorems and {len(obligation_names)} generated no-wrap obligations")
+    print(
+        f"Lean proved {len(REQUIRED)} specification theorems (+{len(extra)} helper) "
+        f"and {len(obligation_names)} generated no-wrap obligations"
+    )
     print(f"Axioms used (union over all): {', '.join(used) or 'none'}")
     for key, count in sorted(groups.items()):
         print(f"  {count} theorems depend on axioms: {key}")
@@ -729,6 +740,7 @@ def main() -> None:
             f"Cross-check (not proof): {vector_count} vectors agree across "
             f"{' and '.join(Path(c).name for c in compilers)} (UBSan) and Lean kernel evaluation"
         )
+        print(f"  nonzero results per gate: {vector_detail}")
     for name, data in inputs.items():
         print(f"{name} SHA256: {hashlib.sha256(data).hexdigest()}")
     print(f"CodePolicy.lean SHA256: {hashlib.sha256(proofs.encode()).hexdigest()}")

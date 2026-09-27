@@ -5,8 +5,9 @@ tests/formal/check_code_policy.py prepends the `TnyC` definitions it generates
 from the Clang AST of src/core/code_policy.c (exact C widths: `BitVec 64` for
 uint64_t/int64_t, `BitVec 32` for int, `Bool` for _Bool) and appends generated
 no-wrap obligations, so this file never contains a copy of the C code. The
-limits below are the ADR 0179 contract written as plain numbers; changing a
-production limit fails these theorems until the contract is updated here.
+limits below are the intended contract (code_policy.h / code_runtime.h, ADR
+0179) restated as plain numbers; changing a production limit fails these
+theorems until the contract is deliberately updated here.
 -/
 
 /-- Normalize generated BitVec gates to natural-number arithmetic. -/
@@ -27,7 +28,7 @@ macro "tny_no_wrap" : tactic => `(tactic| (intros; tny_bv; omega))
 namespace CodePolicy
 open TnyC
 
-/-! ## Contract (ADR 0179), independent of the C source -/
+/-! ## Contract, restated independently of the C source -/
 
 def MaxTimeoutMs : Int := 30000
 def SourceBytes : Nat := 256 * 1024

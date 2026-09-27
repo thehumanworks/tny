@@ -285,7 +285,8 @@ def main() -> None:
         )
     selected = sum(bool(select(**row)) for row in rows)
     replay.append("end PyPolicy.Replay\n")
-    names = [f"RuntimeSelection.{n}" for n in REQUIRED]
+    declared = re.findall(r"^theorem\s+(\w+)", proofs, re.M)
+    names = [f"RuntimeSelection.{n}" for n in dict.fromkeys((*REQUIRED, *declared))]
     report = "\n".join(f"#print axioms {n}" for n in names)
     checked = "\n".join([generated, proofs, "\n".join(replay), report, ""])
     if args.emit:
