@@ -424,6 +424,21 @@ $(PYTHON_CELL_BENCH): $(filter-out $(OBJ_REL)/src/main.o,$(REL_OBJS)) \
 .PHONY: python-cell-bench
 python-cell-bench: $(PYTHON_CELL_BENCH)
 
+# Same virtual-capability host as the alternative interpreters, but link the
+# actual CPython/JSON bridge (not a bootstrap-only size lower bound).
+PYTHON_EMBED_BENCH := $(BUILD)/python-runtime-bench/cpython_embedded
+PYTHON_EMBED_SOURCES := tests/bench/code_mode/host.c tests/bench/python_runtime/cpython_embedded.c \
+    src/core/code_python.c src/core/code_policy.c third_party/yyjson/yyjson.c
+$(PYTHON_EMBED_BENCH): $(PYTHON_EMBED_SOURCES) tests/bench/code_mode/bench.h \
+    src/core/code_python.h src/core/code_policy.h src/core/code_runtime.h $(CPYTHON_LIB) $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(REL_CFLAGS) $(REL_LTO) -Itests/bench/code_mode \
+	    -isystem $(CPYTHON_DIR)/include -isystem $(CPYTHON_DIR)/frozen \
+	    $(PYTHON_EMBED_SOURCES) -o $@ $(REL_LDFLAGS)
+	strip $@ 2>/dev/null || strip -x $@
+.PHONY: python-embed-bench
+python-embed-bench: $(PYTHON_EMBED_BENCH)
+
 .PHONY: verify-formal verify-execution-protocol
 verify-formal: verify-execution-protocol
 	python3 tests/formal/check.py

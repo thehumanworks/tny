@@ -71,3 +71,14 @@ in both outcome and token denominators.
 completion/source/usage receipts and the published aggregates. The task oracles
 are shared fixture definitions; the audit does not claim independent authorship
 of the task corpus or statistical confidence guarantees.
+
+## Whole-product native comparison
+
+`measure_release.py --baseline /path/to/lua-tny --candidate /path/to/python-tny
+--output result.json` records paired warm-cache startup and exact artifact hashes,
+versions, source hashes and dependencies. Use the same comparison-only version
+label on both binaries, and never use that override for ordinary integration tests
+that validate the actual Git version. `bench_agent_cells.py` separately measures
+the full native loopback-provider execution path without model inference.
+The final Unicode-complete receipts are the `release-candidate-*` files; earlier
+measurements remain historical rather than being silently replaced.

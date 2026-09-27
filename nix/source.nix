@@ -1,3 +1,5 @@
+# Optional python-embed-bench links the existing C/CPython graph and test fileset;
+# generated-code execution remains outside package builds and requires bwrap.
 # Python-cell confinement checks compile tests/fixtures/code_sandbox_host.c
 # against the production OS seam using the existing compiler/Python inputs;
 # native enforcement is checked separately from Valgrind syscall emulation.

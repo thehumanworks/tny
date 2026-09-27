@@ -1,0 +1,292 @@
+{
+ "rounds": 15,
+ "tasks": {
+  "empty_cell": {
+   "baseline": {
+    "median_ms": 16.537270043045282,
+    "min_ms": 13.194524915888906,
+    "samples_ms": [
+     22.198762046173215,
+     18.19372782483697,
+     15.50277415663004,
+     16.537270043045282,
+     16.21226081624627,
+     13.888865010812879,
+     13.194524915888906,
+     17.93943182565272,
+     17.747793812304735,
+     15.939400997012854,
+     16.629922203719616,
+     18.235265975818038,
+     16.780114034190774,
+     15.616397140547633,
+     15.744285890832543
+    ]
+   },
+   "candidate": {
+    "median_ms": 27.824486140161753,
+    "min_ms": 25.20141890272498,
+    "samples_ms": [
+     26.474800892174244,
+     26.674284134060144,
+     39.574108086526394,
+     37.166675087064505,
+     35.92490078881383,
+     32.82263712026179,
+     25.20141890272498,
+     25.307527044788003,
+     28.623982099816203,
+     27.561284136027098,
+     28.033907990902662,
+     27.824486140161753,
+     27.169630862772465,
+     26.63991996087134,
+     31.415724894031882
+    ]
+   },
+   "delta_median_ms": 11.28721609711647,
+   "outputs": {
+    "baseline": [
+     "1\n"
+    ],
+    "candidate": [
+     "1\n"
+    ]
+   }
+  },
+  "inspect": {
+   "baseline": {
+    "median_ms": 15.54523385129869,
+    "min_ms": 14.176992932334542,
+    "samples_ms": [
+     15.54523385129869,
+     15.27157099917531,
+     14.508071821182966,
+     16.19118102826178,
+     16.584207070991397,
+     15.879598911851645,
+     14.892842154949903,
+     15.178397065028548,
+     14.176992932334542,
+     15.542017994448543,
+     20.557872019708157,
+     14.542147051542997,
+     18.882225966081023,
+     15.90377395041287,
+     17.310194903984666
+    ]
+   },
+   "candidate": {
+    "median_ms": 28.459032997488976,
+    "min_ms": 25.966571178287268,
+    "samples_ms": [
+     27.216990012675524,
+     28.225966962054372,
+     27.89183217100799,
+     30.610367888584733,
+     33.67137513123453,
+     36.57155088149011,
+     27.93627488426864,
+     28.47073506563902,
+     28.459032997488976,
+     36.35833179578185,
+     27.323538903146982,
+     27.852848870679736,
+     43.97908900864422,
+     33.996372949332,
+     25.966571178287268
+    ]
+   },
+   "delta_median_ms": 12.913799146190286,
+   "outputs": {
+    "baseline": [
+     "250\t227\t472\n"
+    ],
+    "candidate": [
+     "250 227 472\n"
+    ]
+   }
+  },
+  "edit": {
+   "baseline": {
+    "median_ms": 18.435179954394698,
+    "min_ms": 15.17202495597303,
+    "samples_ms": [
+     18.02723598666489,
+     21.260605892166495,
+     20.126032875850797,
+     18.435179954394698,
+     17.058204161003232,
+     17.677000956609845,
+     17.46879192069173,
+     15.17202495597303,
+     18.184870947152376,
+     15.700163086876273,
+     22.346909157931805,
+     19.332427997142076,
+     23.53493100963533,
+     21.571498131379485,
+     19.147191895172
+    ]
+   },
+   "candidate": {
+    "median_ms": 33.832876943051815,
+    "min_ms": 28.817223152145743,
+    "samples_ms": [
+     34.0345548465848,
+     40.06455512717366,
+     33.832876943051815,
+     28.817223152145743,
+     33.00344594754279,
+     40.47657689079642,
+     30.46664991416037,
+     40.40744714438915,
+     31.73821815289557,
+     29.169912915676832,
+     38.934472016990185,
+     30.90255497954786,
+     42.989879148080945,
+     31.985932029783726,
+     40.44787306338549
+    ]
+   },
+   "delta_median_ms": 15.397696988657117,
+   "outputs": {
+    "baseline": [
+     "final plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\n\n"
+    ],
+    "candidate": [
+     "final plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\nfinal plan\n\n"
+    ]
+   }
+  },
+  "compute": {
+   "baseline": {
+    "median_ms": 20.369678968563676,
+    "min_ms": 17.517712898552418,
+    "samples_ms": [
+     20.4303830396384,
+     18.453904893249273,
+     19.165715901181102,
+     20.507076056674123,
+     20.241709891706705,
+     17.517712898552418,
+     21.001641871407628,
+     20.369678968563676,
+     21.022230153903365,
+     21.204470889642835,
+     25.359264109283686,
+     20.04160499200225,
+     20.85446589626372,
+     19.79450206272304,
+     19.867409020662308
+    ]
+   },
+   "candidate": {
+    "median_ms": 37.638075882568955,
+    "min_ms": 32.76951820589602,
+    "samples_ms": [
+     41.33956087753177,
+     49.76016515865922,
+     34.5266149379313,
+     32.76951820589602,
+     36.5784231107682,
+     37.638075882568955,
+     33.235669834539294,
+     41.76827287301421,
+     42.04986011609435,
+     33.06343709118664,
+     41.23924300074577,
+     32.980492105707526,
+     34.79383513331413,
+     44.86141004599631,
+     38.24206511490047
+    ]
+   },
+   "delta_median_ms": 17.26839691400528,
+   "outputs": {
+    "baseline": [
+     "2666866670000\n"
+    ],
+    "candidate": [
+     "2666866670000\n"
+    ]
+   }
+  },
+  "three_cells": {
+   "baseline": {
+    "median_ms": 39.18641293421388,
+    "min_ms": 34.29309790953994,
+    "samples_ms": [
+     34.29309790953994,
+     45.916543109342456,
+     41.577916126698256,
+     37.99233795143664,
+     40.48369009979069,
+     37.28150902315974,
+     37.259638076648116,
+     41.14787210710347,
+     38.098677061498165,
+     42.19902795739472,
+     37.374994019046426,
+     40.503296069800854,
+     39.18641293421388,
+     35.055232932791114,
+     40.96111189574003
+    ]
+   },
+   "candidate": {
+    "median_ms": 74.87166509963572,
+    "min_ms": 64.97211405076087,
+    "samples_ms": [
+     74.54943098127842,
+     89.7442998830229,
+     91.70437580905855,
+     73.15854984335601,
+     77.27887784130871,
+     91.85174200683832,
+     69.02659009210765,
+     83.86541996151209,
+     74.87166509963572,
+     65.82772405818105,
+     68.70411592535675,
+     84.38487304374576,
+     64.97211405076087,
+     71.90081593580544,
+     87.10988983511925
+    ]
+   },
+   "delta_median_ms": 35.68525216542184,
+   "outputs": {
+    "baseline": [
+     "1\n",
+     "# demo\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\n\n",
+     "3\n"
+    ],
+    "candidate": [
+     "1\n",
+     "# demo\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\nTODO: item\n\n",
+     "3\n"
+    ]
+   }
+  }
+ },
+ "scope": "Serial rotated native loopback-provider tasks; all cell and nested-tool statuses must succeed. Model inference excluded; warm page cache; shared host.",
+ "binaries": {
+  "baseline": {
+   "path": "/home/tomas/Projects/tny-python-code-mode/.agent/completion/bin/tny-lua-baseline",
+   "bytes": 1401904,
+   "sha256": "bb24562e7f7c9bb68cb30d5a571fbb2ea82d9059f48f9b71fa8c31f7a9944c08"
+  },
+  "candidate": {
+   "path": "/home/tomas/Projects/tny-python-code-mode/.agent/completion/bin/tny-python-final",
+   "bytes": 6283208,
+   "sha256": "80cb11eaa824379c537195b2b6152be9efe25e7f462d27b0192977a34fb521d8"
+  }
+ },
+ "load_average_at_start": [
+  0.423828125,
+  0.28955078125,
+  0.29638671875
+ ]
+}

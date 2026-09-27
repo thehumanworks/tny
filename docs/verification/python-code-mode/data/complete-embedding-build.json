@@ -1,0 +1,16 @@
+{
+  "description": "Equal-host complete production CPython tools/JSON facade plus builtin Unicode database, not the bootstrap-only probe. Generated programs replay only under mandatory bwrap. Production additionally uses a private child; this probe measures complete language+binding footprint without the rest of Tny.",
+  "bytes": 5159448,
+  "sha256": "ed5fec6491631a669b3b01a4a045c63b5e99d56cfc8c0be7410bb454fc48c49a",
+  "compiler": "cc (GCC) 16.2.1 20260810",
+  "dependencies": "\tlinux-vdso.so.1 (0x00007f30aa041000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007f30a98c9000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007f30a9600000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007f30aa043000)\n",
+  "command_log": "cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -Iinclude -Isrc -Ithird_party -Ithird_party/yyjson -Ithird_party/picohttpparser -Ithird_party/greatest -Ibuild/generated -DHAVE_ARPA_INET_H -DHAVE_NETINET_IN_H -D_DARWIN_C_SOURCE -D_DEFAULT_SOURCE -D_BSD_SOURCE -DTNY_SHELL_PATH=\\\"/bin/sh\\\" -DYYJSON_DISABLE_NON_STANDARD -D_GNU_SOURCE -include src/util/cxx_glibc_floor.h -Os -ffunction-sections -fdata-sections -pthread -flto=auto -Itests/bench/code_mode \\\n    -isystem build/cpython-3.14.7-unicode-final/include -isystem build/cpython-3.14.7-unicode-final/frozen \\\n    tests/bench/code_mode/host.c tests/bench/python_runtime/cpython_embedded.c src/core/code_python.c src/core/code_policy.c third_party/yyjson/yyjson.c -o build/python-runtime-bench/cpython_embedded -Wl,--gc-sections -pthread -ldl -lm build/cpython-3.14.7-unicode-final/libpython3.14.a -lm -ldl -lm build/cpython-3.14.7-unicode-final/libpython3.14.a \nstrip build/python-runtime-bench/cpython_embedded 2>/dev/null || strip -x build/python-runtime-bench/cpython_embedded\n",
+  "sources": {
+    "tests/bench/python_runtime/cpython_embedded.c": "f11fb33a1cca596cd8a7be4e75252d285fb202c1d28d022aa0477fb4079dc43b",
+    "tests/bench/code_mode/host.c": "dbd19744e2d4fcc9ba9292c3d48e6ef033cbffdce3b3eb2d79d175fd352f2578",
+    "src/core/code_python.c": "62fb6c3b738333130b14a567838170621ea9ddfafcf6e93de96055909428b9ef",
+    "src/core/code_policy.c": "c9b1b27eaffed50712815e5785e30caa66f9afaab2313f98c52f26b282d64af2",
+    "src/core/code_runtime.h": "33d8c6f02328538e20276d56dac4efadef60344fad56bfa831f2cf97b75c995f",
+    "scripts/cpython_runtime.sh": "6433684b29178d90e923a047816f3588bcae6a79462a02c07bea1451cc5a2610"
+  }
+}
