@@ -9,6 +9,7 @@
 #include "util/code_sandbox.h"
 #include <errno.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <sys/resource.h>
 #include <unistd.h>
 

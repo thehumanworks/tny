@@ -130,7 +130,7 @@ init `posix` and `_io` are loaded, so object-graph introspection
 therefore needs an OS-confined interpreter process that holds no tool
 authority.
 
-### 2026-09-27 17:25 — Monty, controls, preregistration
+### 2026-09-27 17:01 — Monty, controls, preregistration (commit `77564e5`, before the live run)
 Monty 1.0.0 built from tag `85c5d1f6` (CLI 27.3 MB incl. type checker; the
 embedding probe is a Rust staticlib shim `monty_probe/` with fat LTO).
 Conformance 103/127; frozen corpus **36/36 (108/108)**; probe 6,165,632 B.

@@ -42,8 +42,9 @@ TEST code_composes_calls_and_json(void) {
 }
 
 TEST code_state_is_fresh_and_loading_names_absent(void) {
+    /* Check the actual builtins dict keys (dir() of a dict lists its methods). */
     const char *script = "absent = [n for n in ('__import__', 'open', 'eval', 'exec', 'compile',\n"
-                         "          'input', 'breakpoint') if n not in dir(__builtins__)]\n"
+                         "          'input', 'breakpoint') if n not in __builtins__]\n"
                          "try:\n"
                          "    import os\n"
                          "    imported = True\n"
@@ -55,11 +56,14 @@ TEST code_state_is_fresh_and_loading_names_absent(void) {
                          "except NameError:\n"
                          "    fresh = True\n"
                          "saved = 42\n"
-                         "print(len(absent), imported, fresh)\n";
+                         "# Control: the same membership test sees keys that must be present.\n"
+                         "present = all(n in __builtins__ for n in ('len', 'print', 'sorted', "
+                         "'type'))\n"
+                         "print(len(absent), imported, fresh, present)\n";
     for (int i = 0; i < 2; ++i) {
         char *out = tny_code_run(script, 5000, NULL, NULL, NULL);
         ASSERT(out);
-        ASSERT_STR_EQ("7 False True\n", out);
+        ASSERT_STR_EQ("7 False True True\n", out);
         free(out);
     }
     PASS();

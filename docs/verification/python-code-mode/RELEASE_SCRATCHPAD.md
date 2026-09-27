@@ -87,3 +87,15 @@ first and final, prior-Python wording35/36 first and final, Monty35/36 first and
 36/36 final. Output-token totals are9,428/9,691/10,421 respectively. This audit
 is of identities/model/usage/aggregation, not a second implementation of every
 task oracle or a new inference run.
+
+## Worker interruption and preserved implementation checkpoints
+
+The main Opus/xhigh session ended with CLI exit1 and an explicit provider-side
+safeguard error at17:51; it did not report a completed migration. Its last pushed
+checkpoint ise499d90. The final uncommitted changes (correct builtins-membership
+control, macOS type include and corrected journal timestamp) are preserved here.
+The codec review worker was terminated by signal9 before it wrote a terminal
+JSON result or committed its patch; its source edits are preserved but are not
+claimed verified. The independent proof worker remains separately observable.
+The supervisor continues source review and authentic regression/release checks;
+no model substitution, guard bypass, main merge or release publication is claimed.
