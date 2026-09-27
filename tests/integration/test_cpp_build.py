@@ -696,6 +696,11 @@ void conversions(const char *text) {
         self.assertNotIn("build/ignored.cpp", paths)
         self.assertNotIn("third_party/ignored.hpp", paths)
 
+    def test_default_goal_is_the_release_build(self):
+        output = self.make("-n")
+        self.assertIn("-o build/tny ", output)
+        self.assertNotIn("tests/", output)
+
     def test_release_archive_does_not_read_missing_unit_test_inventory(self):
         (self.root / "tests/test_main.c").unlink()
         run = self.run_command(
