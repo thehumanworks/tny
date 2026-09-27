@@ -15,7 +15,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from code_mode_fixture import code_chat_frames, lua_string
+from code_mode_fixture import code_chat_frames, python_string
 from test_tui import BANNER, TNY, Screen, Term, base_env, clean
 
 TNY = os.path.abspath(TNY)
@@ -131,7 +131,7 @@ class Provider:
                             first["arguments"] = json.dumps(
                                 {
                                     "code": 'print(tools.call("read_image", \'{"path":"image.png"}\'))\n'
-                                    + f'print(tools.call("terminal", {lua_string(first["arguments"])}))',
+                                    + f'print(tools.call("terminal", {python_string(first["arguments"])}))',
                                     "timeout_ms": 30000,
                                 }
                             )

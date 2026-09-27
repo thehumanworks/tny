@@ -3,12 +3,12 @@
 import json
 
 
-def lua_string(value):
-    """Quote UTF-8 fixture data without JSON-only Lua escape sequences."""
-    level = 0
-    while "]" + "=" * level + "]" in value:
-        level += 1
-    return "[" + "=" * level + "[" + value + "]" + "=" * level + "]"
+def python_string(value):
+    """Quote UTF-8 fixture data as a Python string literal.
+
+    Every escape json.dumps emits is also a Python escape, and non-ASCII text
+    stays verbatim; this matches jescape() in the C wire fixtures."""
+    return json.dumps(value, ensure_ascii=False)
 
 
 def code_call(name, arguments):
@@ -16,7 +16,7 @@ def code_call(name, arguments):
         return name, arguments
     if not isinstance(arguments, str):
         arguments = json.dumps(arguments, ensure_ascii=False)
-    code = f"print(tools.call({lua_string(name)}, {lua_string(arguments)}))"
+    code = f"print(tools.call({python_string(name)}, {python_string(arguments)}))"
     return "run_code", json.dumps(
         {"code": code, "timeout_ms": 30000}, ensure_ascii=False
     )

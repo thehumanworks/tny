@@ -10,7 +10,7 @@ import time
 import unittest
 
 import test_execution_code_mode as fixture
-from code_mode_fixture import lua_string
+from code_mode_fixture import python_string
 
 
 @unittest.skipIf(fixture.WASM, "native command guardian")
@@ -26,7 +26,7 @@ class ExecutionCommand(unittest.TestCase):
             '"$TNY_NESTED_MODE" "$TNY_SELF_IMPROVE"; '
             "printf stderr-marker >&2; exit 27"
         )
-        code = f"print(tools.call('terminal', {lua_string(json.dumps({'command': command}))}))"
+        code = f"print(tools.call('terminal', {python_string(json.dumps({'command': command}))}))"
         output = self.run_code(code)
         self.assertIn("exit code: 27", output)
         self.assertIn(f"{self.workspace}|1|yolo|0", output)
@@ -37,7 +37,7 @@ class ExecutionCommand(unittest.TestCase):
             "printf '%s' $$ > shell.pid; sleep 30 & "
             "printf '%s' $! > grandchild.pid; wait"
         )
-        code = f"print(tools.call('terminal', {lua_string(json.dumps({'command': command}))}))"
+        code = f"print(tools.call('terminal', {python_string(json.dumps({'command': command}))}))"
         process = self.start(code, arguments={"code": code, "timeout_ms": 30000})
         shell = grandchild = guardian = executor = None
         complete = False

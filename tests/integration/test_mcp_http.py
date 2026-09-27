@@ -8,7 +8,7 @@ import sys
 import tempfile
 import time
 
-from code_mode_fixture import lua_string
+from code_mode_fixture import python_string
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TNY = os.environ.get("TNY", os.path.join(ROOT, "build", "tny"))
@@ -47,7 +47,7 @@ def run_case(mcp_port, endpoint, expected_output):
     if endpoint in ("modern", "legacy"):
         # Discovery is explicit inside this cell; session startup never warms MCP.
         code = 'tools.call("mcp_search_tools", \'{"query":"echo"}\'); '
-    code += f'print(tools.call("mcp_select_tool", {lua_string(arguments)}))'
+    code += f'print(tools.call("mcp_select_tool", {python_string(arguments)}))'
     provider_env = dict(
         os.environ,
         MOCK_EXPECT_WIRE="responses",
