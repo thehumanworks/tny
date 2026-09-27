@@ -191,3 +191,19 @@ no-wrap obligations; 6,070 compiled GCC/Clang UBSan vectors matched Lean kernel
 evaluation. Thirteen selection theorems plus 371 replay vectors passed. This does
 not prove interpreter/OS or all call-site implementation correctness. Full mutation
 suite remains pending a durable completed run (one tool waiter timed out).
+
+### 2026-09-27T18:29:07.740414+01:00 — fair MicroPython JSON control
+A benchmark-only prebound json facade now implements ensure_ascii without
+editing any generated Python code or prompt. The original 36 frozen programs
+all pass (108/108 variants); the old 33/36 unadapted measurement remains separate.
+The 371,200-byte stripped compatibility probe is genuinely much smaller.
+
+On the newer saved programs, the same adapter passes 12/36 CPython-wording
+programs, 10/36 old-wording programs and 14/36 Monty-wording programs. All 111
+attempts/333 variants were retained. This is runtime replay evidence, not fresh
+MicroPython-specific generation. The held-out tasks target known order/semantic
+requirements; it is not a generic model ranking. Detailed outputs remain in
+replay-micropython-json-compat.json and heldout-replay-micropython-json-compat.json.
+The original JSON-wrapper gap alone therefore does not justify excluding
+MicroPython, but this follow-up does not preserve ordinary generated-program
+behavior on the targeted compatibility corpus. Full CPython remains selected.

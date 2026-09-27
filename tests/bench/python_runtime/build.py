@@ -190,9 +190,20 @@ def main() -> None:
             [],
             receipt,
         )
-    if "micropython" in wanted:
+    if wanted & {"micropython", "micropython_compat"}:
         sources, includes = build_micropython(args.sources)
-        link("micropython", [HERE / "micropython.c", *sources], includes, [], receipt)
+        for runtime in ("micropython", "micropython_compat"):
+            if runtime in wanted:
+                extra = (
+                    ["-DTNY_MP_JSON_COMPAT=1"] if runtime.endswith("_compat") else []
+                )
+                link(
+                    runtime,
+                    [HERE / "micropython.c", *sources],
+                    includes,
+                    extra,
+                    receipt,
+                )
     if "monty" in wanted:
         archive = build_monty()
         link("monty", [HERE / "monty.c", archive], [], ["-lgcc_s"], receipt)

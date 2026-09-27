@@ -1,5 +1,8 @@
 /* Benchmark-only MicroPython adapter. Runtime json module; outer watchdog only. */
 #include "bench.h"
+#ifdef TNY_MP_JSON_COMPAT
+#include "micropython_json_compat.h"
+#endif
 #include "port/micropython_embed.h"
 #include "py/compile.h"
 #include "py/cstack.h"
@@ -58,6 +61,9 @@ bool bench_execute(bench_state *s, const char *code) {
         mp_store_attr(tools, qstr_from_str("describe"), MP_OBJ_FROM_PTR(&tools_describe_obj));
         mp_store_global(qstr_from_str("tools"), tools);
         exec_str("import json\n");
+#ifdef TNY_MP_JSON_COMPAT
+        exec_str(tny_micropython_json_compat);
+#endif
         exec_str(code);
         nlr_pop();
     } else {
