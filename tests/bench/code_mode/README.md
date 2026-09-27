@@ -34,7 +34,9 @@ The explicit download flag permits only the pinned official QuickJS 2026-06-04
 archive, SHA256 `b376e839b322978313d929fd20663b11ba58b75df5a46c126dd19ea2fa70ad2a`.
 A missing/mismatched archive fails without implicit substitution. No dependency
 is added to the shipped Tny runtime. All three adapters share `host.c` virtual
-capabilities; Lua links `src/core/code_runtime.c` unchanged.
+capabilities; Lua links the measured runtime unchanged: since ADR 0179 that is
+the benchmark-only copy in `lua_runtime/`, byte-identical to PR #197's
+`src/core/code_runtime.c` and `third_party/lua/`.
 
 The effect runner requires bubblewrap and fails without it. It does not expose
 host HOME/workspace, inherited credentials or network access. Its read-only

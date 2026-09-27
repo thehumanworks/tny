@@ -1,5 +1,5 @@
 /* Production ACP bridge -> fresh execution server -> native permission path.
- * A bounded real prompt wait outlasts the requested Lua execution budget. */
+ * A bounded real prompt wait outlasts the requested Python execution budget. */
 #include "core/acp_bridge.h"
 #include "core/execution.h"
 #include "lib/custom_tools.h"

@@ -117,8 +117,8 @@ static void server_control(execution_server *s, const tny_openai_control_request
     }
     if (response->stop) {
         s->stopped = true;
-        /* Shorten authority immediately. The Lua budget check on callback return
-         * (and every instruction hook) now unwinds even pure Lua loops. */
+        /* Shorten authority immediately. The code cell's parent re-reads the
+         * deadline on callback return and kills even a busy Python cell. */
         s->deadline = 0;
     }
     yyjson_doc_free(reply);
@@ -365,7 +365,7 @@ static char *server_tool(void *ud, const char *name, const char *args) {
     /* Push state even when code later fails. Side effects are never rolled back
      * or replayed; ACK precedes post hooks so they observe the committed state. */
     /* This phase only settles the completed call. It never changes the code /
-     * tool deadline, and the runtime checks that deadline before resuming Lua. */
+     * tool deadline, and the cell parent checks that deadline before resuming Python. */
     s->settlement_deadline = monotonic_ms() + SETTLEMENT_MS;
     (void)server_state(s);
     if (began) server_subagent_control(s, &call, id, true, result);
@@ -592,7 +592,7 @@ char *tny_execution_run(tools_env *env, const char *arguments_json) {
                 }
             }
             if (kind == TNY_EXEC_STATE && jget_bool(body, "finished", false)) {
-                /* Lua has returned: only its final ACK/result may follow.
+                /* The Python cell has returned: only its final ACK/result may follow.
                  * Authority is over; this is a separate, non-executing phase. */
                 finished = true;
                 deadline = monotonic_ms() + SETTLEMENT_MS;
@@ -731,7 +731,7 @@ int tny_execution_server_main(void) {
     char *reply = ok ? message_from_doc(1, TNY_EXEC_RESULT, result) : NULL;
     int rc = reply ? tny_exec_host_send(s.fd, reply, s.settlement_deadline, NULL, NULL) : -1;
     /* The client holds the result until EOF and successful reap. Teardown has
-     * its own bounded wait and cannot grant more Lua/tool execution. */
+     * its own bounded wait and cannot grant more Python/tool execution. */
     mcp_shutdown_all();
     secure_free(reply);
     yyjson_mut_doc_free(result);

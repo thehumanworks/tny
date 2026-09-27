@@ -69,13 +69,14 @@ def main() -> None:
         "ldblib.c",
         "lcorolib.c",
     }
-    lua = sorted(
-        p for p in (ROOT / "third_party/lua").glob("*.c") if p.name not in excluded
-    )
+    # The measured Lua runtime moved out of production (ADR 0179); these
+    # benchmark-only copies are byte-identical to the PR #197 sources.
+    lua_root = HERE / "lua_runtime"
+    lua = sorted(p for p in (lua_root / "lua").glob("*.c") if p.name not in excluded)
     sources = {
         "empty": common + [HERE / "empty.c"],
         "lua": common
-        + [HERE / "lua.c", ROOT / "src/core/code_runtime.c", ROOT / "src/util/util.c"]
+        + [HERE / "lua.c", lua_root / "core/code_runtime.c", ROOT / "src/util/util.c"]
         + lua,
         "javascript": common
         + [HERE / "javascript.c"]
@@ -100,6 +101,7 @@ def main() -> None:
         "sources": {},
     }
     includes = [
+        f"-I{HERE / 'lua_runtime'}",
         f"-I{ROOT / 'src'}",
         f"-I{ROOT / 'include'}",
         f"-I{ROOT / 'third_party'}",

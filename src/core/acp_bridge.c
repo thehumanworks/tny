@@ -271,7 +271,7 @@ static int call_tool(tny_acp_bridge *b, bridge_client *c, const char *id, yyjson
     if (!name || !*name || (args && !yyjson_is_obj(args)))
         return rpc_error(c, id, -32602, "expected tool name and object arguments");
     if (name_len != strlen("run_code") || strcmp(name, "run_code") != 0)
-        return rpc_error(c, id, -32602, "only run_code is exposed; use tools.call inside Lua");
+        return rpc_error(c, id, -32602, "only run_code is exposed; use tools.call inside Python");
     c->id = xstrdup(id);
     c->original_args = args ? jwrite_val(args) : xstrdup("{}");
     c->args = xstrdup(c->original_args);

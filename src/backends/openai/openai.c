@@ -1645,7 +1645,7 @@ static int run_tools(oa_impl *o) {
         /* Check the raw provider name before extension callbacks, argument
          * rewrites, canonical aliases or preparation can admit a direct tool. */
         if (strcmp(name, "run_code") != 0) {
-            const char *result = "error: only run_code is exposed; use tools.call inside Lua";
+            const char *result = "error: only run_code is exposed; use tools.call inside Python";
             log_toolcall(o, name, false, false, false);
             emit_tool_end(o, cid, name, result, false);
             session_add_tool_result(o->env.session, cid, result);

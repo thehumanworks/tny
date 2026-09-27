@@ -549,7 +549,7 @@ class AcpClientTest(unittest.TestCase):
         self.assertEqual(len(results), len(calls))
         self.assertIn("ACP file contents", json.dumps(results[1]))
         self.assertIn("ACP-SHELL-OK", json.dumps(results[2]))
-        # Lua executed successfully; nested tool failures remain result text.
+        # Python executed successfully; nested tool failures remain result text.
         self.assertIn("error", json.dumps(results[3]).lower())
         self.assertIn("error", json.dumps(results[4]).lower())
         self.assertTrue(output.get("tool_calls"), output)
