@@ -395,6 +395,22 @@ verify-code-policy:
 	python3 tests/formal/check_code_policy.py --lean "$(LEAN)"
 	LEAN="$(LEAN)" python3 tests/formal/code_policy/test_mutations.py
 
+# Replay executor for the frozen code-mode corpus on the shipped cell path:
+# the preserved benchmark host linked with the release objects (not main).
+PYTHON_CELL_BENCH = $(BUILD)/python-runtime-bench/production
+$(BUILD)/python-cell-bench/host.o: tests/bench/code_mode/host.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(REL_CFLAGS) -Itests/bench/code_mode -Dmain=bench_host_main -c -o $@ $<
+$(BUILD)/python-cell-bench/production.o: tests/bench/python_runtime/production.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(REL_CFLAGS) -Itests/bench/code_mode -c -o $@ $<
+$(PYTHON_CELL_BENCH): $(filter-out $(OBJ_REL)/src/main.o,$(REL_OBJS)) \
+		$(BUILD)/python-cell-bench/host.o $(BUILD)/python-cell-bench/production.o
+	@mkdir -p $(@D)
+	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) -o $@ $^ $(REL_LDFLAGS)
+.PHONY: python-cell-bench
+python-cell-bench: $(PYTHON_CELL_BENCH)
+
 .PHONY: verify-formal verify-execution-protocol
 verify-formal: verify-execution-protocol
 	python3 tests/formal/check.py

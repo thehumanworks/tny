@@ -225,7 +225,7 @@ int tny_exec_host_close(tny_exec_host *host, bool completed) {
                 return completed && WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
             }
             if (got < 0 && errno != EINTR) return -1;
-            tny_poll(NULL, 0, 5);
+            tny_poll(NULL, 0, 1);
         } while (monotonic_ms() < deadline);
     }
     return tny_process_stop_owned_tree(host->pid, &status, &host->reaped);
