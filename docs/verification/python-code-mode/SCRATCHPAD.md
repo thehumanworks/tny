@@ -126,3 +126,25 @@ init `posix` and `_io` are loaded, so object-graph introspection
 `_io.FileIO`/`posix`: restricted builtins cannot be the boundary. CPython
 therefore needs an OS-confined interpreter process that holds no tool
 authority.
+
+### 2026-09-27 17:25 — Monty, controls, preregistration
+Monty 1.0.0 built from tag `85c5d1f6` (CLI 27.3 MB incl. type checker; the
+embedding probe is a Rust staticlib shim `monty_probe/` with fat LTO).
+Conformance 103/127; frozen corpus **36/36 (108/108)**; probe 6,165,632 B.
+Genuine gaps for generated code: `yield`, `del`, inheritance/custom
+exceptions, `match`, eager genexprs (`range(10**9)` genexpr times out),
+`True + 1` TypeError (`sum(bools)` idiom), `key=str.lower`, no
+`callable/issubclass/ascii`, multi-arg exception constructors error.
+
+The preserved PR #197 CPython adapter's narrow builtin whitelist lacks
+`type`, `KeyError`, `RuntimeError`, and its `print` has no `sep/end`; it does
+not represent the intended production runtime. Added `cpython_prod.c` with
+the proposed production policy. Both CPython adapters reproduce 36/36.
+
+Equal-host static CPython size probe: 4,668,312 B (libpython objects not
+LTO-compiled yet). Empty-cell medians (50 rotated rounds): static CPython
+13.79 ms, Monty 0.79 ms, MicroPython 0.22 ms, PocketPy 2.39 ms, stock shared
+CPython with stdlib json/types imports 29.40 ms.
+
+Held-out controls 108/108 on the three arms. Protocol and `policy.py`
+committed before inference.

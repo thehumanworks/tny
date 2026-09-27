@@ -1,0 +1,2323 @@
+{
+ "reference": "/home/tomas/.local/share/mise/installs/python/3.14.7/bin/python3 -I -S",
+ "cases": {
+  "listcomp_filter": {
+   "code": "print([x * x for x in range(7) if x % 2 == 0])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[0, 4, 16, 36]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[0, 4, 16, 36]\n",
+     "stderr": "160.98μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "dictcomp": {
+   "code": "print({x: x * 2 for x in range(7) if x > 3})",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "{4: 8, 5: 10, 6: 12}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "{4: 8, 5: 10, 6: 12}\n",
+     "stderr": "149.65μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "setcomp": {
+   "code": "print(sorted({x % 3 for x in range(7)}))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[0, 1, 2]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[0, 1, 2]\n",
+     "stderr": "179.34μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "nested_comp": {
+   "code": "print([(a, b) for a in range(3) for b in range(a)])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[(1, 0), (2, 0), (2, 1)]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[(1, 0), (2, 0), (2, 1)]\n",
+     "stderr": "158.10μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "comp_of_comp": {
+   "code": "print([[y for y in range(x)] for x in range(4)])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[[], [0], [0, 1], [0, 1, 2]]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[[], [0], [0, 1], [0, 1, 2]]\n",
+     "stderr": "194.66μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "genexpr_arg": {
+   "code": "print(sum(x for x in range(7) if x > 2), sorted(x for x in 'cab'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "18 ['a', 'b', 'c']\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "18 ['a', 'b', 'c']\n",
+     "stderr": "200.79μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "genexpr_value": {
+   "code": "g = (x for x in range(10**9))\nprint(next(g), next(g))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "0 1\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": null,
+     "stdout": "",
+     "stderr": "timeout",
+     "match": false
+    }
+   }
+  },
+  "any_all": {
+   "code": "print(any(x > 5 for x in range(7)), all(x >= 0 for x in range(7)))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "True True\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "True True\n",
+     "stderr": "161.81μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "map_filter": {
+   "code": "print(list(map(lambda v: v + 1, [1, 2])), list(filter(None, [0, 1, '', 'a'])))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[2, 3] [1, 'a']\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[2, 3] [1, 'a']\n",
+     "stderr": "369.67μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "zip_enumerate": {
+   "code": "print(list(zip([1, 2, 3], 'ab')), list(enumerate('ab', start=1)))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[(1, 'a'), (2, 'b')] [(1, 'a'), (2, 'b')]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[(1, 'a'), (2, 'b')] [(1, 'a'), (2, 'b')]\n",
+     "stderr": "274.00μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "slices": {
+   "code": "xs = list(range(7))\nprint(xs[::-2], xs[-2:], xs[1:-1:2], xs[10:], xs[-99:2])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[6, 4, 2, 0] [5, 6] [1, 3, 5] [] [0, 1]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[6, 4, 2, 0] [5, 6] [1, 3, 5] [] [0, 1]\n",
+     "stderr": "178.94μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "reversed_range": {
+   "code": "print(list(reversed(range(1, 10, 3))), list(range(10, 0, -4)))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[7, 4, 1] [10, 6, 2]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[7, 4, 1] [10, 6, 2]\n",
+     "stderr": "192.09μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "for_else": {
+   "code": "for i in range(2):\n    pass\nelse:\n    print('else', i)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "else 1\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "else 1\n",
+     "stderr": "157.03μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "while_else_break": {
+   "code": "n = 0\nwhile n < 5:\n    n += 1\n    if n == 3:\n        break\nelse:\n    print('never')\nprint(n)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "3\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "3\n",
+     "stderr": "130.75μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "walrus": {
+   "code": "data = [1, 5, 9]\nif (n := len(data)) > 2:\n    print(n)\nprint([y for x in data if (y := x * 2) > 5])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "3\n[10, 18]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "3\n[10, 18]\n",
+     "stderr": "141.72μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "unpacking": {
+   "code": "a, (b, c), *rest = [1, (2, 3), 4, 5]\nfirst, *mid, last = 'abcde'\nprint(a, b, c, rest, first, mid, last)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "1 2 3 [4, 5] a ['b', 'c', 'd'] e\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "1 2 3 [4, 5] a ['b', 'c', 'd'] e\n",
+     "stderr": "177.72μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "star_call": {
+   "code": "def f(*a, **k):\n    return a, sorted(k.items())\nprint(f(*[1, 2], *(3,), **{'x': 1}, y=2))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "((1, 2, 3), [('x', 1), ('y', 2)])\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "((1, 2, 3), [('x', 1), ('y', 2)])\n",
+     "stderr": "212.96μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "iter_protocol": {
+   "code": "it = iter([1, 2])\nprint(next(it), next(it), next(it, 'end'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "1 2 end\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "1 2 end\n",
+     "stderr": "170.44μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "generator_fn": {
+   "code": "def gen(n):\n    for i in range(n):\n        yield i * i\ng = gen(4)\nprint(next(g), next(g), list(g))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "0 1 [4, 9]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "error:\nTraceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/generator_fn.py\", line 3, in <module>\n    yield i * i\n    ~~~~~~~~~~~\nNotImplementedError: The monty syntax parser does not yet support yield expressions\n",
+     "match": false
+    }
+   }
+  },
+  "yield_from": {
+   "code": "def a():\n    yield 1\n    yield 2\ndef b():\n    yield from a()\n    yield 3\nprint(list(b()))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[1, 2, 3]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "error:\nTraceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/yield_from.py\", line 2, in <module>\n    yield 1\n    ~~~~~~~\nNotImplementedError: The monty syntax parser does not yet support yield expressions\n",
+     "match": false
+    }
+   }
+  },
+  "infinite_gen": {
+   "code": "def c():\n    n = 0\n    while True:\n        n += 1\n        yield n\ng = c()\nprint([next(g) for _ in range(3)])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[1, 2, 3]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "error:\nTraceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/infinite_gen.py\", line 5, in <module>\n    yield n\n    ~~~~~~~\nNotImplementedError: The monty syntax parser does not yet support yield expressions\n",
+     "match": false
+    }
+   }
+  },
+  "gen_return_stop": {
+   "code": "def g():\n    yield 1\n    return 5\nit = g()\nnext(it)\ntry:\n    next(it)\nexcept StopIteration as e:\n    print('stop', e.value)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "stop 5\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "error:\nTraceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/gen_return_stop.py\", line 2, in <module>\n    yield 1\n    ~~~~~~~\nNotImplementedError: The monty syntax parser does not yet support yield expressions\n",
+     "match": false
+    }
+   }
+  },
+  "sorted_key_tuple": {
+   "code": "rows = [{'id': 'b', 's': 2}, {'id': 'a', 's': 2}, {'id': 'c', 's': 5}]\nprint([r['id'] for r in sorted(rows, key=lambda r: (-r['s'], r['id']))])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "['c', 'a', 'b']\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "['c', 'a', 'b']\n",
+     "stderr": "209.20μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "sorted_stable": {
+   "code": "rows = [('b', 2), ('a', 2), ('c', 1)]\nprint(sorted(rows, key=lambda r: r[1]))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[('c', 1), ('b', 2), ('a', 2)]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[('c', 1), ('b', 2), ('a', 2)]\n",
+     "stderr": "199.70μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "sorted_reverse_stable": {
+   "code": "rows = [('b', 2), ('a', 2), ('c', 5), ('d', 1)]\nprint(sorted(rows, key=lambda r: r[1], reverse=True))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[('c', 5), ('b', 2), ('a', 2), ('d', 1)]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[('c', 5), ('b', 2), ('a', 2), ('d', 1)]\n",
+     "stderr": "236.57μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "list_sort_inplace": {
+   "code": "xs = ['b', 'A', 'a', 'B']\nxs.sort(key=str.lower)\nprint(xs, sorted(['b', 'A', 'a', 'B']))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "['A', 'a', 'b', 'B'] ['A', 'B', 'a', 'b']\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "78.948μs ❯ error: Traceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/list_sort_inplace.py\", line 2, in <module>\n    xs.sort(key=str.lower)\nAttributeError: type object 'str' has no attribute 'lower'\n",
+     "match": false
+    }
+   }
+  },
+  "min_max_key_default": {
+   "code": "print(min([3, 1], key=lambda v: -v), max([], default=None), max(1, 2.5), min('b', 'a'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "3 None 2.5 a\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "3 None 2.5 a\n",
+     "stderr": "171.35μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "sorted_dict_items": {
+   "code": "d = {'z': 1, 'a': 2}\nprint(sorted(d), sorted(d.items(), key=lambda kv: kv[1]))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "['a', 'z'] [('z', 1), ('a', 2)]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "['a', 'z'] [('z', 1), ('a', 2)]\n",
+     "stderr": "223.37μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "sort_mixed_error": {
+   "code": "try:\n    sorted([1, 'a'])\nexcept TypeError:\n    print('TypeError')",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "TypeError\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "TypeError\n",
+     "stderr": "163.15μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "dict_order": {
+   "code": "d = {'b': 1, 'a': 2}\nd['c'] = 3\nprint(list(d), list(d.values()), list(d.items()))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "['b', 'a', 'c'] [1, 2, 3] [('b', 1), ('a', 2), ('c', 3)]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "['b', 'a', 'c'] [1, 2, 3] [('b', 1), ('a', 2), ('c', 3)]\n",
+     "stderr": "201.33μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "dict_get": {
+   "code": "d = {'a': 2}\nprint(d.get('a'), d.get('x'), d.get('x', 0), 'a' in d, 'x' not in d)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "2 None 0 True True\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "2 None 0 True True\n",
+     "stderr": "163.16μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "dict_methods": {
+   "code": "d = {'b': 1}\nprint(d.setdefault('e', []), d.pop('b'), d.pop('zz', 'none'), len(d))\nd.update({'f': 6}, g=7)\nprint(d)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[] 1 none 1\n{'e': [], 'f': 6, 'g': 7}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[] 1 none 1\n{'e': [], 'f': 6, 'g': 7}\n",
+     "stderr": "185.15μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "dict_counter": {
+   "code": "c = {}\nfor w in 'a b a c b a'.split():\n    c[w] = c.get(w, 0) + 1\nprint(c)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "{'a': 3, 'b': 2, 'c': 1}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "{'a': 3, 'b': 2, 'c': 1}\n",
+     "stderr": "214.59μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "dict_del": {
+   "code": "d = {'a': 1, 'b': 2}\ndel d['a']\nprint(d)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "{'b': 2}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "error:\nTraceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/dict_del.py\", line 2, in <module>\n    del d['a']\n    ~~~~~~~~~~\nNotImplementedError: The monty syntax parser does not yet support the 'del' statement\n",
+     "match": false
+    }
+   }
+  },
+  "dict_unpack_literal": {
+   "code": "d = {'a': 1}\nprint({**d, 'z': 0}, dict(zip('ab', [1, 2])), dict([('k', 'v')]))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "{'a': 1, 'z': 0} {'a': 1, 'b': 2} {'k': 'v'}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "{'a': 1, 'z': 0} {'a': 1, 'b': 2} {'k': 'v'}\n",
+     "stderr": "224.63μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "dict_merge_op": {
+   "code": "print({'a': 1} | {'b': 2})",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "{'a': 1, 'b': 2}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "{'a': 1, 'b': 2}\n",
+     "stderr": "174.12μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "dict_keyerror": {
+   "code": "try:\n    {}['missing']\nexcept KeyError as e:\n    print(repr(e), e.args)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "KeyError('missing') ('missing',)\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "KeyError('missing') ('missing',)\n",
+     "stderr": "170.03μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "set_ops": {
+   "code": "s = {3, 1, 2}\ns.add(4); s.discard(9); s.remove(1)\nprint(sorted(s), sorted(s | {9}), sorted(s & {2, 3}), sorted(s - {2}), sorted(s ^ {2, 7}))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[2, 3, 4] [2, 3, 4, 9] [2, 3] [3, 4] [3, 4, 7]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[2, 3, 4] [2, 3, 4, 9] [2, 3] [3, 4] [3, 4, 7]\n",
+     "stderr": "180.96μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "set_misc": {
+   "code": "print(len(set('mississippi')), set() == set(), frozenset([1]) == {1}, {1, 2} <= {1, 2, 3})",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "4 True True True\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "14μs ❯ error: Traceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/set_misc.py\", line 1, in <module>\n    print(len(set('mississippi')), set() == set(), frozenset([1]) == {1}, {1, 2} <= {1, 2, 3})\n                                                                          ~~~~~~~~~~~~~~~~~~~\nTypeError: '<=' not supported between instances of 'set' and 'set'\n",
+     "match": false
+    }
+   }
+  },
+  "dict_view_ops": {
+   "code": "d = {'a': 1, 'b': 2}\nprint(sorted(d.keys() & {'a', 'z'}), list(d.items())[0])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "['a'] ('a', 1)\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "['a'] ('a', 1)\n",
+     "stderr": "430.11μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "unicode_len_slice": {
+   "code": "s = 'héllo wörld ✓ 😀'\nprint(len(s), s[:7], s[-3:], s[6:11])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "15 héllo w ✓ 😀 wörld\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "15 héllo w ✓ 😀 wörld\n",
+     "stderr": "114.47μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "unicode_step_slice": {
+   "code": "s = 'aé😀z'\nprint(s[::-1], s[::2])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "z😀éa a😀\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "z😀éa a😀\n",
+     "stderr": "201.59μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "unicode_iter_ord": {
+   "code": "print([c for c in 'a😀b'], len('😀'), ord('😀'), chr(128512))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "['a', '😀', 'b'] 1 128512 😀\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "['a', '😀', 'b'] 1 128512 😀\n",
+     "stderr": "253.58μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "unicode_find": {
+   "code": "s = 'héllo wörld ✓'\nprint(s.find('ö'), s.index('✓'), s.count('l'), s.upper())",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "7 12 3 HÉLLO WÖRLD ✓\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "7 12 3 HÉLLO WÖRLD ✓\n",
+     "stderr": "253.04μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "unicode_combining": {
+   "code": "s = 'e\\u0301'\nprint(len(s), s[:1], repr(s[1:]))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "2 e '́'\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "2 e '́'\n",
+     "stderr": "166.77μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "encode_bytes": {
+   "code": "print('😀'.encode('utf-8'), len('😀é'.encode()), b'\\xc3\\xa9'.decode())",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "b'\\xf0\\x9f\\x98\\x80' 6 é\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "b'\\xf0\\x9f\\x98\\x80' 6 é\n",
+     "stderr": "186.29μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "case_mapping": {
+   "code": "print('ÉCOLE'.lower(), 'straße'.upper(), 'ß'.casefold())",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "école STRASSE ss\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "école STRASSE ss\n",
+     "stderr": "154.95μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "str_split_family": {
+   "code": "print('x\\ny\\r\\nz\\n'.splitlines(), 'a b  c'.split(), 'k=v=w'.partition('='), 'a.b.c'.rsplit('.', 1), 'a,b,,c'.split(','))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "['x', 'y', 'z'] ['a', 'b', 'c'] ('k', '=', 'v=w') ['a.b', 'c'] ['a', 'b', '', 'c']\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "['x', 'y', 'z'] ['a', 'b', 'c'] ('k', '=', 'v=w') ['a.b', 'c'] ['a', 'b', '', 'c']\n",
+     "stderr": "204.17μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "str_predicates": {
+   "code": "print('abc'.startswith('ab'), 'abc'.endswith(('x', 'c')), '42'.isdigit(), 'ab'.isalpha(), 'Ab c'.title(), 'a\\u00e9'.isascii())",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "True True True True Ab C False\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "True True True True Ab C False\n",
+     "stderr": "137.19μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "str_strip_family": {
+   "code": "print(repr(' x\\t\\n'.rstrip()), 'xxhixx'.strip('x'), 'hello'.removeprefix('he'), 'hello'.removesuffix('lo'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "' x' hi llo hel\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "' x' hi llo hel\n",
+     "stderr": "186.31μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "str_pad": {
+   "code": "print('7'.zfill(3), 'ab'.center(6, '*'), 'ab'.ljust(4, '.') + '|', '5'.rjust(3, '0'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "007 **ab** ab..| 005\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "007 **ab** ab..| 005\n",
+     "stderr": "202.35μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "str_replace_count": {
+   "code": "t = 'aaa'\nprint(t.replace('a', 'b', 2), t.count('aa'), 'abc'.replace('', '-'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "bba 1 -a-b-c-\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "bba 1 -a-b-c-\n",
+     "stderr": "199.40μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "str_join_misc": {
+   "code": "print(' | '.join(sorted({'b', 'a'})), 'x'.join([]), ''.join(reversed('abc')), 'ab' * 2)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "a | b  cba abab\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "a | b  cba abab\n",
+     "stderr": "310.18μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "str_translate": {
+   "code": "print('a-b_c'.translate(str.maketrans('-_', '  ')))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "a b c\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "102.41μs ❯ error: Traceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/str_translate.py\", line 1, in <module>\n    print('a-b_c'.translate(str.maketrans('-_', '  ')))\nAttributeError: type object 'str' has no attribute 'maketrans'\n",
+     "match": false
+    }
+   }
+  },
+  "name_escape": {
+   "code": "print(len('\\N{GREEK SMALL LETTER ALPHA}'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "1\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "1\n",
+     "stderr": "175.64μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "str_repr_ascii": {
+   "code": "print(repr('quote\\'\"\\n\\t\\x00é'), ascii('é'), str(b'x'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "'quote\\'\"\\n\\t\\x00é' '\\xe9' b'x'\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "125.91μs ❯ error: Traceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/str_repr_ascii.py\", line 1, in <module>\n    print(repr('quote\\'\"\\n\\t\\x00é'), ascii('é'), str(b'x'))\n                                     ~~~~~\nNameError: name 'ascii' is not defined\n",
+     "match": false
+    }
+   }
+  },
+  "str_compare": {
+   "code": "print('é' < 'z', 'Z' < 'a', 'abc' < 'abd', [1, 2] < [1, 3])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "False True True True\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "False True True True\n",
+     "stderr": "136.32μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "format_spec": {
+   "code": "print('{:>6}|{:<4}|{:^5}|{:08.3f}|{:,}'.format('ab', 'c', 'd', 3.14159, 1234567))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "    ab|c   |  d  |0003.142|1,234,567\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "    ab|c   |  d  |0003.142|1,234,567\n",
+     "stderr": "169.91μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "fstring_spec": {
+   "code": "s = 'hé'\nprint(f\"{s!r} {3/2:.2f} {10:x} {255:#06b} {'q'*3} {7:>3} {0.5:.0%}\")",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "'hé' 1.50 a 0b11111111 qqq   7 50%\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "'hé' 1.50 a 0b11111111 qqq   7 50%\n",
+     "stderr": "193.24μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "fstring_debug": {
+   "code": "x = 3\nprint(f'{x=}', f'{x + 1 = }')",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "x=3 x + 1 = 4\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "x=3 x + 1 = 4\n",
+     "stderr": "144.77μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "percent_format": {
+   "code": "print('%s-%d-%.1f' % ('a', 3, 2.25), '%05d' % 42, '%-5s|' % 'ab', '%x' % 255, '%(x)s' % {'x': 1})",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "a-3-2.2 00042 ab   | ff 1\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "a-3-2.2 00042 ab   | ff 1\n",
+     "stderr": "209.55μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "format_named": {
+   "code": "print('{name}={value!r}'.format(name='k', value='v'), '{0}{1}{0}'.format('a', 'b'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "k='v' aba\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "k='v' aba\n",
+     "stderr": "180.93μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "int_division": {
+   "code": "print(7 // 2, -7 // 2, 7 % 3, -7 % 3, divmod(-7, 2), 7 / 2, 2 ** -1)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "3 -4 1 2 (-4, 1) 3.5 0.5\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "3 -4 1 2 (-4, 1) 3.5 0.5\n",
+     "stderr": "219.34μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "bigint": {
+   "code": "print(2 ** 63, 2 ** 64 + 1, -(2 ** 63) - 1, 10 ** 20 // 3, 2 ** 100)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "9223372036854775808 18446744073709551617 -9223372036854775809 33333333333333333333 1267650600228229401496703205376\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "9223372036854775808 18446744073709551617 -9223372036854775809 33333333333333333333 1267650600228229401496703205376\n",
+     "stderr": "232.20μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "int_precision": {
+   "code": "print(9007199254740993 + 0, 9007199254740993 * 2, int('9007199254740993'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "9007199254740993 18014398509481986 9007199254740993\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "9007199254740993 18014398509481986 9007199254740993\n",
+     "stderr": "235.94μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "float_repr": {
+   "code": "print(0.1 + 0.2, 1e16, 1.0, 1e-5, 3.0 * 1e21, float('1.5'), repr(0.1))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "0.30000000000000004 1e+16 1.0 1e-05 3e+21 1.5 0.1\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "0.30000000000000004 1e+16 1.0 1e-05 3e+21 1.5 0.1\n",
+     "stderr": "282.23μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "int_parse": {
+   "code": "print(int('42'), int(' -7 '), int(3.9), int(-3.9), int('ff', 16), int('1_000'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "42 -7 3 -3 255 1000\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "42 -7 3 -3 255 1000\n",
+     "stderr": "178.72μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "rounding": {
+   "code": "print(round(2.5), round(3.5), round(2.675, 2), round(7), round(-0.5), f'{1234.5:.0f}', round(1.25, 1))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "2 4 2.67 7 0 1234 1.2\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "2 4 2.68 7 0 1234 1.2\n",
+     "stderr": "164.82μs ❯ None\n",
+     "match": false
+    }
+   }
+  },
+  "fsum_builtin": {
+   "code": "print(sum([0.1] * 10), sum(range(101)), sum([1, 2], 10))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "1.0 5050 13\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "0.9999999999999999 5050 13\n",
+     "stderr": "206.32μs ❯ None\n",
+     "match": false
+    }
+   }
+  },
+  "bool_int": {
+   "code": "print(True + 1, True == 1, isinstance(True, int), 1 == 1.0, hash(1) == hash(1.0), {1: 'a', 1.0: 'b'})",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "2 True True True True {1: 'b'}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "75.360μs ❯ error: Traceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/bool_int.py\", line 1, in <module>\n    print(True + 1, True == 1, isinstance(True, int), 1 == 1.0, hash(1) == hash(1.0), {1: 'a', 1.0: 'b'})\n          ~~~~~~~~\nTypeError: unsupported operand type(s) for +: 'bool' and 'int'\n",
+     "match": false
+    }
+   }
+  },
+  "radix": {
+   "code": "print(hex(255), bin(5), oct(8), abs(-3), abs(-2.5))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "0xff 0b101 0o10 3 2.5\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "0xff 0b101 0o10 3 2.5\n",
+     "stderr": "147.19μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "aug_assign": {
+   "code": "x = 5\nx += 3; x *= 2; x -= 1; x //= 3; x **= 2; x %= 7\nprint(x)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "4\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "4\n",
+     "stderr": "175.86μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "chained_compare": {
+   "code": "print(3 < 5 < 7, 1 < 2 > 3, 1 == 1.0 == True)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "True False True\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "True False True\n",
+     "stderr": "124.24μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "inf_nan": {
+   "code": "print(float('inf') > 10 ** 300, float('nan') != float('nan'), -0.0 == 0.0, str(-0.0))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "True True True -0.0\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "True True True -0.0\n",
+     "stderr": "184.59μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "int_float_mix": {
+   "code": "print(10 / 5, 2 * 0.5, 3 // 2.0, 7 % 2.5, 10 ** 16 * 1.0)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "2.0 1.0 1.0 2.0 1e+16\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "2.0 1.0 1.0 2.0 1e+16\n",
+     "stderr": "160.19μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_int_precision": {
+   "code": "import json\nv = json.loads('[9007199254740993, -9223372036854775808, 18446744073709551616]')\nprint(v, json.dumps(v))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[9007199254740993, -9223372036854775808, 18446744073709551616] [9007199254740993, -9223372036854775808, 18446744073709551616]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[9007199254740993, -9223372036854775808, 18446744073709551616] [9007199254740993, -9223372036854775808, 18446744073709551616]\n",
+     "stderr": "293.41μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_null_false_zero": {
+   "code": "import json\nv = json.loads('{\"n\":null,\"f\":false,\"z\":0,\"e\":\"\",\"a\":[],\"o\":{}}')\nprint(v['n'] is None, v['f'] is False, v['z'] == 0 and v['z'] is not False, type(v['z']).__name__, v['a'] == [], v['o'] == {}, json.dumps(v))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "True True True int True True {\"n\": null, \"f\": false, \"z\": 0, \"e\": \"\", \"a\": [], \"o\": {}}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "True True True int True True {\"n\": null, \"f\": false, \"z\": 0, \"e\": \"\", \"a\": [], \"o\": {}}\n",
+     "stderr": "255.26μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_roundtrip_shapes": {
+   "code": "import json\nprint(json.dumps(json.loads('{\"x\":[[],[{}],{\"y\":[]}],\"b\":[true,false,null,0,0.0,\"\"]}')))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "{\"x\": [[], [{}], {\"y\": []}], \"b\": [true, false, null, 0, 0.0, \"\"]}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "{\"x\": [[], [{}], {\"y\": []}], \"b\": [true, false, null, 0, 0.0, \"\"]}\n",
+     "stderr": "304.43μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_default_dumps": {
+   "code": "import json\nprint(json.dumps({'a': [1, True, None, 'hi', {}], 'b': {}, 'n': -9}))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "{\"a\": [1, true, null, \"hi\", {}], \"b\": {}, \"n\": -9}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "{\"a\": [1, true, null, \"hi\", {}], \"b\": {}, \"n\": -9}\n",
+     "stderr": "323.26μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_ensure_ascii": {
+   "code": "import json\ns = 'é😀\\n\"\\\\/\\x01'\nprint(json.dumps(s), json.dumps(s, ensure_ascii=False))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "\"\\u00e9\\ud83d\\ude00\\n\\\"\\\\/\\u0001\" \"é😀\\n\\\"\\\\/\\u0001\"\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "\"\\u00e9\\ud83d\\ude00\\n\\\"\\\\/\\u0001\" \"é😀\\n\\\"\\\\/\\u0001\"\n",
+     "stderr": "241.26μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_separators_sort": {
+   "code": "import json\nprint(json.dumps({'b': 1, 'a': [1, 2]}, separators=(',', ':'), sort_keys=True))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "{\"a\":[1,2],\"b\":1}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "{\"a\":[1,2],\"b\":1}\n",
+     "stderr": "274.76μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_indent": {
+   "code": "import json\nprint(json.dumps({'k': [1, 2], 'o': {'p': None}, 'e': [], 'd': {}}, indent=2))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "{\n  \"k\": [\n    1,\n    2\n  ],\n  \"o\": {\n    \"p\": null\n  },\n  \"e\": [],\n  \"d\": {}\n}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "{\n  \"k\": [\n    1,\n    2\n  ],\n  \"o\": {\n    \"p\": null\n  },\n  \"e\": [],\n  \"d\": {}\n}\n",
+     "stderr": "217.52μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_floats": {
+   "code": "import json\nprint(json.dumps([1.0, 0.1, 1e16, 1e-5, 2.5e-7, -0.0, 123456789.125, 3.0e21, 1e100]))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[1.0, 0.1, 1e+16, 1e-05, 2.5e-07, -0.0, 123456789.125, 3e+21, 1e+100]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[1.0, 0.1, 1e+16, 1e-05, 2.5e-07, -0.0, 123456789.125, 3e+21, 1e+100]\n",
+     "stderr": "240.40μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_float_parse": {
+   "code": "import json\nv = json.loads('[1.5, 1E2, -0, 1e-7, 0.30000000000000004]')\nprint(v, [type(x).__name__ for x in v])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[1.5, 100.0, 0, 1e-07, 0.30000000000000004] ['float', 'float', 'int', 'float', 'float']\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[1.5, 100.0, 0, 1e-07, 0.30000000000000004] ['float', 'float', 'int', 'float', 'float']\n",
+     "stderr": "349.21μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_escapes_in": {
+   "code": "import json\nprint(json.loads('\"\\\\u00e9\\\\ud83d\\\\ude00\\\\n\"'), len(json.loads('\"\\\\ud83d\\\\ude00\"')))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "é😀\n 1\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "é😀\n 1\n",
+     "stderr": "1.0702ms ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_scalars": {
+   "code": "import json\nprint(json.loads('\"x\"'), json.loads('  3 '), json.dumps(True), json.dumps(None), json.dumps(''), json.dumps(0))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "x 3 true null \"\" 0\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "x 3 true null \"\" 0\n",
+     "stderr": "226.86μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_invalid": {
+   "code": "import json\nfor bad in ['{\"a\":1,}', '[1,]', \"{'a':1}\", '', '[1] x', '01', '{\"a\"}']:\n    try:\n        json.loads(bad)\n        print('accepted', repr(bad))\n    except ValueError as e:\n        print('rejected', repr(bad), type(e).__name__)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "rejected '{\"a\":1,}' JSONDecodeError\nrejected '[1,]' JSONDecodeError\nrejected \"{'a':1}\" JSONDecodeError\nrejected '' JSONDecodeError\nrejected '[1] x' JSONDecodeError\nrejected '01' JSONDecodeError\nrejected '{\"a\"}' JSONDecodeError\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "rejected '{\"a\":1,}' JSONDecodeError\nrejected '[1,]' JSONDecodeError\nrejected \"{'a':1}\" JSONDecodeError\nrejected '' JSONDecodeError\nrejected '[1] x' JSONDecodeError\nrejected '01' JSONDecodeError\nrejected '{\"a\"}' JSONDecodeError\n",
+     "stderr": "450.48μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_decode_error_type": {
+   "code": "import json\ntry:\n    json.loads('{')\nexcept json.JSONDecodeError as e:\n    print('JSONDecodeError', isinstance(e, ValueError))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "JSONDecodeError True\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "JSONDecodeError True\n",
+     "stderr": "228.57μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_unserializable": {
+   "code": "import json\ntry:\n    json.dumps({'s': {1, 2}})\nexcept TypeError:\n    print('TypeError')",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "TypeError\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "TypeError\n",
+     "stderr": "234.13μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_nonstr_keys": {
+   "code": "import json\nprint(json.dumps({1: 'a', True: 'b', None: 'c', 2.5: 'd'}))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "{\"1\": \"b\", \"null\": \"c\", \"2.5\": \"d\"}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "{\"true\": \"b\", \"null\": \"c\", \"2.5\": \"d\"}\n",
+     "stderr": "202.87μs ❯ None\n",
+     "match": false
+    }
+   }
+  },
+  "json_tuple": {
+   "code": "import json\nprint(json.dumps((1, (2, 3))), json.dumps({'k': (1,)}))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[1, [2, 3]] {\"k\": [1]}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[1, [2, 3]] {\"k\": [1]}\n",
+     "stderr": "177.61μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_nested_order": {
+   "code": "import json\nprint(json.dumps({'d': {'b': 1, 'a': 2}, 'c': 3}))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "{\"d\": {\"b\": 1, \"a\": 2}, \"c\": 3}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "{\"d\": {\"b\": 1, \"a\": 2}, \"c\": 3}\n",
+     "stderr": "201.44μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_big_float_int": {
+   "code": "import json\nprint(json.dumps(10 ** 30), json.loads('123456789012345678901234567890'), json.loads('1e400'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "1000000000000000000000000000000 123456789012345678901234567890 inf\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "1000000000000000000000000000000 123456789012345678901234567890 inf\n",
+     "stderr": "276.67μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_nan_dumps": {
+   "code": "import json\ntry:\n    print(json.dumps(float('nan')))\n    print(json.dumps([float('inf')], allow_nan=False))\nexcept ValueError:\n    print('ValueError')",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "NaN\nValueError\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "NaN\nValueError\n",
+     "stderr": "201.42μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_duplicate_keys": {
+   "code": "import json\nprint(json.loads('{\"a\":1,\"a\":2}'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "{'a': 2}\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "{'a': 2}\n",
+     "stderr": "238.93μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "json_deep": {
+   "code": "import json\nprint(json.dumps(json.loads('[' * 50 + ']' * 50))[:8])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[[[[[[[[\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[[[[[[[[\n",
+     "stderr": "238.34μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "try_except_else_finally": {
+   "code": "for n in range(2):\n    try:\n        if n:\n            raise ValueError('x')\n    except ValueError as e:\n        print('caught', e)\n    else:\n        print('else')\n    finally:\n        print('finally', n)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "else\nfinally 0\ncaught x\nfinally 1\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "else\nfinally 0\ncaught x\nfinally 1\n",
+     "stderr": "163.22μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "exception_tuple": {
+   "code": "try:\n    int('x')\nexcept (TypeError, ValueError) as e:\n    print(type(e).__name__, e)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "ValueError invalid literal for int() with base 10: 'x'\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "ValueError invalid literal for int() with base 10: 'x'\n",
+     "stderr": "173.84μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "custom_exception": {
+   "code": "class AppError(Exception):\n    def __init__(self, code):\n        super().__init__(f'code {code}')\n        self.code = code\ntry:\n    raise AppError(7)\nexcept AppError as e:\n    print(e.code, str(e), isinstance(e, Exception))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "7 code 7 True\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "error:\nTraceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/custom_exception.py\", line 1, in <module>\n    class AppError(Exception):\n    ...<2 lines>...\n            self.code = code\nNotImplementedError: The monty syntax parser does not yet support class inheritance and metaclasses\n",
+     "match": false
+    }
+   }
+  },
+  "raise_from": {
+   "code": "try:\n    try:\n        1 / 0\n    except ZeroDivisionError as e:\n        raise RuntimeError('wrapped') from e\nexcept RuntimeError as e:\n    print(type(e).__name__, e, type(e.__cause__).__name__)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "RuntimeError wrapped ZeroDivisionError\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "112.36μs ❯ error: Traceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/raise_from.py\", line 7, in <module>\n    print(type(e).__name__, e, type(e.__cause__).__name__)\nAttributeError: 'RuntimeError' object has no attribute '__cause__'\n",
+     "match": false
+    }
+   }
+  },
+  "builtin_errors": {
+   "code": "for f in (lambda: [][1], lambda: None.foo, lambda: {}['k'], lambda: 1 / 0, lambda: int('x'), lambda: 'a' + 1):\n    try:\n        f()\n    except Exception as e:\n        print(type(e).__name__)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "IndexError\nAttributeError\nKeyError\nZeroDivisionError\nValueError\nTypeError\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "IndexError\nAttributeError\nKeyError\nZeroDivisionError\nValueError\nTypeError\n",
+     "stderr": "364.97μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "name_error": {
+   "code": "try:\n    undefined_name\nexcept NameError:\n    print('NameError')",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "NameError\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "NameError\n",
+     "stderr": "187.76μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "exception_hierarchy": {
+   "code": "print(isinstance(KeyError('x'), LookupError), issubclass(ZeroDivisionError, ArithmeticError))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "True True\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "164.70μs ❯ error: Traceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/exception_hierarchy.py\", line 1, in <module>\n    print(isinstance(KeyError('x'), LookupError), issubclass(ZeroDivisionError, ArithmeticError))\n                                                  ~~~~~~~~~~\nNameError: name 'issubclass' is not defined\n",
+     "match": false
+    }
+   }
+  },
+  "reraise": {
+   "code": "try:\n    try:\n        raise KeyError('k')\n    except KeyError:\n        raise\nexcept LookupError as e:\n    print('reraised', repr(e))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "reraised KeyError('k')\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "reraised KeyError('k')\n",
+     "stderr": "158.92μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "uncaught_error_status": {
+   "code": "raise ValueError('boom')",
+   "reference": {
+    "ok": false,
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Traceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/uncaught_error_status.py\", line 1, in <module>\n    raise ValueError('boom')\nValueError: boom\n"
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "80.671μs ❯ error: Traceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/uncaught_error_status.py\", line 1, in <module>\n    raise ValueError('boom')\nValueError: boom\n",
+     "match": true
+    }
+   }
+  },
+  "assert_statement": {
+   "code": "try:\n    assert 1 == 2, 'nope'\nexcept AssertionError as e:\n    print('assert', e)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "assert nope\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "assert nope\nassert 1 == 2\n",
+     "stderr": "142.28μs ❯ None\n",
+     "match": false
+    }
+   }
+  },
+  "exception_str_args": {
+   "code": "e = ValueError('a', 2)\nprint(str(e), e.args, repr(ValueError('m')))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "('a', 2) ('a', 2) ValueError('m')\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "86.311μs ❯ error: RuntimeError: Internal error in monty: exceptions can only be called with zero or one string argument\n",
+     "match": false
+    }
+   }
+  },
+  "closure_nonlocal": {
+   "code": "def mk():\n    c = 0\n    def inc(step=1):\n        nonlocal c\n        c += step\n        return c\n    return inc\nf = mk()\nprint(f(), f(5))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "1 6\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "1 6\n",
+     "stderr": "195.40μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "default_kwargs": {
+   "code": "def f(a, b=2, *args, key=None, **kw):\n    return (a, b, args, key, sorted(kw.items()))\nprint(f(1), f(1, 3, 4, 5, key='k', z=1))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "(1, 2, (), None, []) (1, 3, (4, 5), 'k', [('z', 1)])\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "(1, 2, (), None, []) (1, 3, (4, 5), 'k', [('z', 1)])\n",
+     "stderr": "261.77μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "recursion": {
+   "code": "def fact(n):\n    return 1 if n <= 1 else n * fact(n - 1)\nprint(fact(25))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "15511210043330985984000000\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "15511210043330985984000000\n",
+     "stderr": "215.75μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "global_stmt": {
+   "code": "G = 1\ndef setg():\n    global G\n    G = 2\nsetg()\nprint(G)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "2\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "2\n",
+     "stderr": "138.63μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "class_basic": {
+   "code": "class P:\n    def __init__(self, x):\n        self.x = x\n    def __repr__(self):\n        return f'P({self.x})'\n    def double(self):\n        return self.x * 2\np = P(3)\nprint(p, p.double(), [p])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "P(3) 6 [P(3)]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "P(3) 6 [P(3)]\n",
+     "stderr": "218.05μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "class_inherit_super": {
+   "code": "class A:\n    def __init__(self, x):\n        self.x = x\nclass B(A):\n    def __init__(self, x, y):\n        super().__init__(x)\n        self.y = y\nb = B(1, 2)\nprint(b.x, b.y, isinstance(b, A))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "1 2 True\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "error:\nTraceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/class_inherit_super.py\", line 4, in <module>\n    class B(A):\n    ...<2 lines>...\n            self.y = y\nNotImplementedError: The monty syntax parser does not yet support class inheritance and metaclasses\n",
+     "match": false
+    }
+   }
+  },
+  "class_dunder_lt": {
+   "code": "class V:\n    def __init__(self, v):\n        self.v = v\n    def __lt__(self, o):\n        return self.v < o.v\nprint([x.v for x in sorted([V(3), V(1)])])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[1, 3]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "211.71μs ❯ error: Traceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/class_dunder_lt.py\", line 6, in <module>\n    print([x.v for x in sorted([V(3), V(1)])])\n                        ~~~~~~~~~~~~~~~~~~~~\nTypeError: '<' not supported between instances of 'V' and 'V'\n",
+     "match": false
+    }
+   }
+  },
+  "dataclass_like": {
+   "code": "class R:\n    __slots__ = ('a',)\n    def __init__(self, a):\n        self.a = a\nprint(R(1).a)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "1\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "1\n",
+     "stderr": "182.14μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "lambda_default_capture": {
+   "code": "fs = [lambda i=i: i for i in range(3)]\nprint([f() for f in fs])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[0, 1, 2]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[0, 1, 2]\n",
+     "stderr": "166.53μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "print_kwargs": {
+   "code": "print('a', 'b', sep='-', end='!\\n')\nprint(print('x', end='') is None)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "a-b!\nxTrue\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "a-b!\nxTrue\n",
+     "stderr": "839.24μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "type_checks": {
+   "code": "print(isinstance([], (list, tuple)), type({}) is dict, type(None).__name__, callable(len), type(1.0).__name__)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "True True NoneType True float\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "132.26μs ❯ error: Traceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/type_checks.py\", line 1, in <module>\n    print(isinstance([], (list, tuple)), type({}) is dict, type(None).__name__, callable(len), type(1.0).__name__)\n                                                                                ~~~~~~~~\nNameError: name 'callable' is not defined\n",
+     "match": false
+    }
+   }
+  },
+  "str_of_values": {
+   "code": "print(str(None), str(True), [None, True, False], {'k': None}, (1,), ())",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "None True [None, True, False] {'k': None} (1,) ()\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "None True [None, True, False] {'k': None} (1,) ()\n",
+     "stderr": "201.32μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "del_statement": {
+   "code": "x = [1, 2, 3]\ndel x[0]\ny = 1\ndel y\nprint(x)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[2, 3]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "error:\nTraceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/del_statement.py\", line 2, in <module>\n    del x[0]\n    ~~~~~~~~\nNotImplementedError: The monty syntax parser does not yet support the 'del' statement\n",
+     "match": false
+    }
+   }
+  },
+  "with_statement": {
+   "code": "class C:\n    def __enter__(self):\n        print('enter')\n        return self\n    def __exit__(self, *a):\n        print('exit')\n        return False\nwith C():\n    print('body')",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "enter\nbody\nexit\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "enter\nbody\nexit\n",
+     "stderr": "167.79μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "match_statement": {
+   "code": "v = {'kind': 'a', 'n': 2}\nmatch v:\n    case {'kind': 'a', 'n': n}:\n        print('a', n)\n    case _:\n        print('other')",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "a 2\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": false,
+     "exit": 1,
+     "stdout": "",
+     "stderr": "error:\nTraceback (most recent call last):\n  File \"/var/tmp/tny-python-mode/tny-py-conformance-mb9xq1tz/match_statement.py\", line 2, in <module>\n    match v:\n    ...<3 lines>...\n            print('other')\nNotImplementedError: The monty syntax parser does not yet support pattern matching (match statements)\n",
+     "match": false
+    }
+   }
+  },
+  "conditional_expr": {
+   "code": "print('yes' if [] else 'no', 0 or 'default', 1 and 2, None or [])",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "no default 2 []\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "no default 2 []\n",
+     "stderr": "176.40μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "tuple_list_methods": {
+   "code": "xs = [3, 1, 2]\nxs.append(4); xs.insert(0, 9); xs.extend([7]); xs.remove(1); p = xs.pop()\nprint(xs, p, xs.index(2), (1, 2, 1).count(1), xs.copy() == xs)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "[9, 3, 2, 4] 7 2 2 True\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "[9, 3, 2, 4] 7 2 2 True\n",
+     "stderr": "184.44μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "string_to_list": {
+   "code": "print(list('abc'), tuple([1, 2]), list({'a': 1}), list(range(3)))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "['a', 'b', 'c'] (1, 2) ['a'] [0, 1, 2]\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "['a', 'b', 'c'] (1, 2) ['a'] [0, 1, 2]\n",
+     "stderr": "205.33μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "is_identity": {
+   "code": "a = None\nb = []\nc = []\nprint(a is None, b is c, b is not None)",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "True False True\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "True False True\n",
+     "stderr": "142.07μs ❯ None\n",
+     "match": true
+    }
+   }
+  },
+  "getattr_default": {
+   "code": "class O:\n    pass\no = O()\no.x = 1\nprint(getattr(o, 'x'), getattr(o, 'y', 'd'), hasattr(o, 'x'))",
+   "reference": {
+    "ok": true,
+    "exit": 0,
+    "stdout": "1 d True\n",
+    "stderr": ""
+   },
+   "candidates": {
+    "monty": {
+     "ok": true,
+     "exit": 0,
+     "stdout": "1 d True\n",
+     "stderr": "217.52μs ❯ None\n",
+     "match": true
+    }
+   }
+  }
+ },
+ "summary": {
+  "monty": {
+   "matched": 103,
+   "total": 127,
+   "mismatched": [
+    "genexpr_value",
+    "generator_fn",
+    "yield_from",
+    "infinite_gen",
+    "gen_return_stop",
+    "list_sort_inplace",
+    "dict_del",
+    "set_misc",
+    "str_translate",
+    "str_repr_ascii",
+    "rounding",
+    "fsum_builtin",
+    "bool_int",
+    "json_nonstr_keys",
+    "custom_exception",
+    "raise_from",
+    "exception_hierarchy",
+    "assert_statement",
+    "exception_str_args",
+    "class_inherit_super",
+    "class_dunder_lt",
+    "type_checks",
+    "del_statement",
+    "match_statement"
+   ]
+  }
+ }
+}

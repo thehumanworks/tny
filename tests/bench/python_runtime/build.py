@@ -133,7 +133,7 @@ def main() -> None:
     receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else {"binaries": {}, "commands": {}}
     receipt["pins"] = {**PINS, "monty_git": MONTY_COMMIT}
     receipt["compiler"] = subprocess.check_output([os.environ.get("CC", "cc"), "--version"], text=True).splitlines()[0]
-    wanted = set(args.only or ["empty", "pocketpy", "micropython", "monty"])
+    wanted = set(args.only or ["empty", "pocketpy", "micropython", "monty", "cpython"])
     if "empty" in wanted:
         link("empty", [PRIOR / "empty.c"], [], [], receipt)
     if "pocketpy" in wanted:
@@ -144,6 +144,35 @@ def main() -> None:
     if "monty" in wanted:
         archive = build_monty()
         link("monty", [HERE / "monty.c", archive], [], ["-lgcc_s"], receipt)
+    if "cpython" in wanted:
+        # The preserved PR #197 CPython arm (stock shared libpython + stdlib json),
+        # used to execute CPython-arm trial programs. Requires Python 3.14 here.
+        import sysconfig
+
+        home = Path(sysconfig.get_config_var("LIBDIR")).parent.resolve()
+        receipt["python_home"] = str(home)
+        flags = [f'-DPYHOME="{home}"', f"-L{home / 'lib'}", f"-Wl,-rpath,{home / 'lib'}", "-lpython3.14", "-lutil"]
+        include = [Path(sysconfig.get_config_var("INCLUDEPY"))]
+        link("cpython", [PRIOR / "python.c"], include, flags, receipt)
+        # Proposed production builtins/print/error policy, for trial execution.
+        link("cpython_prod", [HERE / "cpython_prod.c"], include, flags, receipt)
+    if "cpython_static" in wanted:
+        cpython = args.sources / "Python-3.14.7"
+        frozen = BUILD / "cpython-frozen"
+        frozen.mkdir(exist_ok=True)
+        for name, source in (("encodings", "__init__"), ("encodings.aliases", "aliases"), ("encodings.utf_8", "utf_8")):
+            subprocess.run(
+                [str(cpython / "Programs/_freeze_module"), name, str(cpython / f"Lib/encodings/{source}.py"),
+                 str(frozen / f"frozen_{name.replace('.', '_')}.h")],
+                check=True,
+            )
+        link(
+            "cpython_static",
+            [HERE / "cpython_static.c", cpython / "libpython3.14.a"],
+            [cpython / "Include", cpython, frozen],
+            ["-lutil"],
+            receipt,
+        )
     receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
     print(json.dumps({k: v["bytes"] for k, v in receipt["binaries"].items()}))
 

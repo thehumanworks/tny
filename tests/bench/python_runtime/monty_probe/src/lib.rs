@@ -64,7 +64,7 @@ pub unsafe extern "C" fn tny_monty_probe_run(
                 RunProgress::FunctionCall(fc) => {
                     let arg = |i: usize| fc.args.arg(i).and_then(|a| a.as_str().map(str::to_owned));
                     let value = match fc.function_name.as_str() {
-                        "__tny_list" => MontyObject::str(catalog.clone()),
+                        "__tny_list" => MontyObject::string(catalog.clone()),
                         "__tny_call" => {
                             let (Some(name), Some(args)) = (arg(0), arg(1)) else {
                                 return Err("TypeError: tools.call takes two strings".into());
@@ -72,7 +72,7 @@ pub unsafe extern "C" fn tny_monty_probe_run(
                             let name = CString::new(name).map_err(|e| e.to_string())?;
                             let args = CString::new(args).map_err(|e| e.to_string())?;
                             match take(unsafe { call(ud, name.as_ptr(), args.as_ptr()) }) {
-                                Some(text) => MontyObject::str(text),
+                                Some(text) => MontyObject::string(text),
                                 None => return Err("tool callback failed".into()),
                             }
                         }
@@ -82,7 +82,7 @@ pub unsafe extern "C" fn tny_monty_probe_run(
                             };
                             let name = CString::new(name).map_err(|e| e.to_string())?;
                             match take(unsafe { describe(ud, name.as_ptr()) }) {
-                                Some(text) => MontyObject::str(text),
+                                Some(text) => MontyObject::string(text),
                                 None => MontyObject::none(),
                             }
                         }

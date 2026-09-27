@@ -1,0 +1,4322 @@
+[
+ {
+  "arm": "cpython",
+  "task": "config_merge",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 28441989,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "defaults.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "overrides.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"name\": \"svc\", \"port\": 0, \"features\": {\"a\": true, \"nested\": {\"x\": 1, \"y\": []}, \"c\": \"\"}, \"limits\": {}, \"debug\": false, \"extra\": {}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"name\": \"svc\", \"port\": 0, \"features\": {\"a\": true, \"nested\": {\"x\": 1, \"y\": []}, \"c\": \"\"}, \"limits\": {}, \"debug\": false, \"extra\": {}}"
+     },
+     "process_wall_seconds": 0.04422562988474965
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 33801987,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "defaults.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "overrides.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"name\": \"svc\", \"port\": 8080, \"features\": {\"a\": true, \"b\": false, \"nested\": {\"x\": 1, \"y\": [1, 2]}}, \"tags\": [\"x\"], \"limits\": {}, \"debug\": false}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"name\": \"svc\", \"port\": 8080, \"features\": {\"a\": true, \"b\": false, \"nested\": {\"x\": 1, \"y\": [1, 2]}}, \"tags\": [\"x\"], \"limits\": {}, \"debug\": false}"
+     },
+     "process_wall_seconds": 0.0524609808344394
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 31816937,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "defaults.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "overrides.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"name\": \"svc2\", \"port\": 8080, \"tags\": [\"x\"], \"limits\": {\"cpu\": 2}, \"new\": [null, false]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"name\": \"svc2\", \"port\": 8080, \"tags\": [\"x\"], \"limits\": {\"cpu\": 2}, \"new\": [null, false]}"
+     },
+     "process_wall_seconds": 0.05053418013267219
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython",
+  "task": "csv_rollup",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 42421758,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "sales.csv"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[{\"region\": \"south\", \"total\": 206, \"count\": 5}, {\"region\": \"zo\\u00eb\", \"total\": 186, \"count\": 3}, {\"region\": \"north\", \"total\": 87, \"count\": 3}, {\"region\": \"east\", \"total\": 37, \"count\": 2}, {\"region\": \"west\", \"total\": -25, \"count\": 1}]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[{\"region\": \"south\", \"total\": 206, \"count\": 5}, {\"region\": \"zo\\u00eb\", \"total\": 186, \"count\": 3}, {\"region\": \"north\", \"total\": 87, \"count\": 3}, {\"region\": \"east\", \"total\": 37, \"count\": 2}, {\"region\": \"west\", \"total\": -25, \"count\": 1}]"
+     },
+     "process_wall_seconds": 0.0599901641253382
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 34090006,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "sales.csv"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[]"
+     },
+     "process_wall_seconds": 0.05144894006662071
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 31416829,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "sales.csv"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[{\"region\": \"east\", \"total\": 274, \"count\": 5}, {\"region\": \"south\", \"total\": 249, \"count\": 5}, {\"region\": \"west\", \"total\": 85, \"count\": 1}, {\"region\": \"north\", \"total\": 84, \"count\": 3}]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[{\"region\": \"east\", \"total\": 274, \"count\": 5}, {\"region\": \"south\", \"total\": 249, \"count\": 5}, {\"region\": \"west\", \"total\": 85, \"count\": 1}, {\"region\": \"north\", \"total\": 84, \"count\": 3}]"
+     },
+     "process_wall_seconds": 0.048707686830312014
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython",
+  "task": "latest_versions",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 29190438,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[{\"id\": \"id-983\", \"version\": 3, \"data\": null}, {\"id\": \"id-525\", \"version\": 2, \"data\": {\"n\": 1}}, {\"id\": \"id-234\", \"version\": 3, \"data\": null}, {\"id\": \"id-129\", \"version\": 3, \"data\": {\"n\": 7}}]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[{\"id\": \"id-983\", \"version\": 3, \"data\": null}, {\"id\": \"id-525\", \"version\": 2, \"data\": {\"n\": 1}}, {\"id\": \"id-234\", \"version\": 3, \"data\": null}, {\"id\": \"id-129\", \"version\": 3, \"data\": {\"n\": 7}}]"
+     },
+     "process_wall_seconds": 0.04531975509598851
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 28019911,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[]"
+     },
+     "process_wall_seconds": 0.04467852599918842
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 28984714,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[{\"id\": \"id-812\", \"version\": 3, \"data\": false}, {\"id\": \"id-996\", \"version\": 2, \"data\": []}, {\"id\": \"id-413\", \"version\": 2, \"data\": false}, {\"id\": \"id-743\", \"version\": 3, \"data\": {\"n\": 7}}]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[{\"id\": \"id-812\", \"version\": 3, \"data\": false}, {\"id\": \"id-996\", \"version\": 2, \"data\": []}, {\"id\": \"id-413\", \"version\": 2, \"data\": false}, {\"id\": \"id-743\", \"version\": 3, \"data\": {\"n\": 7}}]"
+     },
+     "process_wall_seconds": 0.048380304826423526
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython",
+  "task": "log_errors",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 29865961,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "app.log"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"api\": {\"count\": 3, \"first\": \"failed: code=1: retry id-525\"}, \"cache\": {\"count\": 3, \"first\": \"failed: code=3: retry id-129\"}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"api\": {\"count\": 3, \"first\": \"failed: code=1: retry id-525\"}, \"cache\": {\"count\": 3, \"first\": \"failed: code=3: retry id-129\"}}"
+     },
+     "process_wall_seconds": 0.04604481998831034
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 33419843,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "app.log"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{}"
+     },
+     "process_wall_seconds": 0.05036400188691914
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 26618551,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "app.log"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"cache\": {\"count\": 3, \"first\": \"failed: code=1: retry id-996\"}, \"api\": {\"count\": 3, \"first\": \"failed: code=3: retry id-743\"}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"cache\": {\"count\": 3, \"first\": \"failed: code=1: retry id-996\"}, \"api\": {\"count\": 3, \"first\": \"failed: code=3: retry id-743\"}}"
+     },
+     "process_wall_seconds": 0.0441785310395062
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython",
+  "task": "tree_sizes",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 33185535,
+     "calls": [
+      {
+       "name": "fs.list",
+       "args": {
+        "prefix": "docs/"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/a.md"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/api/b.md"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/api/z.md"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/guide/advanced/xé.md"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/guide/intro.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"a.md\": 14, \"api\": {\"b.md\": 26, \"z.md\": 22}, \"guide\": {\"advanced\": {\"x\\u00e9.md\": 18}, \"intro.md\": 10}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"a.md\": 14, \"api\": {\"b.md\": 26, \"z.md\": 22}, \"guide\": {\"advanced\": {\"x\\u00e9.md\": 18}, \"intro.md\": 10}}"
+     },
+     "process_wall_seconds": 0.05305128498002887
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 29799947,
+     "calls": [
+      {
+       "name": "fs.list",
+       "args": {
+        "prefix": "docs/"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/only.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"only.md\": 10}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"only.md\": 10}"
+     },
+     "process_wall_seconds": 0.046535286121070385
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 33478663,
+     "calls": [
+      {
+       "name": "fs.list",
+       "args": {
+        "prefix": "docs/"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/b/a.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/b/c/d/e.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/å.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"b\": {\"a.txt\": 14, \"c\": {\"d\": {\"e.txt\": 10}}}, \"\\u00e5.md\": 18}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"b\": {\"a.txt\": 14, \"c\": {\"d\": {\"e.txt\": 10}}}, \"\\u00e5.md\": 18}"
+     },
+     "process_wall_seconds": 0.05035611684434116
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython",
+  "task": "validate_records",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 27731541,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "schema.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"valid\": [\"id-983\", \"id-129\"], \"invalid\": {\"id-525\": [\"type:active\", \"type:count\"], \"id-234\": [\"missing:count\", \"type:meta\", \"type:tags\"], \"id-731\": [\"type:active\", \"type:count\", \"type:ratio\"], \"id-499\": [\"type:note\"]}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"valid\": [\"id-983\", \"id-129\"], \"invalid\": {\"id-525\": [\"type:active\", \"type:count\"], \"id-234\": [\"missing:count\", \"type:meta\", \"type:tags\"], \"id-731\": [\"type:active\", \"type:count\", \"type:ratio\"], \"id-499\": [\"type:note\"]}}"
+     },
+     "process_wall_seconds": 0.04551744391210377
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 36275470,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "schema.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"valid\": [], \"invalid\": {}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"valid\": [], \"invalid\": {}}"
+     },
+     "process_wall_seconds": 0.05549229681491852
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 31132448,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "schema.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"valid\": [\"id-996\", \"id-392\"], \"invalid\": {\"id-812\": [\"missing:count\", \"type:meta\", \"type:tags\"], \"id-413\": [\"type:active\", \"type:count\", \"type:ratio\"], \"id-743\": [\"type:note\"], \"id-965\": [\"type:active\", \"type:count\"]}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"valid\": [\"id-996\", \"id-392\"], \"invalid\": {\"id-812\": [\"missing:count\", \"type:meta\", \"type:tags\"], \"id-413\": [\"type:active\", \"type:count\", \"type:ratio\"], \"id-743\": [\"type:note\"], \"id-965\": [\"type:active\", \"type:count\"]}}"
+     },
+     "process_wall_seconds": 0.04892675601877272
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython",
+  "task": "tag_frequency",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 32388786,
+     "calls": [
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": null
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p2"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p3"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p4"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"red\": 5, \"\\u00e9t\\u00e9\": 4, \"green\": 3, \"blue\": 2}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"red\": 5, \"\\u00e9t\\u00e9\": 4, \"green\": 3, \"blue\": 2}"
+     },
+     "process_wall_seconds": 0.049216788029298186
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 27485141,
+     "calls": [
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": null
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p2"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p3"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p4"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{}"
+     },
+     "process_wall_seconds": 0.04431157000362873
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 32420555,
+     "calls": [
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": null
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p2"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p3"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p4"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"red\": 5, \"blue\": 3, \"green\": 3, \"\\u00e9t\\u00e9\": 3}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"red\": 5, \"blue\": 3, \"green\": 3, \"\\u00e9t\\u00e9\": 3}"
+     },
+     "process_wall_seconds": 0.0496555280406028
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython",
+  "task": "markdown_toc",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 30121248,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "README.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "toc.md",
+        "content": "- [Tny Guide](#tny-guide)\n  - [Install & Run](#install--run)\n    - [Café notes](#café-notes)\n  - [Install & Run](#install--run-1)\n  - [API: v2 (beta)](#api-v2-beta)\n  - [Install & Run](#install--run-2)\n"
+       }
+      }
+     ],
+     "writes": {
+      "toc.md": "- [Tny Guide](#tny-guide)\n  - [Install & Run](#install--run)\n    - [Café notes](#café-notes)\n  - [Install & Run](#install--run-1)\n  - [API: v2 (beta)](#api-v2-beta)\n  - [Install & Run](#install--run-2)\n"
+     },
+     "process_wall_seconds": 0.049510226817801595
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 32994157,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "README.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "toc.md",
+        "content": ""
+       }
+      }
+     ],
+     "writes": {
+      "toc.md": ""
+     },
+     "process_wall_seconds": 0.05014509288594127
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 27830687,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "README.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "toc.md",
+        "content": "  - [Старт — go!](#старт--go)\n- [A  B](#a--b)\n    - [x_y-z](#xy-z)\n- [A  B](#a--b-1)\n"
+       }
+      }
+     ],
+     "writes": {
+      "toc.md": "  - [Старт — go!](#старт--go)\n- [A  B](#a--b)\n    - [x_y-z](#xy-z)\n- [A  B](#a--b-1)\n"
+     },
+     "process_wall_seconds": 0.04858444700948894
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython",
+  "task": "interval_merge",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 31904430,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "bookings.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"a\": [[0, 11], [28, 29], [36, 44]], \"b\": [[7, 8], [10, 23], [32, 40]]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"a\": [[0, 11], [28, 29], [36, 44]], \"b\": [[7, 8], [10, 23], [32, 40]]}"
+     },
+     "process_wall_seconds": 0.05066455481573939
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 33678386,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "bookings.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{}"
+     },
+     "process_wall_seconds": 0.05153543106280267
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 32451543,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "bookings.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"a\": [[3, 9], [23, 31], [50, 60]], \"b\": [[13, 17], [18, 20], [31, 35]], \"c\": [[11, 14], [15, 19], [31, 32]], \"\\u00e9\": [[2, 8], [25, 26], [32, 40]]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"a\": [[3, 9], [23, 31], [50, 60]], \"b\": [[13, 17], [18, 20], [31, 35]], \"c\": [[11, 14], [15, 19], [31, 32]], \"\\u00e9\": [[2, 8], [25, 26], [32, 40]]}"
+     },
+     "process_wall_seconds": 0.05292443698272109
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython",
+  "task": "json_diff",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 27886782,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "before.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "after.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"added\": [\"id-488\"], \"removed\": [\"id-731\"], \"changed\": [\"id-499\", \"id-525\"]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"added\": [\"id-488\"], \"removed\": [\"id-731\"], \"changed\": [\"id-499\", \"id-525\"]}"
+     },
+     "process_wall_seconds": 0.045422326074913144
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 38812983,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "before.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "after.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"added\": [], \"removed\": [], \"changed\": []}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"added\": [], \"removed\": [], \"changed\": []}"
+     },
+     "process_wall_seconds": 0.05869910097680986
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 34301360,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "before.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "after.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"added\": [\"id-114\"], \"removed\": [\"id-965\", \"id-996\"], \"changed\": [\"id-392\", \"id-743\", \"id-812\"]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"added\": [\"id-114\"], \"removed\": [\"id-965\", \"id-996\"], \"changed\": [\"id-392\", \"id-743\", \"id-812\"]}"
+     },
+     "process_wall_seconds": 0.05321640404872596
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython",
+  "task": "order_rollup",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 34246518,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "orders.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"zed\": {\"sku-0\": -3, \"sku-4\": 1, \"sku-1\": -3}, \"amy\": {\"sku-1\": -2, \"sku-3\": 1, \"sku-0\": 2, \"sku-2\": -2, \"sku-4\": 1}, \"\\u00f6z\": {\"sku-2\": -1, \"sku-4\": 2, \"sku-1\": 1}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"zed\": {\"sku-0\": -3, \"sku-4\": 1, \"sku-1\": -3}, \"amy\": {\"sku-1\": -2, \"sku-3\": 1, \"sku-0\": 2, \"sku-2\": -2, \"sku-4\": 1}, \"\\u00f6z\": {\"sku-2\": -1, \"sku-4\": 2, \"sku-1\": 1}}"
+     },
+     "process_wall_seconds": 0.055146229919046164
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 32231933,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "orders.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{}"
+     },
+     "process_wall_seconds": 0.048865261022001505
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 32714224,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "orders.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"zed\": {\"sku-0\": -3, \"sku-4\": 1, \"sku-3\": -3}, \"amy\": {\"sku-1\": -2, \"sku-0\": 3, \"sku-3\": 1, \"sku-4\": -2}, \"\\u00f6z\": {\"sku-2\": -1, \"sku-1\": 5, \"sku-0\": -2}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"zed\": {\"sku-0\": -3, \"sku-4\": 1, \"sku-3\": -3}, \"amy\": {\"sku-1\": -2, \"sku-0\": 3, \"sku-3\": 1, \"sku-4\": -2}, \"\\u00f6z\": {\"sku-2\": -1, \"sku-1\": 5, \"sku-0\": -2}}"
+     },
+     "process_wall_seconds": 0.0541635740082711
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython",
+  "task": "template_render",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 35516732,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "template.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "values.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.txt",
+        "content": "Hi Zoë, you owe 42 EUR. Zoë! {{ name }} {{x-y}} {{missing_1}} {{}} {Zoë} {{unknown}}{{missing_1}}\n"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "report.json",
+        "content": "{\"replaced\": 5, \"missing\": [\"missing_1\", \"unknown\"]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.txt": "Hi Zoë, you owe 42 EUR. Zoë! {{ name }} {{x-y}} {{missing_1}} {{}} {Zoë} {{unknown}}{{missing_1}}\n",
+      "report.json": "{\"replaced\": 5, \"missing\": [\"missing_1\", \"unknown\"]}"
+     },
+     "process_wall_seconds": 0.05280808103270829
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 35509017,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "template.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "values.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.txt",
+        "content": "no placeholders {name} {{\n"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "report.json",
+        "content": "{\"replaced\": 0, \"missing\": []}"
+       }
+      }
+     ],
+     "writes": {
+      "output.txt": "no placeholders {name} {{\n",
+      "report.json": "{\"replaced\": 0, \"missing\": []}"
+     },
+     "process_wall_seconds": 0.05573353893123567
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 34411697,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "template.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "values.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.txt",
+        "content": "-7{{a_b}}{{a}} café {{é}} -7"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "report.json",
+        "content": "{\"replaced\": 4, \"missing\": [\"a_b\"]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.txt": "-7{{a_b}}{{a}} café {{é}} -7",
+      "report.json": "{\"replaced\": 4, \"missing\": [\"a_b\"]}"
+     },
+     "process_wall_seconds": 0.052347329212352633
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython_pr197",
+  "task": "config_merge",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 27901139,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "defaults.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "overrides.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"name\": \"svc\", \"port\": 0, \"features\": {\"a\": true, \"nested\": {\"x\": 1, \"y\": []}, \"c\": \"\"}, \"limits\": {}, \"debug\": false, \"extra\": {}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"name\": \"svc\", \"port\": 0, \"features\": {\"a\": true, \"nested\": {\"x\": 1, \"y\": []}, \"c\": \"\"}, \"limits\": {}, \"debug\": false, \"extra\": {}}"
+     },
+     "process_wall_seconds": 0.045124008087441325
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 34607924,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "defaults.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "overrides.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"name\": \"svc\", \"port\": 8080, \"features\": {\"a\": true, \"b\": false, \"nested\": {\"x\": 1, \"y\": [1, 2]}}, \"tags\": [\"x\"], \"limits\": {}, \"debug\": false}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"name\": \"svc\", \"port\": 8080, \"features\": {\"a\": true, \"b\": false, \"nested\": {\"x\": 1, \"y\": [1, 2]}}, \"tags\": [\"x\"], \"limits\": {}, \"debug\": false}"
+     },
+     "process_wall_seconds": 0.05153778684325516
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 31051958,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "defaults.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "overrides.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"name\": \"svc2\", \"port\": 8080, \"tags\": [\"x\"], \"limits\": {\"cpu\": 2}, \"new\": [null, false]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"name\": \"svc2\", \"port\": 8080, \"tags\": [\"x\"], \"limits\": {\"cpu\": 2}, \"new\": [null, false]}"
+     },
+     "process_wall_seconds": 0.052723301108926535
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython_pr197",
+  "task": "csv_rollup",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 31556330,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "sales.csv"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[{\"region\": \"south\", \"total\": 206, \"count\": 5}, {\"region\": \"zo\\u00eb\", \"total\": 186, \"count\": 3}, {\"region\": \"north\", \"total\": 87, \"count\": 3}, {\"region\": \"east\", \"total\": 37, \"count\": 2}, {\"region\": \"west\", \"total\": -25, \"count\": 1}]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[{\"region\": \"south\", \"total\": 206, \"count\": 5}, {\"region\": \"zo\\u00eb\", \"total\": 186, \"count\": 3}, {\"region\": \"north\", \"total\": 87, \"count\": 3}, {\"region\": \"east\", \"total\": 37, \"count\": 2}, {\"region\": \"west\", \"total\": -25, \"count\": 1}]"
+     },
+     "process_wall_seconds": 0.052495867013931274
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 31669972,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "sales.csv"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[]"
+     },
+     "process_wall_seconds": 0.04881825321353972
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 27821470,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "sales.csv"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[{\"region\": \"east\", \"total\": 274, \"count\": 5}, {\"region\": \"south\", \"total\": 249, \"count\": 5}, {\"region\": \"west\", \"total\": 85, \"count\": 1}, {\"region\": \"north\", \"total\": 84, \"count\": 3}]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[{\"region\": \"east\", \"total\": 274, \"count\": 5}, {\"region\": \"south\", \"total\": 249, \"count\": 5}, {\"region\": \"west\", \"total\": 85, \"count\": 1}, {\"region\": \"north\", \"total\": 84, \"count\": 3}]"
+     },
+     "process_wall_seconds": 0.04460625094361603
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython_pr197",
+  "task": "latest_versions",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 40328886,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[{\"id\": \"id-983\", \"version\": 3, \"data\": null}, {\"id\": \"id-525\", \"version\": 2, \"data\": {\"n\": 1}}, {\"id\": \"id-234\", \"version\": 3, \"data\": null}, {\"id\": \"id-129\", \"version\": 3, \"data\": {\"n\": 7}}]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[{\"id\": \"id-983\", \"version\": 3, \"data\": null}, {\"id\": \"id-525\", \"version\": 2, \"data\": {\"n\": 1}}, {\"id\": \"id-234\", \"version\": 3, \"data\": null}, {\"id\": \"id-129\", \"version\": 3, \"data\": {\"n\": 7}}]"
+     },
+     "process_wall_seconds": 0.058649637969210744
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 35901732,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[]"
+     },
+     "process_wall_seconds": 0.052916422951966524
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 31981204,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[{\"id\": \"id-812\", \"version\": 3, \"data\": false}, {\"id\": \"id-996\", \"version\": 2, \"data\": []}, {\"id\": \"id-413\", \"version\": 2, \"data\": false}, {\"id\": \"id-743\", \"version\": 3, \"data\": {\"n\": 7}}]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[{\"id\": \"id-812\", \"version\": 3, \"data\": false}, {\"id\": \"id-996\", \"version\": 2, \"data\": []}, {\"id\": \"id-413\", \"version\": 2, \"data\": false}, {\"id\": \"id-743\", \"version\": 3, \"data\": {\"n\": 7}}]"
+     },
+     "process_wall_seconds": 0.049600725062191486
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython_pr197",
+  "task": "log_errors",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 30147256,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "app.log"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"api\": {\"count\": 3, \"first\": \"failed: code=1: retry id-525\"}, \"cache\": {\"count\": 3, \"first\": \"failed: code=3: retry id-129\"}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"api\": {\"count\": 3, \"first\": \"failed: code=1: retry id-525\"}, \"cache\": {\"count\": 3, \"first\": \"failed: code=3: retry id-129\"}}"
+     },
+     "process_wall_seconds": 0.04816664499230683
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 26686088,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "app.log"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{}"
+     },
+     "process_wall_seconds": 0.04187078797258437
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 28272833,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "app.log"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"cache\": {\"count\": 3, \"first\": \"failed: code=1: retry id-996\"}, \"api\": {\"count\": 3, \"first\": \"failed: code=3: retry id-743\"}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"cache\": {\"count\": 3, \"first\": \"failed: code=1: retry id-996\"}, \"api\": {\"count\": 3, \"first\": \"failed: code=3: retry id-743\"}}"
+     },
+     "process_wall_seconds": 0.04501344216987491
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython_pr197",
+  "task": "tree_sizes",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 31815034,
+     "calls": [
+      {
+       "name": "fs.list",
+       "args": {
+        "prefix": "docs/"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/a.md"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/api/b.md"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/api/z.md"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/guide/advanced/xé.md"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/guide/intro.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"a.md\": 14, \"api\": {\"b.md\": 26, \"z.md\": 22}, \"guide\": {\"advanced\": {\"x\\u00e9.md\": 18}, \"intro.md\": 10}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"a.md\": 14, \"api\": {\"b.md\": 26, \"z.md\": 22}, \"guide\": {\"advanced\": {\"x\\u00e9.md\": 18}, \"intro.md\": 10}}"
+     },
+     "process_wall_seconds": 0.04809319810010493
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 30334606,
+     "calls": [
+      {
+       "name": "fs.list",
+       "args": {
+        "prefix": "docs/"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/only.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"only.md\": 10}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"only.md\": 10}"
+     },
+     "process_wall_seconds": 0.04703932907432318
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 32653571,
+     "calls": [
+      {
+       "name": "fs.list",
+       "args": {
+        "prefix": "docs/"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/b/a.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/b/c/d/e.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/å.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"b\": {\"a.txt\": 14, \"c\": {\"d\": {\"e.txt\": 10}}}, \"\\u00e5.md\": 18}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"b\": {\"a.txt\": 14, \"c\": {\"d\": {\"e.txt\": 10}}}, \"\\u00e5.md\": 18}"
+     },
+     "process_wall_seconds": 0.05496852798387408
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython_pr197",
+  "task": "validate_records",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 28946372,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "schema.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"valid\": [\"id-983\", \"id-129\"], \"invalid\": {\"id-525\": [\"type:active\", \"type:count\"], \"id-234\": [\"missing:count\", \"type:meta\", \"type:tags\"], \"id-731\": [\"type:active\", \"type:count\", \"type:ratio\"], \"id-499\": [\"type:note\"]}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"valid\": [\"id-983\", \"id-129\"], \"invalid\": {\"id-525\": [\"type:active\", \"type:count\"], \"id-234\": [\"missing:count\", \"type:meta\", \"type:tags\"], \"id-731\": [\"type:active\", \"type:count\", \"type:ratio\"], \"id-499\": [\"type:note\"]}}"
+     },
+     "process_wall_seconds": 0.045719392132014036
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 31167854,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "schema.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"valid\": [], \"invalid\": {}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"valid\": [], \"invalid\": {}}"
+     },
+     "process_wall_seconds": 0.04800690710544586
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 34062614,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "schema.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"valid\": [\"id-996\", \"id-392\"], \"invalid\": {\"id-812\": [\"missing:count\", \"type:meta\", \"type:tags\"], \"id-413\": [\"type:active\", \"type:count\", \"type:ratio\"], \"id-743\": [\"type:note\"], \"id-965\": [\"type:active\", \"type:count\"]}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"valid\": [\"id-996\", \"id-392\"], \"invalid\": {\"id-812\": [\"missing:count\", \"type:meta\", \"type:tags\"], \"id-413\": [\"type:active\", \"type:count\", \"type:ratio\"], \"id-743\": [\"type:note\"], \"id-965\": [\"type:active\", \"type:count\"]}}"
+     },
+     "process_wall_seconds": 0.05024680285714567
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython_pr197",
+  "task": "tag_frequency",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 27320794,
+     "calls": [
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": null
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p2"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p3"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p4"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"red\": 5, \"\\u00e9t\\u00e9\": 4, \"green\": 3, \"blue\": 2}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"red\": 5, \"\\u00e9t\\u00e9\": 4, \"green\": 3, \"blue\": 2}"
+     },
+     "process_wall_seconds": 0.04425847111269832
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 30346749,
+     "calls": [
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": null
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p2"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p3"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p4"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{}"
+     },
+     "process_wall_seconds": 0.048812272027134895
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 30576369,
+     "calls": [
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": null
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p2"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p3"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p4"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"red\": 5, \"blue\": 3, \"green\": 3, \"\\u00e9t\\u00e9\": 3}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"red\": 5, \"blue\": 3, \"green\": 3, \"\\u00e9t\\u00e9\": 3}"
+     },
+     "process_wall_seconds": 0.04802918899804354
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython_pr197",
+  "task": "markdown_toc",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 37983973,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "README.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "toc.md",
+        "content": "- [Tny Guide](#tny-guide)\n  - [Install & Run](#install--run)\n    - [Café notes](#café-notes)\n  - [Install & Run](#install--run-1)\n  - [API: v2 (beta)](#api-v2-beta)\n  - [Install & Run](#install--run-2)\n"
+       }
+      }
+     ],
+     "writes": {
+      "toc.md": "- [Tny Guide](#tny-guide)\n  - [Install & Run](#install--run)\n    - [Café notes](#café-notes)\n  - [Install & Run](#install--run-1)\n  - [API: v2 (beta)](#api-v2-beta)\n  - [Install & Run](#install--run-2)\n"
+     },
+     "process_wall_seconds": 0.05768378311768174
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 34389405,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "README.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "toc.md",
+        "content": ""
+       }
+      }
+     ],
+     "writes": {
+      "toc.md": ""
+     },
+     "process_wall_seconds": 0.05398300592787564
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 34094234,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "README.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "toc.md",
+        "content": "  - [Старт — go!](#старт--go)\n- [A  B](#a--b)\n    - [x_y-z](#xy-z)\n- [A  B](#a--b-1)\n"
+       }
+      }
+     ],
+     "writes": {
+      "toc.md": "  - [Старт — go!](#старт--go)\n- [A  B](#a--b)\n    - [x_y-z](#xy-z)\n- [A  B](#a--b-1)\n"
+     },
+     "process_wall_seconds": 0.051205484895035625
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython_pr197",
+  "task": "interval_merge",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 37203845,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "bookings.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"a\": [[0, 11], [28, 29], [36, 44]], \"b\": [[7, 8], [10, 23], [32, 40]]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"a\": [[0, 11], [28, 29], [36, 44]], \"b\": [[7, 8], [10, 23], [32, 40]]}"
+     },
+     "process_wall_seconds": 0.05569532606750727
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 32919277,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "bookings.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{}"
+     },
+     "process_wall_seconds": 0.0537067090626806
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 29277501,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "bookings.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"a\": [[3, 9], [23, 31], [50, 60]], \"b\": [[13, 17], [18, 20], [31, 35]], \"c\": [[11, 14], [15, 19], [31, 32]], \"\\u00e9\": [[2, 8], [25, 26], [32, 40]]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"a\": [[3, 9], [23, 31], [50, 60]], \"b\": [[13, 17], [18, 20], [31, 35]], \"c\": [[11, 14], [15, 19], [31, 32]], \"\\u00e9\": [[2, 8], [25, 26], [32, 40]]}"
+     },
+     "process_wall_seconds": 0.046213204972445965
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython_pr197",
+  "task": "json_diff",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 28981618,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "before.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "after.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"added\": [\"id-488\"], \"removed\": [\"id-731\"], \"changed\": [\"id-499\", \"id-525\"]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"added\": [\"id-488\"], \"removed\": [\"id-731\"], \"changed\": [\"id-499\", \"id-525\"]}"
+     },
+     "process_wall_seconds": 0.0454551069997251
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 28949608,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "before.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "after.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"added\": [], \"removed\": [], \"changed\": []}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"added\": [], \"removed\": [], \"changed\": []}"
+     },
+     "process_wall_seconds": 0.04545814311131835
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 33907435,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "before.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "after.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"added\": [\"id-114\"], \"removed\": [\"id-965\", \"id-996\"], \"changed\": [\"id-392\", \"id-743\", \"id-812\"]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"added\": [\"id-114\"], \"removed\": [\"id-965\", \"id-996\"], \"changed\": [\"id-392\", \"id-743\", \"id-812\"]}"
+     },
+     "process_wall_seconds": 0.05154447793029249
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython_pr197",
+  "task": "order_rollup",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 29578984,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "orders.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"zed\": {\"sku-0\": -3, \"sku-4\": 1, \"sku-1\": -3}, \"amy\": {\"sku-1\": -2, \"sku-3\": 1, \"sku-0\": 2, \"sku-2\": -2, \"sku-4\": 1}, \"\\u00f6z\": {\"sku-2\": -1, \"sku-4\": 2, \"sku-1\": 1}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"zed\": {\"sku-0\": -3, \"sku-4\": 1, \"sku-1\": -3}, \"amy\": {\"sku-1\": -2, \"sku-3\": 1, \"sku-0\": 2, \"sku-2\": -2, \"sku-4\": 1}, \"\\u00f6z\": {\"sku-2\": -1, \"sku-4\": 2, \"sku-1\": 1}}"
+     },
+     "process_wall_seconds": 0.0465172219555825
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 28750196,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "orders.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{}"
+     },
+     "process_wall_seconds": 0.04963914700783789
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 29832047,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "orders.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"zed\": {\"sku-0\": -3, \"sku-4\": 1, \"sku-3\": -3}, \"amy\": {\"sku-1\": -2, \"sku-0\": 3, \"sku-3\": 1, \"sku-4\": -2}, \"\\u00f6z\": {\"sku-2\": -1, \"sku-1\": 5, \"sku-0\": -2}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"zed\": {\"sku-0\": -3, \"sku-4\": 1, \"sku-3\": -3}, \"amy\": {\"sku-1\": -2, \"sku-0\": 3, \"sku-3\": 1, \"sku-4\": -2}, \"\\u00f6z\": {\"sku-2\": -1, \"sku-1\": 5, \"sku-0\": -2}}"
+     },
+     "process_wall_seconds": 0.04627174302004278
+    }
+   }
+  ]
+ },
+ {
+  "arm": "cpython_pr197",
+  "task": "template_render",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 34132585,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "template.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "values.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.txt",
+        "content": "Hi Zoë, you owe 42 EUR. Zoë! {{ name }} {{x-y}} {{missing_1}} {{}} {Zoë} {{unknown}}{{missing_1}}\n"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "report.json",
+        "content": "{\"replaced\": 5, \"missing\": [\"missing_1\", \"unknown\"]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.txt": "Hi Zoë, you owe 42 EUR. Zoë! {{ name }} {{x-y}} {{missing_1}} {{}} {Zoë} {{unknown}}{{missing_1}}\n",
+      "report.json": "{\"replaced\": 5, \"missing\": [\"missing_1\", \"unknown\"]}"
+     },
+     "process_wall_seconds": 0.052932522958144546
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 26989324,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "template.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "values.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.txt",
+        "content": "no placeholders {name} {{\n"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "report.json",
+        "content": "{\"replaced\": 0, \"missing\": []}"
+       }
+      }
+     ],
+     "writes": {
+      "output.txt": "no placeholders {name} {{\n",
+      "report.json": "{\"replaced\": 0, \"missing\": []}"
+     },
+     "process_wall_seconds": 0.04954415000975132
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 29067318,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "template.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "values.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.txt",
+        "content": "-7{{a_b}}{{a}} café {{é}} -7"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "report.json",
+        "content": "{\"replaced\": 4, \"missing\": [\"a_b\"]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.txt": "-7{{a_b}}{{a}} café {{é}} -7",
+      "report.json": "{\"replaced\": 4, \"missing\": [\"a_b\"]}"
+     },
+     "process_wall_seconds": 0.049811458913609385
+    }
+   }
+  ]
+ },
+ {
+  "arm": "monty",
+  "task": "config_merge",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2037619,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "defaults.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "overrides.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"name\": \"svc\", \"port\": 0, \"features\": {\"a\": true, \"nested\": {\"x\": 1, \"y\": []}, \"c\": \"\"}, \"limits\": {}, \"debug\": false, \"extra\": {}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"name\": \"svc\", \"port\": 0, \"features\": {\"a\": true, \"nested\": {\"x\": 1, \"y\": []}, \"c\": \"\"}, \"limits\": {}, \"debug\": false, \"extra\": {}}"
+     },
+     "process_wall_seconds": 0.015345301013439894
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 1909890,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "defaults.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "overrides.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"name\": \"svc\", \"port\": 8080, \"features\": {\"a\": true, \"b\": false, \"nested\": {\"x\": 1, \"y\": [1, 2]}}, \"tags\": [\"x\"], \"limits\": {}, \"debug\": false}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"name\": \"svc\", \"port\": 8080, \"features\": {\"a\": true, \"b\": false, \"nested\": {\"x\": 1, \"y\": [1, 2]}}, \"tags\": [\"x\"], \"limits\": {}, \"debug\": false}"
+     },
+     "process_wall_seconds": 0.014875984052196145
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2207155,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "defaults.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "overrides.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"name\": \"svc2\", \"port\": 8080, \"tags\": [\"x\"], \"limits\": {\"cpu\": 2}, \"new\": [null, false]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"name\": \"svc2\", \"port\": 8080, \"tags\": [\"x\"], \"limits\": {\"cpu\": 2}, \"new\": [null, false]}"
+     },
+     "process_wall_seconds": 0.01401796005666256
+    }
+   }
+  ]
+ },
+ {
+  "arm": "monty",
+  "task": "csv_rollup",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2185745,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "sales.csv"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[{\"region\": \"south\", \"total\": 206, \"count\": 5}, {\"region\": \"zo\\u00eb\", \"total\": 186, \"count\": 3}, {\"region\": \"north\", \"total\": 87, \"count\": 3}, {\"region\": \"east\", \"total\": 37, \"count\": 2}, {\"region\": \"west\", \"total\": -25, \"count\": 1}]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[{\"region\": \"south\", \"total\": 206, \"count\": 5}, {\"region\": \"zo\\u00eb\", \"total\": 186, \"count\": 3}, {\"region\": \"north\", \"total\": 87, \"count\": 3}, {\"region\": \"east\", \"total\": 37, \"count\": 2}, {\"region\": \"west\", \"total\": -25, \"count\": 1}]"
+     },
+     "process_wall_seconds": 0.014803537866100669
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2028571,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "sales.csv"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[]"
+     },
+     "process_wall_seconds": 0.014409743016585708
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2202787,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "sales.csv"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[{\"region\": \"east\", \"total\": 274, \"count\": 5}, {\"region\": \"south\", \"total\": 249, \"count\": 5}, {\"region\": \"west\", \"total\": 85, \"count\": 1}, {\"region\": \"north\", \"total\": 84, \"count\": 3}]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[{\"region\": \"east\", \"total\": 274, \"count\": 5}, {\"region\": \"south\", \"total\": 249, \"count\": 5}, {\"region\": \"west\", \"total\": 85, \"count\": 1}, {\"region\": \"north\", \"total\": 84, \"count\": 3}]"
+     },
+     "process_wall_seconds": 0.015082088997587562
+    }
+   }
+  ]
+ },
+ {
+  "arm": "monty",
+  "task": "latest_versions",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2101188,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[{\"id\": \"id-983\", \"version\": 3, \"data\": null}, {\"id\": \"id-525\", \"version\": 2, \"data\": {\"n\": 1}}, {\"id\": \"id-234\", \"version\": 3, \"data\": null}, {\"id\": \"id-129\", \"version\": 3, \"data\": {\"n\": 7}}]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[{\"id\": \"id-983\", \"version\": 3, \"data\": null}, {\"id\": \"id-525\", \"version\": 2, \"data\": {\"n\": 1}}, {\"id\": \"id-234\", \"version\": 3, \"data\": null}, {\"id\": \"id-129\", \"version\": 3, \"data\": {\"n\": 7}}]"
+     },
+     "process_wall_seconds": 0.015954729868099093
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 1772363,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[]"
+     },
+     "process_wall_seconds": 0.015457100002095103
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 1925559,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "[{\"id\": \"id-812\", \"version\": 3, \"data\": false}, {\"id\": \"id-996\", \"version\": 2, \"data\": []}, {\"id\": \"id-413\", \"version\": 2, \"data\": false}, {\"id\": \"id-743\", \"version\": 3, \"data\": {\"n\": 7}}]"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "[{\"id\": \"id-812\", \"version\": 3, \"data\": false}, {\"id\": \"id-996\", \"version\": 2, \"data\": []}, {\"id\": \"id-413\", \"version\": 2, \"data\": false}, {\"id\": \"id-743\", \"version\": 3, \"data\": {\"n\": 7}}]"
+     },
+     "process_wall_seconds": 0.015055530006065965
+    }
+   }
+  ]
+ },
+ {
+  "arm": "monty",
+  "task": "log_errors",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 1978197,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "app.log"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"api\": {\"count\": 3, \"first\": \"failed: code=1: retry id-525\"}, \"cache\": {\"count\": 3, \"first\": \"failed: code=3: retry id-129\"}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"api\": {\"count\": 3, \"first\": \"failed: code=1: retry id-525\"}, \"cache\": {\"count\": 3, \"first\": \"failed: code=3: retry id-129\"}}"
+     },
+     "process_wall_seconds": 0.01620106096379459
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 1772933,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "app.log"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{}"
+     },
+     "process_wall_seconds": 0.015446339966729283
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 1791048,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "app.log"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"cache\": {\"count\": 3, \"first\": \"failed: code=1: retry id-996\"}, \"api\": {\"count\": 3, \"first\": \"failed: code=3: retry id-743\"}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"cache\": {\"count\": 3, \"first\": \"failed: code=1: retry id-996\"}, \"api\": {\"count\": 3, \"first\": \"failed: code=3: retry id-743\"}}"
+     },
+     "process_wall_seconds": 0.014933671103790402
+    }
+   }
+  ]
+ },
+ {
+  "arm": "monty",
+  "task": "tree_sizes",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 1971484,
+     "calls": [
+      {
+       "name": "fs.list",
+       "args": {
+        "prefix": "docs/"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/a.md"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/api/b.md"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/api/z.md"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/guide/advanced/xé.md"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/guide/intro.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"a.md\": 14, \"api\": {\"b.md\": 26, \"z.md\": 22}, \"guide\": {\"advanced\": {\"x\\u00e9.md\": 18}, \"intro.md\": 10}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"a.md\": 14, \"api\": {\"b.md\": 26, \"z.md\": 22}, \"guide\": {\"advanced\": {\"x\\u00e9.md\": 18}, \"intro.md\": 10}}"
+     },
+     "process_wall_seconds": 0.01491872314363718
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 1931240,
+     "calls": [
+      {
+       "name": "fs.list",
+       "args": {
+        "prefix": "docs/"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/only.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"only.md\": 10}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"only.md\": 10}"
+     },
+     "process_wall_seconds": 0.015082529978826642
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2338821,
+     "calls": [
+      {
+       "name": "fs.list",
+       "args": {
+        "prefix": "docs/"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/b/a.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/b/c/d/e.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "docs/å.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"b\": {\"a.txt\": 14, \"c\": {\"d\": {\"e.txt\": 10}}}, \"\\u00e5.md\": 18}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"b\": {\"a.txt\": 14, \"c\": {\"d\": {\"e.txt\": 10}}}, \"\\u00e5.md\": 18}"
+     },
+     "process_wall_seconds": 0.015865843975916505
+    }
+   }
+  ]
+ },
+ {
+  "arm": "monty",
+  "task": "validate_records",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2839457,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "schema.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"valid\": [\"id-983\", \"id-129\"], \"invalid\": {\"id-525\": [\"type:active\", \"type:count\"], \"id-234\": [\"missing:count\", \"type:meta\", \"type:tags\"], \"id-731\": [\"type:active\", \"type:count\", \"type:ratio\"], \"id-499\": [\"type:note\"]}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"valid\": [\"id-983\", \"id-129\"], \"invalid\": {\"id-525\": [\"type:active\", \"type:count\"], \"id-234\": [\"missing:count\", \"type:meta\", \"type:tags\"], \"id-731\": [\"type:active\", \"type:count\", \"type:ratio\"], \"id-499\": [\"type:note\"]}}"
+     },
+     "process_wall_seconds": 0.01660800096578896
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2480426,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "schema.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"valid\": [], \"invalid\": {}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"valid\": [], \"invalid\": {}}"
+     },
+     "process_wall_seconds": 0.016420479863882065
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2959361,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "records.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "schema.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"valid\": [\"id-996\", \"id-392\"], \"invalid\": {\"id-812\": [\"missing:count\", \"type:meta\", \"type:tags\"], \"id-413\": [\"type:active\", \"type:count\", \"type:ratio\"], \"id-743\": [\"type:note\"], \"id-965\": [\"type:active\", \"type:count\"]}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"valid\": [\"id-996\", \"id-392\"], \"invalid\": {\"id-812\": [\"missing:count\", \"type:meta\", \"type:tags\"], \"id-413\": [\"type:active\", \"type:count\", \"type:ratio\"], \"id-743\": [\"type:note\"], \"id-965\": [\"type:active\", \"type:count\"]}}"
+     },
+     "process_wall_seconds": 0.016779701923951507
+    }
+   }
+  ]
+ },
+ {
+  "arm": "monty",
+  "task": "tag_frequency",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2293616,
+     "calls": [
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": null
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p2"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p3"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p4"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"red\": 5, \"\\u00e9t\\u00e9\": 4, \"green\": 3, \"blue\": 2}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"red\": 5, \"\\u00e9t\\u00e9\": 4, \"green\": 3, \"blue\": 2}"
+     },
+     "process_wall_seconds": 0.016011856961995363
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2534447,
+     "calls": [
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": null
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p2"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p3"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p4"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{}"
+     },
+     "process_wall_seconds": 0.01584161794744432
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2412219,
+     "calls": [
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": null
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p2"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p3"
+       }
+      },
+      {
+       "name": "api.page",
+       "args": {
+        "cursor": "p4"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"red\": 5, \"blue\": 3, \"green\": 3, \"\\u00e9t\\u00e9\": 3}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"red\": 5, \"blue\": 3, \"green\": 3, \"\\u00e9t\\u00e9\": 3}"
+     },
+     "process_wall_seconds": 0.015683252830058336
+    }
+   }
+  ]
+ },
+ {
+  "arm": "monty",
+  "task": "markdown_toc",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2244225,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "README.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "toc.md",
+        "content": "- [Tny Guide](#tny-guide)\n  - [Install & Run](#install--run)\n    - [Café notes](#café-notes)\n  - [Install & Run](#install--run-1)\n  - [API: v2 (beta)](#api-v2-beta)\n  - [Install & Run](#install--run-2)\n"
+       }
+      }
+     ],
+     "writes": {
+      "toc.md": "- [Tny Guide](#tny-guide)\n  - [Install & Run](#install--run)\n    - [Café notes](#café-notes)\n  - [Install & Run](#install--run-1)\n  - [API: v2 (beta)](#api-v2-beta)\n  - [Install & Run](#install--run-2)\n"
+     },
+     "process_wall_seconds": 0.015717135975137353
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2055692,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "README.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "toc.md",
+        "content": ""
+       }
+      }
+     ],
+     "writes": {
+      "toc.md": ""
+     },
+     "process_wall_seconds": 0.014561416115611792
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2055372,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "README.md"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "toc.md",
+        "content": "  - [Старт — go!](#старт--go)\n- [A  B](#a--b)\n    - [x_y-z](#xy-z)\n- [A  B](#a--b-1)\n"
+       }
+      }
+     ],
+     "writes": {
+      "toc.md": "  - [Старт — go!](#старт--go)\n- [A  B](#a--b)\n    - [x_y-z](#xy-z)\n- [A  B](#a--b-1)\n"
+     },
+     "process_wall_seconds": 0.015093098860234022
+    }
+   }
+  ]
+ },
+ {
+  "arm": "monty",
+  "task": "interval_merge",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2039912,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "bookings.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"a\": [[0, 11], [28, 29], [36, 44]], \"b\": [[7, 8], [10, 23], [32, 40]]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"a\": [[0, 11], [28, 29], [36, 44]], \"b\": [[7, 8], [10, 23], [32, 40]]}"
+     },
+     "process_wall_seconds": 0.014733226969838142
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2024083,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "bookings.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{}"
+     },
+     "process_wall_seconds": 0.014835136942565441
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 1995880,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "bookings.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"a\": [[3, 9], [23, 31], [50, 60]], \"b\": [[13, 17], [18, 20], [31, 35]], \"c\": [[11, 14], [15, 19], [31, 32]], \"\\u00e9\": [[2, 8], [25, 26], [32, 40]]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"a\": [[3, 9], [23, 31], [50, 60]], \"b\": [[13, 17], [18, 20], [31, 35]], \"c\": [[11, 14], [15, 19], [31, 32]], \"\\u00e9\": [[2, 8], [25, 26], [32, 40]]}"
+     },
+     "process_wall_seconds": 0.015175863867625594
+    }
+   }
+  ]
+ },
+ {
+  "arm": "monty",
+  "task": "json_diff",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2374709,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "before.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "after.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"added\": [\"id-488\"], \"removed\": [\"id-731\"], \"changed\": [\"id-499\", \"id-525\"]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"added\": [\"id-488\"], \"removed\": [\"id-731\"], \"changed\": [\"id-499\", \"id-525\"]}"
+     },
+     "process_wall_seconds": 0.015839755069464445
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2268049,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "before.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "after.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"added\": [], \"removed\": [], \"changed\": []}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"added\": [], \"removed\": [], \"changed\": []}"
+     },
+     "process_wall_seconds": 0.014377181185409427
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2403793,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "before.json"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "after.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"added\": [\"id-114\"], \"removed\": [\"id-965\", \"id-996\"], \"changed\": [\"id-392\", \"id-743\", \"id-812\"]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"added\": [\"id-114\"], \"removed\": [\"id-965\", \"id-996\"], \"changed\": [\"id-392\", \"id-743\", \"id-812\"]}"
+     },
+     "process_wall_seconds": 0.016053023980930448
+    }
+   }
+  ]
+ },
+ {
+  "arm": "monty",
+  "task": "order_rollup",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2845909,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "orders.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"zed\": {\"sku-0\": -3, \"sku-4\": 1, \"sku-1\": -3}, \"amy\": {\"sku-1\": -2, \"sku-3\": 1, \"sku-0\": 2, \"sku-2\": -2, \"sku-4\": 1}, \"\\u00f6z\": {\"sku-2\": -1, \"sku-4\": 2, \"sku-1\": 1}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"zed\": {\"sku-0\": -3, \"sku-4\": 1, \"sku-1\": -3}, \"amy\": {\"sku-1\": -2, \"sku-3\": 1, \"sku-0\": 2, \"sku-2\": -2, \"sku-4\": 1}, \"\\u00f6z\": {\"sku-2\": -1, \"sku-4\": 2, \"sku-1\": 1}}"
+     },
+     "process_wall_seconds": 0.015909414971247315
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 1766622,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "orders.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{}"
+     },
+     "process_wall_seconds": 0.015098829986527562
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2810402,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "orders.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.json",
+        "content": "{\"zed\": {\"sku-0\": -3, \"sku-4\": 1, \"sku-3\": -3}, \"amy\": {\"sku-1\": -2, \"sku-0\": 3, \"sku-3\": 1, \"sku-4\": -2}, \"\\u00f6z\": {\"sku-2\": -1, \"sku-1\": 5, \"sku-0\": -2}}"
+       }
+      }
+     ],
+     "writes": {
+      "output.json": "{\"zed\": {\"sku-0\": -3, \"sku-4\": 1, \"sku-3\": -3}, \"amy\": {\"sku-1\": -2, \"sku-0\": 3, \"sku-3\": 1, \"sku-4\": -2}, \"\\u00f6z\": {\"sku-2\": -1, \"sku-1\": 5, \"sku-0\": -2}}"
+     },
+     "process_wall_seconds": 0.01589591009542346
+    }
+   }
+  ]
+ },
+ {
+  "arm": "monty",
+  "task": "template_render",
+  "passed": true,
+  "variants": [
+   {
+    "variant": 0,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2486397,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "template.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "values.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.txt",
+        "content": "Hi Zoë, you owe 42 EUR. Zoë! {{ name }} {{x-y}} {{missing_1}} {{}} {Zoë} {{unknown}}{{missing_1}}\n"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "report.json",
+        "content": "{\"replaced\": 5, \"missing\": [\"missing_1\", \"unknown\"]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.txt": "Hi Zoë, you owe 42 EUR. Zoë! {{ name }} {{x-y}} {{missing_1}} {{}} {Zoë} {{unknown}}{{missing_1}}\n",
+      "report.json": "{\"replaced\": 5, \"missing\": [\"missing_1\", \"unknown\"]}"
+     },
+     "process_wall_seconds": 0.0178051779512316
+    }
+   },
+   {
+    "variant": 1,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2360882,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "template.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "values.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.txt",
+        "content": "no placeholders {name} {{\n"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "report.json",
+        "content": "{\"replaced\": 0, \"missing\": []}"
+       }
+      }
+     ],
+     "writes": {
+      "output.txt": "no placeholders {name} {{\n",
+      "report.json": "{\"replaced\": 0, \"missing\": []}"
+     },
+     "process_wall_seconds": 0.015554952900856733
+    }
+   },
+   {
+    "variant": 2,
+    "passed": true,
+    "execution_ok": true,
+    "output_ok": true,
+    "trace_ok": true,
+    "observed": {
+     "runtime_ok": true,
+     "invalid_call": false,
+     "stdout": "done\n",
+     "runtime_ns": 2325827,
+     "calls": [
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "template.txt"
+       }
+      },
+      {
+       "name": "fs.read",
+       "args": {
+        "path": "values.json"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "output.txt",
+        "content": "-7{{a_b}}{{a}} café {{é}} -7"
+       }
+      },
+      {
+       "name": "fs.write",
+       "args": {
+        "path": "report.json",
+        "content": "{\"replaced\": 4, \"missing\": [\"a_b\"]}"
+       }
+      }
+     ],
+     "writes": {
+      "output.txt": "-7{{a_b}}{{a}} café {{é}} -7",
+      "report.json": "{\"replaced\": 4, \"missing\": [\"a_b\"]}"
+     },
+     "process_wall_seconds": 0.01646054512821138
+    }
+   }
+  ]
+ }
+]
