@@ -97,8 +97,8 @@ def run_case(mode, unsolicited=False):
                     )
                 elif len(requests) == 1:
                     code = (
-                        'assert(string.find(tools.describe("web_search"), "web_search", 1, true)); '
-                        'print(tools.call("web_search", json.encode({query="fixture"})))'
+                        'assert "web_search" in tools.describe("web_search"); '
+                        'print(tools.call("web_search", json.dumps({"query": "fixture"})))'
                     )
                     call = {
                         "type": "function_call",

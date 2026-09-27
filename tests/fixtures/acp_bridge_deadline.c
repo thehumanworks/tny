@@ -163,7 +163,7 @@ static void execution_budget_case(tny_ctx *ctx) {
     tny_acp_bridge bridge;
     int pair[2];
     bridge_init(&bridge, ctx, pair);
-    invoke_code(&bridge, "while true do end", 250);
+    invoke_code(&bridge, "while True:\n    pass", 250);
     response_contains(&bridge, pair[1], "error:");
     bridge_free(&bridge, pair[1]);
 }
