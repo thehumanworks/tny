@@ -73,7 +73,14 @@ FORBIDDEN = re.compile(
     r"\b(sorry|admit|axiom|native_decide|bv_decide|implemented_by|extern|unsafe|"
     r"opaque|partial|ofReduceBool|debug\.skipKernelTC)\b|#exit|\bnamespace\s+PyPolicy\b"
 )
-COMPARE = {ast.Gt: ">", ast.GtE: "≥", ast.Lt: "<", ast.LtE: "≤", ast.Eq: "=", ast.NotEq: "≠"}
+COMPARE = {
+    ast.Gt: ">",
+    ast.GtE: "≥",
+    ast.Lt: "<",
+    ast.LtE: "≤",
+    ast.Eq: "=",
+    ast.NotEq: "≠",
+}
 ARITH = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*"}
 
 
@@ -208,7 +215,11 @@ def vectors() -> list[dict]:
     }
     rows = [dict(base)]
     for name, typ in SIGNATURE:
-        choices = [False, True] if typ == "bool" else [base[name] + d for d in (-1, 1)] + [0, -1]
+        choices = (
+            [False, True]
+            if typ == "bool"
+            else [base[name] + d for d in (-1, 1)] + [0, -1]
+        )
         for value in choices:
             rows.append({**base, name: value})
     rows.append({**base, "tokens_lighter": 8750 * 36 // 35 + 1})
@@ -224,15 +235,27 @@ def vectors() -> list[dict]:
             }
         )
     for a, b in itertools.product(range(0, 4), repeat=2):
-        rows.append({**base, "tokens_lighter": a, "solved_lighter": b, "tokens_cpython": b, "solved_cpython": a})
+        rows.append(
+            {
+                **base,
+                "tokens_lighter": a,
+                "solved_lighter": b,
+                "tokens_cpython": b,
+                "solved_cpython": a,
+            }
+        )
     return rows
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=POLICY, help="mutation tests only")
+    parser.add_argument(
+        "--source", type=Path, default=POLICY, help="mutation tests only"
+    )
     parser.add_argument("--lean", default=os.environ.get("LEAN", "lean"))
-    parser.add_argument("--emit", type=Path, help="also write the checked Lean file here")
+    parser.add_argument(
+        "--emit", type=Path, help="also write the checked Lean file here"
+    )
     args = parser.parse_args()
     source = args.source.read_text()
     proofs = PROOFS.read_text()
@@ -295,7 +318,11 @@ def main() -> None:
         path = Path(temporary) / "RuntimeSelectionChecked.lean"
         path.write_text(checked)
         result = subprocess.run(
-            [args.lean, str(path)], capture_output=True, text=True, timeout=300, check=False
+            [args.lean, str(path)],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
         )
     if result.returncode or "error:" in result.stdout:
         print(result.stdout[-8000:], result.stderr[-4000:])
@@ -315,15 +342,21 @@ def main() -> None:
         raise SystemExit("policy changed during verification")
     print(version)
     print(f"Lean proved {len(REQUIRED)} theorems about the translated {FUNCTION}")
-    print(f"Axioms used (union): {', '.join(sorted({a for v in axioms.values() for a in v})) or 'none'}")
+    print(
+        f"Axioms used (union): {', '.join(sorted({a for v in axioms.values() for a in v})) or 'none'}"
+    )
     print(
         f"Replay (not proof): recorded held-out decision {evidence['select_lighter']} and "
         f"{len(rows) - 1} vectors ({selected} selected) agree between Python and Lean"
     )
     if reasons:
-        print(f"Recorded rejection follows from proved theorem(s): {', '.join(reasons)}")
+        print(
+            f"Recorded rejection follows from proved theorem(s): {', '.join(reasons)}"
+        )
     print(f"policy.py SHA256: {hashlib.sha256(source.encode()).hexdigest()}")
-    print(f"RuntimeSelection.lean SHA256: {hashlib.sha256(proofs.encode()).hexdigest()}")
+    print(
+        f"RuntimeSelection.lean SHA256: {hashlib.sha256(proofs.encode()).hexdigest()}"
+    )
 
 
 if __name__ == "__main__":

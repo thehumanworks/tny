@@ -332,7 +332,9 @@ class Translator:
             return Expr(f"({a} {operator} {b})", ctype, False, value)
         raise Unsupported(f"unsupported binary operator: {operator}")
 
-    def statements(self, nodes: list[dict], path: list, result: tuple[int, bool]) -> str:
+    def statements(
+        self, nodes: list[dict], path: list, result: tuple[int, bool]
+    ) -> str:
         if not nodes:
             raise Unsupported("control can reach the end of a non-void function")
         node, rest = nodes[0], nodes[1:]
@@ -346,7 +348,11 @@ class Translator:
             if value.ctype != result:
                 raise Unsupported("return needs an explicit conversion")
             return value.boolean() if result[0] == 1 else value.bits()
-        if node["kind"] == "IfStmt" and len(inner) in (2, 3) and not node.get("hasInit"):
+        if (
+            node["kind"] == "IfStmt"
+            and len(inner) in (2, 3)
+            and not node.get("hasInit")
+        ):
             if node.get("hasVar") or node.get("isConstexpr"):
                 raise Unsupported("unsupported if form")
             condition = self.expression(inner[0], path).boolean()
@@ -385,7 +391,15 @@ def translate(clang: str, src: Path) -> list[Function]:
     path = src / POLICY
     raw = path.read_bytes()
     dump = run(
-        [clang, *CFLAGS, f"-I{src}", "-Xclang", "-ast-dump=json", "-fsyntax-only", str(path)]
+        [
+            clang,
+            *CFLAGS,
+            f"-I{src}",
+            "-Xclang",
+            "-ast-dump=json",
+            "-fsyntax-only",
+            str(path),
+        ]
     )
     unit = json.loads(dump)
     definitions = [
@@ -423,7 +437,9 @@ def translate(clang: str, src: Path) -> list[Function]:
             elif child["kind"] == "CompoundStmt" and body is None:
                 body = child
             else:
-                raise Unsupported(f"{name}: unsupported declaration part {child['kind']}")
+                raise Unsupported(
+                    f"{name}: unsupported declaration part {child['kind']}"
+                )
         if len({p for p, _ in parameters}) != len(parameters):
             raise Unsupported(f"{name}: duplicate parameters")
         translator = Translator(name, dict(parameters))
@@ -447,7 +463,9 @@ def translate(clang: str, src: Path) -> list[Function]:
 
 
 def binders(function: Function) -> str:
-    return " ".join(f"({lean_name(p)} : {lean_type(t)})" for p, t in function.parameters)
+    return " ".join(
+        f"({lean_name(p)} : {lean_type(t)})" for p, t in function.parameters
+    )
 
 
 def definitions(functions: list[Function]) -> str:
@@ -465,7 +483,11 @@ def definitions(functions: list[Function]) -> str:
 
 
 def obligations(functions: list[Function]) -> tuple[str, list[str]]:
-    lines = ["namespace TnyC.NoWrap", "open TnyC", "set_option linter.unusedVariables false"]
+    lines = [
+        "namespace TnyC.NoWrap",
+        "open TnyC",
+        "set_option linter.unusedVariables false",
+    ]
     names = []
     for f in functions:
         for index, o in enumerate(f.obligations):
@@ -491,11 +513,16 @@ def obligations(functions: list[Function]) -> tuple[str, list[str]]:
 
 # ---- Compiled cross-check of the exact production file (not the proof) ----
 
+
 def samples(ctype: tuple[int, bool], constants: set[int]) -> list[int]:
     width, signed = ctype
     if width == 1:
         return [0, 1]
-    low, high = (-(1 << (width - 1)), (1 << (width - 1)) - 1) if signed else (0, (1 << width) - 1)
+    low, high = (
+        (-(1 << (width - 1)), (1 << (width - 1)) - 1)
+        if signed
+        else (0, (1 << width) - 1)
+    )
     values = {low, high, 0, 1} | ({-1} if signed else set())
     for c in constants:
         values.update((c - 1, c, c + 1))
@@ -601,7 +628,8 @@ def cross_check(functions: list[Function], results: dict) -> str:
             checks = []
             for vector, result in rows[start : start + 100]:
                 arguments = " ".join(
-                    lean_value(v, t) for v, (_, t) in zip(vector, f.parameters, strict=True)
+                    lean_value(v, t)
+                    for v, (_, t) in zip(vector, f.parameters, strict=True)
                 )
                 checks.append(f"{f.name} {arguments} == {lean_value(result, f.result)}")
             lines.append(
@@ -616,15 +644,17 @@ def width_probe(compilers: list[str], src: Path, work: Path) -> None:
     lines = ["#include <limits.h>", "#include <stdbool.h>", "#include <stdint.h>"]
     for name, (width, signed) in C_TYPES.items():
         if width == 1:
-            lines.append(f"_Static_assert((({name})2) == 1, \"_Bool normalizes\");")
+            lines.append(f'_Static_assert((({name})2) == 1, "_Bool normalizes");')
             continue
         lines.append(
-            f"_Static_assert(sizeof({name}) * CHAR_BIT == {width}, \"{name} width\");"
+            f'_Static_assert(sizeof({name}) * CHAR_BIT == {width}, "{name} width");'
         )
         lines.append(
-            f"_Static_assert((({name})-1 < 0) == {int(signed)}, \"{name} signedness\");"
+            f'_Static_assert((({name})-1 < 0) == {int(signed)}, "{name} signedness");'
         )
-    lines.append("_Static_assert(-1 >> 1 == -1 && (-3) / 2 == -1, \"two's complement\");")
+    lines.append(
+        '_Static_assert(-1 >> 1 == -1 && (-3) / 2 == -1, "two\'s complement");'
+    )
     probe.write_text("\n".join(lines) + "\n")
     for compiler in compilers:
         run([compiler, *CFLAGS, f"-I{src}", "-fsyntax-only", str(probe)])
@@ -641,7 +671,9 @@ def lean_version(lean: str) -> str:
     version = run([lean, "--version"]).strip()
     pinned = TOOLCHAIN.read_text().strip().rsplit(":v", 1)[-1]
     if f"version {pinned}," not in version:
-        raise SystemExit(f"Lean {pinned} required by {TOOLCHAIN.name}, found: {version}")
+        raise SystemExit(
+            f"Lean {pinned} required by {TOOLCHAIN.name}, found: {version}"
+        )
     return version
 
 
@@ -665,12 +697,21 @@ def check_axioms(output: str, names: list[str]) -> dict[str, list[str]]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--src", type=Path, default=ROOT / "src", help="source root (mutation tests only)")
+    parser.add_argument(
+        "--src",
+        type=Path,
+        default=ROOT / "src",
+        help="source root (mutation tests only)",
+    )
     parser.add_argument("--lean", default=os.environ.get("LEAN", "lean"))
     parser.add_argument("--clang", default=os.environ.get("TNY_FORMAL_CLANG", "clang"))
     parser.add_argument("--gcc", default=os.environ.get("TNY_FORMAL_GCC", "gcc"))
-    parser.add_argument("--no-vectors", action="store_true", help="skip the compiled cross-check")
-    parser.add_argument("--emit", type=Path, help="also write the checked Lean file here")
+    parser.add_argument(
+        "--no-vectors", action="store_true", help="skip the compiled cross-check"
+    )
+    parser.add_argument(
+        "--emit", type=Path, help="also write the checked Lean file here"
+    )
     args = parser.parse_args()
     src = args.src.resolve()
     inputs = {name: (src / name).read_bytes() for name in (POLICY, *HEADERS)}
@@ -711,7 +752,11 @@ def main() -> None:
         if args.emit:
             args.emit.write_text(checked)
         result = subprocess.run(
-            [args.lean, str(path)], capture_output=True, text=True, timeout=600, check=False
+            [args.lean, str(path)],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
         )
         if result.returncode or "error:" in result.stdout:
             print(result.stdout[-8000:], result.stderr[-4000:])
@@ -727,7 +772,9 @@ def main() -> None:
         key = ", ".join(sorted(axioms[n])) or "none"
         groups[key] = groups.get(key, 0) + 1
     print(version)
-    print(f"Translated {len(functions)} production functions: {', '.join(f.name for f in functions)}")
+    print(
+        f"Translated {len(functions)} production functions: {', '.join(f.name for f in functions)}"
+    )
     print(
         f"Lean proved {len(REQUIRED)} specification theorems (+{len(extra)} helper) "
         f"and {len(obligation_names)} generated no-wrap obligations"
