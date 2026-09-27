@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from code_mode_fixture import lua_string
+from code_mode_fixture import python_string
 
 ROOT = Path(__file__).resolve().parents[2]
 TNY = str(Path(os.environ.get("TNY", ROOT / "build/tny")).resolve())
@@ -236,10 +236,10 @@ class ExecutionCodeMode(unittest.TestCase):
             with self.subTest(wire=wire):
                 code = "\n".join(
                     [
-                        'local catalog = tools.list(); assert(string.find(catalog, "read_file"))',
-                        'assert(string.find(tools.describe("write_file"), "content"))',
-                        f'print(tools.call("write_file", {lua_string(json.dumps({"path": wire + ".txt", "content": "written by code"}))}))',
-                        f'print(tools.call("read_file", {lua_string(json.dumps({"path": wire + ".txt"}))}))',
+                        'catalog = tools.list(); assert "read_file" in catalog',
+                        'assert "content" in tools.describe("write_file")',
+                        f'print(tools.call("write_file", {python_string(json.dumps({"path": wire + ".txt", "content": "written by code"}))}))',
+                        f'print(tools.call("read_file", {python_string(json.dumps({"path": wire + ".txt"}))}))',
                     ]
                 )
                 result = self.run_code(code, wire=wire)
@@ -266,10 +266,14 @@ class ExecutionCodeMode(unittest.TestCase):
                     self.assertFalse((self.workspace / "forbidden.txt").exists())
                     self.assert_schema(wire)
 
-    def test_each_cell_has_fresh_lua_state(self):
+    def test_each_cell_has_fresh_python_state(self):
         self.server.sequence = [
             {"code": "previous_cell = 42; print(previous_cell)"},
-            {"code": 'assert(previous_cell == nil); print("fresh state")'},
+            {
+                "code": "try:\n    previous_cell\n"
+                'except NameError:\n    print("fresh state")\n'
+                'else:\n    raise AssertionError("previous cell state leaked")'
+            },
         ]
         process = self.start()
         stdout, stderr = process.communicate(timeout=15)
@@ -278,13 +282,32 @@ class ExecutionCodeMode(unittest.TestCase):
         self.assertIn("42", self.server.outputs[0])
         self.assertIn("fresh state", self.server.outputs[1])
 
-    def test_restricted_lua_and_json(self):
-        output = self.run_code("""
-assert(io == nil and os == nil and package == nil and debug == nil)
-assert(require == nil and dofile == nil and loadfile == nil and load == nil)
-local value = json.decode('{"value":42}')
-print(json.encode({answer = value.value + 1}))
+    def test_restricted_python_and_json(self):
+        # Attempt host access instead of probing names: only nested tools may
+        # reach the workspace, whichever confinement the runtime uses.
+        escape = python_string(str(self.workspace / "escape.txt"))
+        output = self.run_code(f"""
+blocked = 0
+try:
+    open({escape}, "w").write("escaped")
+except Exception:
+    blocked += 1
+try:
+    os = __import__("os")
+    os.close(os.open({escape}, os.O_WRONLY | os.O_CREAT))
+except Exception:
+    blocked += 1
+try:
+    import subprocess
+    subprocess.run(["touch", {escape}])
+except Exception:
+    blocked += 1
+print("blocked=" + str(blocked))
+value = json.loads('{{"value":42}}')
+print(json.dumps({{"answer": value["value"] + 1}}))
 """)
+        self.assertIn("blocked=3", output)
+        self.assertFalse((self.workspace / "escape.txt").exists())
         self.assertIn('"answer":43', output.replace(" ", ""))
 
     def test_profile_cannot_be_widened_by_code(self):
@@ -297,18 +320,17 @@ print(json.encode({answer = value.value + 1}))
 
     def test_runtime_errors_and_bounds(self):
         cases = [
-            ({"code": "local ="}, "error"),
-            ({"code": "while true do end", "timeout_ms": 40}, "error"),
-            ({"code": 'print(string.rep("x", 70000))'}, "error"),
+            ({"code": "value ="}, "error"),
+            ({"code": "while True:\n    pass", "timeout_ms": 40}, "error"),
+            ({"code": 'print("x" * 70000)'}, "error"),
             (
-                {
-                    "code": 'local t = {}; while true do t[#t+1] = string.rep("x", 100000) end'
-                },
+                {"code": 't = []\nwhile True:\n    t.append("x" * 100000)'},
                 "error",
             ),
             (
                 {
-                    "code": 'for i=1,65 do tools.call("list_files", \'{"path":"."}\') end'
+                    "code": "for _ in range(65):\n"
+                    '    tools.call("list_files", \'{"path":"."}\')'
                 },
                 "error",
             ),
@@ -528,14 +550,14 @@ print(json.encode({answer = value.value + 1}))
         self.assertNotIn("prompt", observed)
         self.assertFalse((self.workspace / "denied.txt").exists())
 
-    def test_owner_stop_interrupts_lua_and_retains_completed_effect(self):
+    def test_owner_stop_interrupts_python_and_retains_completed_effect(self):
         # A controlled owner proves the returned diagnostic, including stop
         # before an effect and after an effect. The real extension follows.
         for kind in (1, 3):
             with self.subTest(control_kind=kind):
                 result, _ = self.private_cell(
-                    """tools.call("write_file", '{"path":"policy.txt","content":"once"}'); """
-                    "while true do end",
+                    """tools.call("write_file", '{"path":"policy.txt","content":"once"}')\n"""
+                    "while True:\n    pass",
                     timeout=5000,
                     stop_control=kind,
                 )
@@ -552,8 +574,8 @@ print(json.encode({answer = value.value + 1}))
             "        if event.tool_name == 'write_file': return stop('fixture policy stop')\n"
         )
         process = self.start(
-            """tools.call("write_file", '{"path":"once.txt","content":"once"}'); """
-            "while true do end"
+            """tools.call("write_file", '{"path":"once.txt","content":"once"}')\n"""
+            "while True:\n    pass"
         )
         started = time.monotonic()
         stdout, stderr = process.communicate(timeout=8)
