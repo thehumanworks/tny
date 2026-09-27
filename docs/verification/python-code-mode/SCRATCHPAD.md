@@ -207,3 +207,12 @@ replay-micropython-json-compat.json and heldout-replay-micropython-json-compat.j
 The original JSON-wrapper gap alone therefore does not justify excluding
 MicroPython, but this follow-up does not preserve ordinary generated-program
 behavior on the targeted compatibility corpus. Full CPython remains selected.
+
+### Wasm native-only helper repair
+The actual hosted wasm build exposed an unused native rlimit helper under
+`-Werror`. It is now excluded only for the unsupported wasm branch; strict
+host-compilation of that branch returns ENOTSUP for both entry functions. A
+negative mutation restores the unguarded helper and must fail compilation.
+The main runtime suite also now probes actual OS-level open/socket/fork denial
+with positive pre-sandbox controls, rather than relying only on removed Python
+names. These checks do not constitute a formal proof of the operating system.

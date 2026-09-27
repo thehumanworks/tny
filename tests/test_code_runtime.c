@@ -2,10 +2,17 @@
 #include "core/code_policy.h"
 #include "core/code_runtime.h"
 #include "util/util.h"
+#include "util/code_sandbox.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifndef __EMSCRIPTEN__
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#endif
 
 /* Every cell below runs through the production path: a fresh `--code-cell`
  * child of this test binary with the OS sandbox, not an in-process shortcut. */
@@ -414,7 +421,54 @@ TEST code_fatal_quota_does_not_run_finally_or_following_bytecode(void) {
     PASS();
 }
 
+#ifndef __EMSCRIPTEN__
+/* Test actual OS denial, not merely missing Python names. Positive controls
+ * establish that these native operations are normally available on the host.
+ * All state belongs to this fixture; no user file or network destination is used. */
+TEST code_os_sandbox_denies_native_authority(void) {
+    int ordinary = open("/dev/null", O_RDONLY);
+    ASSERT(ordinary >= 0);
+    close(ordinary);
+    ordinary = socket(AF_UNIX, SOCK_STREAM, 0);
+    ASSERT(ordinary >= 0);
+    close(ordinary);
+    pid_t child = fork();
+    ASSERT(child >= 0);
+    if (!child) {
+        if (tny_code_sandbox_limits(3) || tny_code_sandbox_enter()) _exit(71);
+        int denied_file = open("/dev/null", O_RDONLY);
+        if (denied_file >= 0) {
+            close(denied_file);
+            _exit(72);
+        }
+        int denied_socket = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (denied_socket >= 0) {
+            close(denied_socket);
+            _exit(73);
+        }
+        pid_t denied_process = fork();
+        if (!denied_process) _exit(74);
+        if (denied_process > 0) {
+            int ignored;
+            (void)waitpid(denied_process, &ignored, 0);
+            _exit(75);
+        }
+        _exit(0);
+    }
+    int status = 0;
+    pid_t observed;
+    do { observed = waitpid(child, &status, 0); } while (observed < 0 && errno == EINTR);
+    ASSERT_EQ(child, observed);
+    ASSERT(WIFEXITED(status));
+    ASSERT_EQ(0, WEXITSTATUS(status));
+    PASS();
+}
+#endif
+
 SUITE(code_runtime_suite) {
+#ifndef __EMSCRIPTEN__
+    RUN_TEST(code_os_sandbox_denies_native_authority);
+#endif
     RUN_TEST(code_tool_names_preserve_exact_bytes);
     RUN_TEST(code_json_reentrant_container_lifetimes);
     RUN_TEST(code_json_error_metadata_and_describe_boundaries);

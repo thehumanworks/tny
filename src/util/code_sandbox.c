@@ -30,6 +30,7 @@ void sandbox_free_error(char *errorbuf);
 #define TNY_SANDBOX_NAMED 0x0001
 #endif
 
+#ifndef __EMSCRIPTEN__
 static int limit(int resource, rlim_t value) {
     struct rlimit current;
     if (getrlimit(resource, &current)) return -1;
@@ -38,6 +39,7 @@ static int limit(int resource, rlim_t value) {
         next.rlim_cur = next.rlim_max = current.rlim_max;
     return setrlimit(resource, &next);
 }
+#endif
 
 int tny_code_sandbox_limits(unsigned cpu_seconds) {
 #if defined(__EMSCRIPTEN__)
