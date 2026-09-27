@@ -773,6 +773,11 @@ void conversions(const char *text) {
             self.assertIn(f"{directory}/libpython3.14.a", link)
             self.assertIn(f"-L{directory}/ldlibs-marker", link)
         self.run_command([str(self.root / "build/tny")])
+        # Shared by private BUILD roots: they rebuild objects, not CPython.
+        self.assertEqual(self.cpython_dir("BUILD=build-alt"), directory)
+        alternate = self.make("-n", "release", "BUILD=build-alt", "SANITIZE=0")
+        self.assertIn("-o build-alt/tny ", alternate)
+        self.assertNotIn("cpython_runtime.sh", alternate)
         # A changed runtime recipe input rebuilds the archive and recompiles
         # its includer; -MMD cannot see -isystem headers.
         time.sleep(1.1)  # GNU make 3.81 compares whole-second mtimes.
@@ -833,8 +838,7 @@ void conversions(const char *text) {
         self.assertIn("build/wasm/obj/src/core/code_python_unsupported.o", wasm)
         for absent in ("src/core/code_python.c", "libpython", "cpython_runtime.sh"):
             self.assertNotIn(absent, wasm)
-        # One archive per target ABI and interpreter flags, under BUILD.
-        self.assertTrue(self.cpython_dir("BUILD=build-alt").startswith("build-alt/"))
+        # One archive per target ABI and interpreter flags.
         compilers = {}
         for name, triple in (
             ("gnu-vendor", "x86_64-pc-linux-gnu"),

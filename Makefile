@@ -224,13 +224,13 @@ CPYTHON_JOBS ?= 4
 CPYTHON_FLOOR_H := $(if $(CXX_GLIBC_FLOOR),src/util/cxx_glibc_floor.h)
 CPYTHON_CFLAGS ?= -Os -ffunction-sections -fdata-sections \
                   $(if $(CPYTHON_FLOOR_H),-include $(abspath $(CPYTHON_FLOOR_H)))
-# Shared by every lane (release/debug/leak builds): release-flag C objects.
-# One archive per target ABI (arch + libc; the vendor field is dropped so gcc
-# and clang share it) and per interpreter flags, under the selected BUILD, so
-# a glibc archive never reaches a musl link and flag changes rebuild.
+# Shared by every lane and BUILD root (release/debug/leak/private fixture
+# roots): release-flag C objects. One archive per target ABI (arch + libc; the
+# vendor field is dropped so gcc and clang share it) and per interpreter flags,
+# so a glibc archive never reaches a musl link and flag changes rebuild.
 CPYTHON_TARGET := $(shell $(CC) -dumpmachine 2>/dev/null | sed -E 's/-(pc|unknown|alpine)-/-/')
 CPYTHON_FLAGS_KEY := $(shell printf '%s' '$(CPYTHON_CFLAGS) $(MACOSX_DEPLOYMENT_TARGET)' | cksum | cut -d' ' -f1)
-CPYTHON_DIR ?= $(BUILD)/cpython-$(CPYTHON_VERSION)-$(or $(CPYTHON_TARGET),host)-$(CPYTHON_FLAGS_KEY)
+CPYTHON_DIR ?= build/cpython-$(CPYTHON_VERSION)-$(or $(CPYTHON_TARGET),host)-$(CPYTHON_FLAGS_KEY)
 CPYTHON_LIB = $(CPYTHON_DIR)/libpython3.14.a
 CPYTHON_INC := -isystem $(CPYTHON_DIR)/include -isystem $(CPYTHON_DIR)/frozen
 ifeq ($(SRC_PY_NATIVE),$(SRC_PY_RUNTIME))
