@@ -198,6 +198,10 @@ else
   SRC_PY_NATIVE := $(SRC_PY_RUNTIME)
 endif
 SRC_SHARED := $(filter-out $(SRC_NATIVE) $(SRC_WASM_ONLY) $(SRC_PY_RUNTIME) $(SRC_PY_UNSUPPORTED),$(SRC_ALL))
+# A full native executable built from a library-lane object list $(2) under
+# root $(1) (test hosts with private entries): the native seam replaces libtny's.
+py_native_objs = $(filter-out $(call objects,$(1),$(SRC_PY_UNSUPPORTED)),$(2)) \
+                 $(call objects,$(1),$(SRC_PY_NATIVE))
 SRC := $(SRC_SHARED) $(SRC_NATIVE) $(SRC_PY_NATIVE)
 
 TP := third_party/yyjson/yyjson.c third_party/picohttpparser/picohttpparser.c
@@ -263,6 +267,7 @@ LIB_SRC := $(SRC_PUBLIC_API) \
            $(SRC_NATIVE) $(SRC_PY_UNSUPPORTED)
 OBJ_PIC := $(BUILD)/pic
 LIB_PIC_OBJS := $(call objects,$(OBJ_PIC),$(LIB_SRC)) $(call objects,$(OBJ_PIC),$(TP))
+PIC_HOST_OBJS := $(call py_native_objs,$(OBJ_PIC),$(LIB_PIC_OBJS))
 PIC_CFLAGS := $(REL_CFLAGS) -fPIC -fvisibility=hidden \
               -DTNY_SHARED_LIBRARY_BUILD=1 \
               -include src/util/alloc_override.h
@@ -528,11 +533,16 @@ $(call objects,$(OBJ_DBG),$(SRC_PY_RUNTIME)): DBG_CFLAGS += $(CPYTHON_INC)
 # A real prerequisite, not order-only: -MMD omits the -isystem headers, so a
 # rebuilt interpreter (new pin or flags) must recompile its only includer.
 $(call objects,$(OBJ_REL),$(SRC_PY_RUNTIME)) $(call objects,$(OBJ_DBG),$(SRC_PY_RUNTIME)): $(CPYTHON_LIB)
-# Full native fault hosts (not libtny itself) run production code cells too.
+# Full native hosts over library lanes (never libtny itself) run production
+# code cells too; `make pic-host-objects` builds PIC_HOST_OBJS for fixtures.
+$(call objects,$(OBJ_PIC),$(SRC_PY_RUNTIME)): PIC_CFLAGS += $(CPYTHON_INC)
 $(call objects,$(OBJ_FAULT_PIC),$(SRC_PY_RUNTIME)): FAULT_PIC_CFLAGS += $(CPYTHON_INC)
 $(call objects,$(OBJ_FAULT_SAN_PIC),$(SRC_PY_RUNTIME)): FAULT_SAN_PIC_CFLAGS += $(CPYTHON_INC)
+$(call objects,$(OBJ_PIC),$(SRC_PY_RUNTIME)) \
 $(call objects,$(OBJ_FAULT_PIC),$(SRC_PY_RUNTIME)) \
 $(call objects,$(OBJ_FAULT_SAN_PIC),$(SRC_PY_RUNTIME)): $(CPYTHON_LIB)
+.PHONY: pic-host-objects
+pic-host-objects: $(PIC_HOST_OBJS)
 
 $(CPYTHON_LIB): scripts/cpython_runtime.sh third_party/cpython/VERSION third_party/cpython/SHA256 \
 		$(CPYTHON_FLOOR_H)
@@ -1047,11 +1057,8 @@ PROVIDER_FAULT_TEST := $(BUILD)/lib-fault/provider-faults
 PROVIDER_FAULT_SAN_TEST := $(BUILD)/lib-fault-san/provider-faults
 PROVIDER_FAULT_TEST_OBJS := $(call objects,$(OBJ_FAULT_PIC),$(PROVIDER_FAULT_TEST_SRC))
 PROVIDER_FAULT_SAN_TEST_OBJS := $(call objects,$(OBJ_FAULT_SAN_PIC),$(PROVIDER_FAULT_TEST_SRC))
-# These hosts are full native executables (their mains dispatch --code-cell):
-# the lane's library graph with the native Python seam in place of libtny's
-# unsupported one, so code cells run the production interpreter (ADR 0179).
-py_native_objs = $(filter-out $(call objects,$(1),$(SRC_PY_UNSUPPORTED)),$(2)) \
-                 $(call objects,$(1),$(SRC_PY_NATIVE))
+# These hosts are full native executables (their mains dispatch --code-cell),
+# so code cells run the production interpreter (ADR 0179).
 PROVIDER_FAULT_HOST_OBJS := $(call py_native_objs,$(OBJ_FAULT_PIC),$(FAULT_PIC_OBJS))
 PROVIDER_FAULT_SAN_HOST_OBJS := $(call py_native_objs,$(OBJ_FAULT_SAN_PIC),$(FAULT_SAN_PIC_OBJS))
 $(PROVIDER_FAULT_TEST): $(PROVIDER_FAULT_TEST_OBJS) $(PROVIDER_FAULT_HOST_OBJS)
@@ -1591,7 +1598,7 @@ tnytty-clean:
 .PHONY: tnytty tnytty-test tnytty-clean
 
 # Header dependencies emitted by -MMD; a header edit rebuilds its users.
--include $(REL_OBJS:.o=.d) $(LIB_PIC_OBJS:.o=.d) \
+-include $(REL_OBJS:.o=.d) $(LIB_PIC_OBJS:.o=.d) $(PIC_HOST_OBJS:.o=.d) \
          $(FAULT_PIC_OBJS:.o=.d) $(FAULT_SAN_PIC_OBJS:.o=.d) \
          $(TSAN_PIC_OBJS:.o=.d) $(FUZZ_OBJS:.o=.d) $(TEST_OBJS:.o=.d) \
          $(patsubst %.o,%.d,$(call objects,$(OBJ_DBG),$(TEST_SRC)))

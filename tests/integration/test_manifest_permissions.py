@@ -172,7 +172,12 @@ class PendingManifestPermissions(ImageFixture):
         cls.build = tempfile.TemporaryDirectory(prefix="tny-manifest-pending-")
         cls.addClassCleanup(cls.build.cleanup)
         cls.binary = str(Path(cls.build.name) / "pending")
-        subprocess.run(["make", "-s", "lib-shared-active"], cwd=ROOT, check=True)
+        # A full native host: libtny's objects with the native code-cell seam.
+        subprocess.run(
+            ["make", "-s", "lib-shared-active", "pic-host-objects"],
+            cwd=ROOT,
+            check=True,
+        )
         variables = subprocess.check_output(
             ["make", "-s", "-f", "Makefile", "-f", "-", "pending-variables"],
             cwd=ROOT,
@@ -180,7 +185,7 @@ class PendingManifestPermissions(ImageFixture):
             input="""
 .PHONY: pending-variables
 pending-variables:
-	@printf '%s\\n' '$(CC)' '$(CXX)' '$(PIC_CFLAGS)' '$(REL_LDFLAGS)' '$(LIB_PIC_OBJS)'
+	@printf '%s\\n' '$(CC)' '$(CXX)' '$(PIC_CFLAGS)' '$(REL_LDFLAGS)' '$(PIC_HOST_OBJS)'
 """,
         ).splitlines()
         compiler, cxx, flags, linker, objects = map(shlex.split, variables)

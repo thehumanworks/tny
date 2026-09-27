@@ -810,6 +810,15 @@ void conversions(const char *text) {
                 )
                 self.assertIn("-DTNY_ALLOC_TESTING=1", compile_line)
                 self.assertIn(f"-isystem {directory}/include", compile_line)
+        # libtny's own objects plus the native seam, for fixture hosts.
+        pic_host = self.make("-n", "pic-host-objects")
+        compile_line = next(
+            line
+            for line in pic_host.splitlines()
+            if "-o build/pic/src/core/code_python.o" in line
+        )
+        self.assertIn(f"-isystem {directory}/include", compile_line)
+        self.assertNotIn("code_python_unsupported", pic_host)
         libraries = [
             line
             for line in hosts.splitlines()

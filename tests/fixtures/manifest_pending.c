@@ -170,7 +170,6 @@ int main(int argc, char **argv) {
         return rc;
     }
     if (argc == 2 && strcmp(argv[1], "--exec-command") == 0) return tny_exec_command_main();
-    /* Library objects: the unsupported seam answers, never this fixture main. */
     if (argc == 2 && strcmp(argv[1], "--code-cell") == 0) return tny_code_cell_main();
     if (argc != 5 && argc != 6 && argc != 7) return 2;
     bool destination = argc == 6 && strcmp(argv[5], "destination") == 0;
