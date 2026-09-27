@@ -15,6 +15,11 @@ typedef struct {
     void *userdata;
     /* Optional reason for the last NULL call result (borrowed text). */
     const char *(*failure)(void *userdata);
+    /* Production terminal handler: no allocation and no return to Python.
+     * It closes execution authority before a limit can be caught or bypassed
+     * through an alias of the inherited IPC descriptor. Optional test hosts
+     * may omit it; they are not the production process-isolation boundary. */
+    void (*abort)(void *userdata, const char *reason);
 } tny_code_python_host;
 
 /* False when this build has no embedded interpreter. */

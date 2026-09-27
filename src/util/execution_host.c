@@ -228,7 +228,10 @@ int tny_exec_host_close(tny_exec_host *host, bool completed) {
             tny_poll(NULL, 0, 5);
         } while (monotonic_ms() < deadline);
     }
-    return tny_process_stop_owned_tree(host->pid, &status, &host->reaped);
+    int rc = tny_process_stop_owned_tree(host->pid, &status, &host->reaped);
+    /* Successful forced cleanup is not evidence of a successful execution.
+     * A completed request must have exited normally within the grace window. */
+    return completed ? -1 : rc;
 }
 #else
 int tny_exec_host_start(tny_exec_host *host) {
