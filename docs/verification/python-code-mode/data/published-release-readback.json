@@ -286,5 +286,7 @@
       "self_hosted_runners_denied": true
     }
   ],
-  "provenance_verified_at": "2026-09-27T23:22:01.406967+00:00"
+  "provenance_verified_at": "2026-09-27T23:22:01.406967+00:00",
+  "github_release_immutability_enabled": false,
+  "tag_policy": "The published tag is pinned to the recorded source and has not been rewritten. This is a no-rewrite policy, not a claim of server-enforced GitHub release immutability."
 }

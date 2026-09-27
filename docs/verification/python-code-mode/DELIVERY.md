@@ -7,7 +7,7 @@ migration is merged and the stable GitHub release is published.
 
 - PR #198 merged into main; 45 implementation/benchmark/review checkpoints retained.
 - Runtime release source: `7c40a20704256c50480f3707841601c17528b56d`.
-- Annotated, immutable tag: `v0.24.0`.
+- Annotated tag, unchanged at the verified source: `v0.24.0`.
 - GitHub publication: `2026-09-27T23:20:16Z`, neither draft nor prerelease.
 - Release workflow `36355208334`: success, all five platform builds and complete
   SDK registry-set validation passed before publication.
@@ -70,3 +70,11 @@ no registry upload is claimed.
 `data/completion-receipt.json`, and `data/main-tagged-build.json` bind these claims
 to actual source, outcomes and hashes. Raw provider-session transcripts remain
 local under `.agent/`; no authentication files or live credentials were exported.
+
+## Tag and release integrity scope
+
+The tag has not been moved, and its source SHA plus the published asset digests
+are pinned in the receipts. GitHub reports release immutability disabled; the
+no-rewrite policy is not a claim of server-enforced immutable-release protection.
+Signed provenance and all digest matches were actually verified at the recorded
+readback time. No repository-wide release-protection setting was changed.
