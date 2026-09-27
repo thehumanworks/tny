@@ -71,7 +71,9 @@ int tny_exec_host_start(tny_exec_host *host) { return start_entry(host, "--exec-
 
 /* Code cells inherit nothing from the environment: credentials and settings
  * belong to the execution server, which answers every nested call itself. */
-int tny_exec_host_start_cell(tny_exec_host *host) { return start_entry(host, "--code-cell", false); }
+int tny_exec_host_start_cell(tny_exec_host *host) {
+    return start_entry(host, "--code-cell", false);
+}
 
 int tny_exec_host_accept(void) {
     struct sockaddr_storage address = {0};

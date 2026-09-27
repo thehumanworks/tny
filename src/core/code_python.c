@@ -197,13 +197,13 @@ static bool append_str(PyObject *value) {
 
 static PyObject *code_print(PyObject *self, PyObject *args, PyObject *kwargs) {
     (void)self;
-    static char *names[] = {"sep", "end", "file", "flush", NULL};
+    static const char *const names[] = {"sep", "end", "file", "flush", NULL};
     PyObject *sep = Py_None, *end = Py_None, *file = Py_None;
     int flush = 0;
     PyObject *empty = PyTuple_New(0);
     if (!empty) return NULL;
-    int parsed = PyArg_ParseTupleAndKeywords(empty, kwargs, "|$OOOp:print", names, &sep, &end,
-                                             &file, &flush);
+    int parsed = PyArg_ParseTupleAndKeywords(empty, kwargs, "|$OOOp:print", (char *const *)names,
+                                             &sep, &end, &file, &flush);
     Py_DECREF(empty);
     if (!parsed) return NULL;
     (void)flush;
@@ -274,8 +274,7 @@ static PyObject *tools_call(PyObject *self, PyObject *const *args, Py_ssize_t na
         PyErr_SetString(PyExc_ValueError, "tool arguments must be JSON object text");
         return NULL;
     }
-    if (!tny_code_call_admit(cell.calls, (uint64_t)name_len, recursive, (uint64_t)args_len,
-                             object))
+    if (!tny_code_call_admit(cell.calls, (uint64_t)name_len, recursive, (uint64_t)args_len, object))
         return terminal("tool call limit exceeded");
     ++cell.calls;
     const tny_code_python_host *host = cell.host;
@@ -434,9 +433,10 @@ static PyObject *decode_error(const char *message, const char *text, size_t byte
 
 static PyObject *json_loads(PyObject *self, PyObject *args, PyObject *kwargs) {
     (void)self;
-    static char *names[] = {"s", NULL};
+    static const char *const names[] = {"s", NULL};
     PyObject *source = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O:loads", names, &source)) return NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O:loads", (char *const *)names, &source))
+        return NULL;
     PyObject *owned = NULL;
     if (PyBytes_Check(source) || PyByteArray_Check(source)) {
         owned = PyUnicode_FromEncodedObject(source, "utf-8", "strict");
@@ -454,8 +454,8 @@ static PyObject *json_loads(PyObject *self, PyObject *args, PyObject *kwargs) {
         decode_error("Unexpected UTF-8 BOM (decode using utf-8-sig)", text, 0);
     else if (text) {
         yyjson_read_err err = {0};
-        yyjson_doc *doc =
-            yyjson_read_opts((char *)text, (size_t)len, YYJSON_READ_BIGNUM_AS_RAW, &heap_json, &err);
+        yyjson_doc *doc = yyjson_read_opts((char *)text, (size_t)len, YYJSON_READ_BIGNUM_AS_RAW,
+                                           &heap_json, &err);
         if (!doc) {
             if (cell.fatal) terminal(cell.fatal);
             else if (err.code == YYJSON_READ_ERROR_MEMORY_ALLOCATION) PyErr_NoMemory();
@@ -711,14 +711,14 @@ static int encode(encoder *e, PyObject *o) {
 
 static PyObject *json_dumps(PyObject *self, PyObject *args, PyObject *kwargs) {
     (void)self;
-    static char *names[] = {"obj",    "skipkeys",   "ensure_ascii", "check_circular",
-                            "allow_nan", "cls",     "indent",       "separators",
-                            "default", "sort_keys", NULL};
+    static const char *const names[] = {
+        "obj",    "skipkeys",   "ensure_ascii", "check_circular", "allow_nan", "cls",
+        "indent", "separators", "default",      "sort_keys",      NULL};
     PyObject *obj, *cls = Py_None, *indent = Py_None, *separators = Py_None, *fallback = Py_None;
     int skipkeys = 0, ensure_ascii = 1, check_circular = 1, allow_nan = 1, sort_keys = 0;
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$ppppOOOOp:dumps", names, &obj, &skipkeys,
-                                     &ensure_ascii, &check_circular, &allow_nan, &cls, &indent,
-                                     &separators, &fallback, &sort_keys))
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$ppppOOOOp:dumps", (char *const *)names, &obj,
+                                     &skipkeys, &ensure_ascii, &check_circular, &allow_nan, &cls,
+                                     &indent, &separators, &fallback, &sort_keys))
         return NULL;
     if (cls != Py_None) {
         PyErr_SetString(PyExc_TypeError, "json.dumps(cls=...) is unavailable; use default=");
@@ -827,10 +827,9 @@ int tny_code_python_init(void) {
  * OS sandbox, not this list, is the boundary; hiding them keeps generated code
  * on the documented interface and makes refusals immediate and explicit. */
 static PyObject *restricted_builtins(void) {
-    static const char *removed[] = {"__import__", "open",   "eval",    "exec",    "compile",
-                                    "input",      "breakpoint", "help", "exit",  "quit",
-                                    "copyright",  "credits", "license", "__loader__", "__spec__",
-                                    NULL};
+    static const char *removed[] = {
+        "__import__", "open", "eval",      "exec",    "compile", "input",      "breakpoint", "help",
+        "exit",       "quit", "copyright", "credits", "license", "__loader__", "__spec__",   NULL};
     PyObject *builtins = PyDict_Copy(PyEval_GetBuiltins());
     if (!builtins) return NULL;
     for (size_t i = 0; removed[i]; ++i)
@@ -911,7 +910,8 @@ static char *format_exception(PyObject *error) {
     }
     int n = snprintf(out, cap, "error: code: %s%s%.*s", type, message && *message ? ": " : "",
                      (int)(TNY_CODE_OUTPUT_BYTES / 2), message ? message : "");
-    if (line > 0 && n > 0 && (size_t)n < cap) snprintf(out + n, cap - (size_t)n, " (line %ld)", line);
+    if (line > 0 && n > 0 && (size_t)n < cap)
+        snprintf(out + n, cap - (size_t)n, " (line %ld)", line);
     Py_XDECREF(text);
     return out;
 }

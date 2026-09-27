@@ -92,7 +92,7 @@ CASES = {
     # -- JSON codec
     "json_int_precision": "import json\nv = json.loads('[9007199254740993, -9223372036854775808, 18446744073709551616]')\nprint(v, json.dumps(v))",
     "json_null_false_zero": "import json\nv = json.loads('{\"n\":null,\"f\":false,\"z\":0,\"e\":\"\",\"a\":[],\"o\":{}}')\nprint(v['n'] is None, v['f'] is False, v['z'] == 0 and v['z'] is not False, type(v['z']).__name__, v['a'] == [], v['o'] == {}, json.dumps(v))",
-    "json_roundtrip_shapes": "import json\nprint(json.dumps(json.loads('{\"x\":[[],[{}],{\"y\":[]}],\"b\":[true,false,null,0,0.0,\"\"]}')))",
+    "json_roundtrip_shapes": 'import json\nprint(json.dumps(json.loads(\'{"x":[[],[{}],{"y":[]}],"b":[true,false,null,0,0.0,""]}\')))',
     "json_default_dumps": "import json\nprint(json.dumps({'a': [1, True, None, 'hi', {}], 'b': {}, 'n': -9}))",
     "json_ensure_ascii": "import json\ns = 'é😀\\n\"\\\\/\\x01'\nprint(json.dumps(s), json.dumps(s, ensure_ascii=False))",
     "json_separators_sort": "import json\nprint(json.dumps({'b': 1, 'a': [1, 2]}, separators=(',', ':'), sort_keys=True))",
@@ -109,7 +109,7 @@ CASES = {
     "json_nested_order": "import json\nprint(json.dumps({'d': {'b': 1, 'a': 2}, 'c': 3}))",
     "json_big_float_int": "import json\nprint(json.dumps(10 ** 30), json.loads('123456789012345678901234567890'), json.loads('1e400'))",
     "json_nan_dumps": "import json\ntry:\n    print(json.dumps(float('nan')))\n    print(json.dumps([float('inf')], allow_nan=False))\nexcept ValueError:\n    print('ValueError')",
-    "json_duplicate_keys": "import json\nprint(json.loads('{\"a\":1,\"a\":2}'))",
+    "json_duplicate_keys": 'import json\nprint(json.loads(\'{"a":1,"a":2}\'))',
     "json_deep": "import json\nprint(json.dumps(json.loads('[' * 50 + ']' * 50))[:8])",
     # -- exceptions
     "try_except_else_finally": "for n in range(2):\n    try:\n        if n:\n            raise ValueError('x')\n    except ValueError as e:\n        print('caught', e)\n    else:\n        print('else')\n    finally:\n        print('finally', n)",

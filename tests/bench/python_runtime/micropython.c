@@ -22,7 +22,9 @@ static mp_obj_t tools_call(mp_obj_t name, mp_obj_t args) {
     return value;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(tools_call_obj, tools_call);
-static mp_obj_t tools_list(void) { return mp_obj_new_str(active->catalog, strlen(active->catalog)); }
+static mp_obj_t tools_list(void) {
+    return mp_obj_new_str(active->catalog, strlen(active->catalog));
+}
 static MP_DEFINE_CONST_FUN_OBJ_0(tools_list_obj, tools_list);
 static mp_obj_t tools_describe(mp_obj_t name) {
     char *result = bench_describe(active, mp_obj_str_get_str(name));

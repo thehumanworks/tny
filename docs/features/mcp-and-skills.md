@@ -23,10 +23,11 @@ Native loop only, unless noted.
 
 ## Code-only agent interface
 
-Agents receive exactly `run_code({code, timeout_ms?})`. Bounded Lua composes
-the tools below through `tools.call(name, arguments_json)`, with discovery via
-`tools.list()` and `tools.describe(name)`. Results are strings; `json.encode`
-and `json.decode` provide explicit JSON conversion. Native cells run in a
+Agents receive exactly `run_code({code, timeout_ms?})`. A bounded Python 3.14
+script composes the tools below through `tools.call(name, arguments_json)`,
+with discovery via `tools.list()` and `tools.describe(name)`. Results are
+strings; `json.loads` and `json.dumps` provide explicit JSON conversion
+([ADR 0179](../adr/0179-python-code-mode-cpython.md)). Native cells run in a
 fresh execution process; direct provider tool names are rejected. Wasm returns
 a clean unsupported-execution error. Native runner permissions cross a checked
 owner reply channel; user waits pause the code deadline (bounded to five minutes).

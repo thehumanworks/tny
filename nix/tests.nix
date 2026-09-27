@@ -1,6 +1,8 @@
-# Execution code mode vendors Lua under the existing third_party fileset;
+# Python code cells (ADR 0179) build the pinned CPython tarball from
+# nix/cpython-source.nix; no host/system Python is linked or used by cells.
 # test_code_runtime.c and integration/test_execution_code_mode.py plus its
-# code_mode_fixture.py helper use existing C/Python inputs, no host Lua.
+# code_mode_fixture.py helper use existing C/Python inputs. The historical
+# Lua benchmark copy lives under tests/bench/code_mode/lua_runtime.
 # test-acp-wasm-seam links the existing native graph with acp_proc_wasm.c;
 # its Python stdlib fixture needs no emsdk and does not claim a wasm build.
 # Its C ABI capability probes use the existing host compiler, not emsdk.
@@ -15,6 +17,7 @@
   lib,
   stdenv,
   darwin,
+  fetchurl,
   git,
   bash,
   bubblewrap,
@@ -37,6 +40,7 @@
 
 let
   src = (import ./source.nix { inherit lib; }).tests;
+  cpythonSource = import ./cpython-source.nix { inherit lib fetchurl; };
   # Terminal background completion uses only the existing Python/POSIX tools.
   # Its short-lived detached waiters also use this test runner's adoption.
   # Linux fixture descendants can outlive their direct parent. Adopt and reap
@@ -202,6 +206,7 @@ stdenv.mkDerivation {
     ${lib.optionalString stdenv.hostPlatform.isDarwin "export LIBTNY_MACH_CURRENT_VERSION=1.0.0"}
     runHook preBuild
     make verify-code-mode-language
+    make verify-code-policy
     for fixture in codex.toml claude-user.json claude-project.json \
       grok.toml grok-project.toml cursor-user.json cursor-project.json \
       malformed.json malformed.toml; do
@@ -238,6 +243,9 @@ stdenv.mkDerivation {
     "BASH=${bash}/bin/bash"
     "ZSH=${zsh}/bin/zsh"
     "TMUX_BIN=${tmux}/bin/tmux"
+    # Code cells embed the pinned static CPython; the sandbox has no network.
+    "CPYTHON_TARBALL=${cpythonSource}"
+    "CPYTHON_FETCH=0"
   ] ++ lib.optionals stdenv.hostPlatform.isDarwin [
     # Keep the displayed flake revision while supplying dyld's numeric field
     # to the active-library integration tests.

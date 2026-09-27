@@ -20,7 +20,14 @@ ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 PRIOR = ROOT / "tests/bench/code_mode"
 BUILD = ROOT / "build/python-runtime-bench"
-FLAGS = ["-std=c11", "-D_GNU_SOURCE", "-Os", "-flto=auto", "-ffunction-sections", "-fdata-sections"]
+FLAGS = [
+    "-std=c11",
+    "-D_GNU_SOURCE",
+    "-Os",
+    "-flto=auto",
+    "-ffunction-sections",
+    "-fdata-sections",
+]
 PINS = {
     "pocketpy.c": "0f0c19071b4fd0b37cb292e15bea49ca163f151af901b00893d3a2005bb056e6",
     "pocketpy.h": "43864cfa090d65b80915467900430dfae52c769f13d6edb137d0227d1fbe03ad",
@@ -33,14 +40,29 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def link(name: str, inputs: list[Path], includes: list[Path], extra: list[str], receipt: dict) -> None:
+def link(
+    name: str, inputs: list[Path], includes: list[Path], extra: list[str], receipt: dict
+) -> None:
     target = BUILD / name
     compiler = os.environ.get("CC", "cc")
     command = [
         compiler,
         *FLAGS,
-        *(f"-I{p}" for p in [ROOT / "src", ROOT / "include", ROOT / "third_party", ROOT / "third_party/yyjson", PRIOR, *includes]),
-        *(str(p) for p in [PRIOR / "host.c", ROOT / "third_party/yyjson/yyjson.c", *inputs]),
+        *(
+            f"-I{p}"
+            for p in [
+                ROOT / "src",
+                ROOT / "include",
+                ROOT / "third_party",
+                ROOT / "third_party/yyjson",
+                PRIOR,
+                *includes,
+            ]
+        ),
+        *(
+            str(p)
+            for p in [PRIOR / "host.c", ROOT / "third_party/yyjson/yyjson.c", *inputs]
+        ),
         "-Wl,--gc-sections",
         "-o",
         str(target),
@@ -72,7 +94,14 @@ def build_micropython(sources: Path) -> tuple[list[Path], list[Path]]:
     work.mkdir()
     shutil.copy(HERE / "micropython/mpconfigport.h", work / "mpconfigport.h")
     subprocess.run(
-        ["make", "-f", str(HERE / "micropython/embed.mk"), f"MICROPYTHON_TOP={top}", f"PACKAGE_DIR={package}", "-j3"],
+        [
+            "make",
+            "-f",
+            str(HERE / "micropython/embed.mk"),
+            f"MICROPYTHON_TOP={top}",
+            f"PACKAGE_DIR={package}",
+            "-j3",
+        ],
         cwd=work,
         check=True,
         stdout=subprocess.DEVNULL,
@@ -86,7 +115,10 @@ def build_micropython(sources: Path) -> tuple[list[Path], list[Path]]:
     )
     util = package / "port/embed_util.c"
     text = util.read_text()
-    text = text.replace("void nlr_jump_fail(void *val) {\n    for (;;) {\n    }\n}", "#include <stdlib.h>\nvoid nlr_jump_fail(void *val) {\n    abort();\n}")
+    text = text.replace(
+        "void nlr_jump_fail(void *val) {\n    for (;;) {\n    }\n}",
+        "#include <stdlib.h>\nvoid nlr_jump_fail(void *val) {\n    abort();\n}",
+    )
     text = text.replace(
         "void __assert_func(const char *file, int line, const char *func, const char *expr) {\n    for (;;) {\n    }\n}",
         "void __assert_func(const char *file, int line, const char *func, const char *expr) {\n    abort();\n}",
@@ -107,12 +139,20 @@ def build_micropython(sources: Path) -> tuple[list[Path], list[Path]]:
 
 def build_monty() -> Path:
     source = BUILD / "monty"
-    head = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+    head = subprocess.check_output(
+        ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
+    ).strip()
     if head != MONTY_COMMIT:
         raise SystemExit(f"Monty checkout {head} is not pinned v1.0.0 {MONTY_COMMIT}")
     target = BUILD / "monty-probe-target"
     subprocess.run(
-        ["cargo", "build", "--release", "--locked" if (HERE / "monty_probe/Cargo.lock").exists() else "--offline", "-j3"],
+        [
+            "cargo",
+            "build",
+            "--release",
+            "--locked" if (HERE / "monty_probe/Cargo.lock").exists() else "--offline",
+            "-j3",
+        ],
         cwd=HERE / "monty_probe",
         env={**os.environ, "CARGO_TARGET_DIR": str(target)},
         check=True,
@@ -130,14 +170,26 @@ def main() -> None:
         if digest(args.sources / name) != expected:
             raise SystemExit(f"{name}: SHA256 mismatch")
     receipt_path = BUILD / "build.json"
-    receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else {"binaries": {}, "commands": {}}
+    receipt = (
+        json.loads(receipt_path.read_text())
+        if receipt_path.exists()
+        else {"binaries": {}, "commands": {}}
+    )
     receipt["pins"] = {**PINS, "monty_git": MONTY_COMMIT}
-    receipt["compiler"] = subprocess.check_output([os.environ.get("CC", "cc"), "--version"], text=True).splitlines()[0]
+    receipt["compiler"] = subprocess.check_output(
+        [os.environ.get("CC", "cc"), "--version"], text=True
+    ).splitlines()[0]
     wanted = set(args.only or ["empty", "pocketpy", "micropython", "monty", "cpython"])
     if "empty" in wanted:
         link("empty", [PRIOR / "empty.c"], [], [], receipt)
     if "pocketpy" in wanted:
-        link("pocketpy", [HERE / "pocketpy.c", args.sources / "pocketpy.c"], [args.sources], [], receipt)
+        link(
+            "pocketpy",
+            [HERE / "pocketpy.c", args.sources / "pocketpy.c"],
+            [args.sources],
+            [],
+            receipt,
+        )
     if "micropython" in wanted:
         sources, includes = build_micropython(args.sources)
         link("micropython", [HERE / "micropython.c", *sources], includes, [], receipt)
@@ -151,7 +203,13 @@ def main() -> None:
 
         home = Path(sysconfig.get_config_var("LIBDIR")).parent.resolve()
         receipt["python_home"] = str(home)
-        flags = [f'-DPYHOME="{home}"', f"-L{home / 'lib'}", f"-Wl,-rpath,{home / 'lib'}", "-lpython3.14", "-lutil"]
+        flags = [
+            f'-DPYHOME="{home}"',
+            f"-L{home / 'lib'}",
+            f"-Wl,-rpath,{home / 'lib'}",
+            "-lpython3.14",
+            "-lutil",
+        ]
         include = [Path(sysconfig.get_config_var("INCLUDEPY"))]
         link("cpython", [PRIOR / "python.c"], include, flags, receipt)
         # Proposed production builtins/print/error policy, for trial execution.
@@ -160,10 +218,18 @@ def main() -> None:
         cpython = args.sources / "Python-3.14.7"
         frozen = BUILD / "cpython-frozen"
         frozen.mkdir(exist_ok=True)
-        for name, source in (("encodings", "__init__"), ("encodings.aliases", "aliases"), ("encodings.utf_8", "utf_8")):
+        for name, source in (
+            ("encodings", "__init__"),
+            ("encodings.aliases", "aliases"),
+            ("encodings.utf_8", "utf_8"),
+        ):
             subprocess.run(
-                [str(cpython / "Programs/_freeze_module"), name, str(cpython / f"Lib/encodings/{source}.py"),
-                 str(frozen / f"frozen_{name.replace('.', '_')}.h")],
+                [
+                    str(cpython / "Programs/_freeze_module"),
+                    name,
+                    str(cpython / f"Lib/encodings/{source}.py"),
+                    str(frozen / f"frozen_{name.replace('.', '_')}.h"),
+                ],
                 check=True,
             )
         link(

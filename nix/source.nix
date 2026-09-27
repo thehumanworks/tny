@@ -1,10 +1,11 @@
 # Code-mode language benchmarks, offline tests and Lean AST checker are in the
 # existing ../tests fileset. Optional live trials/downloads are never sandbox inputs.
-# Execution code mode vendors Lua under the existing third_party fileset;
+# Python code cells build third_party/cpython's pinned tarball (fetched by
+# nix/cpython-source.nix) with scripts/cpython_runtime.sh; see ADR 0179.
 # The production predicate proof tests/formal/check_execution_protocol.py
 # uses the existing tests fileset and explicit Clang/Z3 inputs in nix/tests.nix.
 # test_code_runtime.c and integration/test_execution_code_mode.py plus its
-# code_mode_fixture.py helper use existing C/Python inputs, no host Lua.
+# code_mode_fixture.py helper use existing C/Python inputs.
 # test-acp-wasm-seam links the existing native graph with acp_proc_wasm.c;
 # its Python stdlib fixture needs no emsdk and does not claim a wasm build.
 # Its C ABI capability probes reuse the existing include/src/tests filesets.
@@ -37,6 +38,8 @@ let
     ../libtny.pc.in
     ../python
     ../scripts/check_abi_baseline.py
+    ../scripts/cpython_runtime.sh # builds the pinned CPython for code cells
+    ../THIRD_PARTY_NOTICES.md # `make install` ships notices with the CPython license
     ../shell # installed workflows and the Zsh quick-ask widget
     ../src
     ../third_party

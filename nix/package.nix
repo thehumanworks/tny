@@ -5,6 +5,7 @@
   lib,
   stdenv,
   cacert,
+  fetchurl,
   makeBinaryWrapper,
   openssl,
   python3,
@@ -26,6 +27,7 @@
 let
   sources = import ./source.nix { inherit lib; };
   src = sources.build;
+  cpythonSource = import ./cpython-source.nix { inherit lib fetchurl; };
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "tny";
@@ -66,6 +68,9 @@ stdenv.mkDerivation (finalAttrs: {
     "CXX=${stdenv.cc.targetPrefix}c++"
     "TNY_VERSION=${finalAttrs.version}"
     "TNY_SHELL_PATH=${stdenv.shell}"
+    # Code cells embed the pinned static CPython; the sandbox has no network.
+    "CPYTHON_TARBALL=${cpythonSource}"
+    "CPYTHON_FETCH=0"
   ];
 
   postFixup = lib.optionalString wrapRuntime ''

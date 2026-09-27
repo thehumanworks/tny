@@ -186,30 +186,50 @@ TEST code_json_facade_matches_cpython(void) {
     struct {
         const char *code, *expected;
     } cases[] = {
-        {"print(json.dumps(json.loads('{\"a\":[1,true,null,\"hi\",{}],\"b\":{},\"c\":[],\"z\":0,\"f\":false,\"e\":\"\"}')))\n",
-         "{\"a\": [1, true, null, \"hi\", {}], \"b\": {}, \"c\": [], \"z\": 0, \"f\": false, \"e\": \"\"}\n"},
-        {"v = json.loads('[9007199254740993, -9223372036854775808, 18446744073709551616, 1e400]')\nprint(v, json.dumps(v[:3]))\n",
-         "[9007199254740993, -9223372036854775808, 18446744073709551616, inf] [9007199254740993, -9223372036854775808, 18446744073709551616]\n"},
-        {"print(json.dumps({\"k\": [1, 2], \"o\": {\"p\": None}, \"e\": [], \"d\": {}}, indent=2))\n",
-         "{\n  \"k\": [\n    1,\n    2\n  ],\n  \"o\": {\n    \"p\": null\n  },\n  \"e\": [],\n  \"d\": {}\n}\n"},
-        {"print(json.dumps({\"b\": 1, \"a\": [1.0, 0.1, 1e16, -0.0]}, separators=(\",\", \":\"), sort_keys=True))\n",
+        {"print(json.dumps(json.loads('{\"a\":[1,true,null,\"hi\",{}],\"b\":{},\"c\":[],\"z\":0,"
+         "\"f\":false,\"e\":\"\"}')))\n",
+         "{\"a\": [1, true, null, \"hi\", {}], \"b\": {}, \"c\": [], \"z\": 0, \"f\": false, "
+         "\"e\": \"\"}\n"},
+        {"v = json.loads('[9007199254740993, -9223372036854775808, 18446744073709551616, "
+         "1e400]')\nprint(v, json.dumps(v[:3]))\n",
+         "[9007199254740993, -9223372036854775808, 18446744073709551616, inf] [9007199254740993, "
+         "-9223372036854775808, 18446744073709551616]\n"},
+        {"print(json.dumps({\"k\": [1, 2], \"o\": {\"p\": None}, \"e\": [], \"d\": {}}, "
+         "indent=2))\n",
+         "{\n  \"k\": [\n    1,\n    2\n  ],\n  \"o\": {\n    \"p\": null\n  },\n  \"e\": [],\n  "
+         "\"d\": {}\n}\n"},
+        {"print(json.dumps({\"b\": 1, \"a\": [1.0, 0.1, 1e16, -0.0]}, separators=(\",\", \":\"), "
+         "sort_keys=True))\n",
          "{\"a\":[1.0,0.1,1e+16,-0.0],\"b\":1}\n"},
-        {"s = \"\\u00e9\\U0001f600\\n\\\"\\\\\\x01\\x7f\"\nprint(json.dumps(s), json.dumps(s, ensure_ascii=False))\n",
-         "\"\\u00e9\\ud83d\\ude00\\n\\\"\\\\\\u0001\\u007f\" \"\xc3""\xa9""\xf0""\x9f""\x98""\x80""\\n\\\"\\\\\\u0001\x7f""\"\n"},
+        {"s = \"\\u00e9\\U0001f600\\n\\\"\\\\\\x01\\x7f\"\nprint(json.dumps(s), json.dumps(s, "
+         "ensure_ascii=False))\n",
+         "\"\\u00e9\\ud83d\\ude00\\n\\\"\\\\\\u0001\\u007f\" \"\xc3"
+         "\xa9"
+         "\xf0"
+         "\x9f"
+         "\x98"
+         "\x80"
+         "\\n\\\"\\\\\\u0001\x7f"
+         "\"\n"},
         {"print(json.dumps({1: \"a\", True: \"b\", None: \"c\", 2.5: \"d\"}))\n",
          "{\"1\": \"b\", \"null\": \"c\", \"2.5\": \"d\"}\n"},
         {"print(json.dumps((1, (2, 3))), json.dumps({\"x\": {\"b\": 1, \"a\": 2}}))\n",
          "[1, [2, 3]] {\"x\": {\"b\": 1, \"a\": 2}}\n"},
-        {"v = json.loads('{\"n\": null, \"f\": false, \"z\": 0}')\nprint(v[\"n\"] is None, v[\"f\"] is False, type(v[\"z\"]).__name__, v[\"z\"] is False)\n",
+        {"v = json.loads('{\"n\": null, \"f\": false, \"z\": 0}')\nprint(v[\"n\"] is None, "
+         "v[\"f\"] is False, type(v[\"z\"]).__name__, v[\"z\"] is False)\n",
          "True True int False\n"},
-        {"try:\n    json.loads(\"[1,]\")\nexcept json.JSONDecodeError as e:\n    print(\"decode\", isinstance(e, ValueError))\n",
+        {"try:\n    json.loads(\"[1,]\")\nexcept json.JSONDecodeError as e:\n    print(\"decode\", "
+         "isinstance(e, ValueError))\n",
          "decode True\n"},
-        {"try:\n    json.dumps({\"s\": {1}})\nexcept TypeError:\n    print(\"type\")\n",
-         "type\n"},
-        {"try:\n    json.dumps(float(\"nan\"), allow_nan=False)\nexcept ValueError:\n    print(\"nan\")\nprint(json.dumps([float(\"inf\")]))\n",
+        {"try:\n    json.dumps({\"s\": {1}})\nexcept TypeError:\n    print(\"type\")\n", "type\n"},
+        {"try:\n    json.dumps(float(\"nan\"), allow_nan=False)\nexcept ValueError:\n    "
+         "print(\"nan\")\nprint(json.dumps([float(\"inf\")]))\n",
          "nan\n[Infinity]\n"},
-        {"print(json.loads(b'{\"a\": \"\\\\u00e9\"}')[\"a\"], json.loads('\"\\\\ud83d\\\\ude00\"') == \"\\U0001f600\")\n",
-         "\xc3""\xa9"" True\n"},
+        {"print(json.loads(b'{\"a\": \"\\\\u00e9\"}')[\"a\"], json.loads('\"\\\\ud83d\\\\ude00\"') "
+         "== \"\\U0001f600\")\n",
+         "\xc3"
+         "\xa9"
+         " True\n"},
     };
     for (size_t i = 0; i < sizeof(cases) / sizeof(*cases); ++i) {
         char *out = tny_code_run(cases[i].code, 5000, NULL, NULL, NULL);
@@ -283,9 +303,12 @@ TEST code_policy_boundaries(void) {
     ASSERT(!tny_code_frame_admit(TNY_CODE_PHASE_RUNNING, TNY_CODE_FRAME_RESULT, 2, 0));
     ASSERT(!tny_code_frame_admit(TNY_CODE_PHASE_RUNNING, TNY_CODE_FRAME_DONE,
                                  TNY_CODE_RESULT_TEXT_BYTES + 2, 0));
-    ASSERT_EQ(TNY_CODE_JSON_BOOL, tny_code_json_kind(false, true, true, false, false, false, false));
-    ASSERT_EQ(TNY_CODE_JSON_NULL, tny_code_json_kind(true, false, false, false, false, false, false));
-    ASSERT_EQ(TNY_CODE_JSON_INT, tny_code_json_kind(false, false, true, false, false, false, false));
+    ASSERT_EQ(TNY_CODE_JSON_BOOL,
+              tny_code_json_kind(false, true, true, false, false, false, false));
+    ASSERT_EQ(TNY_CODE_JSON_NULL,
+              tny_code_json_kind(true, false, false, false, false, false, false));
+    ASSERT_EQ(TNY_CODE_JSON_INT,
+              tny_code_json_kind(false, false, true, false, false, false, false));
     ASSERT_EQ(TNY_CODE_JSON_DEFAULT,
               tny_code_json_kind(false, false, false, false, false, false, false));
     PASS();

@@ -33,3 +33,13 @@ license terms:
 
 The authoritative notices are also retained at the top of the corresponding
 vendored source and header files under `third_party/`.
+
+## The tny executable
+
+The `tny` executable (not `libtny`) additionally embeds **CPython 3.14.7**
+for Python code cells (docs/adr/0179): Copyright (c) 2001 Python Software
+Foundation; All Rights Reserved. It is distributed under the Python Software
+Foundation License Version 2; the complete license and the notices CPython
+ships are in `third_party/cpython/LICENSE`, installed as
+`share/doc/tny/CPython-LICENSE`. Only the interpreter core and its bootstrap
+modules are linked, built from the unmodified hash-pinned python.org source.

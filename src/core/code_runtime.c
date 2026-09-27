@@ -62,8 +62,7 @@ static bool is_json_object(const char *text, size_t len) {
 
 char *tny_code_run_with_deadline(const char *code, const int64_t *deadline,
                                  const char *catalog_json, tny_code_call_fn call, void *userdata) {
-    if (!code || !tny_code_source_admit(strlen(code)))
-        return cell_error("source limit exceeded");
+    if (!code || !tny_code_source_admit(strlen(code))) return cell_error("source limit exceeded");
     if (!deadline) return cell_error("missing host deadline");
     const char *catalog = catalog_json ? catalog_json : "[]";
     tny_exec_host host;
@@ -126,12 +125,12 @@ char *tny_code_run_with_deadline(const char *code, const int64_t *deadline,
                     /* Terminal: the spent budget makes any further call frame
                      * inadmissible; only the child's final frame may follow. */
                     calls = TNY_CODE_TOOL_CALLS;
-                    if (send_frame(host.fd, TNY_CODE_FRAME_FAIL, failure, strlen(failure), NULL,
-                                   0, *deadline, deadline_passed, (void *)deadline))
+                    if (send_frame(host.fd, TNY_CODE_FRAME_FAIL, failure, strlen(failure), NULL, 0,
+                                   *deadline, deadline_passed, (void *)deadline))
                         error = failure;
                 } else {
-                    if (send_frame(host.fd, TNY_CODE_FRAME_RESULT, result, strlen(result), NULL,
-                                   0, *deadline, deadline_passed, (void *)deadline))
+                    if (send_frame(host.fd, TNY_CODE_FRAME_RESULT, result, strlen(result), NULL, 0,
+                                   *deadline, deadline_passed, (void *)deadline))
                         error = monotonic_ms() >= *deadline ? "deadline exceeded"
                                                             : "Python runtime exited unexpectedly";
                     free(result);
@@ -143,7 +142,8 @@ char *tny_code_run_with_deadline(const char *code, const int64_t *deadline,
     if (!error && phase == TNY_CODE_PHASE_FINISHED) {
         /* Authority ended with the final frame; the child must now just exit. */
         int64_t settle = monotonic_ms() + CELL_SETTLE_MS;
-        if (tny_exec_host_expect_eof(host.fd, settle, NULL, NULL)) error = "cell protocol violation";
+        if (tny_exec_host_expect_eof(host.fd, settle, NULL, NULL))
+            error = "cell protocol violation";
     }
     if (error) {
         free(output);
@@ -179,9 +179,7 @@ static char *child_call(void *ud, const char *name, const char *arguments) {
     char *payload = malloc(name_len + 1 + args_len + 1);
     int rc = -1;
     if (payload) {
-        memcpy(payload, name, name_len);
-        payload[name_len] = '\n';
-        memcpy(payload + name_len + 1, arguments, args_len + 1);
+        snprintf(payload, name_len + 1 + args_len + 1, "%s\n%s", name, arguments);
         rc = send_frame(c->fd, TNY_CODE_FRAME_CALL, payload, name_len + 1 + args_len, NULL, 0,
                         child_wait(), NULL, NULL);
         free(payload);
@@ -195,8 +193,9 @@ static char *child_call(void *ud, const char *name, const char *arguments) {
         else snprintf(c->failure, sizeof c->failure, "tool result allocation failed");
     } else if (reply && reply[0] == TNY_CODE_FRAME_FAIL)
         snprintf(c->failure, sizeof c->failure, "%s", reply + 1);
-    else snprintf(c->failure, sizeof c->failure, "%s",
-                  reply ? "cell protocol violation" : "cell transport failed");
+    else
+        snprintf(c->failure, sizeof c->failure, "%s",
+                 reply ? "cell protocol violation" : "cell transport failed");
     free(reply);
     return result;
 }

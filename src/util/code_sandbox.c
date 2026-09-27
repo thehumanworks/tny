@@ -64,15 +64,16 @@ int tny_code_sandbox_limits(unsigned cpu_seconds) {
 #define TNY_AUDIT_ARCH AUDIT_ARCH_AARCH64
 #endif
 
-#define LOAD_NR   BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr))
-#define ALLOW(nr) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (nr), 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
+#define LOAD_NR BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr))
+#define ALLOW(nr) \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (nr), 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
 
 #ifdef TNY_AUDIT_ARCH
 /* Signals only to this process (abort/raise), identified at install time. */
-#define SELF_SIGNAL(nr)                                                                            \
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (nr), 0, 4),                                               \
-        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),               \
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (unsigned)self, 0, 1),                                 \
+#define SELF_SIGNAL(nr)                                                             \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (nr), 0, 4),                                \
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), \
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (unsigned)self, 0, 1),                  \
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), LOAD_NR
 #endif
 

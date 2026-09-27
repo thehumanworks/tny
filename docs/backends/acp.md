@@ -60,7 +60,7 @@ Reasoning effort is selectable only when the agent advertises a compatible
 ## Tools and policy
 
 The bridge exposes the same singleton `run_code` schema as native HTTP.
-Bounded Lua discovers and calls the filtered native catalog through
+Bounded Python discovers and calls the filtered native catalog through
 `tools.list`, `tools.describe` and `tools.call`. Direct MCP calls to native tool
 names are rejected. Nested operations retain prepared validation, permissions,
 intercepts and result limits. See [ADR 0174](../adr/0174-execution-server-code-mode.md).

@@ -52,10 +52,22 @@ def evaluate(arm: str, task: str, code: str) -> dict[str, Any]:
     for index in range(heldout.VARIANTS):
         case = heldout.fixture(task, index)
         if not isinstance(code, str) or "\0" in code or len(code.encode()) > 262144:
-            observed = {"runtime_ok": False, "stdout": "invalid source", "calls": [], "writes": {}, "invalid_call": False}
+            observed = {
+                "runtime_ok": False,
+                "stdout": "invalid source",
+                "calls": [],
+                "writes": {},
+                "invalid_call": False,
+            }
         else:
             observed = run(command, code, case["runtime"])
-        variants.append({"variant": index, **heldout.score(task, observed, case), "observed": observed})
+        variants.append(
+            {
+                "variant": index,
+                **heldout.score(task, observed, case),
+                "observed": observed,
+            }
+        )
     return {"passed": all(v["passed"] for v in variants), "variants": variants}
 
 
@@ -76,7 +88,9 @@ def sample(arm: str, task: str, repetition: int, output: Path) -> dict[str, Any]
     key = f"{task}-{repetition}-{arm}"
     destination = output / key
     if destination.exists():
-        raise RuntimeError(f"Refusing to overwrite or selectively rerun an existing sample: {key}")
+        raise RuntimeError(
+            f"Refusing to overwrite or selectively rerun an existing sample: {key}"
+        )
     original = heldout.prompt(arm, task)
     attempts = []
     request = original
@@ -91,7 +105,16 @@ def sample(arm: str, task: str, repetition: int, output: Path) -> dict[str, Any]
         if evaluation["passed"] or not result["generation_ok"]:
             break
         feedback = [
-            {k: v[k] for k in ("variant", "execution_ok", "output_ok", "trace_ok", "observed")}
+            {
+                k: v[k]
+                for k in (
+                    "variant",
+                    "execution_ok",
+                    "output_ok",
+                    "trace_ok",
+                    "observed",
+                )
+            }
             for v in evaluation["variants"]
             if not v["passed"]
         ]
@@ -118,13 +141,19 @@ def sample(arm: str, task: str, repetition: int, output: Path) -> dict[str, Any]
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--controls", action="store_true")
-    parser.add_argument("--live", action="store_true", help="Explicitly authorize bounded Codex account usage")
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Explicitly authorize bounded Codex account usage",
+    )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--workers", type=int, choices=range(1, 4), default=3)
     args = parser.parse_args()
     if args.controls:
         rows = controls()
-        (BUILD / "heldout-controls.json").write_text(json.dumps(rows, ensure_ascii=False, indent=1) + "\n")
+        (BUILD / "heldout-controls.json").write_text(
+            json.dumps(rows, ensure_ascii=False, indent=1) + "\n"
+        )
         passed = sum(v["passed"] for r in rows for v in r["variants"])
         total = sum(len(r["variants"]) for r in rows)
         print(f"Held-out controls: {passed}/{total} variant executions passed")
@@ -133,8 +162,12 @@ def main() -> None:
         raise SystemExit("Live inference is opt-in: pass --live --output NEW_DIR")
     controls_file = BUILD / "heldout-controls.json"
     rows = json.loads(controls_file.read_text()) if controls_file.exists() else []
-    if len(rows) != len(ARMS) * len(heldout.TASKS) or not all(r["passed"] for r in rows):
-        raise SystemExit("All held-out reference controls must pass on every arm before live inference")
+    if len(rows) != len(ARMS) * len(heldout.TASKS) or not all(
+        r["passed"] for r in rows
+    ):
+        raise SystemExit(
+            "All held-out reference controls must pass on every arm before live inference"
+        )
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     order = [
@@ -150,14 +183,21 @@ def main() -> None:
             "model": MODEL,
             "effort": "low",
             "arms": ARMS,
-            "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-            "codex_version": subprocess.check_output(["codex", "--version"], text=True).strip(),
+            "source_revision": subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+            ).strip(),
+            "codex_version": subprocess.check_output(
+                ["codex", "--version"], text=True
+            ).strip(),
             "source_sha256": {
                 str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
-                for p in sorted(HERE.glob("*.py")) + sorted((ROOT / "tests/bench/code_mode").glob("*.py"))
+                for p in sorted(HERE.glob("*.py"))
+                + sorted((ROOT / "tests/bench/code_mode").glob("*.py"))
             },
             "prompt_sha256": {
-                f"{task}-{arm}": hashlib.sha256(heldout.prompt(arm, task).encode()).hexdigest()
+                f"{task}-{arm}": hashlib.sha256(
+                    heldout.prompt(arm, task).encode()
+                ).hexdigest()
                 for arm in ARMS
                 for task, _ in heldout.TASKS
             },
@@ -174,7 +214,10 @@ def main() -> None:
         for future in as_completed(futures):
             row = future.result()
             results.append(row)
-            print(f"{len(results)}/{len(order)} {row['id']} first={row['first_pass']} final={row['passed']}", flush=True)
+            print(
+                f"{len(results)}/{len(order)} {row['id']} first={row['first_pass']} final={row['passed']}",
+                flush=True,
+            )
     atomic_json(output / "samples.json", sorted(results, key=lambda r: r["id"]))
     print("COMPLETE", len(results), flush=True)
 

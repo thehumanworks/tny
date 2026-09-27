@@ -45,6 +45,12 @@ class MakeInstallTests(unittest.TestCase):
                 (prefix / "share/tny/tny.zsh").read_bytes(),
                 (ROOT / "shell/tny.zsh").read_bytes(),
             )
+            # The executable embeds CPython (ADR 0179); its license ships too.
+            self.assertEqual(
+                (prefix / "share/doc/tny/CPython-LICENSE").read_bytes(),
+                (ROOT / "third_party/cpython/LICENSE").read_bytes(),
+            )
+            self.assertTrue((prefix / "share/doc/tny/THIRD_PARTY_NOTICES.md").is_file())
 
 
 if __name__ == "__main__":

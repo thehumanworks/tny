@@ -60,13 +60,19 @@ def main() -> None:
                 entry["candidates"][runtime] = observed
             report["cases"][name] = entry
     for runtime in runtimes:
-        failed = [n for n, e in report["cases"].items() if not e["candidates"][runtime]["match"]]
+        failed = [
+            n
+            for n, e in report["cases"].items()
+            if not e["candidates"][runtime]["match"]
+        ]
         report["summary"][runtime] = {
             "matched": len(CASES) - len(failed),
             "total": len(CASES),
             "mismatched": failed,
         }
-    Path(args.output).write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n")
+    Path(args.output).write_text(
+        json.dumps(report, ensure_ascii=False, indent=1) + "\n"
+    )
     for runtime, summary in report["summary"].items():
         print(f"{runtime}: {summary['matched']}/{summary['total']} match CPython")
         print("  mismatched:", " ".join(summary["mismatched"]))

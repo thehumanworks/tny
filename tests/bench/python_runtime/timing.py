@@ -55,7 +55,9 @@ def main() -> None:
     }
     args.output.write_text(json.dumps(report, indent=1) + "\n")
     for name, row in report.items():
-        print(f"{name}: runtime {row['runtime_ms_median']:.3f} ms, process {row['process_ms_median']:.3f} ms")
+        print(
+            f"{name}: runtime {row['runtime_ms_median']:.3f} ms, process {row['process_ms_median']:.3f} ms"
+        )
 
 
 if __name__ == "__main__":

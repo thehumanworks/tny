@@ -6,14 +6,14 @@
 #include <stdint.h>
 
 /* Interpreter heap, including its initialization baseline. */
-#define TNY_CODE_MEMORY_BYTES       (64u * 1024u * 1024u)
-#define TNY_CODE_OUTPUT_BYTES       (64u * 1024u)
+#define TNY_CODE_MEMORY_BYTES (64u * 1024u * 1024u)
+#define TNY_CODE_OUTPUT_BYTES (64u * 1024u)
 /* A final result: printed output, or an error line plus bounded output. */
-#define TNY_CODE_RESULT_TEXT_BYTES  (TNY_CODE_OUTPUT_BYTES + 512u)
-#define TNY_CODE_SOURCE_BYTES       (256u * 1024u)
-#define TNY_CODE_ARGUMENT_BYTES     (256u * 1024u)
-#define TNY_CODE_NAME_BYTES         256u
-#define TNY_CODE_TOOL_CALLS         64u
+#define TNY_CODE_RESULT_TEXT_BYTES (TNY_CODE_OUTPUT_BYTES + 512u)
+#define TNY_CODE_SOURCE_BYTES      (256u * 1024u)
+#define TNY_CODE_ARGUMENT_BYTES    (256u * 1024u)
+#define TNY_CODE_NAME_BYTES        256u
+#define TNY_CODE_TOOL_CALLS        64u
 /* One nested result must fit a single private cell frame. */
 #define TNY_CODE_TOOL_RESULT_BYTES  (8u * 1024u * 1024u - 16u)
 #define TNY_CODE_DEFAULT_TIMEOUT_MS 5000

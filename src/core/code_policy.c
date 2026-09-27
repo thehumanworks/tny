@@ -36,12 +36,12 @@ bool tny_code_frame_admit(int phase, int type, uint64_t payload_bytes, uint64_t 
 
 int tny_code_json_kind(bool is_none, bool is_bool, bool is_int, bool is_float, bool is_str,
                        bool is_list_or_tuple, bool is_dict) {
-    return is_none             ? TNY_CODE_JSON_NULL
-           : is_bool           ? TNY_CODE_JSON_BOOL
-           : is_int            ? TNY_CODE_JSON_INT
-           : is_float          ? TNY_CODE_JSON_FLOAT
-           : is_str            ? TNY_CODE_JSON_STRING
-           : is_list_or_tuple  ? TNY_CODE_JSON_ARRAY
-           : is_dict           ? TNY_CODE_JSON_OBJECT
-                               : TNY_CODE_JSON_DEFAULT;
+    return is_none            ? TNY_CODE_JSON_NULL
+           : is_bool          ? TNY_CODE_JSON_BOOL
+           : is_int           ? TNY_CODE_JSON_INT
+           : is_float         ? TNY_CODE_JSON_FLOAT
+           : is_str           ? TNY_CODE_JSON_STRING
+           : is_list_or_tuple ? TNY_CODE_JSON_ARRAY
+           : is_dict          ? TNY_CODE_JSON_OBJECT
+                              : TNY_CODE_JSON_DEFAULT;
 }

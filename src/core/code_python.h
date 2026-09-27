@@ -10,7 +10,7 @@
 #include <stdbool.h>
 
 typedef struct {
-    const char *catalog;  /* borrowed JSON array of permitted tool schemas */
+    const char *catalog;   /* borrowed JSON array of permitted tool schemas */
     tny_code_call_fn call; /* NULL result: terminal failure, see failure() */
     void *userdata;
     /* Optional reason for the last NULL call result (borrowed text). */

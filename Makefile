@@ -205,11 +205,14 @@ TP_WASM := third_party/yyjson/yyjson.c
 # its bootstrap modules; encodings are frozen in, so no stdlib directory or
 # system Python is used at run time. `make fetch-cpython` downloads the pinned
 # tarball; CPYTHON_TARBALL=/path supplies an existing copy (Nix, offline).
-CPYTHON_VERSION := 3.14.7
-CPYTHON_SHA256 := 3b48dac8fb59f62eaa67ac83c1eb12bda1b7a08406dd286e252c11a66be27f81
+CPYTHON_VERSION := $(shell cat third_party/cpython/VERSION)
+CPYTHON_SHA256 := $(shell cat third_party/cpython/SHA256)
+# 1: download the pinned tarball when missing; 0: fail instead (offline).
+CPYTHON_FETCH ?= 1
 CPYTHON_URL := https://www.python.org/ftp/python/$(CPYTHON_VERSION)/Python-$(CPYTHON_VERSION).tar.xz
-CPYTHON_TARBALL ?= $(BUILD)/deps/Python-$(CPYTHON_VERSION).tar.xz
-CPYTHON_DIR := $(BUILD)/cpython-$(CPYTHON_VERSION)
+CPYTHON_TARBALL ?= build/deps/Python-$(CPYTHON_VERSION).tar.xz
+# Shared by every lane (release/debug/leak builds): release-flag C objects.
+CPYTHON_DIR ?= build/cpython-$(CPYTHON_VERSION)
 CPYTHON_LIB := $(CPYTHON_DIR)/libpython3.14.a
 CPYTHON_JOBS ?= 4
 # Linux keeps the published glibc floor in the interpreter objects too.
@@ -384,6 +387,14 @@ bench-code-mode-language:
 	python3 tests/bench/code_mode/build.py $(CODE_MODE_DOWNLOAD)
 	python3 tests/bench/code_mode/execute.py
 
+# Source-linked Lean proofs of the Python code-cell gates (ADR 0179): Clang
+# parses the production C, unsupported syntax fails, and weakened copies of
+# each gate must fail the same proofs. CI's lean-proofs job runs this.
+.PHONY: verify-code-policy
+verify-code-policy:
+	python3 tests/formal/check_code_policy.py --lean "$(LEAN)"
+	LEAN="$(LEAN)" python3 tests/formal/code_policy/test_mutations.py
+
 .PHONY: verify-formal verify-execution-protocol
 verify-formal: verify-execution-protocol
 	python3 tests/formal/check.py
@@ -490,8 +501,9 @@ $(call objects,$(OBJ_REL),$(SRC_PY_RUNTIME)): REL_CFLAGS += $(CPYTHON_INC)
 $(call objects,$(OBJ_DBG),$(SRC_PY_RUNTIME)): DBG_CFLAGS += $(CPYTHON_INC)
 $(call objects,$(OBJ_REL),$(SRC_PY_RUNTIME)) $(call objects,$(OBJ_DBG),$(SRC_PY_RUNTIME)): | $(CPYTHON_LIB)
 
-$(CPYTHON_LIB): scripts/cpython_runtime.sh
+$(CPYTHON_LIB): scripts/cpython_runtime.sh third_party/cpython/VERSION third_party/cpython/SHA256
 	CC='$(CC)' CPYTHON_CFLAGS='$(CPYTHON_CFLAGS)' CPYTHON_JOBS='$(CPYTHON_JOBS)' \
+		TNY_CPYTHON_FETCH='$(CPYTHON_FETCH)' \
 		$(SHELL) scripts/cpython_runtime.sh $(CPYTHON_DIR) $(CPYTHON_TARBALL) \
 		$(CPYTHON_SHA256) $(CPYTHON_URL)
 
@@ -1170,6 +1182,9 @@ install: release
 	cp python/tny_ext/*.py python/tny_ext/py.typed \
 		"$(DESTDIR)$(PREFIX)/lib/tny/tny_ext/"
 	cp shell/tny-workflows.sh "$(DESTDIR)$(PREFIX)/share/tny/"
+	mkdir -p "$(DESTDIR)$(PREFIX)/share/doc/tny"
+	cp THIRD_PARTY_NOTICES.md "$(DESTDIR)$(PREFIX)/share/doc/tny/"
+	cp third_party/cpython/LICENSE "$(DESTDIR)$(PREFIX)/share/doc/tny/CPython-LICENSE"
 	cp shell/tny.zsh "$(DESTDIR)$(PREFIX)/share/tny/"
 	chmod 755 "$(DESTDIR)$(PREFIX)/share/tny/tny-workflows.sh"
 
@@ -1232,7 +1247,8 @@ SOURCE_FILES := $(shell if $(GIT) rev-parse --is-inside-work-tree >/dev/null 2>&
 	-o -type f -print | sed 's|^./||'; fi)
 # Ignore staged deletions; source archives remain lintable without Git.
 FMT_SRC := $(sort $(wildcard $(filter %.c %.h %.cpp %.hpp,\
-	$(filter-out third_party/% tests/abi/fixtures/% tests/bench/fixtures/%,$(SOURCE_FILES)))))
+	$(filter-out third_party/% tests/abi/fixtures/% tests/bench/fixtures/% \
+	tests/bench/code_mode/lua_runtime/%,$(SOURCE_FILES)))))
 SH_SRC  := $(sort $(wildcard $(filter %.sh,$(SOURCE_FILES))))
 SHFMT_FLAGS := -i 4 -ci -sr
 JS_SRC  := docs/assets/site.js docs/assets/term-core.js docs/assets/term-wasm.js \
@@ -1249,7 +1265,11 @@ TIDY_CPP_SRC = $(filter %.cpp,$(TIDY_SRC))
 # scripts/tidy_cpp.py discovers the selected CXX driver's STL/system paths;
 # a standalone clang-tidy wheel may not know the host toolchain layout.
 TIDY_CXXFLAGS = $(call cxx_flags,$(TIDY_CFLAGS))
-TIDY_CFLAGS  = $(STD) $(filter-out -Werror,$(WARN)) $(INC) $(DEFS)
+TIDY_CFLAGS  = $(STD) $(filter-out -Werror,$(WARN)) $(INC) $(DEFS) $(TIDY_PY_INC)
+# The interpreter layer is linted against the pinned CPython headers (system
+# includes: their own diagnostics are CPython's, not tny's).
+TIDY_PY_INC = $(if $(filter $(SRC_PY_RUNTIME),$(TIDY_C_SRC)),$(CPYTHON_INC))
+TIDY_PY_DEPS = $(if $(filter $(SRC_PY_RUNTIME),$(TIDY_C_SRC)),$(CPYTHON_LIB))
 ifeq ($(UNAME_S),Darwin)
   TIDY_CFLAGS += -isysroot $(shell xcrun --show-sdk-path)
 endif
@@ -1282,20 +1302,20 @@ format-check: format-c-check
 analyze-cpp: $(VERSION_H)
 	$(if $(TIDY_CPP_SRC),python3 scripts/tidy_cpp.py --cxx '$(CXX)' --tidy '$(CLANG_TIDY)' $(TIDY_CPP_SRC) -- $(TIDY_CXXFLAGS),:)
 
-tidy: $(VERSION_H) analyze-cpp
+tidy: $(VERSION_H) analyze-cpp $(TIDY_PY_DEPS)
 	$(if $(TIDY_C_SRC),$(CLANG_TIDY) --quiet $(TIDY_C_SRC) -- $(TIDY_CFLAGS),:)
 
-warn-strict: $(VERSION_H)
-	$(if $(TIDY_C_SRC),$(CC) $(REL_CFLAGS) $(WARN_STRICT) -fsyntax-only $(TIDY_C_SRC),:)
+warn-strict: $(VERSION_H) $(TIDY_PY_DEPS)
+	$(if $(TIDY_C_SRC),$(CC) $(REL_CFLAGS) $(TIDY_PY_INC) $(WARN_STRICT) -fsyntax-only $(TIDY_C_SRC),:)
 	$(if $(TIDY_CPP_SRC),$(CXX) $(REL_CXXFLAGS) $(WARN_STRICT_CXX) -fsyntax-only $(TIDY_CPP_SRC),:)
 
 # GCC's path-sensitive analyzer (leaks, use-after-free, fd/stream misuse).
 # Complementary to clang-tidy; Linux CI runs it, gcc is required.
 # double-free is off: it misreads the oom-flag-guarded free in buf_detach
 # (src/util/util.c) and flags every caller of path_join.
-analyze: $(VERSION_H) analyze-cpp analyze-cpp-gcc
+analyze: $(VERSION_H) analyze-cpp analyze-cpp-gcc $(TIDY_PY_DEPS)
 	@for f in $(TIDY_C_SRC); do \
-		$(ANALYZER_CC) $(STD) $(WARN) $(INC) $(DEFS) -fanalyzer -O1 \
+		$(ANALYZER_CC) $(STD) $(WARN) $(INC) $(DEFS) $(TIDY_PY_INC) -fanalyzer -O1 \
 			-Wno-analyzer-double-free \
 			-c -o /dev/null $$f || exit 1; \
 	done

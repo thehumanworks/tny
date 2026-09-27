@@ -20,7 +20,7 @@ CLI / TUI / C ABI / Python / Node SDKs
  native HTTP + SSE             run_code RPC
           |                        |
  gateways / providers     fresh execution server
-                               Lua + tools + MCP
+                            tools + MCP -> confined Python cell
 ```
 
 The event vocabulary remains `text_delta`, `thinking`, `tool_start`, `tool_end`,
@@ -46,9 +46,12 @@ protocol checks on every connection, including resume.
 
 Agent tools use the singleton `run_code` surface on both HTTP wires and ACP.
 Each cell starts a fresh native execution process with a trusted context
-snapshot and bounded Lua runtime. Nested operations keep existing permissions
-and workspace policy; direct provider tool names fail closed. See
-[ADR 0174](adr/0174-execution-server-code-mode.md) and the
+snapshot. Each cell's Python runs in a further fresh child with an empty
+environment and an OS sandbox; the execution server answers its nested calls.
+Nested operations keep existing permissions and workspace policy; direct
+provider tool names fail closed. See
+[ADR 0174](adr/0174-execution-server-code-mode.md),
+[ADR 0179](adr/0179-python-code-mode-cpython.md) and the
 [acceptance contract](verification/execution-code-mode/contract.md).
 Wasm returns an unsupported-execution error because it cannot spawn this server.
 

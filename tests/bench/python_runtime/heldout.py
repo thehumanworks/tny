@@ -115,11 +115,26 @@ TASKS = [
     ),
 ]
 
-ORDERED = {"config_merge", "log_errors", "tree_sizes", "tag_frequency", "interval_merge", "order_rollup"}
+ORDERED = {
+    "config_merge",
+    "log_errors",
+    "tree_sizes",
+    "tag_frequency",
+    "interval_merge",
+    "order_rollup",
+}
 
 
 def prompt(arm: str, task: str) -> str:
-    return COMMON + "\n" + HELP[arm] + "\nTyped capability catalog:\n" + dump(CATALOG) + "\nTask:\n" + dict(TASKS)[task]
+    return (
+        COMMON
+        + "\n"
+        + HELP[arm]
+        + "\nTyped capability catalog:\n"
+        + dump(CATALOG)
+        + "\nTask:\n"
+        + dict(TASKS)[task]
+    )
 
 
 def _merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
@@ -183,9 +198,20 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
             "debug": False,
         }
         overrides = [
-            {"port": 0, "features": {"b": None, "nested": {"y": [], "z": None}, "c": ""}, "extra": {}, "tags": None},
+            {
+                "port": 0,
+                "features": {"b": None, "nested": {"y": [], "z": None}, "c": ""},
+                "extra": {},
+                "tags": None,
+            },
             {},
-            {"features": None, "name": "svc2", "debug": None, "limits": {"cpu": 2}, "new": [None, False]},
+            {
+                "features": None,
+                "name": "svc2",
+                "debug": None,
+                "limits": {"cpu": 2},
+                "new": [None, False],
+            },
         ][variant]
         files["defaults.json"] = dump(defaults)
         files["overrides.json"] = dump(overrides)
@@ -194,7 +220,9 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
         regions = ["north", "south", "east", "west", "zoë"]
         lines = ["region,amount,rep"]
         for i in range(0 if variant == 1 else 14):
-            lines.append(f"{rng.choice(regions)},{rng.randrange(-40, 120)},{ids[i % 10]}")
+            lines.append(
+                f"{rng.choice(regions)},{rng.randrange(-40, 120)},{ids[i % 10]}"
+            )
             if i % 5 == 2:
                 lines.append("   ")
         files["sales.csv"] = "\n".join(lines) + "\n"
@@ -213,7 +241,11 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
         records = []
         for i in range(0 if variant == 1 else 12):
             records.append(
-                {"id": ids[i % 4], "version": rng.randrange(1, 4), "data": [None, {"n": i}, False, 0, "", []][i % 6]}
+                {
+                    "id": ids[i % 4],
+                    "version": rng.randrange(1, 4),
+                    "data": [None, {"n": i}, False, 0, "", []][i % 6],
+                }
             )
         files["records.json"] = dump(records)
         kept: dict[str, dict[str, Any]] = {}
@@ -229,7 +261,9 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
         for i in range(0 if variant == 1 else 16):
             component = components[(i * (variant + 1)) % 4]
             message = f"failed: code={i}: retry {ids[i % 10]}"
-            lines.append(f"2026-09-{10 + i}T0{i % 10}:00:00 {levels[i % 6]} {component}: {message}")
+            lines.append(
+                f"2026-09-{10 + i}T0{i % 10}:00:00 {levels[i % 6]} {component}: {message}"
+            )
             if i % 7 == 3:
                 lines.append("")
         files["app.log"] = "\n".join(lines) + "\n"
@@ -245,7 +279,13 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
             entry["count"] += 1
     elif task == "tree_sizes":
         paths = [
-            ["docs/guide/intro.md", "docs/a.md", "docs/guide/advanced/xé.md", "docs/api/z.md", "docs/api/b.md"],
+            [
+                "docs/guide/intro.md",
+                "docs/a.md",
+                "docs/guide/advanced/xé.md",
+                "docs/api/z.md",
+                "docs/api/b.md",
+            ],
             ["docs/only.md"],
             ["docs/b/c/d/e.txt", "docs/b/a.txt", "docs/å.md"],
         ][variant]
@@ -261,14 +301,24 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
             node[parts[-1]] = len(files[path])
 
         def ordered(node: dict[str, Any]) -> dict[str, Any]:
-            return {k: ordered(v) if isinstance(v, dict) else v for k, v in sorted(node.items())}
+            return {
+                k: ordered(v) if isinstance(v, dict) else v
+                for k, v in sorted(node.items())
+            }
 
         answer = ordered(tree)
         required.append({"name": "fs.list", "args": {"prefix": "docs/"}})
     elif task == "validate_records":
         schema = {
             "required": ["id", "count", "active"],
-            "types": {"count": "integer", "ratio": "number", "active": "boolean", "tags": "array", "meta": "object", "note": "null"},
+            "types": {
+                "count": "integer",
+                "ratio": "number",
+                "active": "boolean",
+                "tags": "array",
+                "meta": "object",
+                "note": "null",
+            },
         }
         values = [
             {"count": 3, "active": True, "ratio": 1},
@@ -278,7 +328,10 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
             {"count": 2.5, "active": None, "ratio": "1"},
             {"count": -7, "active": True, "note": 0},
         ]
-        records = [{"id": ids[i], **values[(i + variant) % 6]} for i in range(0 if variant == 1 else 6)]
+        records = [
+            {"id": ids[i], **values[(i + variant) % 6]}
+            for i in range(0 if variant == 1 else 6)
+        ]
         files["records.json"] = dump(records)
         files["schema.json"] = dump(schema)
         valid, invalid = [], {}
@@ -304,17 +357,25 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
             items = []
             for j in range(0 if (variant == 1 or index == 2) else 3):
                 item_id = ids[(index * 2 + j) % 7]
-                item_tags = [tags[(index + j + k) % 4] for k in range(1 + (j + variant) % 3)] + ([tags[0]] if j == 1 else [])
+                item_tags = [
+                    tags[(index + j + k) % 4] for k in range(1 + (j + variant) % 3)
+                ] + ([tags[0]] if j == 1 else [])
                 items.append({"id": item_id, "tags": item_tags})
                 seen.setdefault(item_id, item_tags)
-            pages[cursor] = {"items": items, "next": cursors[index + 1] if index < 3 else None}
+            pages[cursor] = {
+                "items": items,
+                "next": cursors[index + 1] if index < 3 else None,
+            }
         raw["pages"] = pages
         counts: dict[str, int] = {}
         for item_tags in seen.values():
             for tag in set(item_tags):
                 counts[tag] = counts.get(tag, 0) + 1
         answer = dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
-        required = [{"name": "api.page", "args": {"cursor": c}} for c in [None, "p2", "p3", "p4"]]
+        required = [
+            {"name": "api.page", "args": {"cursor": c}}
+            for c in [None, "p2", "p3", "p4"]
+        ]
     elif task == "markdown_toc":
         docs = [
             "# Tny Guide\nintro\n## Install & Run\n```sh\n# not a heading\n```\n### Café notes\n#### too deep\n## Install & Run\n#nospace\n  ## indented\n## API: v2 (beta)\n## Install & Run\n",
@@ -347,12 +408,23 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
         bookings = []
         for i in range(0 if variant == 1 else 12):
             start = rng.randrange(0, 40)
-            bookings.append({"room": ["b", "a", "é", "c"][i % (2 + variant)], "start": start, "end": start + rng.randrange(1, 9)})
+            bookings.append(
+                {
+                    "room": ["b", "a", "é", "c"][i % (2 + variant)],
+                    "start": start,
+                    "end": start + rng.randrange(1, 9),
+                }
+            )
         if variant == 2:
-            bookings += [{"room": "a", "start": 50, "end": 55}, {"room": "a", "start": 55, "end": 60}]
+            bookings += [
+                {"room": "a", "start": 50, "end": 55},
+                {"room": "a", "start": 55, "end": 60},
+            ]
         files["bookings.json"] = dump(bookings)
         rooms: dict[str, list[list[int]]] = {}
-        for booking in sorted(bookings, key=lambda b: (b["room"], b["start"], b["end"])):
+        for booking in sorted(
+            bookings, key=lambda b: (b["room"], b["start"], b["end"])
+        ):
             spans = rooms.setdefault(booking["room"], [])
             if spans and booking["start"] <= spans[-1][1]:
                 spans[-1][1] = max(spans[-1][1], booking["end"])
@@ -360,11 +432,31 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
                 spans.append([booking["start"], booking["end"]])
         answer = dict(sorted(rooms.items()))
     elif task == "json_diff":
-        before = {ids[0]: 1, ids[1]: False, ids[2]: {"a": 1, "b": [1, 2]}, ids[3]: None, ids[4]: "x", ids[5]: [1, {}]}
+        before = {
+            ids[0]: 1,
+            ids[1]: False,
+            ids[2]: {"a": 1, "b": [1, 2]},
+            ids[3]: None,
+            ids[4]: "x",
+            ids[5]: [1, {}],
+        }
         afters = [
-            {ids[0]: 1.0, ids[1]: 0, ids[2]: {"b": [1, 2], "a": 1}, ids[3]: None, ids[6]: True, ids[5]: [{}, 1]},
+            {
+                ids[0]: 1.0,
+                ids[1]: 0,
+                ids[2]: {"b": [1, 2], "a": 1},
+                ids[3]: None,
+                ids[6]: True,
+                ids[5]: [{}, 1],
+            },
             dict(before),
-            {ids[0]: True, ids[2]: {"a": 1, "b": [1, 2.0]}, ids[3]: False, ids[4]: "x ", ids[7]: None},
+            {
+                ids[0]: True,
+                ids[2]: {"a": 1, "b": [1, 2.0]},
+                ids[3]: False,
+                ids[4]: "x ",
+                ids[7]: None,
+            },
         ]
         after = afters[variant]
         files["before.json"] = dump(before)
@@ -372,13 +464,23 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
         answer = {
             "added": sorted(k for k in after if k not in before),
             "removed": sorted(k for k in before if k not in after),
-            "changed": sorted(k for k in before if k in after and not _json_equal(before[k], after[k])),
+            "changed": sorted(
+                k for k in before if k in after and not _json_equal(before[k], after[k])
+            ),
         }
     elif task == "order_rollup":
         orders = []
         for i in range(0 if variant == 1 else 7):
-            items = [{"sku": f"sku-{(i + j * (variant + 2)) % 5}", "qty": (j * 3 + i) % 7 - 3} for j in range(1 + i % 3)]
-            orders.append({"customer": ["zed", "amy", "öz", "amy"][i % 4], "items": items})
+            items = [
+                {
+                    "sku": f"sku-{(i + j * (variant + 2)) % 5}",
+                    "qty": (j * 3 + i) % 7 - 3,
+                }
+                for j in range(1 + i % 3)
+            ]
+            orders.append(
+                {"customer": ["zed", "amy", "öz", "amy"][i % 4], "items": items}
+            )
         files["orders.json"] = dump(orders)
         totals2: dict[str, dict[str, int]] = {}
         for order in orders:
@@ -396,7 +498,11 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
             "no placeholders {name} {{\n",
             "{{a}}{{b}}{{a_b}}{{A}} café {{é}} {{b}}",
         ]
-        values = [{"name": "Zoë", "amount": 42, "currency": "EUR", "unused": "x"}, {"name": "x"}, {"a": "", "b": -7, "A": "{{a}}"}][variant]
+        values = [
+            {"name": "Zoë", "amount": 42, "currency": "EUR", "unused": "x"},
+            {"name": "x"},
+            {"a": "", "b": -7, "A": "{{a}}"},
+        ][variant]
         template = templates[variant]
         files["template.txt"] = template
         files["values.json"] = dump(values)
@@ -405,7 +511,11 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
             if template.startswith("{{", i):
                 end = template.find("}}", i + 2)
                 name = template[i + 2 : end] if end >= 0 else ""
-                if end >= 0 and name and all(c.isascii() and (c.isalnum() or c == "_") for c in name):
+                if (
+                    end >= 0
+                    and name
+                    and all(c.isascii() and (c.isalnum() or c == "_") for c in name)
+                ):
                     if name in values:
                         out.append(str(values[name]))
                         replaced += 1
@@ -422,10 +532,19 @@ def fixture(task: str, variant: int) -> dict[str, Any]:
         answer = None
     else:
         raise ValueError(task)
-    required += [{"name": "fs.read", "args": {"path": name}} for name in files if not name.startswith("other/")]
+    required += [
+        {"name": "fs.read", "args": {"path": name}}
+        for name in files
+        if not name.startswith("other/")
+    ]
     if answer is not None:
         expected["output.json"] = answer
-    return {"runtime": raw, "expected": expected, "required_calls": required, "json_paths": json_paths}
+    return {
+        "runtime": raw,
+        "expected": expected,
+        "required_calls": required,
+        "json_paths": json_paths,
+    }
 
 
 def _pairs(value: Any) -> Any:

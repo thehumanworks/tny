@@ -25,7 +25,11 @@ def arm_rows(samples: list[dict[str, Any]], arm: str) -> list[dict[str, Any]]:
 
 
 def usage(rows: list[dict[str, Any]], key: str) -> int:
-    return sum((a["generation"].get("usage") or {}).get(key, 0) for r in rows for a in r["attempts"])
+    return sum(
+        (a["generation"].get("usage") or {}).get(key, 0)
+        for r in rows
+        for a in r["attempts"]
+    )
 
 
 def summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -35,7 +39,9 @@ def summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     first_bytes = [len(r["attempts"][0]["generation"]["code"].encode()) for r in rows]
     return {
         "samples": len(rows),
-        "complete": all(a["generation"]["generation_ok"] for r in rows for a in r["attempts"]),
+        "complete": all(
+            a["generation"]["generation_ok"] for r in rows for a in r["attempts"]
+        ),
         "first_pass": sum(r["first_pass"] for r in rows),
         "final": solved,
         "repairs": sum(len(r["attempts"]) - 1 for r in rows),
@@ -44,7 +50,8 @@ def summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "output_tokens_per_solved": output / solved if solved else None,
         "input_tokens": usage(rows, "input_tokens"),
         "cached_input_tokens": usage(rows, "cached_input_tokens"),
-        "uncached_input_tokens": usage(rows, "input_tokens") - usage(rows, "cached_input_tokens"),
+        "uncached_input_tokens": usage(rows, "input_tokens")
+        - usage(rows, "cached_input_tokens"),
         "reasoning_output_tokens": usage(rows, "reasoning_output_tokens"),
         "median_generation_seconds_per_task": statistics.median(walls),
         "mean_first_attempt_source_bytes": statistics.mean(first_bytes),
@@ -55,13 +62,22 @@ def bootstrap(samples: list[dict[str, Any]], base: str, other: str) -> dict[str,
     families = sorted({s["task"] for s in samples})
 
     def ratio(chosen: list[str]) -> tuple[float, float] | None:
-        rows_b = [s for f in chosen for s in samples if s["task"] == f and s["arm"] == base]
-        rows_o = [s for f in chosen for s in samples if s["task"] == f and s["arm"] == other]
+        rows_b = [
+            s for f in chosen for s in samples if s["task"] == f and s["arm"] == base
+        ]
+        rows_o = [
+            s for f in chosen for s in samples if s["task"] == f and s["arm"] == other
+        ]
         sb, so = sum(r["passed"] for r in rows_b), sum(r["passed"] for r in rows_o)
         if not sb or not so:
             return None
-        tb, to = usage(rows_b, "output_tokens") / sb, usage(rows_o, "output_tokens") / so
-        first = (sum(r["first_pass"] for r in rows_o) - sum(r["first_pass"] for r in rows_b)) / len(rows_b)
+        tb, to = (
+            usage(rows_b, "output_tokens") / sb,
+            usage(rows_o, "output_tokens") / so,
+        )
+        first = (
+            sum(r["first_pass"] for r in rows_o) - sum(r["first_pass"] for r in rows_b)
+        ) / len(rows_b)
         return 1 - to / tb, first
 
     observed = ratio(families)
@@ -105,7 +121,9 @@ def failures(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "execution_ok": [v["execution_ok"] for v in bad],
                     "output_ok": [v["output_ok"] for v in bad],
                     "trace_ok": [v["trace_ok"] for v in bad],
-                    "stdout": bad[0]["observed"].get("stdout", "")[:400] if bad else "generation failed",
+                    "stdout": bad[0]["observed"].get("stdout", "")[:400]
+                    if bad
+                    else "generation failed",
                 }
             )
     return out
@@ -114,16 +132,29 @@ def failures(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
-    parser.add_argument("--corpus", type=Path, required=True, help="replay JSON containing the lighter runtime")
+    parser.add_argument(
+        "--corpus",
+        type=Path,
+        required=True,
+        help="replay JSON containing the lighter runtime",
+    )
     parser.add_argument("--build", type=Path, required=True, help="probe build.json")
     parser.add_argument("--lighter", default="monty")
-    parser.add_argument("--semantics-ok", action="store_true", help="production semantics verified for the lighter runtime")
+    parser.add_argument(
+        "--semantics-ok",
+        action="store_true",
+        help="production semantics verified for the lighter runtime",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     samples = json.loads(args.input.read_text())
     arms = sorted({s["arm"] for s in samples})
-    report: dict[str, Any] = {"arms": {arm: summary(arm_rows(samples, arm)) for arm in arms}}
-    report["paired"] = [bootstrap(samples, "cpython", arm) for arm in arms if arm != "cpython"]
+    report: dict[str, Any] = {
+        "arms": {arm: summary(arm_rows(samples, arm)) for arm in arms}
+    }
+    report["paired"] = [
+        bootstrap(samples, "cpython", arm) for arm in arms if arm != "cpython"
+    ]
     report["failures"] = failures(samples)
     corpus = json.loads(args.corpus.read_text())["runtimes"][args.lighter]
     build = json.loads(args.build.read_text())["binaries"]
@@ -131,7 +162,9 @@ def main() -> None:
     inputs = {
         "corpus_passed": corpus["programs_passed"],
         "corpus_total": len(corpus["programs"]),
-        "trials_complete": lighter["complete"] and cpython["complete"] and lighter["samples"] == cpython["samples"] == 36,
+        "trials_complete": lighter["complete"]
+        and cpython["complete"]
+        and lighter["samples"] == cpython["samples"] == 36,
         "first_lighter": lighter["first_pass"],
         "first_cpython": cpython["first_pass"],
         "final_lighter": lighter["final"],
@@ -144,7 +177,10 @@ def main() -> None:
         "bytes_lighter": build[args.lighter]["bytes"],
         "bytes_cpython": build["cpython_static"]["bytes"],
     }
-    report["selection"] = {"inputs": inputs, "select_lighter": policy.select_lighter(**inputs)}
+    report["selection"] = {
+        "inputs": inputs,
+        "select_lighter": policy.select_lighter(**inputs),
+    }
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n")
     print(json.dumps({k: v for k, v in report.items() if k != "failures"}, indent=1))
 

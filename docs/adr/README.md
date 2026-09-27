@@ -181,8 +181,9 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0170: Codex catalog discovery version](0170-codex-catalog-discovery-version.md) — live model queries avoid Codex CLI minimum-version filtering.
 - [0173: Local interactive shell mode](0173-interactive-shell-mode.md) — host shell commands stream into the TUI and are disclosed to the next agent prompt.
 
-- [0174: Isolated execution server and code-only agent tools](0174-execution-server-code-mode.md) — bounded Lua and one provider tool surface.
+- [0174: Isolated execution server and code-only agent tools](0174-execution-server-code-mode.md) — one provider tool surface; bounded Lua until ADR 0179 (Python).
 - [0175: Dictation transcript normalization](0175-dictation-transcript-normalization.md) — opt-in rewrite on the STT subscription's small model with a user dictionary; verified in C against Lean-proven golden tables, raw transcript on any failure.
 - [0177: Minimum-compatible Claude ACP admission](0177-acp-minimum-compatible-version.md) — stable versions >= 0.75.1, exact identity and fresh handshake authority, with Lean 4 admission/lifecycle proofs.
 
-- [0178: Retain Lua after the Codex language benchmark](0178-retain-lua-after-codex-language-benchmark.md) — measured agent efficiency, native embedding probes, synthetic evidence and source-linked Lean decision gates.
+- [0178: Retain Lua after the Codex language benchmark](0178-retain-lua-after-codex-language-benchmark.md) — measured agent efficiency, native embedding probes, synthetic evidence and source-linked Lean decision gates. Superseded by 0179.
+- [0179: Python code mode on pinned embedded CPython](0179-python-code-mode-cpython.md) — runtime selection (PocketPy, MicroPython, Monty, CPython) with held-out Luna trials; confined per-cell child, sticky budgets, native JSON facade, Lean gates.

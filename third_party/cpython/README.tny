@@ -1,0 +1,19 @@
+CPython for Python code cells (docs/adr/0179)
+
+Source:  https://www.python.org/ftp/python/3.14.7/Python-3.14.7.tar.xz
+Version: VERSION (3.14.7)
+SHA256:  SHA256 (checked against the python.org release-file metadata)
+License: LICENSE (PSF License Version 2 and the notices CPython ships)
+
+The source tarball is not committed. `make` builds it with
+scripts/cpython_runtime.sh into build/cpython-<version>/: a static
+libpython with only the interpreter core and its bootstrap modules, no
+docstrings, ensurepip, test modules, mimalloc, remote-debug attach or
+libintl, plus frozen `encodings` modules. The executable needs no stdlib
+directory and no system Python. `make fetch-cpython` downloads the pinned
+tarball (a hash mismatch always fails); CPYTHON_TARBALL=/path supplies a
+local copy, and CPYTHON_FETCH=0 forbids any download.
+
+To update: change VERSION and SHA256 together from python.org metadata,
+refresh LICENSE from the new tarball, rebuild, and rerun `make test`, the
+Python conformance cases and the frozen-corpus replay.
