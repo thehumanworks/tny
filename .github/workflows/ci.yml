@@ -378,7 +378,8 @@ jobs:
           retention-days: 14
 
   lean-proofs:
-    # Lean 4 proofs of dictation normalization (ADR 0175). `make test` replays
+    # Lean 4 proofs of dictation normalization and ACP admission/lifecycle
+    # (ADRs 0175, 0177). `make test` replays
     # the committed golden tables against the C verifier and lifecycle; this
     # job proves the definitions they come from and fails when regenerating
     # the tables changes them, so proofs, tables and C cannot drift apart.
@@ -398,6 +399,8 @@ jobs:
           set -eu
           lake exe export golden
           git diff --exit-code -- golden
+      - name: ACP admission proofs and golden transitions
+        run: make verify-acp-proofs
 
   ci:
     name: ci

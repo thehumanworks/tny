@@ -8,6 +8,7 @@ which compares complete native tool schemas to MCP tools/list. No live provider.
 from __future__ import annotations
 
 import base64
+import csv
 import http.server
 import json
 import os
@@ -39,7 +40,7 @@ def clean_env(home: Path) -> dict[str, str]:
         TNY_ACP_BRIDGE_EXECUTABLE=str(TNY),
         TNY_ACP_RPC_TIMEOUT_MS="3000",
         ACP_FIXTURE_NAME="@agentclientprotocol/claude-agent-acp",
-        ACP_FIXTURE_VERSION="0.75.1",
+        ACP_FIXTURE_VERSION="0.81.2",
     )
     return env
 
@@ -195,6 +196,75 @@ class AcpClientTest(unittest.TestCase):
         self.assertEqual(facts["load_requested"], "fixture-session-1")
         self.assertEqual(facts["model_at_prompt"], "selected-model")
         self.assertEqual(facts["mcp_in_load"], 1)
+
+    def test_admission_transitions_match_lean(self):
+        table = ROOT / "tests/formal/acp/golden/transitions.tsv"
+        with table.open() as stream:
+            rows = list(csv.DictReader(stream, delimiter="\t"))
+        self.assertGreaterEqual(len(rows), 8)
+        for row in rows:
+            with self.subTest(row=row):
+                flags = []
+                if row["resume"] == "1":
+                    # Every resume starts from an admitted old connection. The
+                    # new process must revalidate its own identity/version.
+                    first = self.ask()
+                    flags = ["--resume", first["session_id"]]
+                self.state.unlink(missing_ok=True)
+                accepted = row["accepted"] == "1"
+                self.ask(
+                    *flags,
+                    success=accepted,
+                    mode="normal" if row["load"] == "1" else "no-load",
+                    env={
+                        "ACP_FIXTURE_NAME": row["name"],
+                        "ACP_FIXTURE_VERSION": row["version"],
+                        "ACP_FIXTURE_PROTOCOL": row["protocol"],
+                    },
+                )
+                facts = self.state_json()
+                self.assertIn("initialize", facts)
+                self.assertEqual(bool(facts.get("prompted")), accepted)
+                self.assertEqual("session_meta" in facts, accepted)
+                if not accepted:
+                    self.assertNotIn("new_cwd", facts)
+                    self.assertNotIn("load_requested", facts)
+                    continue
+                self.assertEqual(
+                    facts["session_meta"]["claudeCode"]["options"],
+                    {"tools": [], "settingSources": [], "strictMcpConfig": True},
+                )
+                self.assertTrue(facts["session_meta"]["disableBuiltInTools"])
+                self.assertEqual(facts["selected_mode"], "bypassPermissions")
+                if row["resume"] == "1":
+                    self.assertEqual(facts["load_requested"], "fixture-session-1")
+                    self.assertEqual(facts["mcp_in_load"], 1)
+                else:
+                    self.assertNotEqual(facts["new_cwd"], str(self.workspace.resolve()))
+                    self.assertEqual(facts["mcp_in_new"], 1)
+
+    def test_malformed_adapter_info_rejected_before_session(self):
+        good = {"name": "@agentclientprotocol/claude-agent-acp", "version": "0.81.2"}
+        cases = [None, {}, {"name": good["name"]}, {"version": good["version"]}]
+        for field in good:
+            for value in (None, 81, True, [], {}, good[field] + "\0suffix"):
+                cases.append(dict(good, **{field: value}))
+        for info in cases:
+            with self.subTest(info=info):
+                self.state.unlink(missing_ok=True)
+                self.ask(
+                    success=False,
+                    env={"ACP_FIXTURE_AGENT_INFO": json.dumps(info)},
+                )
+                self.assertNotIn("session_meta", self.state_json())
+                self.assertNotIn("new_cwd", self.state_json())
+                self.assertFalse(self.state_json().get("prompted"))
+
+    def test_unsupported_version_diagnostic(self):
+        failure = self.ask(success=False, env={"ACP_FIXTURE_VERSION": "0.75.0"})
+        self.assertIn("stable version >= 0.75.1", failure.stderr)
+        self.assertNotIn("new_cwd", self.state_json())
+        self.assertFalse(self.state_json().get("prompted"))
 
     def test_load_capability_fails_closed(self):
         first = self.ask(mode="no-load")
@@ -699,6 +769,8 @@ class AcpClientTest(unittest.TestCase):
         ]
         for name, version, expected in (
             ("@agentclientprotocol/claude-agent-acp", "0.75.1", 3),
+            ("@agentclientprotocol/claude-agent-acp", "0.81.2", 3),
+            ("@agentclientprotocol/claude-agent-acp", "0.100.0+mise.1", 3),
             ("@agentclientprotocol/claude-agent-acp", "unverified", 0),
             ("fixture", "1", 0),
         ):

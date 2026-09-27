@@ -175,7 +175,7 @@ def run_case(
         env.update(
             TNY_ACP_REQUIRE_TOOLS_AUTHORITY="1",
             ACP_FIXTURE_NAME="@agentclientprotocol/claude-agent-acp",
-            ACP_FIXTURE_VERSION="0.75.1",
+            ACP_FIXTURE_VERSION="0.81.2",
         )
     with patch.dict(os.environ, env, clear=True):
         options = RuntimeOptionsV0()

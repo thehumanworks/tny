@@ -57,10 +57,27 @@ TARGETS = [
     (
         "src/backends/acp/acp_client.c",
         None,
-        r'strcmp\(agent_version, "0.75.1"\) == 0',
-        "tests/integration/test_acp_managed.py",
+        r"intact && acp_claude_tools_only",
+        "tests/integration/test_acp_client.py",
         "acp-client",
-        {"== -> !="},
+    ),
+    (
+        "src/backends/acp/acp_compat.c",
+        ["component", "build_metadata", "acp_claude_tools_only"],
+        r"major > 0|minor > 75|minor == 75|patch >= 1|strcmp|nonempty|digit\(p\[1\]\)",
+        "tests/integration/test_acp_client.py",
+        "acp-client",
+    ),
+    (
+        "src/backends/acp/acp_compat.c",
+        ["component"],
+        r"UINT32_MAX",
+        "tests/integration/test_acp_client.py",
+        "acp-client",
+        # Returning true on overflow without advancing *cursor is equivalent:
+        # the caller still sees a digit, not '.' or valid build metadata, and
+        # rejects it. Keep the meaningful max-uint32 boundary mutation.
+        {"> -> >="},
     ),
     (
         "src/backends/acp/acp_client.c",

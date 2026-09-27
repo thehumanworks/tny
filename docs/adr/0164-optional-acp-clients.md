@@ -1,6 +1,8 @@
 # ADR 0164: Optional ACP clients with an owning-runtime MCP bridge
 
 Status: accepted, 2026-09-21. Supersedes ADR 0152 only for optional ACP clients.
+Adapter admission was tightened by ADR 0174; its exact version pin is superseded
+by [ADR 0177](0177-acp-minimum-compatible-version.md)'s stable minimum-version rule.
 
 ## Decision
 

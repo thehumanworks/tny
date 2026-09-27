@@ -8,6 +8,7 @@
 
 GREATEST_MAIN_DEFS();
 
+SUITE_EXTERN(acp_compat_suite);
 SUITE_EXTERN(code_runtime_suite);
 SUITE_EXTERN(execution_protocol_suite);
 SUITE_EXTERN(execution_transport_suite);
@@ -59,6 +60,7 @@ int main(int argc, char **argv) {
     unsetenv("TNY_TOOLS");
     unsetenv("TNY_SELF_IMPROVE");
     GREATEST_MAIN_BEGIN();
+    RUN_SUITE(acp_compat_suite);
     RUN_SUITE(image_service_suite);
     RUN_SUITE(speech_suite);
     RUN_SUITE(dictation_suite);

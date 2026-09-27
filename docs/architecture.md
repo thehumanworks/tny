@@ -38,6 +38,9 @@ built-ins disabled, strict MCP configuration and a private scratch cwd. Its MCP
 bridge exposes `run_code`; nested tools execute under the owning context in the
 fresh execution server. [ADR 0174](adr/0174-execution-server-code-mode.md)
 supersedes the older adapter admission and direct registry exposure.
+[ADR 0177](adr/0177-acp-minimum-compatible-version.md) replaces the exact adapter
+version pin with stable SemVer >= 0.75.1 while retaining exact identity and ACP
+protocol checks on every connection, including resume.
 
 ## Execution server
 

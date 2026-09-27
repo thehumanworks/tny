@@ -3,6 +3,7 @@
  * lives in acp_events.c. Contract: docs/backends/acp.md — protocolVersion 1,
  * session/prompt stays pending for the whole turn. */
 #include "backends/acp/acp_client.h"
+#include "backends/acp/acp_compat.h"
 #include "util/util.h"
 #include "core/image.h"
 #include "core/instructions.h"
@@ -231,7 +232,7 @@ static int ac_set_session_options(ac_impl *o, yyjson_val *result, const char *si
     }
     if (o->claude_agent) {
         yyjson_val *config = ac_find_config(jget(result, "configOptions"), "mode");
-        /* Only the pinned tools-only adapter may delegate all authority to tny.
+        /* Only a compatible tools-only adapter may delegate all authority to tny.
          * Its native and account MCP tools are disabled in session metadata. */
         const char *mode = o->claude_verified ? "bypassPermissions" : "default";
         if (ac_set_config(o, config, sid, mode, "permission mode", e, el) != 0) return -1;
@@ -275,6 +276,7 @@ static bool ac_cleanup_receipt(ac_impl *o) {
  * either action can let its descendants escape ancestry-based accounting. */
 bool ac_stop_owned_agent(ac_impl *o) {
     if (!ac_guarded(o)) return true;
+    o->claude_agent = o->claude_verified = o->load_session = o->image_prompts = false;
     if ((o->cleanup_receipt_pending || o->cleanup_unknown) && o->ctx->acp_cleanup_file &&
         unlink(o->ctx->acp_cleanup_file) != 0 && errno != ENOENT)
         o->cleanup_unknown = true;
@@ -307,6 +309,7 @@ static int ac_setup_failed(ac_impl *o, char *errbuf, size_t errlen) {
 
 static void ac_disconnect(tny_backend *b) {
     ac_impl *o = b->impl;
+    o->claude_agent = o->claude_verified = o->load_session = o->image_prompts = false;
     (void)ac_stop_owned_agent(o);
     if (o->bridge) {
         if (tny_alloc_settling() || tny_alloc_scope_failed()) tny_acp_bridge_abort(o->bridge);
@@ -359,6 +362,8 @@ static int ac_connect(tny_backend *b, char *errbuf, size_t errlen) {
         return -1;
     }
     if (o->pid > 0) return 0;
+    /* Verification belongs to this live handshake, never to a saved session. */
+    o->claude_agent = o->claude_verified = o->load_session = o->image_prompts = false;
     if (o->ctx->acp_cleanup_file) {
         o->cleanup_receipt_pending = true;
         if (unlink(o->ctx->acp_cleanup_file) != 0 && errno != ENOENT) {
@@ -405,16 +410,21 @@ static int ac_connect(tny_backend *b, char *errbuf, size_t errlen) {
     o->load_session = jget_bool(jget(res, "agentCapabilities"), "loadSession", false);
     o->image_prompts =
         jget_bool(jget(jget(res, "agentCapabilities"), "promptCapabilities"), "image", false);
-    const char *agent_name = jget_str(jget(res, "agentInfo"), "name");
-    const char *agent_version = jget_str(jget(res, "agentInfo"), "version");
-    o->claude_agent =
-        agent_name && strcmp(agent_name, "@agentclientprotocol/claude-agent-acp") == 0;
-    o->claude_verified = o->claude_agent && agent_version && strcmp(agent_version, "0.75.1") == 0;
+    yyjson_val *info = jget(res, "agentInfo");
+    const char *agent_name = jget_str(info, "name");
+    const char *agent_version = jget_str(info, "version");
+    /* Do not admit a JSON string whose embedded NUL hides a suffix. */
+    bool intact = agent_name && agent_version &&
+                  strlen(agent_name) == yyjson_get_len(jget(info, "name")) &&
+                  strlen(agent_version) == yyjson_get_len(jget(info, "version"));
+    o->claude_agent = intact && strcmp(agent_name, ACP_CLAUDE_NAME) == 0;
+    o->claude_verified = intact && acp_claude_tools_only(agent_name, agent_version);
     yyjson_doc_free(doc);
     if (!o->claude_verified) {
         snprintf(errbuf, errlen,
-                 "acp: exclusive run_code requires verified Claude ACP 0.75.1 tools-only "
-                 "support; adapter identity did not match");
+                 "acp: exclusive run_code requires verified Claude ACP tools-only "
+                 "support: " ACP_CLAUDE_NAME " stable version >= " ACP_CLAUDE_MIN_VERSION
+                 "; adapter identity or version is unsupported (older, prerelease or malformed)");
         ac_disconnect(b);
         return ac_setup_failed(o, errbuf, errlen);
     }

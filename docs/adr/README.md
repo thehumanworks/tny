@@ -183,3 +183,4 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 
 - [0174: Isolated execution server and code-only agent tools](0174-execution-server-code-mode.md) — bounded Lua and one provider tool surface.
 - [0175: Dictation transcript normalization](0175-dictation-transcript-normalization.md) — opt-in rewrite on the STT subscription's small model with a user dictionary; verified in C against Lean-proven golden tables, raw transcript on any failure.
+- [0177: Minimum-compatible Claude ACP admission](0177-acp-minimum-compatible-version.md) — stable versions >= 0.75.1, exact identity and fresh handshake authority, with Lean 4 admission/lifecycle proofs.

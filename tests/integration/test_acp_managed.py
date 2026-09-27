@@ -61,7 +61,7 @@ class ManagedAcp(JobsFixture):
             TNY_ACP_RPC_TIMEOUT_MS="5000",
             ACP_FIXTURE_STATE_DIR=str(self.facts_dir),
             ACP_FIXTURE_NAME="@agentclientprotocol/claude-agent-acp",
-            ACP_FIXTURE_VERSION="0.75.1",
+            ACP_FIXTURE_VERSION="0.81.2",
             ACP_FIXTURE_MCP="1",
             ACP_FIXTURE_EFFORT="1",
         )

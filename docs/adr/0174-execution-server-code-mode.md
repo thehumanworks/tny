@@ -69,6 +69,10 @@ absence of later effects. Captured image delivery through this boundary has a
 A possibly executed operation is never
 replayed merely because its result was lost.
 
+The original admission rule below is superseded only for version matching by
+[ADR 0177](0177-acp-minimum-compatible-version.md): stable releases >= 0.75.1
+are admitted; identity, protocol, isolation and tools-only requirements remain.
+
 All ACP prompts require the verified Claude adapter version 0.75.1, private
 local scratch cwd and explicit tools-only metadata. Unknown adapters cannot
 silently retain an unmediated built-in execution path. Model catalog operations

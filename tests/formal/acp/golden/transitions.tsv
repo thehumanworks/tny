@@ -1,0 +1,19 @@
+name	version	protocol	load	resume	accepted
+@agentclientprotocol/claude-agent-acp	0.75.1	1	0	0	1
+@agentclientprotocol/claude-agent-acp	0.75.1	1	1	0	1
+@agentclientprotocol/claude-agent-acp	0.75.1	1	0	1	0
+@agentclientprotocol/claude-agent-acp	0.75.1	1	1	1	1
+@agentclientprotocol/claude-agent-acp	0.75.0	1	0	0	0
+@agentclientprotocol/claude-agent-acp	0.75.0	1	1	1	0
+@agentclientprotocol/claude-agent-acp	1.0.0+001	1	1	1	1
+other	0.75.1	1	0	0	0
+	0.75.1	1	0	0	0
+@agentclientprotocol/claude-agent-acp		1	0	0	0
+@agentclientprotocol/claude-agent-acp	0.75.1	2	0	0	0
+@agentclientprotocol/claude-agent-acp	0.75.1-rc.1	1	1	1	0
+@agentclientprotocol/claude-agent-acp	0.81.2	1	0	0	1
+@agentclientprotocol/claude-agent-acp	0.81.2	1	1	1	1
+@agentclientprotocol/claude-agent-acp	0.100.0+mise.1	1	1	1	1
+other	0.81.2	1	1	1	0
+@agentclientprotocol/claude-agent-acp	0.81.2	2	1	1	0
+@agentclientprotocol/claude-agent-acp	0.81.2	1	0	1	0

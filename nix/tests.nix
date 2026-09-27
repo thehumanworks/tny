@@ -131,8 +131,9 @@ stdenv.mkDerivation {
     # test_windows_lto_flags.py uses stdenv's make to inspect both platform
     # flag branches; no cross compiler or additional runtime input is needed.
     z3 # make verify-formal checks SMT-LIB proofs without live credentials
-    # Dictation normalization replays tests/formal/dictation/golden/*.tsv in the
-    # unit suite; the Lean proofs themselves run in CI's lean-proofs job.
+    # Dictation and ACP admission replay tests/formal/{dictation,acp}/golden/*.tsv
+    # in unit/integration tests. verify-acp-proofs and verify-dictation-proofs
+    # need lake only in CI's lean-proofs job, not this offline sandbox.
     zsh # make test also runs the quick-ask widget in real Zsh PTYs
     tmux # test-only terminal screen assertions; never used by the tny runner
     nodejs # site and native TypeScript SDK tests, no npm registry dependencies

@@ -1,7 +1,17 @@
 # Formal contracts
 
-Two formalisms live here. `dictation/` is a Lean 4 project (below); the rest
-is SMT-LIB 2 with Z3.
+Two formalisms live here. `dictation/` and `acp/` are Lean 4 projects (below);
+the rest is SMT-LIB 2 with Z3.
+
+## Lean 4: ACP admission and lifecycle (`acp/`)
+
+[ACP proofs](acp/README.md) implement the stable minimum-version rule and model
+fresh handshake authority, tools-only sessions, capability-gated resume and
+reconnect rejection (ADR 0177). `make verify-acp-proofs` builds with the pinned
+Lean toolchain and checks golden-table drift; CI runs it in `lean-proofs`.
+`make test` replays `acp/golden/versions.tsv` against production C and
+`acp/golden/transitions.tsv` through the subprocess ACP fixture, without Lean.
+The general theorems prove the specification, not the C code or upstream adapter.
 
 ## SMT-LIB 2 (Z3)
 
