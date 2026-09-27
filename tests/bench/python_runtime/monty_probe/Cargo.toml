@@ -1,0 +1,21 @@
+# Benchmark-only probe; never linked into shipped tny artifacts.
+[package]
+name = "tny-monty-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+path = "src/lib.rs"
+
+[dependencies]
+monty = { path = "../../../../build/python-runtime-bench/monty/crates/monty" }
+monty-types = { path = "../../../../build/python-runtime-bench/monty/crates/monty-types" }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = "s"
+panic = "abort"
+strip = true
