@@ -234,3 +234,16 @@ are rejected by offline negative tests. The full Lean 4.30 gate exited 0: 36
 C specification theorems, 17 generated overflow obligations, 13 selection
 theorems and all 38 mutations. Root main remains preserved; release still
 requires the same-revision main CI and SDK gates, not a manual bypass tag.
+
+### Native OS proof-of-execution versus syscall instrumentation
+Hosted Valgrind ran the newly added forked OS probe under syscall emulation,
+where installing seccomp cannot prove the native kernel behavior. That test is
+now a mandatory separately compiled native process in the offline gate and the
+Valgrind CI job. Positive controls establish available open/socket/fork; all three
+are denied after the real production sandbox. A no-op-sandbox mutation is rejected.
+No production sandbox, instrumented assertion or memory diagnostic is suppressed.
+The ordinary Python runtime suite still runs under Valgrind; the actual OS
+confinement receipt is explicitly native, not claimed instrumentor coverage.
+The frame builder also copies a temporary string terminator before appending its
+length-delimited argument bytes, satisfying strict lint without altering wire
+semantics or the independently proven frame-size bound.

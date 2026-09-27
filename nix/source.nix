@@ -1,3 +1,6 @@
+# Python-cell confinement checks compile tests/fixtures/code_sandbox_host.c
+# against the production OS seam using the existing compiler/Python inputs;
+# native enforcement is checked separately from Valgrind syscall emulation.
 # Code-mode language benchmarks, offline tests and Lean AST checker are in the
 # existing ../tests fileset. Optional live trials/downloads are never sandbox inputs.
 # Python code cells build third_party/cpython's pinned tarball (fetched by

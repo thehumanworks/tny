@@ -194,7 +194,9 @@ static char *child_call(void *ud, const char *name, const char *arguments) {
     if (payload) {
         int prefix = snprintf(payload, 4, "%03u", (unsigned)name_len);
         if (prefix == 3 && name_len >= 1 && name_len <= TNY_CODE_NAME_BYTES) {
-            memcpy(payload + 3, name, name_len);
+            /* Keep the temporary name terminated; argument bytes overwrite
+             * that terminator to form the length-delimited frame. */
+            memcpy(payload + 3, name, name_len + 1);
             memcpy(payload + 3 + name_len, arguments, args_len + 1);
             rc = send_frame(c->fd, TNY_CODE_FRAME_CALL, payload, 3 + name_len + args_len, NULL, 0,
                             child_wait(), NULL, NULL);

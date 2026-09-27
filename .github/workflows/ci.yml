@@ -87,6 +87,9 @@ jobs:
           sudo apt-get install -y -q valgrind
           valgrind --version
 
+      - name: Native OS confinement (not syscall emulation)
+        run: python3 tests/build/test_code_sandbox_wasm.py
+
       - name: make valgrind
         run: |
           make valgrind

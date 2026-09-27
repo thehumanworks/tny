@@ -14,6 +14,54 @@ SOURCE = ROOT / "src/util/code_sandbox.c"
 
 
 class CodeSandboxWasm(unittest.TestCase):
+    def test_native_os_denial_with_positive_controls(self):
+        compiler = shlex.split(os.environ.get("CC", "cc"))
+        with tempfile.TemporaryDirectory(prefix="tny-code-sandbox-native-") as tmp:
+            binary = Path(tmp) / "native-probe"
+            command = [
+                *compiler,
+                "-std=c11",
+                "-D_GNU_SOURCE",
+                "-D_DEFAULT_SOURCE",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                f"-I{ROOT / 'src'}",
+                str(ROOT / "tests/fixtures/code_sandbox_host.c"),
+                str(SOURCE),
+                "-o",
+                str(binary),
+            ]
+            build = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            actual = subprocess.run(
+                [str(binary)], capture_output=True, text=True, timeout=10
+            )
+            self.assertEqual(
+                actual.returncode,
+                0,
+                f"native sandbox/control stage failed: {actual.returncode}: {actual.stderr}",
+            )
+            # A no-op sandbox must fail the same actual-effect oracle. This is
+            # a counterexample, not an accepted unsupported or skipped result.
+            stub = Path(tmp) / "no-sandbox.c"
+            stub.write_text(
+                "int tny_code_sandbox_limits(int n) {(void)n;return 0;}\n"
+                "int tny_code_sandbox_enter(void) {return 0;}\n"
+            )
+            mutant = [str(stub) if arg == str(SOURCE) else arg for arg in command]
+            subprocess.run(
+                mutant, capture_output=True, text=True, timeout=30, check=True
+            )
+            rejected = subprocess.run(
+                [str(binary)], capture_output=True, text=True, timeout=10
+            )
+            self.assertEqual(
+                rejected.returncode,
+                72,
+                "removing OS confinement must be rejected when native open succeeds",
+            )
+
     def test_clean_refusal_and_no_native_only_helper(self):
         compiler = shlex.split(os.environ.get("CC", "cc"))
         with tempfile.TemporaryDirectory(prefix="tny-code-sandbox-seam-") as tmp:

@@ -1,3 +1,6 @@
+# Python-cell confinement checks compile tests/fixtures/code_sandbox_host.c
+# against the production OS seam using the existing compiler/Python inputs;
+# native enforcement is checked separately from Valgrind syscall emulation.
 # Python code cells (ADR 0179) build the pinned CPython tarball from
 # nix/cpython-source.nix; no host/system Python is linked or used by cells.
 # test_code_runtime.c and integration/test_execution_code_mode.py plus its
