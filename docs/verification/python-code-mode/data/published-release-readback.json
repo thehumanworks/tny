@@ -1,0 +1,290 @@
+{
+  "tag": "v0.24.0",
+  "source_revision": "7c40a20704256c50480f3707841601c17528b56d",
+  "release_url": "https://github.com/thehumanworks/tny/releases/tag/v0.24.0",
+  "published_at": "2026-09-27T23:20:16Z",
+  "verified_at": "2026-09-27T23:21:15.768078+00:00",
+  "draft": false,
+  "prerelease": false,
+  "assets": 37,
+  "sha256_verified_assets": [
+    {
+      "name": "conformance-darwin-arm64-python-wheel.json",
+      "bytes": 17269,
+      "sha256": "6bede6300dca8d3c65fea308a43466bc3164ad4c76d519caa355f7218aa1ddfb"
+    },
+    {
+      "name": "conformance-darwin-arm64-reference.json",
+      "bytes": 17173,
+      "sha256": "093ded4426487866adf9882d9f14a6cda16f64628eab71ff9a82a6659fd728a7"
+    },
+    {
+      "name": "conformance-darwin-arm64-typescript-package.json",
+      "bytes": 13174,
+      "sha256": "8a60a40c2cde696ccdf58b8905fe3a892897f83d6834d296ab453629b6ba255f"
+    },
+    {
+      "name": "conformance-darwin-arm64-typescript.json",
+      "bytes": 13094,
+      "sha256": "bd2ced330deb15fe8d41d53a5a630eb9338326a4f1d4b555f33c0af2a38515e5"
+    },
+    {
+      "name": "conformance-linux-aarch64-python-wheel.json",
+      "bytes": 17275,
+      "sha256": "b5531ebb39cea37bc3182a7f005113b617cdd9a07dc2731e1f5aa7c4142ba086"
+    },
+    {
+      "name": "conformance-linux-aarch64-reference.json",
+      "bytes": 17179,
+      "sha256": "d4d0c24e74ee1abea9ca4eb5489c1ec9b04bc84198a580539b07ed1c2a032e18"
+    },
+    {
+      "name": "conformance-linux-aarch64-typescript-package.json",
+      "bytes": 13173,
+      "sha256": "89b03febf8dd1c368b89d45b1d88ebd8379fbe08e9611871e639eff29469591b"
+    },
+    {
+      "name": "conformance-linux-aarch64-typescript.json",
+      "bytes": 13093,
+      "sha256": "76d26595a0a188f7d617701c3f00e7e728290dd21ba01ee75cac54d17e2d8ac7"
+    },
+    {
+      "name": "conformance-linux-x86_64-python-wheel.json",
+      "bytes": 17276,
+      "sha256": "7bdffd3c6e44306167715839a13b5fc3380c7b8a2a1b6914c97c7ea1c3c663bd"
+    },
+    {
+      "name": "conformance-linux-x86_64-reference.json",
+      "bytes": 17180,
+      "sha256": "d9ffecfa58ded2e682f9b1838781cee16e28733d46992b398548e2ac49e49818"
+    },
+    {
+      "name": "conformance-linux-x86_64-typescript-package.json",
+      "bytes": 13171,
+      "sha256": "d9ca13a05066a0cb67a29d6c52f34dc84e07d8c742039df251677e8d42e5bfb2"
+    },
+    {
+      "name": "conformance-linux-x86_64-typescript.json",
+      "bytes": 13091,
+      "sha256": "1386f4d42a44ecbe79806b7905ff8877c2ec3b94d76eabf525107f9931ac6b05"
+    },
+    {
+      "name": "libtny0-compat-darwin-arm64.tar.gz",
+      "bytes": 182061,
+      "sha256": "da32f614f5b0eeb7b65fb5b1ee5eb3b517e161cd734a795fb5e82abd2b30d9c7"
+    },
+    {
+      "name": "libtny0-compat-linux-aarch64.tar.gz",
+      "bytes": 195447,
+      "sha256": "3477cbeba12cc22141899e7c0a58dc219633469863eafce6878fcbb7c81ea290"
+    },
+    {
+      "name": "libtny0-compat-linux-x86_64.tar.gz",
+      "bytes": 188338,
+      "sha256": "7ff7d21b1a3129dca7b1c525f8a159e40e975dd79e316da4f72603edeaf61574"
+    },
+    {
+      "name": "libtny1-darwin-arm64.tar.gz",
+      "bytes": 579697,
+      "sha256": "21f7493ebf99aa48fadd278b9039eae2238c5029a6a616ae68c66cec473f16da"
+    },
+    {
+      "name": "libtny1-linux-aarch64.tar.gz",
+      "bytes": 624920,
+      "sha256": "00e828721d4c736fe706a546e898da9f398969d8d1a3053b16bc5d79ea78223e"
+    },
+    {
+      "name": "libtny1-linux-x86_64.tar.gz",
+      "bytes": 608100,
+      "sha256": "2c14a4a6835fecfd3c6a32ae28774c3cd1a6b9f1a95c2c8ae38a9c9e195f951f"
+    },
+    {
+      "name": "thehumanworks-tny-0.24.0.tgz",
+      "bytes": 28327,
+      "sha256": "8e48b00d6ea7c0fa0d6027f16985d18eaffb1f7db8763604df74a4e05e459b47"
+    },
+    {
+      "name": "thehumanworks-tny-darwin-arm64-0.24.0.tgz",
+      "bytes": 596569,
+      "sha256": "a6732a0387508bae0f8731b855b8066678fd0939e8e2a8a381e59d6b06366e37"
+    },
+    {
+      "name": "thehumanworks-tny-linux-arm64-0.24.0.tgz",
+      "bytes": 646262,
+      "sha256": "b2cbc5c89a6f0d1089b71c72af93818b10142889190b8e506ef2363c7eb2101e"
+    },
+    {
+      "name": "thehumanworks-tny-linux-x64-0.24.0.tgz",
+      "bytes": 628609,
+      "sha256": "708da0fc377af2c2422dedc87366b8d1e3faf5d3cae373d759a50e3f5840dc8d"
+    },
+    {
+      "name": "tny-0.24.0-py3-none-macosx_13_0_arm64.whl",
+      "bytes": 608889,
+      "sha256": "d4a3f94d3fb0e46c731deeb89a436b6661c631c6f2db68d77c6f180895705e0f"
+    },
+    {
+      "name": "tny-0.24.0-py3-none-manylinux_2_34_aarch64.whl",
+      "bytes": 653499,
+      "sha256": "5fd938d8ef7aeff2e3f4385ee4023f69188aab8b8d68a0180d4b36b14759b88e"
+    },
+    {
+      "name": "tny-0.24.0-py3-none-manylinux_2_34_x86_64.whl",
+      "bytes": 638340,
+      "sha256": "4bf79b60b5f185a286b9617cdc8f174289ce7a7852dd707362a53aea3dfe4bb1"
+    },
+    {
+      "name": "tny-darwin-arm64.tar.gz",
+      "bytes": 2303805,
+      "sha256": "7093f08eb2053acafa70f43f2946b1336f4bd161f10deb0f32140825eecdec51"
+    },
+    {
+      "name": "tny-linux-aarch64-musl.tar.gz",
+      "bytes": 2447000,
+      "sha256": "68a35d45598f4bf5d47238eeeedf003397d42263fc7c2a125fc30a3439bb0b8d"
+    },
+    {
+      "name": "tny-linux-aarch64.tar.gz",
+      "bytes": 2422712,
+      "sha256": "f1ed4e353b312eea67d9f366fdcfdc1221afe290ec7d72b5b8ca1dcef11b1bab"
+    },
+    {
+      "name": "tny-linux-x86_64-musl.tar.gz",
+      "bytes": 2444711,
+      "sha256": "424cb2f65691068ff762580f61991464e2b53da506e653c16302abdd510109ef"
+    },
+    {
+      "name": "tny-linux-x86_64.tar.gz",
+      "bytes": 2428633,
+      "sha256": "aa46bcb25ce540625d7e0d4dca4037910a5f52e80b52c18a35b42cfb3a1170e1"
+    },
+    {
+      "name": "tny-node-darwin-arm64-0.24.0.build-metadata.json",
+      "bytes": 2841,
+      "sha256": "81c0520b1ea3ada2e5fb12a66f0cf4d5f223490b70ecc321909d31524246b842"
+    },
+    {
+      "name": "tny-node-darwin-arm64-0.24.0.spdx.json",
+      "bytes": 2349,
+      "sha256": "a76331683f7a7ff9427e803f59369e3bbf975378b01d571099bcb404b8ae2903"
+    },
+    {
+      "name": "tny-node-linux-aarch64-0.24.0.build-metadata.json",
+      "bytes": 2918,
+      "sha256": "1a25ef7084af50b79fb427a6a1eb795fbc09c966e712192f8cbb31126af173a6"
+    },
+    {
+      "name": "tny-node-linux-aarch64-0.24.0.spdx.json",
+      "bytes": 2349,
+      "sha256": "1a67c5a38282bd960a0d7002afed8661bffa05393e6f3331de18998e0defb89a"
+    },
+    {
+      "name": "tny-node-linux-x86_64-0.24.0.build-metadata.json",
+      "bytes": 2910,
+      "sha256": "e915d2545423f4be4348bf85519f2dfa7ba0e865a37fa5f4b50c34f28a92d690"
+    },
+    {
+      "name": "tny-node-linux-x86_64-0.24.0.spdx.json",
+      "bytes": 2344,
+      "sha256": "0b2d6cd662e9a57c9236256adafeb17614b981f819d4a565fb8fe3a38bfa5052"
+    }
+  ],
+  "cpython_license_verified_in_all_cli_archives": {
+    "tny-darwin-arm64.tar.gz": true,
+    "tny-linux-aarch64-musl.tar.gz": true,
+    "tny-linux-aarch64.tar.gz": true,
+    "tny-linux-x86_64-musl.tar.gz": true,
+    "tny-linux-x86_64.tar.gz": true
+  },
+  "actual_published_native_readback": {
+    "linux-x86_64": {
+      "version": "0.24.0",
+      "bytes": 6337680,
+      "sha256": "238753e78213952f4eac1697ed660e680149f77700e426e6aa963abb5d72e291",
+      "dependencies": "\tlinux-vdso.so.1 (0x00007f32fd67d000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007f32fd51a000)\n\tlibstdc++.so.6 => /usr/lib/libstdc++.so.6 (0x00007f32fca00000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007f32fd4ed000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007f32fc600000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007f32fd67f000)\n",
+      "execution_integration": {
+        "tests": 18,
+        "passed": 17,
+        "platform_skips": 1,
+        "exit": 0
+      }
+    },
+    "linux-x86_64-musl": {
+      "version": "0.24.0",
+      "bytes": 6041376,
+      "sha256": "6031a6de70e4593fa58ac8ea1f20003802dc9e3699b0352ed78d150d1d2ef7ab",
+      "dependencies": "\tnot a dynamic executable\n",
+      "execution_integration": {
+        "tests": 18,
+        "passed": 17,
+        "platform_skips": 1,
+        "exit": 0
+      }
+    }
+  },
+  "scope": "All release payloads checked against SHA256SUMS; GitHub API digest checks are recorded separately, including the manifest itself when supplied. Actual published Linux x86-64 glibc and musl binaries executed. ARM/macOS execution evidence remains the hosted platform jobs.",
+  "release_manifest_payloads_verified": 36,
+  "github_api_digest_verified_assets": [
+    "conformance-darwin-arm64-python-wheel.json",
+    "conformance-darwin-arm64-reference.json",
+    "conformance-darwin-arm64-typescript-package.json",
+    "conformance-darwin-arm64-typescript.json",
+    "conformance-linux-aarch64-python-wheel.json",
+    "conformance-linux-aarch64-reference.json",
+    "conformance-linux-aarch64-typescript-package.json",
+    "conformance-linux-aarch64-typescript.json",
+    "conformance-linux-x86_64-python-wheel.json",
+    "conformance-linux-x86_64-reference.json",
+    "conformance-linux-x86_64-typescript-package.json",
+    "conformance-linux-x86_64-typescript.json",
+    "libtny0-compat-darwin-arm64.tar.gz",
+    "libtny0-compat-linux-aarch64.tar.gz",
+    "libtny0-compat-linux-x86_64.tar.gz",
+    "libtny1-darwin-arm64.tar.gz",
+    "libtny1-linux-aarch64.tar.gz",
+    "libtny1-linux-x86_64.tar.gz",
+    "SHA256SUMS",
+    "thehumanworks-tny-0.24.0.tgz",
+    "thehumanworks-tny-darwin-arm64-0.24.0.tgz",
+    "thehumanworks-tny-linux-arm64-0.24.0.tgz",
+    "thehumanworks-tny-linux-x64-0.24.0.tgz",
+    "tny-0.24.0-py3-none-macosx_13_0_arm64.whl",
+    "tny-0.24.0-py3-none-manylinux_2_34_aarch64.whl",
+    "tny-0.24.0-py3-none-manylinux_2_34_x86_64.whl",
+    "tny-darwin-arm64.tar.gz",
+    "tny-linux-aarch64-musl.tar.gz",
+    "tny-linux-aarch64.tar.gz",
+    "tny-linux-x86_64-musl.tar.gz",
+    "tny-linux-x86_64.tar.gz",
+    "tny-node-darwin-arm64-0.24.0.build-metadata.json",
+    "tny-node-darwin-arm64-0.24.0.spdx.json",
+    "tny-node-linux-aarch64-0.24.0.build-metadata.json",
+    "tny-node-linux-aarch64-0.24.0.spdx.json",
+    "tny-node-linux-x86_64-0.24.0.build-metadata.json",
+    "tny-node-linux-x86_64-0.24.0.spdx.json"
+  ],
+  "github_api_digest_unavailable_assets": [],
+  "native_archive_provenance_verification": [
+    {
+      "artifact": "tny-linux-x86_64.tar.gz",
+      "verification_exit": 0,
+      "verified_attestations": 1,
+      "enforced_repository": "thehumanworks/tny",
+      "enforced_workflow": "thehumanworks/tny/.github/workflows/release.yml",
+      "enforced_source_ref": "refs/tags/v0.24.0",
+      "enforced_source_digest": "7c40a20704256c50480f3707841601c17528b56d",
+      "self_hosted_runners_denied": true
+    },
+    {
+      "artifact": "tny-linux-x86_64-musl.tar.gz",
+      "verification_exit": 0,
+      "verified_attestations": 1,
+      "enforced_repository": "thehumanworks/tny",
+      "enforced_workflow": "thehumanworks/tny/.github/workflows/release.yml",
+      "enforced_source_ref": "refs/tags/v0.24.0",
+      "enforced_source_digest": "7c40a20704256c50480f3707841601c17528b56d",
+      "self_hosted_runners_denied": true
+    }
+  ],
+  "provenance_verified_at": "2026-09-27T23:22:01.406967+00:00"
+}

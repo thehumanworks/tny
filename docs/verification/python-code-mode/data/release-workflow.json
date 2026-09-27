@@ -1,0 +1,64 @@
+{
+  "databaseId": 36355208334,
+  "status": "completed",
+  "conclusion": "success",
+  "headSha": "7c40a20704256c50480f3707841601c17528b56d",
+  "url": "https://github.com/thehumanworks/tny/actions/runs/36355208334",
+  "jobs": [
+    {
+      "name": "binary version matches tag",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-aarch64-musl",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "darwin-arm64",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-x86_64-musl",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-x86_64",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "linux-aarch64",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "validate complete SDK registry set",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "publish release",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "publish Python SDK with trusted publishing",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "name": "publish npm SDKs with trusted publishing",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "name": "coordinate SDK registry publication status",
+      "status": "completed",
+      "conclusion": "skipped"
+    }
+  ]
+}

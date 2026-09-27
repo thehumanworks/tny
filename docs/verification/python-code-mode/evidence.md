@@ -148,3 +148,17 @@ ordinary fast-forward. The root native build was independently rebuilt at that
 version and passed production execution integration; data/main-tagged-build.json
 is explicitly a local binary receipt, not a claim about downloaded release assets.
 No runtime logic changed during this documentation closeout.
+
+## Published release completion
+
+The requested migration and tagged release are complete. DELIVERY.md summarizes
+the exact results; data/release-workflow.json records the successful release job,
+and data/published-release-readback.json records the downloaded asset hashes,
+repository/workflow/ref/source-pinned provenance verification and execution of
+both published Linux x86-64 binaries. All 37 GitHub digests and all 36 payload
+manifest entries match. No queued job or tag-only state is called publication.
+
+Both independent main-push CI and SDK runs also finished successfully on 7c40a20;
+their separate event/source identities are in data/main-push-gates.json. Optional
+registry-publishing jobs were conditionally skipped, not passed or uploaded.
+The tag and tested source remain immutable through documentation closeout.

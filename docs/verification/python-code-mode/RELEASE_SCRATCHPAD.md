@@ -179,3 +179,25 @@ explicit wasm-only skip. See data/main-tagged-build.json.
 At this checkpoint release workflow 36355208334 is building/certifying the tagged
 assets. The tag and the local binary are complete; this checkpoint does not yet
 claim published GitHub release assets. Publication/readback is recorded separately.
+
+## Published and independently read back — v0.24.0
+
+Release workflow 36355208334 completed successfully. All five native platform
+packages, SDK certification, registry-set validation and build attestation
+completed before GitHub publication at 2026-09-27T23:20:16Z. The independent
+main-push CI (36355208347) and SDK (36355208319) reruns also completed successfully
+on the unchanged runtime source. Optional registry publication remained disabled;
+no npm/PyPI upload is claimed.
+
+All 37 published assets were downloaded. Every one of the 36 manifest payload
+checksums matched, and every GitHub API digest matched all 37 downloads including
+SHA256SUMS. Both actual Linux x86-64 release binaries (glibc and musl) report
+0.24.0 and passed the production execution integration: 17 native passes and one
+explicit wasm-only skip each. They are not substituted local binaries. Both
+archive signatures were verified with repository, signer workflow, source ref
+and source SHA pinned, denying self-hosted signers. The CPython license bytes
+match the source pin in all five CLI archives.
+
+See DELIVERY.md and data/published-release-readback.json for final receipts.
+Final documentation/evidence closeout preserves the immutable v0.24.0 runtime
+commit and includes no new production code or weakened checks.
