@@ -393,7 +393,8 @@ bench-code-mode-language:
 .PHONY: verify-code-policy
 verify-code-policy:
 	python3 tests/formal/check_code_policy.py --lean "$(LEAN)"
-	LEAN="$(LEAN)" python3 tests/formal/code_policy/test_mutations.py
+	python3 tests/formal/python_code_mode/check_runtime_selection.py --lean "$(LEAN)"
+	LEAN="$(LEAN)" python3 tests/formal/python_code_mode/test_mutations.py
 
 # Replay executor for the frozen code-mode corpus on the shipped cell path:
 # the preserved benchmark host linked with the release objects (not main).

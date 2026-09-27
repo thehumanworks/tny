@@ -1,6 +1,6 @@
 # Python code mode — formal verification scope and evidence
 
-Date: 2026-09-27. Lean 4.12.0 (`dc2533473114`), Clang 22.1.8, GCC 16.2.1,
+Date: 2026-09-27. Lean 4.30.0 (`dc2533473114`), Clang 22.1.8, GCC 16.2.1,
 CPython 3.14.7, x86_64 Linux (LP64). Checkers, proofs and mutants live in
 [`tests/formal/check_code_policy.py`](../../../tests/formal/check_code_policy.py)
 and [`tests/formal/python_code_mode/`](../../../tests/formal/python_code_mode/README.md).
@@ -142,7 +142,7 @@ LEAN=<lean 4.12.0> TNY_FORMAL_CLANG=clang TNY_FORMAL_GCC=gcc python3 tests/forma
 ## Trusted base and limitations
 
 - Trusted: Clang's parser and type checker (including where it inserts
-  conversions), the two translators, CPython's `ast`, the Lean 4.12.0 kernel
+  conversions), the two translators, CPython's `ast`, the Lean 4.30.0 kernel
   and the standard axioms `propext`, `Classical.choice`, `Quot.sound`; the
   LP64 ABI asserted by the probe (an LLP64 or non-two's-complement target
   fails the probe instead of being modeled).

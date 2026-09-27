@@ -1,4 +1,4 @@
-# Python code-mode proofs (Lean 4.12.0)
+# Python code-mode proofs (Lean 4.30.0)
 
 Source-linked Lean proofs for the Python code-mode migration. Nothing here
 is a hand-maintained copy of production logic: each checker reads the
@@ -18,7 +18,7 @@ Scope, evidence and limitations:
 | `lakefile.toml` | Dependency-free, so `leanprover/lean-action` can install the pin |
 
 ```sh
-LEAN=/path/to/lean-4.12.0 TNY_FORMAL_CLANG=clang TNY_FORMAL_GCC=gcc \
+LEAN=/path/to/lean-4.30.0 TNY_FORMAL_CLANG=clang TNY_FORMAL_GCC=gcc \
   python3 tests/formal/check_code_policy.py
 LEAN=... python3 tests/formal/python_code_mode/check_runtime_selection.py
 LEAN=... TNY_FORMAL_CLANG=clang TNY_FORMAL_GCC=gcc \

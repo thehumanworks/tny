@@ -402,7 +402,9 @@ jobs:
       - name: ACP admission proofs and golden transitions
         run: make verify-acp-proofs
       - name: Python code-cell gate proofs from the production C (ADR 0179)
-        run: make verify-code-policy
+        run: |
+          LEAN_BIN="$(cd tests/formal/python_code_mode && lake env which lean)"
+          make verify-code-policy LEAN="$LEAN_BIN"
 
   ci:
     name: ci
