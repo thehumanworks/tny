@@ -1468,7 +1468,7 @@ endif
 LEAK_DOCKER_IMAGE ?= ubuntu:24.04
 LEAK_DOCKER_SETUP ?= apt-get update -qq && \
 	DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-	build-essential valgrind git python3 ca-certificates
+	build-essential valgrind git python3 ca-certificates curl xz-utils
 leaks-docker:
 	@command -v docker > /dev/null 2>&1 || { \
 		echo "error: docker not found; install it or run make leaks" >&2; \
