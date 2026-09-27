@@ -211,13 +211,19 @@ CPYTHON_SHA256 := $(shell cat third_party/cpython/SHA256)
 CPYTHON_FETCH ?= 1
 CPYTHON_URL := https://www.python.org/ftp/python/$(CPYTHON_VERSION)/Python-$(CPYTHON_VERSION).tar.xz
 CPYTHON_TARBALL ?= build/deps/Python-$(CPYTHON_VERSION).tar.xz
-# Shared by every lane (release/debug/leak builds): release-flag C objects.
-CPYTHON_DIR ?= build/cpython-$(CPYTHON_VERSION)
-CPYTHON_LIB := $(CPYTHON_DIR)/libpython3.14.a
 CPYTHON_JOBS ?= 4
 # Linux keeps the published glibc floor in the interpreter objects too.
+CPYTHON_FLOOR_H := $(if $(CXX_GLIBC_FLOOR),src/util/cxx_glibc_floor.h)
 CPYTHON_CFLAGS ?= -Os -ffunction-sections -fdata-sections \
-                  $(if $(CXX_GLIBC_FLOOR),-include $(abspath src/util/cxx_glibc_floor.h))
+                  $(if $(CPYTHON_FLOOR_H),-include $(abspath $(CPYTHON_FLOOR_H)))
+# Shared by every lane (release/debug/leak builds): release-flag C objects.
+# One archive per target ABI (arch + libc; the vendor field is dropped so gcc
+# and clang share it) and per interpreter flags, under the selected BUILD, so
+# a glibc archive never reaches a musl link and flag changes rebuild.
+CPYTHON_TARGET := $(shell $(CC) -dumpmachine 2>/dev/null | sed -E 's/-(pc|unknown|alpine)-/-/')
+CPYTHON_FLAGS_KEY := $(shell printf '%s' '$(CPYTHON_CFLAGS) $(MACOSX_DEPLOYMENT_TARGET)' | cksum | cut -d' ' -f1)
+CPYTHON_DIR ?= $(BUILD)/cpython-$(CPYTHON_VERSION)-$(or $(CPYTHON_TARGET),host)-$(CPYTHON_FLAGS_KEY)
+CPYTHON_LIB = $(CPYTHON_DIR)/libpython3.14.a
 CPYTHON_INC := -isystem $(CPYTHON_DIR)/include -isystem $(CPYTHON_DIR)/frozen
 ifeq ($(SRC_PY_NATIVE),$(SRC_PY_RUNTIME))
   # Expanded when a link recipe runs. Every link containing the interpreter
@@ -515,9 +521,17 @@ test-dictation: $(TEST_BIN) $(BIN) $(DICTATION_FIXTURE)
 # The interpreter layer compiles against the pinned CPython headers only.
 $(call objects,$(OBJ_REL),$(SRC_PY_RUNTIME)): REL_CFLAGS += $(CPYTHON_INC)
 $(call objects,$(OBJ_DBG),$(SRC_PY_RUNTIME)): DBG_CFLAGS += $(CPYTHON_INC)
-$(call objects,$(OBJ_REL),$(SRC_PY_RUNTIME)) $(call objects,$(OBJ_DBG),$(SRC_PY_RUNTIME)): | $(CPYTHON_LIB)
+# A real prerequisite, not order-only: -MMD omits the -isystem headers, so a
+# rebuilt interpreter (new pin or flags) must recompile its only includer.
+$(call objects,$(OBJ_REL),$(SRC_PY_RUNTIME)) $(call objects,$(OBJ_DBG),$(SRC_PY_RUNTIME)): $(CPYTHON_LIB)
+# Full native fault hosts (not libtny itself) run production code cells too.
+$(call objects,$(OBJ_FAULT_PIC),$(SRC_PY_RUNTIME)): FAULT_PIC_CFLAGS += $(CPYTHON_INC)
+$(call objects,$(OBJ_FAULT_SAN_PIC),$(SRC_PY_RUNTIME)): FAULT_SAN_PIC_CFLAGS += $(CPYTHON_INC)
+$(call objects,$(OBJ_FAULT_PIC),$(SRC_PY_RUNTIME)) \
+$(call objects,$(OBJ_FAULT_SAN_PIC),$(SRC_PY_RUNTIME)): $(CPYTHON_LIB)
 
-$(CPYTHON_LIB): scripts/cpython_runtime.sh third_party/cpython/VERSION third_party/cpython/SHA256
+$(CPYTHON_LIB): scripts/cpython_runtime.sh third_party/cpython/VERSION third_party/cpython/SHA256 \
+		$(CPYTHON_FLOOR_H)
 	CC='$(CC)' CPYTHON_CFLAGS='$(CPYTHON_CFLAGS)' CPYTHON_JOBS='$(CPYTHON_JOBS)' \
 		TNY_CPYTHON_FETCH='$(CPYTHON_FETCH)' \
 		$(SHELL) scripts/cpython_runtime.sh $(CPYTHON_DIR) $(CPYTHON_TARBALL) \
@@ -1029,15 +1043,23 @@ PROVIDER_FAULT_TEST := $(BUILD)/lib-fault/provider-faults
 PROVIDER_FAULT_SAN_TEST := $(BUILD)/lib-fault-san/provider-faults
 PROVIDER_FAULT_TEST_OBJS := $(call objects,$(OBJ_FAULT_PIC),$(PROVIDER_FAULT_TEST_SRC))
 PROVIDER_FAULT_SAN_TEST_OBJS := $(call objects,$(OBJ_FAULT_SAN_PIC),$(PROVIDER_FAULT_TEST_SRC))
-$(PROVIDER_FAULT_TEST): $(PROVIDER_FAULT_TEST_OBJS) $(FAULT_PIC_OBJS)
+# These hosts are full native executables (their mains dispatch --code-cell):
+# the lane's library graph with the native Python seam in place of libtny's
+# unsupported one, so code cells run the production interpreter (ADR 0179).
+py_native_objs = $(filter-out $(call objects,$(1),$(SRC_PY_UNSUPPORTED)),$(2)) \
+                 $(call objects,$(1),$(SRC_PY_NATIVE))
+PROVIDER_FAULT_HOST_OBJS := $(call py_native_objs,$(OBJ_FAULT_PIC),$(FAULT_PIC_OBJS))
+PROVIDER_FAULT_SAN_HOST_OBJS := $(call py_native_objs,$(OBJ_FAULT_SAN_PIC),$(FAULT_SAN_PIC_OBJS))
+$(PROVIDER_FAULT_TEST): $(PROVIDER_FAULT_TEST_OBJS) $(PROVIDER_FAULT_HOST_OBJS)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(REL_LDFLAGS)
-$(PROVIDER_FAULT_SAN_TEST): $(PROVIDER_FAULT_SAN_TEST_OBJS) $(FAULT_SAN_PIC_OBJS)
+$(PROVIDER_FAULT_SAN_TEST): $(PROVIDER_FAULT_SAN_TEST_OBJS) $(PROVIDER_FAULT_SAN_HOST_OBJS)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(REL_LDFLAGS) -fsanitize=address,undefined
 # Native request/pending ownership uses the complete real runtime fault graph.
 NATIVE_RUNTIME_TEST := $(if $(filter 1,$(SANITIZE)),$(PROVIDER_FAULT_SAN_TEST),$(PROVIDER_FAULT_TEST))
-NATIVE_RUNTIME_OBJS := $(call objects,$(OWNER_OBJ_ROOT),$(PROVIDER_FAULT_TEST_SRC)) $(OWNER_LIB_OBJS)
+NATIVE_RUNTIME_OBJS := $(call objects,$(OWNER_OBJ_ROOT),$(PROVIDER_FAULT_TEST_SRC)) \
+                       $(call py_native_objs,$(OWNER_OBJ_ROOT),$(OWNER_LIB_OBJS))
 test-native-lifecycle: $(NATIVE_RUNTIME_TEST)
 	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(UNAME_S)),0,1):halt_on_error=1 \
 	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 $(NATIVE_RUNTIME_TEST) -s openai_suite
@@ -1062,7 +1084,8 @@ endif
 
 test-libtny-fault: $(PROVIDER_FAULT_TEST)
 test-libtny-fault-sanitize: $(PROVIDER_FAULT_SAN_TEST)
--include $(PROVIDER_FAULT_TEST_OBJS:.o=.d) $(PROVIDER_FAULT_SAN_TEST_OBJS:.o=.d)
+-include $(PROVIDER_FAULT_TEST_OBJS:.o=.d) $(PROVIDER_FAULT_SAN_TEST_OBJS:.o=.d) \
+         $(PROVIDER_FAULT_HOST_OBJS:.o=.d) $(PROVIDER_FAULT_SAN_HOST_OBJS:.o=.d)
 
 # Behavioral runtime/provider mutants (ADR 0116/0117): private copies only.
 test-runtime-mutation:

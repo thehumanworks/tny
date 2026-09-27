@@ -85,6 +85,17 @@ extern "C" __attribute__((visibility("default"))) int tny_probe(void) {
             )
         for name in ("host_services", "custom_tools"):
             self.write(f"src/lib/{name}.c", f"typedef int {name}_fixture;\n")
+        # The real CPython pin and the unsupported code-cell seam that libtny,
+        # wasm and MSYS2 link. Native lanes select that same seam here (as the
+        # Windows lane does); test_cpython_runtime_graph covers the interpreter.
+        for name in ("VERSION", "SHA256"):
+            pin = f"third_party/cpython/{name}"
+            self.write(pin, (ROOT / pin).read_text())
+        self.write(
+            "src/core/code_python_unsupported.c",
+            "int tny_code_python_fixture(void);\n"
+            "int tny_code_python_fixture(void) { return 0; }\n",
+        )
         self.write(
             "src/util/alloc_override.h",
             "#define malloc(...) forbidden_allocator_macro\n#define free(...) forbidden_allocator_macro\n",
@@ -112,6 +123,7 @@ int main() { return 0; }
             "TP=",
             "TP_WASM=",
             "SRC_WASM_ONLY=",
+            "SRC_PY_NATIVE=src/core/code_python_unsupported.c",
             "TNY_VERSION=1.0.0",
             "LIBTNY_MACH_CURRENT_VERSION=1.0.0",
         ]
