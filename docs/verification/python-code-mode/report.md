@@ -201,3 +201,20 @@ It is not a general import permission or an external stdlib dependency. A
 production regression verifies Greek identifiers, NFKC normalization and named
 Unicode escapes while user imports remain refused. Earlier minimal-probe sizes
 remain historical; the final production artifact includes this required module.
+
+## Final runtime clarification
+
+Production is genuine statically linked CPython 3.14.7, not MicroPython, PocketPy
+or Monty. There is no alternative-Python fallback in production. The small
+artifact is not grounds to select a language subset: agent compatibility and
+correctness remain the priority. The reference compiler/evaluator implements
+the Python language; the code-mode standard-library and ambient-capability
+surface is deliberately restricted, as described in ADR 0179.
+
+The final read-only Opus/high audit found no release-blocking issue in its scoped
+check. It did identify an omitted-module codec limitation: some explicit codec
+lookups (cp1252, utf-8-sig, unicode_escape, idna) are unavailable, even though
+UTF-8 and several core codecs work. None of the preserved 147 original/held-out
+Python programs uses encode/decode or imports, so these data do not establish a
+measured generation-efficiency cost or universal compatibility for such programs.
+See final-runtime-audit.md for the actual scope and observations.

@@ -1,0 +1,15 @@
+{
+  "source_revision": "7c40a20704256c50480f3707841601c17528b56d",
+  "version": "0.24.0",
+  "bytes": 6283208,
+  "sha256": "3fb6b9be55f4fed9182b771031cdd159089faa98b4f4a2101cb35c87b16086d5",
+  "dependencies": "\tlinux-vdso.so.1 (0x00007fa957659000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007fa9574f6000)\n\tlibstdc++.so.6 => /usr/lib/libstdc++.so.6 (0x00007fa956a00000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007fa9574c9000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007fa956600000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007fa95765b000)\n",
+  "build_and_execution_integration_exit": 0,
+  "integration": {
+    "tests": 18,
+    "passed": 17,
+    "platform_skips": 1
+  },
+  "build_directory": "~/Projects/tny",
+  "scope": "Locally built tagged native executable, not the GitHub release asset readback."
+}

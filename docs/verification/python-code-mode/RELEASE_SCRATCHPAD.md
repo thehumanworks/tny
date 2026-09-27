@@ -142,3 +142,40 @@ its Python/tool calls succeeded; one fresh-workspace repair passed. Both raw
 synthetic receipts remain in data, with no success-by-final-message shortcut.
 The final version will be selected by the normal release script (currently
 v0.24.0), only after same-revision CI and SDK gates succeed.
+
+## Final runtime confirmation and exact-revision promotion
+
+The user's clarification explicitly prioritizes agent effectiveness over a
+30 MB footprint target. Production already selects CPython 3.14.7; there is no
+MicroPython, PocketPy, Monty or other Python-subset fallback in the production
+source/build graph. The final targeted MicroPython replay (12/36 proposed-
+CPython-wording programs) remains separate from its corrected 36/36 original-
+corpus result. No compatibility loss is accepted to save binary size.
+
+A fresh read-only Opus/high audit ran with the requested CLI permission/output
+flags in durable tmux and completed with exit 0. It confirmed the actual CPython
+compiler/evaluator and source hashes, inspected the completed test/proof receipts,
+and found no release-blocking issue in its scope. Its optional-codec packaging
+limitation and stale historical-Lua path were documented/corrected without
+changing production source. The audit text and the separate supervisor online
+reconciliation are retained in final-runtime-audit.md.
+
+All existing hosted PR checks completed successfully on exact commit
+7c40a20704256c50480f3707841601c17528b56d: CI 36352172108, SDK 36352172133 and
+language proofs 36352172122. Main was fast-forwarded to that already-tested SHA
+from the clean/up-to-date root checkout, preserving all 45 checkpoint commits and
+creating no untested merge/rebase source revision. The normal version script
+selected v0.24.0. Main and the immutable annotated tag were pushed atomically.
+PR #198 is merged; the tag's source is exactly the checked SHA. This is the
+documented manual tagged-release path, not a bypass of a failed gate. Main-push
+CI also runs independently; the release-gates.json receipt accurately identifies
+the already-completed evidence as pull_request runs.
+
+The root checkout ~/Projects/tny was rebuilt at the actual tagged version. Its
+6283208-byte binary reports 0.24.0 and needs no libpython or external Python.
+Its 18-case production execution integration passed 17 native cases with one
+explicit wasm-only skip. See data/main-tagged-build.json.
+
+At this checkpoint release workflow 36355208334 is building/certifying the tagged
+assets. The tag and the local binary are complete; this checkpoint does not yet
+claim published GitHub release assets. Publication/readback is recorded separately.

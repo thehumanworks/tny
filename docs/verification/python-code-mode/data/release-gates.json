@@ -1,0 +1,33 @@
+{
+  "target": "7c40a20704256c50480f3707841601c17528b56d",
+  "strategy": "Fast-forward current main to this exact already-tested commit; no merge/rebase-created source revision and no history rewriting. The documented manual tagged-release path uses these completed exact-SHA gates. Main push will independently rerun its normal workflows.",
+  "gates": [
+    {
+      "id": 36352172108,
+      "path": ".github/workflows/ci.yml",
+      "event": "pull_request",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "7c40a20704256c50480f3707841601c17528b56d",
+      "html_url": "https://github.com/thehumanworks/tny/actions/runs/36352172108"
+    },
+    {
+      "id": 36352172133,
+      "path": ".github/workflows/sdk.yml",
+      "event": "pull_request",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "7c40a20704256c50480f3707841601c17528b56d",
+      "html_url": "https://github.com/thehumanworks/tny/actions/runs/36352172133"
+    },
+    {
+      "id": 36352172122,
+      "path": ".github/workflows/code-mode-language.yml",
+      "event": "pull_request",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "7c40a20704256c50480f3707841601c17528b56d",
+      "html_url": "https://github.com/thehumanworks/tny/actions/runs/36352172122"
+    }
+  ]
+}

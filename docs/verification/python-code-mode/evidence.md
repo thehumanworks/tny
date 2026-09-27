@@ -129,3 +129,22 @@ release gate. The first repeated Lean command accidentally selected an older
 Clang lacking its UBSan archive; the final code-policy check uses the installed
 Clang 22 with its real UBSan runtime. Compiler setup failures do not count as
 proof failures or proof successes.
+
+## Completed exact-source gate receipts
+
+The completed data/completion-receipt.json records full local make test exit 0
+on 7c40a20: 612 unit tests, 47,455 assertions and all 101 integration groups.
+Explicit platform skips remain skips. Source-linked Lean also completed on that
+revision, including the 38 expected mutation rejections. Earlier failed/incomplete
+logs are historical and are not substituted for these terminal receipts.
+
+Exact-revision hosted CI, SDK and language-proof workflows subsequently completed
+successfully. Their actual identifiers, event types, source SHA and conclusions
+are retained in data/release-gates.json. The successful hosted quality lane does
+not erase the separately recorded local Nix-GCC analyzer finding.
+
+Main and tag v0.24.0 now contain the tested CPython implementation through an
+ordinary fast-forward. The root native build was independently rebuilt at that
+version and passed production execution integration; data/main-tagged-build.json
+is explicitly a local binary receipt, not a claim about downloaded release assets.
+No runtime logic changed during this documentation closeout.

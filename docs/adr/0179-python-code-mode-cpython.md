@@ -96,6 +96,14 @@ than every stdlib encoding/nonstandard extension. Error wording may differ.
 JSONDecodeError exposes message/document/location information. Reentrant callback
 mutations must not invalidate borrowed container references.
 
+Available string/byte codecs follow the frozen standard-library boundary too.
+UTF-8 and CPython's core builtin codecs are available, but a codec requiring an
+omitted encodings module can raise LookupError: examples observed in the final
+audit are cp1252, utf-8-sig, unicode_escape and idna. This is an explicit v0.24.0
+packaging limitation, not a MicroPython dialect or a claim that every CPython
+standard-library-backed method is present. The native JSON facade's supported
+UTF-8/Unicode behavior and parser Unicode database remain as specified above.
+
 The allocator measures the interpreter and codec allocation domain, not the
 entire process RSS or trusted tool execution. Separate bounded input/output
 transport buffers and CPython executable mappings exist outside that heap
@@ -114,7 +122,7 @@ source and disables runtime downloads. Release archives/installations carry the
 CPython licence and notices.
 
 The production Lua source/link/prompt path is removed. A pinned copy remains
-only under tests/bench/legacy_lua to reproduce historical comparisons. Old stored
+only under tests/bench/code_mode/lua_runtime to reproduce historical comparisons. Old stored
 Lua cells are historical source, not automatically translated or replayed by a
 compatibility interpreter. New run_code requests must use Python; syntax errors
 are explicit. This language change belongs in the tagged release notes.
