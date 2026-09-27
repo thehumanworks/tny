@@ -216,3 +216,21 @@ negative mutation restores the unguarded helper and must fail compilation.
 The main runtime suite also now probes actual OS-level open/socket/fork denial
 with positive pre-sandbox controls, rather than relying only on removed Python
 names. These checks do not constitute a formal proof of the operating system.
+
+### Review correction: unbuilt-runtime screening is not a benchmark
+The earlier screening language about PyPy/RustPython was too categorical. PyPy
+does support embedding; its old API is deprecated in favor of CFFI embedding
+(https://doc.pypy.org/en/latest/embedding.html). RustPython supports embedding and
+its README explicitly describes production-readiness limitations
+(https://github.com/RustPython/RustPython). Neither was built here, so no measured
+size/speed/success comparison is claimed. They are not eliminated by fabricated
+benchmark numbers or by asserting that embedding is impossible. The report now
+distinguishes this screening from PocketPy/MicroPython/Monty/CPython measurements.
+
+The independent audit verified all 108 held-out sample identities, 333 typed
+outcomes and 111 actual generation/code/usage receipts. Missing/duplicate samples,
+wrong model/effort, non-Boolean success, missing token usage and omitted variants
+are rejected by offline negative tests. The full Lean 4.30 gate exited 0: 36
+C specification theorems, 17 generated overflow obligations, 13 selection
+theorems and all 38 mutations. Root main remains preserved; release still
+requires the same-revision main CI and SDK gates, not a manual bypass tag.

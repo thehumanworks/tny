@@ -30,7 +30,8 @@ ABI-compatible; the reserved ACP capability is available again for optional clie
 
 Extensions run at quiescent native boundaries: pre-tool, unresolved permission,
 post-tool, batch and allowlisted provider request/response edges. Callbacks do
-not re-enter the backend. Extension-free turns do not start Python.
+not re-enter the backend. Extension-free turns do not start the optional host
+Python extension service; model tool cells use their own embedded interpreter.
 
 Optional ACP clients ([ADR 0164](adr/0164-optional-acp-clients.md)) run an external
 agent over stdio. Only the verified Claude adapter is admitted, with external

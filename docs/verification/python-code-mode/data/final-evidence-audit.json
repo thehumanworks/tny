@@ -1,0 +1,35 @@
+{
+  "samples": 108,
+  "variant_outcomes_checked": 333,
+  "totals": {
+    "cpython": {
+      "samples": 36,
+      "first_pass": 35,
+      "final": 35,
+      "generations": 37,
+      "output_tokens": 9428,
+      "input_tokens": 546160,
+      "cached_input_tokens": 467968
+    },
+    "cpython_pr197": {
+      "samples": 36,
+      "first_pass": 35,
+      "final": 35,
+      "generations": 37,
+      "output_tokens": 9691,
+      "input_tokens": 545242,
+      "cached_input_tokens": 441856
+    },
+    "monty": {
+      "samples": 36,
+      "first_pass": 35,
+      "final": 36,
+      "generations": 37,
+      "output_tokens": 10421,
+      "input_tokens": 543234,
+      "cached_input_tokens": 484096
+    }
+  },
+  "raw_generations_checked": 111,
+  "scope": "Independent typed-effect and raw-event reconciliation; task fixtures shared, not an independently authored corpus or statistical coverage proof."
+}

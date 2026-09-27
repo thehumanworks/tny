@@ -6,7 +6,7 @@ SHA256:  SHA256 (checked against the python.org release-file metadata)
 License: LICENSE (PSF License Version 2 and the notices CPython ships)
 
 The source tarball is not committed. `make` builds it with
-scripts/cpython_runtime.sh into build/cpython-<version>/: a static
+scripts/cpython_runtime.sh into <BUILD>/cpython-<version>-<ABI>-<flags>/: a static
 libpython with only the interpreter core and its bootstrap modules, no
 docstrings, ensurepip, test modules, mimalloc, remote-debug attach or
 libintl, plus frozen `encodings` modules. The executable needs no stdlib

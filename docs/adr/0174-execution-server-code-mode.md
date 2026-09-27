@@ -3,6 +3,10 @@
 Date: 2026-09-25
 Status: accepted; verification status is tracked separately
 
+The Lua runtime selection and its language-specific API below are historical.
+[ADR 0179](0179-python-code-mode-cpython.md) replaces them with embedded Python
+and a further confined cell process; the tool-authority/no-replay obligations remain.
+
 ## Context
 
 Advertising every native tool couples provider calls to the harness dispatcher,

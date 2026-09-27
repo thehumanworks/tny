@@ -11,6 +11,8 @@ import argparse
 import json
 import random
 import statistics
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -147,6 +149,18 @@ def main() -> None:
     )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    # Separate process avoids the preserved benchmark's historic bare-module
+    # import names; malformed cohorts cannot become apparent successes/zeros.
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("audit_evidence.py")),
+            "--samples",
+            str(args.input),
+            "--cohort-only",
+        ],
+        check=True,
+    )
     samples = json.loads(args.input.read_text())
     arms = sorted({s["arm"] for s in samples})
     report: dict[str, Any] = {

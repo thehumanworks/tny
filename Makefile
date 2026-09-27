@@ -383,6 +383,7 @@ LEAN ?= lean
 test-code-mode-language:
 	python3 tests/bench/code_mode/test_benchmark.py
 	python3 tests/build/test_code_sandbox_wasm.py
+	python3 tests/bench/python_runtime/test_evidence.py
 
 verify-code-mode-language:
 	python3 tests/formal/check_code_mode_language.py --lean "$(LEAN)"
