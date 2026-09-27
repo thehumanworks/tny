@@ -165,6 +165,7 @@ class PendingManifestPermissions(ImageFixture):
         # Link the real native backend, fresh execution server and tools. The
         # owner prompt pauses on stdin while Python mutates filesystem state;
         # only image-service ownership/fault sites are instrumented.
+        cls.library_objects = cls.objects = cls.unsupported = None
         supplied = os.environ.get("TNY_MANIFEST_PENDING_BIN")
         if supplied:
             cls.binary = supplied
@@ -172,7 +173,21 @@ class PendingManifestPermissions(ImageFixture):
         cls.build = tempfile.TemporaryDirectory(prefix="tny-manifest-pending-")
         cls.addClassCleanup(cls.build.cleanup)
         cls.binary = str(Path(cls.build.name) / "pending")
-        subprocess.run(["make", "-s", "lib-shared-active"], cwd=ROOT, check=True)
+        # This is a full executable (its main dispatches --code-cell), not
+        # libtny: like the provider fault hosts it takes the library graph with
+        # the native Python seam, so the interpreter archive must exist before
+        # REL_LDFLAGS (which carries PY_RUNTIME_LDLIBS) is expanded below.
+        subprocess.run(
+            ["make", "-s", "-f", "Makefile", "-f", "-", "pending-prerequisites"],
+            cwd=ROOT,
+            check=True,
+            text=True,
+            input="""
+.PHONY: pending-prerequisites
+PENDING_PYTHON := $(if $(filter $(SRC_PY_RUNTIME),$(SRC_PY_NATIVE)),$(CPYTHON_LIB))
+pending-prerequisites: lib-shared-active $(PENDING_PYTHON)
+""",
+        )
         variables = subprocess.check_output(
             ["make", "-s", "-f", "Makefile", "-f", "-", "pending-variables"],
             cwd=ROOT,
@@ -180,15 +195,44 @@ class PendingManifestPermissions(ImageFixture):
             input="""
 .PHONY: pending-variables
 pending-variables:
-	@printf '%s\\n' '$(CC)' '$(CXX)' '$(PIC_CFLAGS)' '$(REL_LDFLAGS)' '$(LIB_PIC_OBJS)'
+	@printf '%s\\n' '$(CC)' '$(CXX)' '$(PIC_CFLAGS)' '$(REL_LDFLAGS)'
+	@printf '%s\\n' '$(LIB_PIC_OBJS)' '$(call py_native_objs,$(OBJ_PIC),$(LIB_PIC_OBJS))'
+	@printf '%s\\n' '$(call objects,$(OBJ_PIC),$(SRC_PY_UNSUPPORTED))'
+	@printf '%s\\n' '$(SRC_PY_NATIVE)' '$(call objects,$(OBJ_PIC),$(SRC_PY_NATIVE))'
+	@printf '%s\\n' '$(if $(filter $(SRC_PY_RUNTIME),$(SRC_PY_NATIVE)),$(CPYTHON_INC))'
+	@printf '%s\\n' '$(call objects,$(OBJ_PIC),src/core/image_service.c)'
 """,
         ).splitlines()
-        compiler, cxx, flags, linker, objects = map(shlex.split, variables)
+        (
+            compiler,
+            cxx,
+            flags,
+            linker,
+            library_objects,
+            objects,
+            unsupported,
+            python_source,
+            python_object,
+            python_include,
+            image_service,
+        ) = map(shlex.split, variables)
+        cls.library_objects, cls.objects = library_objects, objects
+        (cls.unsupported,) = unsupported
+        # No Make lane builds the PIC interpreter object against the pinned
+        # CPython headers, so compile the native seam privately.
+        objects.remove(*python_object)
+        python = str(Path(cls.build.name) / "code-python.o")
+        subprocess.run(
+            compiler + flags + python_include + ["-c", *python_source, "-o", python],
+            cwd=ROOT,
+            check=True,
+        )
+        objects.append(python)
         # Rename only this translation unit's allocation/ownership calls. The
         # fixture still runs real preparation, owner approval and execution.
         # Fresh server entries receive fault selectors through test-only env
         # and publish ownership counters to a private file after server exit.
-        objects.remove("build/pic/src/core/image_service.o")
+        objects.remove(*image_service)
         service = str(Path(cls.build.name) / "image-service.o")
         subprocess.run(
             compiler
@@ -544,6 +588,18 @@ pending-variables:
             for stream in (proc.stdin, proc.stdout, proc.stderr):
                 stream.close()
             thread.join(timeout=5)
+
+    def test_fixture_links_the_native_python_seam(self):
+        # libtny keeps its explicit refusal; this private code-cell host must
+        # not inherit it, or every pending case fails before Python runs.
+        refusal = b"Python code cells are unavailable in this build"
+        self.assertFalse(
+            refusal in Path(self.binary).read_bytes(),
+            f"{self.binary} links libtny's unsupported Python seam",
+        )
+        if self.library_objects is not None:  # linked here from Make's lists
+            self.assertIn(self.unsupported, self.library_objects)
+            self.assertNotIn(self.unsupported, self.objects)
 
     def test_replay_lineage_allocation_failure_has_no_pending_plan(self):
         for caller in ("typed", "terminal"):
