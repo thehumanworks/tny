@@ -2,6 +2,7 @@
  * after the permission event, then grants once. Two turns share one engine. */
 #include "backends/openai/openai.h"
 #include "core/config.h"
+#include "core/code_runtime.h"
 #include "core/execution.h"
 #include "util/execution_command.h"
 #include "util/tny_poll.h"
@@ -56,6 +57,7 @@ static tny_perm_decision blocking_prompt(const char *tool, const char *summary, 
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--exec-server") == 0) return tny_execution_server_main();
     if (argc == 2 && strcmp(argv[1], "--exec-command") == 0) return tny_exec_command_main();
+    if (argc == 2 && strcmp(argv[1], "--code-cell") == 0) return tny_code_cell_main();
     if (argc != 5) return 2;
     char *state = path_tny_dir();
     tny_ctx ctx = {.cwd = argv[1],

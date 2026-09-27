@@ -1,6 +1,7 @@
 /* Production ACP bridge -> fresh execution server -> native permission path.
  * A bounded real prompt wait outlasts the requested Python execution budget. */
 #include "core/acp_bridge.h"
+#include "core/code_runtime.h"
 #include "core/execution.h"
 #include "lib/custom_tools.h"
 #include "util/execution_command.h"
@@ -171,6 +172,7 @@ int main(int argc, char **argv) {
     REQUIRE(tny_process_scope_admit() == 0);
     if (argc == 2 && strcmp(argv[1], "--exec-server") == 0) return tny_execution_server_main();
     if (argc == 2 && strcmp(argv[1], "--exec-command") == 0) return tny_exec_command_main();
+    if (argc == 2 && strcmp(argv[1], "--code-cell") == 0) return tny_code_cell_main();
     REQUIRE(argc == 2);
     tny_ctx *ctx = tny_ctx_new_explicit(argv[1], argv[1]);
     REQUIRE(ctx);
