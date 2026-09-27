@@ -46,10 +46,12 @@ of the C source, and proves for **all** inputs of the stated widths:
 | non-vacuity | every gate admits a witness; every JSON kind is reachable |
 
 Result on the snapshot below: **36 specification theorems** (+1 helper
-lemma) and **17 generated no-wrap obligations** proved, 31 s wall time.
+lemma) and **17 generated no-wrap obligations** proved, 37 s wall time including the cross-check.
 `#print axioms` for all 54: 17 use `propext, Classical.choice, Quot.sound`,
 19 `propext, Quot.sound`, 6 `propext`, 12 none. No `sorry`, `native_decide`,
-`bv_decide` or new axioms (the checker rejects them textually).
+`bv_decide` or new axioms (the checker rejects them textually), and the
+proof files may not declare or notate names like the generated definitions,
+which could otherwise shadow them under `open`.
 
 ### Runtime selection (`tests/bench/python_runtime/policy.py`, read-only)
 
@@ -82,9 +84,9 @@ and from `semantics_required` independently of the trial outcome.
   result from the generated definitions (`decide`, no `native_decide`).
 - The Python gate is evaluated on the recorded inputs plus seeded vectors;
   Python and the Lean kernel must agree.
-- Result: 4550 C vectors agree (admitted/nonzero per gate: timeout 4/9,
-  source 4/6, call 48/1008, result 4/6, output 22/72, memory 16/81,
-  frame 45/3240, JSON kind 64/128 non-null); 372 selection rows agree
+- Result: 6070 C vectors agree (admitted/nonzero per gate: timeout 4/9,
+  source 5/7, call 80/1372, result 5/7, output 33/91, memory 45/256,
+  frame 56/4200, JSON kind 64/128 non-null); 372 selection rows agree
   (33 selected), including the recorded decision.
 - A compiler probe asserts the width and signedness of every C type the
   translator maps, and two's complement, for both compilers.

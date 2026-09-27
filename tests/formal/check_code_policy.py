@@ -523,7 +523,7 @@ def samples(ctype: tuple[int, bool], constants: set[int]) -> list[int]:
         if signed
         else (0, (1 << width) - 1)
     )
-    values = {low, high, 0, 1} | ({-1} if signed else set())
+    values = {low, high, 0, 1, 2} | ({-1} if signed else set())
     for c in constants:
         values.update((c - 1, c, c + 1))
     return sorted(v for v in values if low <= v <= high)
@@ -660,9 +660,20 @@ def width_probe(compilers: list[str], src: Path, work: Path) -> None:
         run([compiler, *CFLAGS, f"-I{src}", "-fsyntax-only", str(probe)])
 
 
+# A proof-file declaration or notation named like a generated definition could
+# shadow it (the current namespace wins over `open`), proving a hand copy.
+def shadow_pattern(prefix: str) -> re.Pattern:
+    return re.compile(
+        r"\b(?:def|abbrev|theorem|lemma|instance|opaque|structure|inductive|class|axiom)"
+        rf"\s+[«\w.]*{prefix}"
+        r"|\b(?:notation|infix|infixl|infixr|prefix|postfix|macro|macro_rules|syntax|elab"
+        rf"|export|renaming)\b[^\n]*{prefix}"
+    )
+
+
 def check_proof_text(text: str) -> None:
     stripped = re.sub(r"--[^\n]*|/-.*?-/", "", text, flags=re.S)
-    match = FORBIDDEN.search(stripped)
+    match = FORBIDDEN.search(stripped) or shadow_pattern("tny_code_").search(stripped)
     if match:
         raise SystemExit(f"forbidden token in proof file: {match.group(0)!r}")
 

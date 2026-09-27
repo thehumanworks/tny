@@ -73,6 +73,14 @@ FORBIDDEN = re.compile(
     r"\b(sorry|admit|axiom|native_decide|bv_decide|implemented_by|extern|unsafe|"
     r"opaque|partial|ofReduceBool|debug\.skipKernelTC)\b|#exit|\bnamespace\s+PyPolicy\b"
 )
+# A declaration or notation named like the generated definition could shadow
+# it (the current namespace wins over `open`), proving a hand copy.
+SHADOW = re.compile(
+    r"\b(?:def|abbrev|theorem|lemma|instance|opaque|structure|inductive|class|axiom)"
+    rf"\s+[«\w.]*{FUNCTION}"
+    r"|\b(?:notation|infix|infixl|infixr|prefix|postfix|macro|macro_rules|syntax|elab"
+    rf"|export|renaming)\b[^\n]*{FUNCTION}"
+)
 COMPARE = {
     ast.Gt: ">",
     ast.GtE: "≥",
@@ -260,7 +268,7 @@ def main() -> None:
     source = args.source.read_text()
     proofs = PROOFS.read_text()
     stripped = re.sub(r"--[^\n]*|/-.*?-/", "", proofs, flags=re.S)
-    if match := FORBIDDEN.search(stripped):
+    if match := FORBIDDEN.search(stripped) or SHADOW.search(stripped):
         raise SystemExit(f"forbidden token in proof file: {match.group(0)!r}")
     version = subprocess.run(
         [args.lean, "--version"], capture_output=True, text=True, check=True

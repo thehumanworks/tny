@@ -29,6 +29,8 @@ Exit status: 0 proved; 1 Lean rejected the proofs (or a tool failed);
 3 the source left the translator whitelist. `--emit FILE` writes the exact
 Lean file that was checked. Proof files may not contain `sorry`, `admit`,
 `axiom`, `native_decide`, `bv_decide`, `implemented_by`, `extern`, `unsafe`,
-`opaque`, `partial` or `#exit`; `#print axioms` output for every required
-theorem and generated obligation must be within `propext`,
-`Classical.choice` and `Quot.sound`.
+`opaque`, `partial` or `#exit`, nor declare or notate anything named like a
+generated definition (`tny_code_*`, `select_lighter`), which could shadow it
+under `open`. `#print axioms` output for every declared theorem and
+generated obligation must be within `propext`, `Classical.choice` and
+`Quot.sound`.
