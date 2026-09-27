@@ -151,3 +151,27 @@ CPython with stdlib json/types imports 29.40 ms.
 
 Held-out controls 108/108 on the three arms. Protocol and `policy.py`
 committed before inference.
+
+### Held-out Luna trial result and runtime decision
+Live run `build/python-runtime-bench/live-heldout` (manifest source revision
+`77564e5`, codex-cli 0.159.0-alpha.4, ChatGPT login, gpt-6-luna, low effort,
+3 workers): 108 first generations + 3 repairs, all valid, exit 0.
+
+| Arm | First pass | Final | Repairs | Output tokens (all attempts) | Tokens / solved | Uncached input |
+|---|---:|---:|---:|---:|---:|---:|
+| cpython (production wording, full builtins) | 35/36 | 35/36 | 1 | 9,428 | 269.37 | 78,192 |
+| cpython_pr197 (PR #197 wording, narrow builtins) | 35/36 | 35/36 | 1 | 9,691 | 276.89 | 103,386 |
+| monty (subset disclosed) | 35/36 | 36/36 | 1 | 10,421 | 289.47 | 59,138 |
+
+Task-clustered bootstrap (10,000 draws, seed 20260927), saving vs `cpython`:
+PR #197 wording −2.79% [−7.76%, +1.93%]; Monty −7.46% [−15.38%, +1.54%].
+First-pass differences 0 [0, 0]. Failures are genuine model parsing errors
+in `log_errors` (unpacking a 4-way split; `partition(":")` on the component
+field leaving an empty message), not executor artefacts.
+
+`policy.select_lighter` = **false** for Monty: it used more output tokens per
+solved task (10,421×35 > 9,428×36) and its probe is larger than static
+CPython (6,165,632 > 4,668,312 B); its final 36 vs 35 is one task. Decision:
+**CPython 3.14.7, pinned and statically embedded**, isolated in an
+OS-confined cell process. The production wording is not worse than PR #197's
+on held-out tasks (observed 2.8% fewer output tokens, interval spans zero).

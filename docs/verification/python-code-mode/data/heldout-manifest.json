@@ -1,0 +1,634 @@
+{
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "arms": [
+    "cpython",
+    "cpython_pr197",
+    "monty"
+  ],
+  "source_revision": "77564e5dd79546dc1976fa3d5c9ff3453d6b35b0",
+  "codex_version": "codex-cli 0.159.0-alpha.4",
+  "source_sha256": {
+    "tests/bench/python_runtime/build.py": "6f1d6c51cc3e57bb54c521b1751de1d820c781420ded4cfe48df825b07c4e8bd",
+    "tests/bench/python_runtime/conformance.py": "c4af8393f3434d80709cc4de7361a0ea51bf162139df83b7d4c883294005acfd",
+    "tests/bench/python_runtime/heldout.py": "ff12255509311b639d6af727dab6ed60a47b2d92ac54a803a1e35c039f559ad8",
+    "tests/bench/python_runtime/heldout_references.py": "9e0d46bfff1dfe7ff39d02ec134c5717519e792a3708f94c834dd91cc746c535",
+    "tests/bench/python_runtime/policy.py": "04819b8fe259e9a9d45b8eb8e229d03cc4f331c6d34afb595335cf4ce505bae5",
+    "tests/bench/python_runtime/replay.py": "6dd0dbbba00b854bf3bfd60c1a019ab83e1fe8a34551e7a8b0db42e0404f5569",
+    "tests/bench/python_runtime/semantics.py": "819e7337fece4ac599fee551ba761ee7eb4018e29175a3128ed64d6d103fbdba",
+    "tests/bench/python_runtime/timing.py": "80cc590f2631ec6bd8398b2b0ad9060ac50e457f9adcc9959e331cd1519d125c",
+    "tests/bench/python_runtime/trials.py": "a982c9557e3ef1ffbbab970d2718ec71f8079f79484fe9e747e5fe5296f1d8e9",
+    "tests/bench/code_mode/analyze.py": "131734b3d073fddb6a1ebb103f81b6efbc4128f5751842b5c72e26b610ae72a2",
+    "tests/bench/code_mode/audit.py": "42d24f521af07a11b869fe418ebedddf531e50757ec864cd442daa01d2aa15da",
+    "tests/bench/code_mode/bench_native.py": "a754b0a5368e1bacb01d4b67392e5f817eeb4a8345a5ffd0cb71fcf42a93794f",
+    "tests/bench/code_mode/boundaries.py": "a3559d28add23328d5da4f5b3e04bbac64c49b99a8b14d76e8fe559f184d82a2",
+    "tests/bench/code_mode/build.py": "4600cff0fe4e5ffd1c75dfbc835e563a649ab69f8b28c53dad50ef558c7b0bf9",
+    "tests/bench/code_mode/cases.py": "af6270ede1452855cf2ea2d18e75c631f9d0a41b82f58c74826d943e0f5f2487",
+    "tests/bench/code_mode/execute.py": "6e5ce492e6ce87327e7860476b62319be06867942286162bd717afbf831de34e",
+    "tests/bench/code_mode/export.py": "4459fa4e4be7de967f760bc0281d48379de7a574952591fbad0af2adc34f0e97",
+    "tests/bench/code_mode/policy.py": "d402679402a5f13ace64de82ca4a958043e6129bb444f7ee1e9350a24bb2374a",
+    "tests/bench/code_mode/references.py": "c6316c61ef3d5391b1ae9a700785273694c1a0f372586c7dde979a3f4debecd3",
+    "tests/bench/code_mode/run.py": "203d52acec2cd02bd230ca7892b95c22a7dd285f720a32cce4fdbcdfcb2aa4cf",
+    "tests/bench/code_mode/test_benchmark.py": "d4795b5b62b71c658e6817b21709afcb6fa7282c17927889db61a2f4dddd7045"
+  },
+  "prompt_sha256": {
+    "config_merge-cpython": "bada2332efd92becd6b6d804c504c9b1968ecfec0052cfeee4897dcad3124329",
+    "csv_rollup-cpython": "47be34528454631b108d8e1e616c48d30d6adcaaa5e5eff75ff8367d0c442487",
+    "latest_versions-cpython": "3a244bd21ef7b014f8613d41d96e90834bf4f07054e319f70985183fefb130de",
+    "log_errors-cpython": "1b42b48d06e614e2c9a2e5030531703555560f0423d8d74c8caaa16af186bf26",
+    "tree_sizes-cpython": "223dc11fdf0d45832007036600ae133f77cbefe10b0fe705790c961e0ab9288b",
+    "validate_records-cpython": "dfddd8da33c9cdf4c32533cefef33f111d63df3bd23905b63236bc0f019c6988",
+    "tag_frequency-cpython": "e7bf7a55eef36dbf9266e012890dc25321dc5d54286b0b6f59a5408d43477b8a",
+    "markdown_toc-cpython": "b1e19c616578f27b61b0331719550bc8001568626975483c1801a5915a1fe8bf",
+    "interval_merge-cpython": "12ec7eb4f8c7de9a0644965db0c7a2eeaebb24b5c51ada130e2fc127344f75a4",
+    "json_diff-cpython": "e9584270966f09b3b13447be9ffa8fc5fa9dfc8c7858203c38812bd060c945c1",
+    "order_rollup-cpython": "d765f72fe672a0c915d19b08f0981c91048c58f8610c14516c84872e2fccd664",
+    "template_render-cpython": "0199a9af43414a91f33945e56a217a22a7f5fb65aa6eb362e9a4f32379aff7d8",
+    "config_merge-cpython_pr197": "d1d630e530367303e314773a8fec8bab75fb9f45cc57bd4c2124975fcc895599",
+    "csv_rollup-cpython_pr197": "b80e07cc36d5c6c6ee2e2e74317e12e92c9dfecc1c9d99f7098f3773e85e56e5",
+    "latest_versions-cpython_pr197": "b7754b179e9e22bb6a45b53f99877a352af78c22418ce18476e9ecf045aec2cb",
+    "log_errors-cpython_pr197": "8d2e041960c165bc52f7f65ecccd5180f272f07e0b0fc18bbdf8fe86cc56731a",
+    "tree_sizes-cpython_pr197": "d912ec702992319ebe9969c56d07f58ee50dd1a1fcba13102fb2515e65f40f7e",
+    "validate_records-cpython_pr197": "800ebd8dea06ae617bb27f8e5053fb636239ce7f01b695212ce6ef38f97d2874",
+    "tag_frequency-cpython_pr197": "4ac2dbcb030c9059448ceb2ec9a6da236436d349ce6dd3dfba9bb2d60324308e",
+    "markdown_toc-cpython_pr197": "e747802254415e5d9af0d68c10d7622254d1138906145b2fa3265c1900794353",
+    "interval_merge-cpython_pr197": "be6a457317de724fd3b8055268380f524d25f62f4ad7e98f8727766598ac9e7b",
+    "json_diff-cpython_pr197": "85b1035f21b117b62d4bc051cd99cb897decf9d841890a0689c30e338451fe43",
+    "order_rollup-cpython_pr197": "77624063a1c505b7226af1a79df5931817ff286669b58d06819cb20f1d05f716",
+    "template_render-cpython_pr197": "72c6fe2012f26a54b50a797886bf49319de130575c86b8aaa1e1472032823a1c",
+    "config_merge-monty": "0350ea42f9fca21cbb33d16bc467fda5164745f4bfd0299f3deb220bf923b217",
+    "csv_rollup-monty": "11911fd9e4901b5f929a2d34d20c6943ff47b2ef73f30cfec7172cac7c8c065d",
+    "latest_versions-monty": "862858f91e0ea80dbe398f47bc0ce67c511362cbedeff27acb96475c825d31d1",
+    "log_errors-monty": "a4e8fc8a767425860c91edc3cfcf0ab5d4190285cd8097b812229d3cd992708a",
+    "tree_sizes-monty": "31f0d131f96ea5ddf225e45c50ac417c1d2d218cfcdb901c8c5e08ee00d1426b",
+    "validate_records-monty": "5ea95534242c80269623a316b431893781c51250b76ad8c77cfe68d69bac62db",
+    "tag_frequency-monty": "0f67e4b0aaacefe29985dacfd0c02df84a886ceba0743c584057aa818af101e9",
+    "markdown_toc-monty": "1bba436f6958c0dd2e7df6aa3e5b8e2712fe123267c354c2c8755c78c86ed67a",
+    "interval_merge-monty": "ca07e1e17099c198a7147304d24ed6cfac10c337bb0d8777b72504fae561bd00",
+    "json_diff-monty": "4bff1349c06763052fec7f4e7ce519fccb8fa494b23324571b578841e4883740",
+    "order_rollup-monty": "6be16869c56e47866610b2c554d012ed8aced92b21e0be3f7086002fa0c917c2",
+    "template_render-monty": "2a4494e77368188170b5bd4b3af02d29d227fff9dfa09eb5b64a297149df1eb8"
+  },
+  "executors": {
+    "cpython": {
+      "bytes": 117600,
+      "sha256": "6062c8aff415339bb15fc6d467fe9008e0cdbdb09d474bacc149fecd5e6dd44d",
+      "dependencies": "\tlinux-vdso.so.1 (0x00007f8a9ee47000)\n\tlibpython3.14.so.1.0 => /home/tomas/.local/share/mise/installs/python/3.14.7/lib/libpython3.14.so.1.0 (0x00007f8a9d800000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007f8a9ecc6000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007f8a9d400000)\n\tlibpthread.so.0 => /usr/lib/libpthread.so.0 (0x00007f8a9ecc1000)\n\tlibrt.so.1 => /usr/lib/librt.so.1 (0x00007f8a9ecba000)\n\tlibdl.so.2 => /usr/lib/libdl.so.2 (0x00007f8a9ecb5000)\n\tlibutil.so.1 => /usr/lib/libutil.so.1 (0x00007f8a9ecb0000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007f8a9ee49000)\n"
+    },
+    "cpython_pr197": {
+      "bytes": 117568,
+      "sha256": "188d0d59704d392cad5ba95341a529a55a98a791dba145d7f5f6971b330dcd58",
+      "dependencies": "\tlinux-vdso.so.1 (0x00007fb3545d2000)\n\tlibpython3.14.so.1.0 => /home/tomas/.local/share/mise/installs/python/3.14.7/lib/libpython3.14.so.1.0 (0x00007fb353000000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007fb352ec9000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007fb352c00000)\n\tlibpthread.so.0 => /usr/lib/libpthread.so.0 (0x00007fb354583000)\n\tlibrt.so.1 => /usr/lib/librt.so.1 (0x00007fb35457c000)\n\tlibdl.so.2 => /usr/lib/libdl.so.2 (0x00007fb354577000)\n\tlibutil.so.1 => /usr/lib/libutil.so.1 (0x00007fb354572000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007fb3545d4000)\n"
+    },
+    "monty": {
+      "bytes": 6165632,
+      "sha256": "09885d29fc2541e6b9a9bab9f198281633cb5888da90cda824eaf2ee60437c91",
+      "dependencies": "\tlinux-vdso.so.1 (0x00007fb22ef00000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007fb22eea7000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007fb22e6c9000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007fb22e400000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007fb22ef02000)\n"
+    }
+  },
+  "workers": 3,
+  "order": [
+    [
+      "cpython",
+      "config_merge",
+      0
+    ],
+    [
+      "cpython_pr197",
+      "config_merge",
+      0
+    ],
+    [
+      "monty",
+      "config_merge",
+      0
+    ],
+    [
+      "cpython_pr197",
+      "csv_rollup",
+      0
+    ],
+    [
+      "monty",
+      "csv_rollup",
+      0
+    ],
+    [
+      "cpython",
+      "csv_rollup",
+      0
+    ],
+    [
+      "monty",
+      "latest_versions",
+      0
+    ],
+    [
+      "cpython",
+      "latest_versions",
+      0
+    ],
+    [
+      "cpython_pr197",
+      "latest_versions",
+      0
+    ],
+    [
+      "cpython",
+      "log_errors",
+      0
+    ],
+    [
+      "cpython_pr197",
+      "log_errors",
+      0
+    ],
+    [
+      "monty",
+      "log_errors",
+      0
+    ],
+    [
+      "cpython_pr197",
+      "tree_sizes",
+      0
+    ],
+    [
+      "monty",
+      "tree_sizes",
+      0
+    ],
+    [
+      "cpython",
+      "tree_sizes",
+      0
+    ],
+    [
+      "monty",
+      "validate_records",
+      0
+    ],
+    [
+      "cpython",
+      "validate_records",
+      0
+    ],
+    [
+      "cpython_pr197",
+      "validate_records",
+      0
+    ],
+    [
+      "cpython",
+      "tag_frequency",
+      0
+    ],
+    [
+      "cpython_pr197",
+      "tag_frequency",
+      0
+    ],
+    [
+      "monty",
+      "tag_frequency",
+      0
+    ],
+    [
+      "cpython_pr197",
+      "markdown_toc",
+      0
+    ],
+    [
+      "monty",
+      "markdown_toc",
+      0
+    ],
+    [
+      "cpython",
+      "markdown_toc",
+      0
+    ],
+    [
+      "monty",
+      "interval_merge",
+      0
+    ],
+    [
+      "cpython",
+      "interval_merge",
+      0
+    ],
+    [
+      "cpython_pr197",
+      "interval_merge",
+      0
+    ],
+    [
+      "cpython",
+      "json_diff",
+      0
+    ],
+    [
+      "cpython_pr197",
+      "json_diff",
+      0
+    ],
+    [
+      "monty",
+      "json_diff",
+      0
+    ],
+    [
+      "cpython_pr197",
+      "order_rollup",
+      0
+    ],
+    [
+      "monty",
+      "order_rollup",
+      0
+    ],
+    [
+      "cpython",
+      "order_rollup",
+      0
+    ],
+    [
+      "monty",
+      "template_render",
+      0
+    ],
+    [
+      "cpython",
+      "template_render",
+      0
+    ],
+    [
+      "cpython_pr197",
+      "template_render",
+      0
+    ],
+    [
+      "cpython_pr197",
+      "config_merge",
+      1
+    ],
+    [
+      "monty",
+      "config_merge",
+      1
+    ],
+    [
+      "cpython",
+      "config_merge",
+      1
+    ],
+    [
+      "monty",
+      "csv_rollup",
+      1
+    ],
+    [
+      "cpython",
+      "csv_rollup",
+      1
+    ],
+    [
+      "cpython_pr197",
+      "csv_rollup",
+      1
+    ],
+    [
+      "cpython",
+      "latest_versions",
+      1
+    ],
+    [
+      "cpython_pr197",
+      "latest_versions",
+      1
+    ],
+    [
+      "monty",
+      "latest_versions",
+      1
+    ],
+    [
+      "cpython_pr197",
+      "log_errors",
+      1
+    ],
+    [
+      "monty",
+      "log_errors",
+      1
+    ],
+    [
+      "cpython",
+      "log_errors",
+      1
+    ],
+    [
+      "monty",
+      "tree_sizes",
+      1
+    ],
+    [
+      "cpython",
+      "tree_sizes",
+      1
+    ],
+    [
+      "cpython_pr197",
+      "tree_sizes",
+      1
+    ],
+    [
+      "cpython",
+      "validate_records",
+      1
+    ],
+    [
+      "cpython_pr197",
+      "validate_records",
+      1
+    ],
+    [
+      "monty",
+      "validate_records",
+      1
+    ],
+    [
+      "cpython_pr197",
+      "tag_frequency",
+      1
+    ],
+    [
+      "monty",
+      "tag_frequency",
+      1
+    ],
+    [
+      "cpython",
+      "tag_frequency",
+      1
+    ],
+    [
+      "monty",
+      "markdown_toc",
+      1
+    ],
+    [
+      "cpython",
+      "markdown_toc",
+      1
+    ],
+    [
+      "cpython_pr197",
+      "markdown_toc",
+      1
+    ],
+    [
+      "cpython",
+      "interval_merge",
+      1
+    ],
+    [
+      "cpython_pr197",
+      "interval_merge",
+      1
+    ],
+    [
+      "monty",
+      "interval_merge",
+      1
+    ],
+    [
+      "cpython_pr197",
+      "json_diff",
+      1
+    ],
+    [
+      "monty",
+      "json_diff",
+      1
+    ],
+    [
+      "cpython",
+      "json_diff",
+      1
+    ],
+    [
+      "monty",
+      "order_rollup",
+      1
+    ],
+    [
+      "cpython",
+      "order_rollup",
+      1
+    ],
+    [
+      "cpython_pr197",
+      "order_rollup",
+      1
+    ],
+    [
+      "cpython",
+      "template_render",
+      1
+    ],
+    [
+      "cpython_pr197",
+      "template_render",
+      1
+    ],
+    [
+      "monty",
+      "template_render",
+      1
+    ],
+    [
+      "monty",
+      "config_merge",
+      2
+    ],
+    [
+      "cpython",
+      "config_merge",
+      2
+    ],
+    [
+      "cpython_pr197",
+      "config_merge",
+      2
+    ],
+    [
+      "cpython",
+      "csv_rollup",
+      2
+    ],
+    [
+      "cpython_pr197",
+      "csv_rollup",
+      2
+    ],
+    [
+      "monty",
+      "csv_rollup",
+      2
+    ],
+    [
+      "cpython_pr197",
+      "latest_versions",
+      2
+    ],
+    [
+      "monty",
+      "latest_versions",
+      2
+    ],
+    [
+      "cpython",
+      "latest_versions",
+      2
+    ],
+    [
+      "monty",
+      "log_errors",
+      2
+    ],
+    [
+      "cpython",
+      "log_errors",
+      2
+    ],
+    [
+      "cpython_pr197",
+      "log_errors",
+      2
+    ],
+    [
+      "cpython",
+      "tree_sizes",
+      2
+    ],
+    [
+      "cpython_pr197",
+      "tree_sizes",
+      2
+    ],
+    [
+      "monty",
+      "tree_sizes",
+      2
+    ],
+    [
+      "cpython_pr197",
+      "validate_records",
+      2
+    ],
+    [
+      "monty",
+      "validate_records",
+      2
+    ],
+    [
+      "cpython",
+      "validate_records",
+      2
+    ],
+    [
+      "monty",
+      "tag_frequency",
+      2
+    ],
+    [
+      "cpython",
+      "tag_frequency",
+      2
+    ],
+    [
+      "cpython_pr197",
+      "tag_frequency",
+      2
+    ],
+    [
+      "cpython",
+      "markdown_toc",
+      2
+    ],
+    [
+      "cpython_pr197",
+      "markdown_toc",
+      2
+    ],
+    [
+      "monty",
+      "markdown_toc",
+      2
+    ],
+    [
+      "cpython_pr197",
+      "interval_merge",
+      2
+    ],
+    [
+      "monty",
+      "interval_merge",
+      2
+    ],
+    [
+      "cpython",
+      "interval_merge",
+      2
+    ],
+    [
+      "monty",
+      "json_diff",
+      2
+    ],
+    [
+      "cpython",
+      "json_diff",
+      2
+    ],
+    [
+      "cpython_pr197",
+      "json_diff",
+      2
+    ],
+    [
+      "cpython",
+      "order_rollup",
+      2
+    ],
+    [
+      "cpython_pr197",
+      "order_rollup",
+      2
+    ],
+    [
+      "monty",
+      "order_rollup",
+      2
+    ],
+    [
+      "cpython_pr197",
+      "template_render",
+      2
+    ],
+    [
+      "monty",
+      "template_render",
+      2
+    ],
+    [
+      "cpython",
+      "template_render",
+      2
+    ]
+  ],
+  "started_utc": "2026-09-27T16:01:32Z",
+  "authentication": "normal Codex CLI ChatGPT login; credentials never read by benchmark"
+}

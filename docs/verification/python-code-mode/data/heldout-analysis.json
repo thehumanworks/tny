@@ -1,0 +1,210 @@
+{
+ "arms": {
+  "cpython": {
+   "samples": 36,
+   "complete": true,
+   "first_pass": 35,
+   "final": 35,
+   "repairs": 1,
+   "generations": 37,
+   "output_tokens": 9428,
+   "output_tokens_per_solved": 269.37142857142857,
+   "input_tokens": 546160,
+   "cached_input_tokens": 467968,
+   "uncached_input_tokens": 78192,
+   "reasoning_output_tokens": 0,
+   "median_generation_seconds_per_task": 9.67537279741373,
+   "mean_first_attempt_source_bytes": 804.7777777777778
+  },
+  "cpython_pr197": {
+   "samples": 36,
+   "complete": true,
+   "first_pass": 35,
+   "final": 35,
+   "repairs": 1,
+   "generations": 37,
+   "output_tokens": 9691,
+   "output_tokens_per_solved": 276.8857142857143,
+   "input_tokens": 545242,
+   "cached_input_tokens": 441856,
+   "uncached_input_tokens": 103386,
+   "reasoning_output_tokens": 0,
+   "median_generation_seconds_per_task": 9.64672383503057,
+   "mean_first_attempt_source_bytes": 843.0833333333334
+  },
+  "monty": {
+   "samples": 36,
+   "complete": true,
+   "first_pass": 35,
+   "final": 36,
+   "repairs": 1,
+   "generations": 37,
+   "output_tokens": 10421,
+   "output_tokens_per_solved": 289.47222222222223,
+   "input_tokens": 543234,
+   "cached_input_tokens": 484096,
+   "uncached_input_tokens": 59138,
+   "reasoning_output_tokens": 0,
+   "median_generation_seconds_per_task": 10.177583430428058,
+   "mean_first_attempt_source_bytes": 906.0277777777778
+  }
+ },
+ "paired": [
+  {
+   "baseline": "cpython",
+   "candidate": "cpython_pr197",
+   "observed_output_token_saving": -0.027895630038184294,
+   "saving_95": [
+    -0.07764121956984149,
+    0.0193482688391039
+   ],
+   "observed_first_pass_difference": 0.0,
+   "first_pass_difference_95": [
+    0.0,
+    0.0
+   ],
+   "draws": 10000
+  },
+  {
+   "baseline": "cpython",
+   "candidate": "monty",
+   "observed_output_token_saving": -0.07462110498279362,
+   "saving_95": [
+    -0.15380684721512505,
+    0.01538758908161908
+   ],
+   "observed_first_pass_difference": 0.0,
+   "first_pass_difference_95": [
+    0.0,
+    0.0
+   ],
+   "draws": 10000
+  }
+ ],
+ "failures": [
+  {
+   "id": "log_errors-0-cpython_pr197",
+   "attempt": 0,
+   "variants_failed": [
+    0,
+    2
+   ],
+   "execution_ok": [
+    false,
+    false
+   ],
+   "output_ok": [
+    false,
+    false
+   ],
+   "trace_ok": [
+    true,
+    true
+   ],
+   "stdout": "error: too many values to unpack (expected 3, got 4)"
+  },
+  {
+   "id": "log_errors-0-cpython_pr197",
+   "attempt": 1,
+   "variants_failed": [
+    0,
+    2
+   ],
+   "execution_ok": [
+    false,
+    false
+   ],
+   "output_ok": [
+    false,
+    false
+   ],
+   "trace_ok": [
+    true,
+    true
+   ],
+   "stdout": "error: too many values to unpack (expected 3, got 4)"
+  },
+  {
+   "id": "log_errors-1-cpython",
+   "attempt": 0,
+   "variants_failed": [
+    0,
+    2
+   ],
+   "execution_ok": [
+    true,
+    true
+   ],
+   "output_ok": [
+    false,
+    false
+   ],
+   "trace_ok": [
+    true,
+    true
+   ],
+   "stdout": "done\n"
+  },
+  {
+   "id": "log_errors-1-cpython",
+   "attempt": 1,
+   "variants_failed": [
+    0,
+    2
+   ],
+   "execution_ok": [
+    true,
+    true
+   ],
+   "output_ok": [
+    false,
+    false
+   ],
+   "trace_ok": [
+    true,
+    true
+   ],
+   "stdout": "done\n"
+  },
+  {
+   "id": "log_errors-1-monty",
+   "attempt": 0,
+   "variants_failed": [
+    0,
+    2
+   ],
+   "execution_ok": [
+    true,
+    true
+   ],
+   "output_ok": [
+    false,
+    false
+   ],
+   "trace_ok": [
+    true,
+    true
+   ],
+   "stdout": "done\n"
+  }
+ ],
+ "selection": {
+  "inputs": {
+   "corpus_passed": 36,
+   "corpus_total": 36,
+   "trials_complete": true,
+   "first_lighter": 35,
+   "first_cpython": 35,
+   "final_lighter": 36,
+   "final_cpython": 35,
+   "tokens_lighter": 10421,
+   "solved_lighter": 36,
+   "tokens_cpython": 9428,
+   "solved_cpython": 35,
+   "semantics_ok": false,
+   "bytes_lighter": 6165632,
+   "bytes_cpython": 4668312
+  },
+  "select_lighter": false
+ }
+}
