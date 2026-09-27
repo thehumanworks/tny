@@ -23,6 +23,23 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 CPP_DIRS = ("util", "json", "net", "backends/openai", "core", "lib")
+# Stand-in for scripts/cpython_runtime.sh with the same argv/environment
+# contract: it records its inputs and produces the output layout (headers,
+# frozen headers, a real archive, ldlibs, stamp) without fetching or building.
+FAKE_CPYTHON_RUNTIME = r"""#!/bin/sh
+set -eu
+test "$#" = 4
+out=$1
+printf '%s\n' "$out" >> cpython-builds.log
+mkdir -p "$out/include" "$out/frozen" "$out/ldlibs-marker"
+printf '#define TNY_FIXTURE_PYTHON 0\n' > "$out/include/tny_fixture_python.h"
+printf 'int tny_fixture_python_archive(void) { return 0; }\n' > "$out/member.c"
+$CC -c -o "$out/member.o" "$out/member.c"
+ar rcs "$out/libpython3.14.a" "$out/member.o"
+printf '%s\n' "-L$out/ldlibs-marker" > "$out/ldlibs"
+printf '%s|%s|%s\n' "$CC" "$CPYTHON_CFLAGS" "$TNY_CPYTHON_FETCH" > "$out/invocation"
+printf '%s\n' "$3" > "$out/stamp"
+"""
 
 
 class CppBuild(unittest.TestCase):
@@ -686,6 +703,137 @@ void conversions(const char *text) {
         )
         self.assertEqual(run.stderr, "")
         self.run_command([str(self.root / "build/tny")])
+
+    def cpython_dir(self, *args):
+        return self.run_command(
+            ["make", "-s", "-f", "Makefile", "-f", "-", *self.make_args, *args, "dir"],
+            input="dir:\n\t@printf '%s' '$(CPYTHON_DIR)'\n",
+        ).stdout
+
+    def test_cpython_runtime_graph(self):
+        # The native CLI lane links the interpreter layer against the pinned
+        # static archive; libtny, its fault/sanitizer libraries and wasm keep
+        # the unsupported seam. Both files define one symbol, so linking both
+        # (or neither) into a graph fails.
+        self.make_args.remove("SRC_PY_NATIVE=src/core/code_python_unsupported.c")
+        self.write("scripts/cpython_runtime.sh", FAKE_CPYTHON_RUNTIME)
+        self.write(
+            "src/core/code_python.c",
+            '#include "tny_fixture_python.h"\n'
+            "int tny_code_python_fixture(void);\n"
+            "int tny_fixture_python_archive(void);\n"
+            "int tny_code_python_fixture(void) {\n"
+            "    return tny_fixture_python_archive() + TNY_FIXTURE_PYTHON;\n"
+            "}\n",
+        )
+        for name in ("test_openai.c", "integration/libtny_provider_fault_host.c"):
+            self.write(f"tests/{name}", "typedef int provider_fault_fixture;\n")
+        self.write(
+            "tests/test_ownership.cpp", "int ownership_fixture() { return 0; }\n"
+        )
+        directory = self.cpython_dir()
+        version = (ROOT / "third_party/cpython/VERSION").read_text().strip()
+        self.assertTrue(directory.startswith(f"build/cpython-{version}-"), directory)
+        output = self.make("-j2", "release", "debug", "SANITIZE=0", "CPYTHON_FETCH=0")
+        lines = output.splitlines()
+        # Built once for both lanes, before the only object that includes it.
+        builds = (self.root / "cpython-builds.log").read_text().split()
+        self.assertEqual(builds, [directory])
+        cc, cflags, fetch = (
+            (self.root / directory / "invocation").read_text().strip().split("|")
+        )
+        self.assertEqual(fetch, "0")
+        self.assertIn("-Os", cflags)
+        self.assertTrue(cc)
+        script = next(i for i, line in enumerate(lines) if "cpython_runtime.sh" in line)
+        compiles = [
+            (i, line)
+            for i, line in enumerate(lines)
+            if "src/core/code_python.c" in line and " -c " in line
+        ]
+        self.assertEqual(
+            sorted(line.split(" -o ")[1].split()[0] for _, line in compiles),
+            ["build/dbg/src/core/code_python.o", "build/rel/src/core/code_python.o"],
+        )
+        for index, line in compiles:
+            self.assertGreater(index, script)
+            self.assertIn(f"-isystem {directory}/include", line)
+            self.assertIn(f"-isystem {directory}/frozen", line)
+        self.assertNotIn("code_python_unsupported", output)
+        for binary in ("build/tny", "build/tny-test"):
+            link = next(
+                line for line in lines if f"-o {binary} " in line and " -c " not in line
+            )
+            self.assertIn("src/core/code_python.o", link)
+            self.assertIn(f"{directory}/libpython3.14.a", link)
+            self.assertIn(f"-L{directory}/ldlibs-marker", link)
+        self.run_command([str(self.root / "build/tny")])
+        # A changed runtime recipe input rebuilds the archive and recompiles
+        # its includer; -MMD cannot see -isystem headers.
+        time.sleep(1.1)  # GNU make 3.81 compares whole-second mtimes.
+        self.write("scripts/cpython_runtime.sh", FAKE_CPYTHON_RUNTIME + "\n")
+        rebuilt = self.make("-n", "release", "SANITIZE=0")
+        self.assertIn("cpython_runtime.sh", rebuilt)
+        self.assertIn("-o build/rel/src/core/code_python.o", rebuilt)
+        # Full native fault hosts run production cells; libraries never do.
+        hosts = self.make(
+            "-n",
+            "build/lib-fault/provider-faults",
+            "build/lib-fault-san/provider-faults",
+            "lib-shared-active",
+            "lib-shared-fault",
+            "lib-shared-fault-sanitize",
+            "UNAME_S=Linux",
+        )
+        for lane, host in (
+            ("fault-pic", "build/lib-fault/provider-faults"),
+            ("fault-san-pic", "build/lib-fault-san/provider-faults"),
+        ):
+            with self.subTest(host=host):
+                link = next(
+                    line
+                    for line in hosts.splitlines()
+                    if f"-o {host} " in line and " -c " not in line
+                )
+                self.assertIn(f"build/{lane}/src/core/code_python.o", link)
+                self.assertNotIn("code_python_unsupported", link)
+                self.assertIn(f"{directory}/libpython3.14.a", link)
+                compile_line = next(
+                    line
+                    for line in hosts.splitlines()
+                    if f"-o build/{lane}/src/core/code_python.o" in line
+                )
+                self.assertIn("-DTNY_ALLOC_TESTING=1", compile_line)
+                self.assertIn(f"-isystem {directory}/include", compile_line)
+        libraries = [
+            line
+            for line in hosts.splitlines()
+            if " -shared " in line and " -c " not in line
+        ]
+        self.assertEqual(len(libraries), 3, hosts)
+        for link in libraries:
+            self.assertIn("src/core/code_python_unsupported.o", link)
+            self.assertNotIn("src/core/code_python.o", link)
+            self.assertNotIn("libpython", link)
+        wasm = self.make("-n", "wasm", "EMCC=probe-emcc", "EMCXX=probe-emcxx")
+        self.assertIn("build/wasm/obj/src/core/code_python_unsupported.o", wasm)
+        for absent in ("src/core/code_python.c", "libpython", "cpython_runtime.sh"):
+            self.assertNotIn(absent, wasm)
+        # One archive per target ABI and interpreter flags, under BUILD.
+        self.assertTrue(self.cpython_dir("BUILD=build-alt").startswith("build-alt/"))
+        compilers = {}
+        for name, triple in (
+            ("gnu-vendor", "x86_64-pc-linux-gnu"),
+            ("gnu", "x86_64-linux-gnu"),
+            ("musl", "x86_64-linux-musl"),
+        ):
+            compiler = self.root / f"{name}-cc"
+            compiler.write_text(f"#!/bin/sh\nprintf '%s\\n' '{triple}'\n")
+            compiler.chmod(0o755)
+            compilers[name] = self.cpython_dir(f"CC={compiler}")
+        self.assertEqual(compilers["gnu-vendor"], compilers["gnu"])
+        self.assertNotEqual(compilers["gnu"], compilers["musl"])
+        self.assertNotEqual(self.cpython_dir("CPYTHON_CFLAGS=-O2"), directory)
 
     def test_wasm_exception_catching(self):
         emcc = shlex.split(os.environ.get("EMCC", "emcc"))[0]
