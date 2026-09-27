@@ -13,6 +13,7 @@ workspace, loopback only; model latency is excluded by construction.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import statistics
@@ -184,6 +185,18 @@ def run_once(
         elapsed = (time.perf_counter() - start) * 1000
         if done.returncode:
             raise SystemExit(f"{binary} failed: {done.stderr.decode()[-2000:]}")
+        result = json.loads(done.stdout)
+        calls = result.get("tool_calls", [])
+        if result.get("exit_code") != 0 or len(server.outputs) != len(cells):
+            raise SystemExit(
+                "incomplete tool-cell execution cannot be a latency sample"
+            )
+        if not calls or any(call.get("status") != "success" for call in calls):
+            raise SystemExit(
+                "failed nested calls cannot be a successful latency sample"
+            )
+        if sum(call.get("name") == "run_code" for call in calls) != len(cells):
+            raise SystemExit("wrong number of completed code cells")
         return elapsed, list(server.outputs)
 
 
@@ -196,7 +209,25 @@ def main() -> None:
     args = parser.parse_args()
     server = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    report: dict = {"rounds": args.rounds, "tasks": {}}
+    report: dict = {
+        "rounds": args.rounds,
+        "tasks": {},
+        "scope": "Serial rotated native loopback-provider tasks; all cell and nested-tool statuses must succeed. Model inference excluded; warm page cache; shared host.",
+        "binaries": {
+            arm: {
+                "path": str(Path(binary).resolve()),
+                "bytes": Path(binary).stat().st_size,
+                "sha256": hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+            }
+            for arm, binary in (
+                ("baseline", args.baseline),
+                ("candidate", args.candidate),
+            )
+        },
+        "load_average_at_start": list(os.getloadavg())
+        if hasattr(os, "getloadavg")
+        else None,
+    }
     for task, (lua, python) in TASKS.items():
         arms = {"baseline": (args.baseline, lua), "candidate": (args.candidate, python)}
         samples: dict[str, list[float]] = {"baseline": [], "candidate": []}
@@ -227,6 +258,12 @@ def main() -> None:
             flush=True,
         )
     server.shutdown()
+    for arm, binary in (("baseline", args.baseline), ("candidate", args.candidate)):
+        if (
+            hashlib.sha256(Path(binary).read_bytes()).hexdigest()
+            != report["binaries"][arm]["sha256"]
+        ):
+            raise SystemExit("binary changed during the paired benchmark")
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n")
 
 
