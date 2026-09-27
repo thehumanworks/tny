@@ -30,7 +30,7 @@ static int configure(int fd) {
     return 0;
 }
 
-int tny_exec_host_start(tny_exec_host *host) {
+static int start_entry(tny_exec_host *host, const char *entry, bool inherit_environment) {
     *host = (tny_exec_host){.fd = -1, .pid = -1};
     /* Exact process identity is required for cancellation, not best-effort groups. */
     if (!tny_process_tree_supported()) return ENOTSUP;
@@ -44,12 +44,12 @@ int tny_exec_host_start(tny_exec_host *host) {
     int rc = 0;
     if (configure(fds[0]) || configure(fds[1])) rc = errno;
     if (!rc) {
-        char option[] = "--exec-server";
+        char *option = xstrdup(entry);
         char *argv[] = {exe, option, NULL};
         tny_fd_mapping map = {.source = fds[1], .target = 3};
         size_t count = 0;
-        while (environ[count]) count++;
-        char **environment = calloc(count + 1, sizeof *environment);
+        while (inherit_environment && environ[count]) count++;
+        char **environment = option ? calloc(count + 1, sizeof *environment) : NULL;
         if (!environment) rc = ENOMEM;
         else {
             size_t used = 0;
@@ -58,6 +58,7 @@ int tny_exec_host_start(tny_exec_host *host) {
             rc = tny_process_spawn_mapped(argv, environment, &map, 1, &host->pid);
             free(environment);
         }
+        free(option);
     }
     free(exe);
     close(fds[1]);
@@ -65,6 +66,12 @@ int tny_exec_host_start(tny_exec_host *host) {
     else host->fd = fds[0];
     return rc;
 }
+
+int tny_exec_host_start(tny_exec_host *host) { return start_entry(host, "--exec-server", true); }
+
+/* Code cells inherit nothing from the environment: credentials and settings
+ * belong to the execution server, which answers every nested call itself. */
+int tny_exec_host_start_cell(tny_exec_host *host) { return start_entry(host, "--code-cell", false); }
 
 int tny_exec_host_accept(void) {
     struct sockaddr_storage address = {0};
@@ -186,6 +193,16 @@ int tny_exec_host_expect_eof(int fd, int64_t deadline, tny_exec_cancel_fn cancel
     }
 }
 
+int tny_exec_host_kill(tny_exec_host *host) {
+    if (host->fd >= 0) {
+        close(host->fd);
+        host->fd = -1;
+    }
+    if (host->pid <= 1 || host->reaped) return 0;
+    int status = 0;
+    return tny_process_stop_owned_tree(host->pid, &status, &host->reaped);
+}
+
 int tny_exec_host_close(tny_exec_host *host, bool completed) {
     if (host->fd >= 0) {
         close(host->fd);
@@ -215,6 +232,11 @@ int tny_exec_host_close(tny_exec_host *host, bool completed) {
 int tny_exec_host_start(tny_exec_host *host) {
     *host = (tny_exec_host){.fd = -1, .pid = -1};
     return ENOTSUP;
+}
+int tny_exec_host_start_cell(tny_exec_host *host) { return tny_exec_host_start(host); }
+int tny_exec_host_kill(tny_exec_host *host) {
+    (void)host;
+    return -1;
 }
 int tny_exec_host_accept(void) { return -1; }
 int tny_exec_host_send(int fd, const char *json, int64_t deadline, tny_exec_cancel_fn c, void *ud) {

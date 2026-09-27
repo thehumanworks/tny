@@ -12,6 +12,8 @@ typedef struct {
 } tny_exec_host;
 typedef bool (*tny_exec_cancel_fn)(void *);
 int tny_exec_host_start(tny_exec_host *host);
+/* Same channel for a `--code-cell` child, started with an empty environment. */
+int tny_exec_host_start_cell(tny_exec_host *host);
 /* Server validates an inherited connected AF_UNIX socket on fd3, marks CLOEXEC. */
 int tny_exec_host_accept(void);
 int tny_exec_host_send(int fd, const char *json, int64_t deadline, tny_exec_cancel_fn cancel,
@@ -23,4 +25,7 @@ bool tny_exec_host_disconnected(int fd);
 int tny_exec_host_expect_eof(int fd, int64_t deadline, tny_exec_cancel_fn cancel, void *ud);
 /* Retains direct-child ownership until cleanup; never signals a reaped PID. */
 int tny_exec_host_close(tny_exec_host *host, bool completed);
+/* Immediate generation-safe stop of an unreaped child, without the cooperative
+ * EOF grace period close() allows. 0 when strict absence was established. */
+int tny_exec_host_kill(tny_exec_host *host);
 #endif

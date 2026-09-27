@@ -1,371 +1,156 @@
-#include "code_runtime.h"
+/* Python code cells in a fresh, confined child process (docs/adr/0179).
+ *
+ * Parent (the caller, normally the execution server): starts `--code-cell`
+ * with an empty environment and one private socket, sends the trusted catalog
+ * and the untrusted source, then answers the child's nested-call frames. It
+ * re-checks every frame (tny_code_frame_admit/tny_code_call_admit) because the
+ * child is untrusted, owns the deadline (re-read after each callback so host
+ * prompt waits can extend it) and kills the child when it passes. Any protocol
+ * violation, crash or early exit is an error; nothing is retried or replayed.
+ *
+ * Child: validates fd 3, initializes the embedded interpreter, drops to
+ * resource limits, installs the OS sandbox, and only then reads the source. It
+ * exits immediately after its final frame, so no finalizer runs afterwards. */
+#include "core/code_runtime.h"
+#include "core/code_policy.h"
+#include "core/code_python.h"
+#include "util/code_sandbox.h"
+#include "util/execution_host.h"
 #include "util/util.h"
 #include "yyjson.h"
-#include "lua/lua.h"
-#include "lua/lauxlib.h"
-#include "lua/lualib.h"
-#include <math.h>
-#include <stddef.h>
+#include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
-typedef union {
-    max_align_t alignment;
-    size_t size;
-} allocation;
+/* Bounded wait for startup, the final frame and EOF after authority ends. */
+#define CELL_SETTLE_MS 1000
 
-typedef struct {
-    size_t memory;
-    unsigned instructions, calls;
-    const int64_t *deadline;
-    const char *code, *catalog;
-    tny_code_call_fn call;
-    void *userdata;
-    char *output;
-    size_t output_len;
-    /* Native scratch remains reachable if Lua raises/longjmps on OOM. */
-    char *pending, *serialized;
-    yyjson_doc *doc;
-    yyjson_mut_doc *mut;
-    yyjson_alc allocator;
-} code_state;
+static bool deadline_passed(void *ud) { return monotonic_ms() >= *(const int64_t *)ud; }
 
-static void *code_alloc(void *ud, void *ptr, size_t old_size, size_t size) {
-    (void)old_size;
-    code_state *s = ud;
-    allocation *old = ptr ? (allocation *)ptr - 1 : NULL;
-    size_t previous = old ? sizeof(*old) + old->size : 0;
-    if (!size) {
-        s->memory -= previous;
-        free(old);
-        return NULL;
-    }
-    if (size > TNY_CODE_MEMORY_BYTES - sizeof(allocation) ||
-        sizeof(allocation) + size > TNY_CODE_MEMORY_BYTES - (s->memory - previous))
-        return NULL;
-    allocation *next = realloc(old, sizeof(*next) + size);
-    if (!next) return NULL;
-    next->size = size;
-    s->memory = s->memory - previous + sizeof(*next) + size;
-    return next + 1;
-}
-static void *json_alloc(void *ud, size_t size) { return code_alloc(ud, NULL, 0, size); }
-static void json_free(void *ud, void *ptr) { (void)code_alloc(ud, ptr, 0, 0); }
-static code_state *state(lua_State *L) {
-    code_state *s;
-    memcpy(&s, lua_getextraspace(L), sizeof(code_state *));
-    return s;
-}
-static void check_budget(lua_State *L) {
-    code_state *s = state(L);
-    if (monotonic_ms() >= *s->deadline) luaL_error(L, "deadline exceeded");
-}
-static void instruction_hook(lua_State *L, lua_Debug *ar) {
-    (void)ar;
-    code_state *s = state(L);
-    s->instructions += 1000;
-    if (s->instructions >= TNY_CODE_INSTRUCTIONS) luaL_error(L, "instruction limit exceeded");
-    check_budget(L);
-}
-static void append_output(lua_State *L, const char *data, size_t len) {
-    code_state *s = state(L);
-    if (len > TNY_CODE_OUTPUT_BYTES - s->output_len) luaL_error(L, "output limit exceeded");
-    /* C-string tool output cannot represent embedded NUL. */
-    if (memchr(data, 0, len)) luaL_error(L, "output contains a NUL byte");
-    memcpy(s->output + s->output_len, data, len);
-    s->output_len += len;
-    s->output[s->output_len] = 0;
-}
-static int code_print(lua_State *L) {
-    int count = lua_gettop(L);
-    for (int i = 1; i <= count; ++i) {
-        size_t len;
-        const char *value = luaL_tolstring(L, i, &len);
-        if (i > 1) append_output(L, "\t", 1);
-        append_output(L, value, len);
-        lua_pop(L, 1);
-    }
-    append_output(L, "\n", 1);
-    return 0;
-}
-static const char *text_arg(lua_State *L, int index, size_t *len) {
-    const char *value = luaL_checklstring(L, index, len);
-    if (memchr(value, 0, *len)) luaL_error(L, "argument contains a NUL byte");
-    return value;
-}
-static int code_call(lua_State *L) {
-    code_state *s = state(L);
-    size_t name_len, args_len;
-    const char *name = text_arg(L, 1, &name_len);
-    const char *args = text_arg(L, 2, &args_len);
-    if (!name_len || name_len > 256) return luaL_error(L, "invalid tool name");
-    if (strcmp(name, "run_code") == 0) return luaL_error(L, "recursive run_code is forbidden");
-    if (args_len > TNY_CODE_SOURCE_BYTES) return luaL_error(L, "tool arguments limit exceeded");
-    s->doc = yyjson_read_opts((char *)args, args_len, 0, &s->allocator, NULL);
-    bool valid = s->doc && yyjson_is_obj(yyjson_doc_get_root(s->doc));
-    yyjson_doc_free(s->doc);
-    s->doc = NULL;
-    if (!valid) return luaL_error(L, "tool arguments must be a JSON object");
-    check_budget(L);
-    if (s->calls >= TNY_CODE_TOOL_CALLS) return luaL_error(L, "tool call limit exceeded");
-    if (!s->call) return luaL_error(L, "tool callback unavailable");
-    ++s->calls;
-    s->pending = s->call(s->userdata, name, args);
-    if (!s->pending) return luaL_error(L, "tool callback failed");
-    check_budget(L);
-    size_t len = strlen(s->pending);
-    if (len > TNY_CODE_MEMORY_BYTES) return luaL_error(L, "tool result limit exceeded");
-    lua_pushlstring(L, s->pending, len);
-    free(s->pending);
-    s->pending = NULL;
-    return 1;
-}
-static int code_list(lua_State *L) {
-    lua_pushstring(L, state(L)->catalog);
-    return 1;
-}
-static int code_describe(lua_State *L) {
-    code_state *s = state(L);
-    size_t len;
-    const char *name = text_arg(L, 1, &len);
-    s->doc = yyjson_read_opts((char *)s->catalog, strlen(s->catalog), 0, &s->allocator, NULL);
-    yyjson_val *root = yyjson_doc_get_root(s->doc), *entry;
-    size_t index, count;
-    yyjson_arr_foreach(root, index, count, entry) {
-        yyjson_val *fn = yyjson_obj_get(entry, "function");
-        if (!fn) fn = entry;
-        const char *candidate = yyjson_get_str(yyjson_obj_get(fn, "name"));
-        if (!candidate || strcmp(name, candidate) != 0) continue;
-        size_t out_len;
-        s->serialized = yyjson_val_write_opts(entry, 0, &s->allocator, &out_len, NULL);
-        if (!s->serialized) return luaL_error(L, "memory limit exceeded");
-        lua_pushlstring(L, s->serialized, out_len);
-        json_free(s, s->serialized);
-        s->serialized = NULL;
-        yyjson_doc_free(s->doc);
-        s->doc = NULL;
-        return 1;
-    }
-    yyjson_doc_free(s->doc);
-    s->doc = NULL;
-    lua_pushnil(L);
-    return 1;
+static char *cell_error(const char *reason) {
+    size_t len = strlen(reason) + 14;
+    char *out = malloc(len);
+    if (out) snprintf(out, len, "error: code: %s", reason);
+    return out;
 }
 
-static void push_json(lua_State *L, yyjson_val *v, unsigned depth) {
-    if (depth > 32 || !lua_checkstack(L, 4)) luaL_error(L, "JSON nesting limit exceeded");
-    if (yyjson_is_null(v)) lua_pushlightuserdata(L, NULL);
-    else if (yyjson_is_bool(v)) lua_pushboolean(L, yyjson_get_bool(v));
-    else if (yyjson_is_sint(v)) lua_pushinteger(L, (lua_Integer)yyjson_get_sint(v));
-    else if (yyjson_is_uint(v) && yyjson_get_uint(v) <= (uint64_t)LUA_MAXINTEGER)
-        lua_pushinteger(L, (lua_Integer)yyjson_get_uint(v));
-    else if (yyjson_is_num(v)) lua_pushnumber(L, yyjson_get_num(v));
-    else if (yyjson_is_str(v)) lua_pushlstring(L, yyjson_get_str(v), yyjson_get_len(v));
-    else if (yyjson_is_arr(v)) {
-        lua_newtable(L);
-        luaL_getmetatable(L, "tny.json.array");
-        lua_setmetatable(L, -2);
-        size_t i, count;
-        yyjson_val *item;
-        yyjson_arr_foreach(v, i, count, item) {
-            push_json(L, item, depth + 1);
-            lua_rawseti(L, -2, (lua_Integer)i + 1);
-        }
-    } else if (yyjson_is_obj(v)) {
-        lua_newtable(L);
-        size_t i, count;
-        yyjson_val *key, *item;
-        yyjson_obj_foreach(v, i, count, key, item) {
-            lua_pushlstring(L, yyjson_get_str(key), yyjson_get_len(key));
-            push_json(L, item, depth + 1);
-            lua_rawset(L, -3);
-        }
+/* Frames are C strings led by a type byte. */
+static int send_frame(int fd, char type, const char *a, size_t alen, const char *b, size_t blen,
+                      int64_t deadline, tny_exec_cancel_fn cancel, void *ud) {
+    char *frame = malloc(1 + alen + blen + 1);
+    if (!frame) {
+        errno = ENOMEM;
+        return -1;
     }
+    frame[0] = type;
+    if (alen) memcpy(frame + 1, a, alen);
+    if (blen) memcpy(frame + 1 + alen, b, blen);
+    frame[1 + alen + blen] = 0;
+    int rc = tny_exec_host_send(fd, frame, deadline, cancel, ud);
+    free(frame);
+    return rc;
 }
-static int code_decode(lua_State *L) {
-    code_state *s = state(L);
-    size_t len;
-    const char *text = luaL_checklstring(L, 1, &len);
-    s->doc = yyjson_read_opts((char *)text, len, 0, &s->allocator, NULL);
-    if (!s->doc) return luaL_error(L, "invalid JSON or memory limit exceeded");
-    push_json(L, yyjson_doc_get_root(s->doc), 0);
-    yyjson_doc_free(s->doc);
-    s->doc = NULL;
-    return 1;
+
+static bool is_json_object(const char *text, size_t len) {
+    yyjson_doc *doc = yyjson_read(text, len, 0);
+    bool object = doc && yyjson_is_obj(yyjson_doc_get_root(doc));
+    yyjson_doc_free(doc);
+    return object;
 }
-static yyjson_mut_val *encode_value(lua_State *L, int pos, unsigned depth) {
-    code_state *s = state(L);
-    if (depth > 32 || !lua_checkstack(L, 4)) luaL_error(L, "JSON nesting limit exceeded");
-    pos = lua_absindex(L, pos);
-    yyjson_mut_val *value = NULL;
-    switch (lua_type(L, pos)) {
-    case LUA_TNIL: value = yyjson_mut_null(s->mut); break;
-    case LUA_TLIGHTUSERDATA:
-        if (lua_touserdata(L, pos)) luaL_error(L, "unsupported JSON value");
-        value = yyjson_mut_null(s->mut);
-        break;
-    case LUA_TBOOLEAN: value = yyjson_mut_bool(s->mut, lua_toboolean(L, pos)); break;
-    case LUA_TNUMBER:
-        if (lua_isinteger(L, pos)) value = yyjson_mut_sint(s->mut, lua_tointeger(L, pos));
-        else {
-            double number = lua_tonumber(L, pos);
-            if (!isfinite(number)) luaL_error(L, "non-finite JSON number");
-            value = yyjson_mut_real(s->mut, number);
-        }
-        break;
-    case LUA_TSTRING: {
-        size_t len;
-        const char *str = lua_tolstring(L, pos, &len);
-        value = yyjson_mut_strncpy(s->mut, str, len);
-        break;
-    }
-    case LUA_TTABLE: {
-        size_t len = lua_rawlen(L, pos), entries = 0;
-        bool array = len > 0;
-        if (lua_getmetatable(L, pos)) {
-            luaL_getmetatable(L, "tny.json.array");
-            array = array || lua_rawequal(L, -1, -2);
-            lua_pop(L, 2);
-        }
-        lua_pushnil(L);
-        while (lua_next(L, pos)) {
-            ++entries;
-            if (!lua_isinteger(L, -2) || lua_tointeger(L, -2) < 1 ||
-                (lua_Unsigned)lua_tointeger(L, -2) > len)
-                array = false;
-            lua_pop(L, 1);
-        }
-        array = array && entries == len;
-        value = array ? yyjson_mut_arr(s->mut) : yyjson_mut_obj(s->mut);
-        if (!value) luaL_error(L, "memory limit exceeded");
-        if (array) {
-            for (size_t i = 1; i <= len; ++i) {
-                lua_rawgeti(L, pos, (lua_Integer)i);
-                if (!yyjson_mut_arr_append(value, encode_value(L, -1, depth + 1)))
-                    luaL_error(L, "memory limit exceeded");
-                lua_pop(L, 1);
-            }
-        } else {
-            lua_pushnil(L);
-            while (lua_next(L, pos)) {
-                if (lua_type(L, -2) != LUA_TSTRING)
-                    luaL_error(L, "JSON object keys must be strings");
-                yyjson_mut_val *key = encode_value(L, -2, depth + 1);
-                if (!yyjson_mut_obj_add(value, key, encode_value(L, -1, depth + 1)))
-                    luaL_error(L, "memory limit exceeded");
-                lua_pop(L, 1);
-            }
-        }
-        break;
-    }
-    default: luaL_error(L, "unsupported JSON value");
-    }
-    if (!value) luaL_error(L, "memory limit exceeded");
-    return value;
-}
-static int code_encode(lua_State *L) {
-    code_state *s = state(L);
-    s->mut = yyjson_mut_doc_new(&s->allocator);
-    if (!s->mut) return luaL_error(L, "memory limit exceeded");
-    yyjson_mut_doc_set_root(s->mut, encode_value(L, 1, 0));
-    size_t len;
-    s->serialized = yyjson_mut_write_opts(s->mut, 0, &s->allocator, &len, NULL);
-    if (!s->serialized) return luaL_error(L, "JSON encoding failed or memory limit exceeded");
-    lua_pushlstring(L, s->serialized, len);
-    json_free(s, s->serialized);
-    s->serialized = NULL;
-    yyjson_mut_doc_free(s->mut);
-    s->mut = NULL;
-    return 1;
-}
-static void set_function(lua_State *L, const char *name, lua_CFunction fn) {
-    lua_pushcfunction(L, fn);
-    lua_setfield(L, -2, name);
-}
-static int initialize_and_run(lua_State *L) {
-    luaL_requiref(L, LUA_GNAME, luaopen_base, 1);
-    const char *removed[] = {"dofile",         "loadfile",     "load",
-                             "collectgarbage", "pcall",        "xpcall",
-                             "setmetatable",   "getmetatable", NULL};
-    for (size_t i = 0; removed[i]; ++i) {
-        lua_pushnil(L);
-        lua_setglobal(L, removed[i]);
-    }
-    lua_pop(L, 1);
-    luaL_requiref(L, LUA_TABLIBNAME, luaopen_table, 1);
-    lua_pop(L, 1);
-    luaL_requiref(L, LUA_STRLIBNAME, luaopen_string, 1);
-    lua_pushnil(L);
-    lua_setfield(L, -2, "dump");
-    lua_pop(L, 1);
-    luaL_requiref(L, LUA_MATHLIBNAME, luaopen_math, 1);
-    lua_pop(L, 1);
-    luaL_requiref(L, LUA_UTF8LIBNAME, luaopen_utf8, 1);
-    lua_pop(L, 1);
-    lua_pushcfunction(L, code_print);
-    lua_setglobal(L, "print");
-    lua_newtable(L);
-    set_function(L, "call", code_call);
-    set_function(L, "list", code_list);
-    set_function(L, "describe", code_describe);
-    lua_setglobal(L, "tools");
-    luaL_newmetatable(L, "tny.json.array");
-    lua_pop(L, 1);
-    lua_newtable(L);
-    set_function(L, "encode", code_encode);
-    set_function(L, "decode", code_decode);
-    lua_pushlightuserdata(L, NULL);
-    lua_setfield(L, -2, "null");
-    lua_setglobal(L, "json");
-    code_state *s = state(L);
-    if (luaL_loadbufferx(L, s->code, strlen(s->code), "code", "t") != LUA_OK) return lua_error(L);
-    lua_call(L, 0, LUA_MULTRET);
-    int results = lua_gettop(L);
-    if (results) code_print(L);
-    check_budget(L);
-    return 0;
-}
+
 char *tny_code_run_with_deadline(const char *code, const int64_t *deadline,
                                  const char *catalog_json, tny_code_call_fn call, void *userdata) {
-    if (!code || strlen(code) > TNY_CODE_SOURCE_BYTES)
-        return xstrdup("error: code: source limit exceeded");
-    if (!deadline) return xstrdup("error: code: missing host deadline");
-    code_state s = {.code = code,
-                    .catalog = catalog_json ? catalog_json : "[]",
-                    .call = call,
-                    .userdata = userdata,
-                    .deadline = deadline};
-    s.allocator =
-        (yyjson_alc){.malloc = json_alloc, .realloc = code_alloc, .free = json_free, .ctx = &s};
-    s.output = malloc(TNY_CODE_OUTPUT_BYTES + 1);
-    if (!s.output) return NULL;
-    s.output[0] = 0;
-    lua_State *L = lua_newstate(code_alloc, &s);
-    if (!L) {
-        free(s.output);
-        return xstrdup("error: code: memory limit exceeded");
+    if (!code || !tny_code_source_admit(strlen(code)))
+        return cell_error("source limit exceeded");
+    if (!deadline) return cell_error("missing host deadline");
+    const char *catalog = catalog_json ? catalog_json : "[]";
+    tny_exec_host host;
+    int rc = tny_exec_host_start_cell(&host);
+    if (rc)
+        return cell_error(rc == ENOTSUP ? "Python code cells are unsupported on this host"
+                                        : "could not start the Python code cell");
+    char header[32];
+    int header_len = snprintf(header, sizeof header, "%zu:", strlen(catalog));
+    size_t catalog_len = strlen(catalog), code_len = strlen(code);
+    char *start = malloc((size_t)header_len + catalog_len + 1);
+    if (start) {
+        memcpy(start, header, (size_t)header_len);
+        memcpy(start + header_len, catalog, catalog_len + 1);
     }
-    code_state *state_ptr = &s;
-    memcpy(lua_getextraspace(L), &state_ptr, sizeof(code_state *));
-    lua_sethook(L, instruction_hook, LUA_MASKCOUNT, 1000);
-    lua_pushcfunction(L, initialize_and_run);
-    int status = lua_pcall(L, 0, 0, 0);
-    if (status != LUA_OK) {
-        const char *error = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
-        if (!error) error = "runtime failure";
-        size_t len = strlen(error);
-        if (len > TNY_CODE_OUTPUT_BYTES - 13) len = TNY_CODE_OUTPUT_BYTES - 13;
-        memcpy(s.output, "error: code: ", 13);
-        memcpy(s.output + 13, error, len);
-        s.output[13 + len] = 0;
+    char *output = NULL;
+    const char *failure = NULL; /* parent-decided terminal state */
+    const char *error = NULL;
+    uint64_t calls = 0;
+    int phase = TNY_CODE_PHASE_RUNNING;
+    if (!start || send_frame(host.fd, TNY_CODE_FRAME_START, start, (size_t)header_len + catalog_len,
+                             code, code_len, *deadline, deadline_passed, (void *)deadline))
+        error = monotonic_ms() >= *deadline ? "deadline exceeded" : "could not start the cell";
+    free(start);
+    while (!error && phase == TNY_CODE_PHASE_RUNNING) {
+        char *frame = tny_exec_host_receive(host.fd, *deadline, deadline_passed, (void *)deadline);
+        if (!frame) {
+            error = monotonic_ms() >= *deadline ? "deadline exceeded"
+                    : errno == EMSGSIZE         ? "cell protocol violation"
+                                                : "Python runtime exited unexpectedly";
+            break;
+        }
+        size_t len = strlen(frame);
+        int type = (unsigned char)frame[0];
+        if (!tny_code_frame_admit(phase, type, len, calls)) {
+            error = "cell protocol violation";
+        } else if (type == TNY_CODE_FRAME_DONE) {
+            phase = TNY_CODE_PHASE_FINISHED;
+            output = failure ? cell_error(failure) : xstrdup(frame + 1);
+            if (!output) error = "result allocation failed";
+        } else {
+            char *name = frame + 1;
+            char *newline = strchr(name, '\n');
+            char *arguments = newline ? newline + 1 : NULL;
+            size_t name_len = newline ? (size_t)(newline - name) : 0;
+            size_t args_len = arguments ? len - (size_t)(arguments - frame) : 0;
+            if (newline) *newline = 0;
+            if (!newline || !tny_code_call_admit(calls, name_len, strcmp(name, "run_code") == 0,
+                                                 args_len, is_json_object(arguments, args_len))) {
+                error = "cell protocol violation";
+            } else {
+                ++calls;
+                char *result = call ? call(userdata, name, arguments) : NULL;
+                if (monotonic_ms() >= *deadline) {
+                    free(result);
+                    error = "deadline exceeded";
+                } else if (!result || !tny_code_result_admit(strlen(result))) {
+                    failure = result ? "tool result limit exceeded" : "tool callback failed";
+                    free(result);
+                    /* Terminal: the spent budget makes any further call frame
+                     * inadmissible; only the child's final frame may follow. */
+                    calls = TNY_CODE_TOOL_CALLS;
+                    if (send_frame(host.fd, TNY_CODE_FRAME_FAIL, failure, strlen(failure), NULL,
+                                   0, *deadline, deadline_passed, (void *)deadline))
+                        error = failure;
+                } else {
+                    if (send_frame(host.fd, TNY_CODE_FRAME_RESULT, result, strlen(result), NULL,
+                                   0, *deadline, deadline_passed, (void *)deadline))
+                        error = monotonic_ms() >= *deadline ? "deadline exceeded"
+                                                            : "Python runtime exited unexpectedly";
+                    free(result);
+                }
+            }
+        }
+        free(frame);
     }
-    /* Finalizers cannot acquire host capabilities; close under the same bound. */
-    lua_close(L);
-    yyjson_doc_free(s.doc);
-    yyjson_mut_doc_free(s.mut);
-    free(s.pending);
-    json_free(&s, s.serialized);
-    return s.output;
+    if (!error && phase == TNY_CODE_PHASE_FINISHED) {
+        /* Authority ended with the final frame; the child must now just exit. */
+        int64_t settle = monotonic_ms() + CELL_SETTLE_MS;
+        if (tny_exec_host_expect_eof(host.fd, settle, NULL, NULL)) error = "cell protocol violation";
+    }
+    if (error) {
+        free(output);
+        output = cell_error(error);
+        (void)tny_exec_host_kill(&host);
+    } else (void)tny_exec_host_close(&host, true);
+    return output;
 }
 
 char *tny_code_run(const char *code, int timeout_ms, const char *catalog_json,
@@ -374,4 +159,96 @@ char *tny_code_run(const char *code, int timeout_ms, const char *catalog_json,
     if (timeout_ms > TNY_CODE_MAX_TIMEOUT_MS) timeout_ms = TNY_CODE_MAX_TIMEOUT_MS;
     int64_t deadline = monotonic_ms() + timeout_ms;
     return tny_code_run_with_deadline(code, &deadline, catalog_json, call, userdata);
+}
+
+/* Child ------------------------------------------------------------------ */
+
+typedef struct {
+    int fd;
+    char failure[128];
+} cell_child;
+
+/* The parent owns time; the child only bounds its wait for a vanished parent. */
+static int64_t child_wait(void) {
+    return monotonic_ms() + TNY_CODE_MAX_TIMEOUT_MS + 5 * 60 * 1000 + CELL_SETTLE_MS;
+}
+
+static char *child_call(void *ud, const char *name, const char *arguments) {
+    cell_child *c = ud;
+    size_t name_len = strlen(name), args_len = strlen(arguments);
+    char *payload = malloc(name_len + 1 + args_len + 1);
+    int rc = -1;
+    if (payload) {
+        memcpy(payload, name, name_len);
+        payload[name_len] = '\n';
+        memcpy(payload + name_len + 1, arguments, args_len + 1);
+        rc = send_frame(c->fd, TNY_CODE_FRAME_CALL, payload, name_len + 1 + args_len, NULL, 0,
+                        child_wait(), NULL, NULL);
+        free(payload);
+    }
+    char *reply = rc ? NULL : tny_exec_host_receive(c->fd, child_wait(), NULL, NULL);
+    char *result = NULL;
+    if (reply && reply[0] == TNY_CODE_FRAME_RESULT) {
+        size_t len = strlen(reply + 1);
+        result = malloc(len + 1);
+        if (result) memcpy(result, reply + 1, len + 1);
+        else snprintf(c->failure, sizeof c->failure, "tool result allocation failed");
+    } else if (reply && reply[0] == TNY_CODE_FRAME_FAIL)
+        snprintf(c->failure, sizeof c->failure, "%s", reply + 1);
+    else snprintf(c->failure, sizeof c->failure, "%s",
+                  reply ? "cell protocol violation" : "cell transport failed");
+    free(reply);
+    return result;
+}
+
+static const char *child_failure(void *ud) {
+    cell_child *c = ud;
+    return c->failure[0] ? c->failure : NULL;
+}
+
+int tny_code_cell_main(void) {
+    int fd = tny_exec_host_accept();
+    if (fd < 0) return 2;
+    cell_child child = {.fd = fd};
+    const char *refusal = NULL;
+    /* Trusted setup first (interpreter startup reads its own configuration),
+     * then limits and the sandbox, and only then the untrusted source. */
+    if (!tny_code_python_available() || tny_code_python_init())
+        refusal = "Python runtime initialization failed";
+    else if (tny_code_sandbox_limits(TNY_CODE_MAX_TIMEOUT_MS / 1000 + 15))
+        refusal = "could not apply code-cell resource limits";
+    else if (tny_code_sandbox_enter())
+        refusal = errno == ENOTSUP ? "no OS sandbox for code cells on this host"
+                                   : "could not enter the code-cell OS sandbox";
+    char *start = tny_exec_host_receive(fd, child_wait(), NULL, NULL);
+    char *output = NULL;
+    char *colon = start && start[0] == TNY_CODE_FRAME_START ? strchr(start + 1, ':') : NULL;
+    char *end = NULL;
+    unsigned long long catalog_len = colon ? strtoull(start + 1, &end, 10) : 0;
+    if (refusal) output = cell_error(refusal);
+    else if (!colon || end != colon || catalog_len > strlen(colon + 1))
+        output = cell_error("cell protocol violation");
+    else {
+        const char *catalog = colon + 1;
+        const char *code = catalog + catalog_len;
+        char *catalog_copy = malloc(catalog_len + 1);
+        if (catalog_copy) {
+            memcpy(catalog_copy, catalog, catalog_len);
+            catalog_copy[catalog_len] = 0;
+            tny_code_python_host host = {.catalog = catalog_copy,
+                                         .call = child_call,
+                                         .userdata = &child,
+                                         .failure = child_failure};
+            output = tny_code_python_run(code, &host);
+            free(catalog_copy);
+        }
+    }
+    free(start);
+    if (!output) output = cell_error("result allocation failed");
+    int rc = output ? send_frame(fd, TNY_CODE_FRAME_DONE, output, strlen(output), NULL, 0,
+                                 child_wait(), NULL, NULL)
+                    : -1;
+    free(output);
+    /* No interpreter finalization: nothing may run after the final frame. */
+    _exit(rc ? 1 : 0);
 }

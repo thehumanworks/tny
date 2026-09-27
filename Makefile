@@ -144,6 +144,9 @@ ifeq ($(UNAME_S),Linux)
   REL_LDFLAGS += -ldl -lm
   DBG_LDFLAGS += -ldl -lm
 endif
+# The embedded CPython archive and the system libraries it needs, last.
+REL_LDFLAGS += $(PY_RUNTIME_LDLIBS)
+DBG_LDFLAGS += $(PY_RUNTIME_LDLIBS)
 
 ifeq ($(STATIC),1)
   ifneq ($(UNAME_S),Darwin)
@@ -182,17 +185,45 @@ SRC_ALL := $(C_SRC_ALL) $(CPP_SRC)
 SRC_NATIVE := src/backends/acp/acp_proc.c src/net/tcp.c src/net/stream.c src/net/http1.c src/net/http_server.c \
               src/util/tny_poll.c src/util/tui_shell_host.c
 SRC_WASM_ONLY := src/net/net_wasm.c src/backends/acp/acp_proc_wasm.c src/util/tui_shell_host_wasm.c
-SRC_SHARED := $(filter-out $(SRC_NATIVE) $(SRC_WASM_ONLY),$(SRC_ALL))
-SRC := $(SRC_SHARED) $(SRC_NATIVE)
+# Python code cells (docs/adr/0179). The embedded interpreter is native CLI
+# only; libtny, wasm and MSYS2/Cygwin link the explicit unsupported seam.
+SRC_PY_RUNTIME := src/core/code_python.c
+SRC_PY_UNSUPPORTED := src/core/code_python_unsupported.c
+ifeq ($(WINDOWS),1)
+  SRC_PY_NATIVE := $(SRC_PY_UNSUPPORTED)
+else
+  SRC_PY_NATIVE := $(SRC_PY_RUNTIME)
+endif
+SRC_SHARED := $(filter-out $(SRC_NATIVE) $(SRC_WASM_ONLY) $(SRC_PY_RUNTIME) $(SRC_PY_UNSUPPORTED),$(SRC_ALL))
+SRC := $(SRC_SHARED) $(SRC_NATIVE) $(SRC_PY_NATIVE)
 
-# Vendored Lua VM and explicitly opened safe libraries only. The ambient IO,
-# OS, package/debug/coroutine libraries and standalone executables never link.
-LUA_SRC := $(filter-out third_party/lua/lua.c third_party/lua/luac.c \
-             third_party/lua/linit.c third_party/lua/liolib.c third_party/lua/loslib.c \
-             third_party/lua/loadlib.c third_party/lua/ldblib.c third_party/lua/lcorolib.c,\
-             $(wildcard third_party/lua/*.c))
-TP := third_party/yyjson/yyjson.c third_party/picohttpparser/picohttpparser.c $(LUA_SRC)
-TP_WASM := third_party/yyjson/yyjson.c $(LUA_SRC)
+TP := third_party/yyjson/yyjson.c third_party/picohttpparser/picohttpparser.c
+TP_WASM := third_party/yyjson/yyjson.c
+
+# Pinned, self-contained CPython for code cells (docs/adr/0179): built from the
+# hash-verified python.org source into a static library with only the core and
+# its bootstrap modules; encodings are frozen in, so no stdlib directory or
+# system Python is used at run time. `make fetch-cpython` downloads the pinned
+# tarball; CPYTHON_TARBALL=/path supplies an existing copy (Nix, offline).
+CPYTHON_VERSION := 3.14.7
+CPYTHON_SHA256 := 3b48dac8fb59f62eaa67ac83c1eb12bda1b7a08406dd286e252c11a66be27f81
+CPYTHON_URL := https://www.python.org/ftp/python/$(CPYTHON_VERSION)/Python-$(CPYTHON_VERSION).tar.xz
+CPYTHON_TARBALL ?= $(BUILD)/deps/Python-$(CPYTHON_VERSION).tar.xz
+CPYTHON_DIR := $(BUILD)/cpython-$(CPYTHON_VERSION)
+CPYTHON_LIB := $(CPYTHON_DIR)/libpython3.14.a
+CPYTHON_JOBS ?= 4
+# Linux keeps the published glibc floor in the interpreter objects too.
+CPYTHON_CFLAGS ?= -Os -ffunction-sections -fdata-sections \
+                  $(if $(CXX_GLIBC_FLOOR),-include $(abspath src/util/cxx_glibc_floor.h))
+CPYTHON_INC := -isystem $(CPYTHON_DIR)/include -isystem $(CPYTHON_DIR)/frozen
+ifeq ($(SRC_PY_NATIVE),$(SRC_PY_RUNTIME))
+  # Expanded when a link recipe runs. Every link containing the interpreter
+  # object has already built the archive (an order-only prerequisite of that
+  # object); other links simply do not reference it. The libraries libpython
+  # itself recorded (for example libintl where _locale found it) follow it.
+  PY_RUNTIME_LDLIBS = $(wildcard $(CPYTHON_LIB)) \
+                      $(if $(wildcard $(CPYTHON_LIB)),$(shell cat $(CPYTHON_DIR)/ldlibs 2>/dev/null))
+endif
 
 REL_OBJS := $(call objects,$(OBJ_REL),$(SRC)) $(call objects,$(OBJ_REL),$(TP))
 
@@ -216,7 +247,7 @@ endif
 LIB_APP_EXCLUDE := src/main.c $(filter-out src/cli/globals.c,$(wildcard src/cli/*.c src/tui/*.c))
 LIB_SRC := $(SRC_PUBLIC_API) \
            $(filter-out $(LIB_APP_EXCLUDE) $(SRC_PUBLIC_API),$(SRC_SHARED)) \
-           $(SRC_NATIVE)
+           $(SRC_NATIVE) $(SRC_PY_UNSUPPORTED)
 OBJ_PIC := $(BUILD)/pic
 LIB_PIC_OBJS := $(call objects,$(OBJ_PIC),$(LIB_SRC)) $(call objects,$(OBJ_PIC),$(TP))
 PIC_CFLAGS := $(REL_CFLAGS) -fPIC -fvisibility=hidden \
@@ -453,6 +484,26 @@ dictation-fixture: $(DICTATION_FIXTURE)
 test-dictation: $(TEST_BIN) $(BIN) $(DICTATION_FIXTURE)
 	./$(TEST_BIN) -s dictation
 	TNY=$(abspath $(BIN)) TNY_DICTATION_FIXTURE_BIN=$(abspath $(DICTATION_FIXTURE)) python3 tests/integration/test_dictation.py
+
+# The interpreter layer compiles against the pinned CPython headers only.
+$(call objects,$(OBJ_REL),$(SRC_PY_RUNTIME)): REL_CFLAGS += $(CPYTHON_INC)
+$(call objects,$(OBJ_DBG),$(SRC_PY_RUNTIME)): DBG_CFLAGS += $(CPYTHON_INC)
+$(call objects,$(OBJ_REL),$(SRC_PY_RUNTIME)) $(call objects,$(OBJ_DBG),$(SRC_PY_RUNTIME)): | $(CPYTHON_LIB)
+
+$(CPYTHON_LIB): scripts/cpython_runtime.sh
+	CC='$(CC)' CPYTHON_CFLAGS='$(CPYTHON_CFLAGS)' CPYTHON_JOBS='$(CPYTHON_JOBS)' \
+		$(SHELL) scripts/cpython_runtime.sh $(CPYTHON_DIR) $(CPYTHON_TARBALL) \
+		$(CPYTHON_SHA256) $(CPYTHON_URL)
+
+.PHONY: fetch-cpython cpython-runtime
+fetch-cpython:
+	@mkdir -p $(dir $(CPYTHON_TARBALL))
+	@if [ ! -f $(CPYTHON_TARBALL) ]; then \
+		curl -fsSL --retry 3 -o $(CPYTHON_TARBALL).part $(CPYTHON_URL) && \
+		mv $(CPYTHON_TARBALL).part $(CPYTHON_TARBALL); fi
+	@actual=$$( (sha256sum $(CPYTHON_TARBALL) 2>/dev/null || shasum -a 256 $(CPYTHON_TARBALL)) | cut -d' ' -f1); \
+	test "$$actual" = "$(CPYTHON_SHA256)" || { echo "error: $(CPYTHON_TARBALL) SHA256 mismatch" >&2; exit 1; }
+cpython-runtime: $(CPYTHON_LIB)
 
 $(OBJ_REL)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
@@ -1384,7 +1435,7 @@ EMCXX       ?= $(patsubst %emcc,%em++,$(EMCC))
 OBJ_WASM     = $(BUILD)/wasm/obj
 WASM_NODE    = $(BUILD)/wasm/tny.js
 WASM_WEB     = $(BUILD)/wasm/tny-web.mjs
-WASM_SRC    := $(SRC_SHARED) $(SRC_WASM_ONLY) $(TP_WASM)
+WASM_SRC    := $(SRC_SHARED) $(SRC_WASM_ONLY) $(SRC_PY_UNSUPPORTED) $(TP_WASM)
 WASM_OBJS   := $(call objects,$(OBJ_WASM),$(WASM_SRC))
 WASM_CFLAGS  = $(STD) $(WARN) $(INC) $(DEFS) -Os
 WASM_CXXFLAGS = $(call cxx_flags,$(WASM_CFLAGS))

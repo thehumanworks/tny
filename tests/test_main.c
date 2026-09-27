@@ -1,6 +1,7 @@
 /* test_main.c — greatest runner; suites live in the other test files. */
 #include "greatest.h"
 #include "core/runner.h"
+#include "core/code_runtime.h"
 #include "core/execution.h"
 #include "util/execution_command.h"
 #include <stdlib.h>
@@ -51,6 +52,7 @@ SUITE_EXTERN(image_service_suite);
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--exec-command") == 0) return tny_exec_command_main();
     if (argc == 2 && strcmp(argv[1], "--exec-server") == 0) return tny_execution_server_main();
+    if (argc == 2 && strcmp(argv[1], "--code-cell") == 0) return tny_code_cell_main();
     /* Unit runner lifecycles exec this test binary as their trusted image. */
     if (argc == 2 && strcmp(argv[1], "--runner-start") == 0) return tny_runner_start_main();
     if (argc == 2 && strcmp(argv[1], "--runner-restart") == 0) return tny_runner_restart_main();
