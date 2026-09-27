@@ -1,6 +1,9 @@
 # tny — C11 + private C++20 TUI + CLI coding-agent harness.
 # Targets: make (release), make debug, make test, make size, make size-check,
 #          make pack, make bench, make install, make site
+# Plain `make` (and packagers' default build phase) is the release build,
+# wherever rules happen to appear below.
+.DEFAULT_GOAL := all
 
 CC      ?= cc
 # Explicit cross/wrapper toolchains should set both drivers (CC and CXX).
@@ -205,6 +208,7 @@ TP_WASM := third_party/yyjson/yyjson.c
 # its bootstrap modules; encodings are frozen in, so no stdlib directory or
 # system Python is used at run time. `make fetch-cpython` downloads the pinned
 # tarball; CPYTHON_TARBALL=/path supplies an existing copy (Nix, offline).
+# The default cache lives under build/, so `make clean` removes it too.
 CPYTHON_VERSION := $(shell cat third_party/cpython/VERSION)
 CPYTHON_SHA256 := $(shell cat third_party/cpython/SHA256)
 # 1: download the pinned tarball when missing; 0: fail instead (offline).
