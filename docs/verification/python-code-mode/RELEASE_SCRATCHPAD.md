@@ -129,3 +129,16 @@ repeated on the now-lightly-loaded host with the exact binaries/hash receipts.
 Old loaded-host measurements remain historical, not overwritten. Generated
 site metadata containing the temporary benchmark version was restored to its
 committed state; published metadata will be generated from the actual release.
+
+## Completion checkpoint — fixture corrected, live smoke outcomes retained
+
+Opus/high committed `ad61acc`, correcting only the pending-permission executable's
+native Python linkage. Eight methods and twenty pending matrix cases pass; a
+relinked previous graph fails and reproduces the original CI error. The full
+native suite and hosted matrix are being run on the final source checkpoint.
+
+One genuine native Tny/Luna integration attempt made a filtering mistake while
+its Python/tool calls succeeded; one fresh-workspace repair passed. Both raw
+synthetic receipts remain in data, with no success-by-final-message shortcut.
+The final version will be selected by the normal release script (currently
+v0.24.0), only after same-revision CI and SDK gates succeed.

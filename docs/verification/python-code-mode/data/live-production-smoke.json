@@ -1,0 +1,144 @@
+{
+  "scope": "One live native-Tny Codex ChatGPT smoke, not a statistical model comparison.",
+  "requested_model": "gpt-6-luna",
+  "effort": "low",
+  "binary_sha256": "80cb11eaa824379c537195b2b6152be9efe25e7f462d27b0192977a34fb521d8",
+  "command": [
+    "/home/tomas/Projects/tny-python-code-mode/.agent/completion/bin/tny-python-final",
+    "--cwd",
+    "/var/tmp/tny-python-completion/tny-live-python-4it_lyzg/workspace",
+    "--provider",
+    "codex",
+    "--model",
+    "gpt-6-luna",
+    "--effort",
+    "low",
+    "--no-extensions",
+    "ask",
+    "--ephemeral",
+    "--json",
+    "--stdin"
+  ],
+  "prompt": "Read input.json using the typed file tools inside Python run_code. Write output.json with exactly these fields: sum (integer sum of amount where enabled is exactly true), ids (those row IDs sorted lexicographically), count (number of enabled rows), metadata (the entire input metadata object unchanged, including empty shapes/null/booleans/Unicode). Preserve integer precision. Use the Python run_code tool and typed file capabilities only, not a shell or terminal. After verifying the write, reply exactly SMOKE_COMPLETE.",
+  "input": {
+    "rows": [
+      {
+        "id": "a",
+        "enabled": true,
+        "amount": 9007199254740993
+      },
+      {
+        "id": "b",
+        "enabled": false,
+        "amount": 100
+      },
+      {
+        "id": "c",
+        "enabled": true,
+        "amount": 7
+      }
+    ],
+    "metadata": {
+      "empty_array": [],
+      "empty_object": {},
+      "flag": false,
+      "optional": null,
+      "zero": 0,
+      "label": "Ω🙂"
+    }
+  },
+  "expected": {
+    "sum": 9007199254741000,
+    "ids": [
+      "a",
+      "c"
+    ],
+    "count": 2,
+    "metadata": {
+      "empty_array": [],
+      "empty_object": {},
+      "flag": false,
+      "optional": null,
+      "zero": 0,
+      "label": "Ω🙂"
+    }
+  },
+  "observed": {
+    "sum": 9007199254741000,
+    "ids": [
+      "a",
+      "b",
+      "c"
+    ],
+    "count": 2,
+    "metadata": {
+      "empty_array": [],
+      "empty_object": {},
+      "flag": false,
+      "optional": null,
+      "zero": 0,
+      "label": "Ω🙂"
+    }
+  },
+  "result": {
+    "output": "SMOKE_COMPLETE",
+    "exit_code": 0,
+    "provider": "codex",
+    "model": "gpt-6-luna",
+    "session_id": "",
+    "ephemeral": true,
+    "task": null,
+    "steps": 5,
+    "tool_calls": [
+      {
+        "name": "run_code",
+        "status": "success"
+      },
+      {
+        "name": "read_file",
+        "status": "success"
+      },
+      {
+        "name": "run_code",
+        "status": "success"
+      },
+      {
+        "name": "read_file",
+        "status": "success"
+      },
+      {
+        "name": "write_file",
+        "status": "success"
+      },
+      {
+        "name": "run_code",
+        "status": "success"
+      },
+      {
+        "name": "read_file",
+        "status": "success"
+      },
+      {
+        "name": "read_file",
+        "status": "success"
+      },
+      {
+        "name": "run_code",
+        "status": "success"
+      }
+    ],
+    "usage": {
+      "input_tokens": 28845,
+      "output_tokens": 346,
+      "requests": 5,
+      "cached_input_tokens": 18944,
+      "uncached_input_tokens": 9901,
+      "cache_write_tokens": 0
+    },
+    "extension_messages": []
+  },
+  "process_exit": 0,
+  "wall_seconds": 12.061632202006876,
+  "passed": false,
+  "stderr": "⏺ run_code {\"code\":\"print(tools.list())\"}\n  ✓ run_code\n⏺ run_code {\"code\":\"print(tools.call('read_file', json.dumps({'path':'input.json'})))\"}\n⏺ read_file {\"path\": \"input.json\"}\n  ✓ read_file\n  ✓ run_code\n⏺ run_code {\"code\":\"raw=tools.call('read_file', json.dumps({'path':'input.json'})); data=json.loads(raw); rows=data['rows']; enable\n⏺ read_file {\"path\": \"input.json\"}\n  ✓ read_file\n⏺ write_file {\"path\": \"output.json\", \"content\": \"{\\\"sum\\\":9007199254741000,\\\"ids\\\":[\\\"a\\\",\\\"b\\\",\\\"c\\\"],\\\"count\\\":2,\\\"metadata\\\":{\\\"em\n  ✓ write_file\n  ✓ run_code\n⏺ run_code {\"code\":\"raw=tools.call('read_file',json.dumps({'path':'input.json'})); d=json.loads(raw); verify=json.loads(tools.call(\n⏺ read_file {\"path\": \"input.json\"}\n  ✓ read_file\n⏺ read_file {\"path\": \"output.json\"}\n  ✓ read_file\n  ✓ run_code\n"
+}

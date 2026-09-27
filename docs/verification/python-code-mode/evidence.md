@@ -102,3 +102,30 @@ That fixture must link the native interpreter while preserving public-library
 refusal and every existing permission/allocation assertion. Other local failures
 were an unset Go shim and a comparison-only version label. The previous GCC 16
 analyzer output is not confused with the successful hosted GCC 14 quality job.
+
+## Completion fixture and actual live production checks
+
+The pending image-permission fixture now links Make's native interpreter graph
+rather than the public-library refusal stub. Opus/high performed this scoped
+correction in durable tmux; checkpoint `ad61acc` contains only the fixture change.
+All eight test methods and all twenty pending matrix rows passed. A separately
+relinked old graph fails the new regression and reproduces the original Python
+initialization error. No production permission or allocation assertion changed.
+
+A separate actual Tny→Codex→Python→typed-files check used `gpt-6-luna` at low
+effort through the existing ChatGPT account. Its first attempt executed every
+Python/file call successfully and preserved an integer above 2^53 and all nested
+JSON shapes, but included a disabled row in the output ID list. The external
+effect oracle rejected it despite a successful final message. One fresh-workspace
+repair with the observed error corrected the filtered IDs, and all fields then
+matched. Both receipts (`live-production-smoke.json` and
+`live-production-smoke-repair.json`) are retained. These two requests are
+integration evidence, not extra samples silently added to the frozen comparison.
+
+The whole local quality attempt is not labelled green: the local Nix GCC 14.4
+analyzer reports an existing jobs.cpp descriptor-ownership path, while hosted
+GCC 14 previously passed it. The exact final hosted quality job remains the
+release gate. The first repeated Lean command accidentally selected an older
+Clang lacking its UBSan archive; the final code-policy check uses the installed
+Clang 22 with its real UBSan runtime. Compiler setup failures do not count as
+proof failures or proof successes.
