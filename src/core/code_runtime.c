@@ -149,7 +149,12 @@ char *tny_code_run_with_deadline(const char *code, const int64_t *deadline,
         free(output);
         output = cell_error(error);
         (void)tny_exec_host_kill(&host);
-    } else (void)tny_exec_host_close(&host, true);
+    } else if (tny_exec_host_close(&host, true)) {
+        free(output);
+        output = cell_error("Python runtime did not exit successfully");
+        /* Reap failures retain the existing generation-safe cleanup boundary. */
+        (void)tny_exec_host_kill(&host);
+    }
     return output;
 }
 
@@ -205,6 +210,21 @@ static const char *child_failure(void *ud) {
     return c->failure[0] ? c->failure : NULL;
 }
 
+/* Quotas are a process-terminal event, not a catchable Python exception.
+ * The existing DONE frame settles a bounded error; _exit prevents any later
+ * bytecode, finalizer or raw-IPC alias from asking the parent for more effects.
+ * The transport uses only stack storage and bounded I/O, even under heap OOM. */
+static _Noreturn void child_abort(void *ud, const char *reason) {
+    cell_child *c = ud;
+    char frame[256];
+    frame[0] = TNY_CODE_FRAME_DONE;
+    int n = snprintf(frame + 1, sizeof frame - 1, "error: code: %s",
+                     reason ? reason : "terminal execution failure");
+    int rc =
+        n < 0 ? -1 : tny_exec_host_send(c->fd, frame, monotonic_ms() + CELL_SETTLE_MS, NULL, NULL);
+    _exit(rc ? 1 : 0);
+}
+
 int tny_code_cell_main(void) {
     int fd = tny_exec_host_accept();
     if (fd < 0) return 2;
@@ -237,7 +257,8 @@ int tny_code_cell_main(void) {
             tny_code_python_host host = {.catalog = catalog_copy,
                                          .call = child_call,
                                          .userdata = &child,
-                                         .failure = child_failure};
+                                         .failure = child_failure,
+                                         .abort = child_abort};
             output = tny_code_python_run(code, &host);
             free(catalog_copy);
         }

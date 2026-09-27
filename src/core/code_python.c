@@ -147,6 +147,7 @@ static int fatal_pending(void *arg) {
 static PyObject *terminal(const char *reason) {
     if (!cell.fatal) {
         cell.fatal = reason;
+        if (cell.host && cell.host->abort) cell.host->abort(cell.host->userdata, cell.fatal);
         (void)Py_AddPendingCall(fatal_pending, NULL);
     }
     if (!PyErr_Occurred()) PyErr_SetString(cell.limit_error, cell.fatal);
@@ -154,8 +155,11 @@ static PyObject *terminal(const char *reason) {
 }
 
 static void budget_exhausted(void) {
-    if (!cell.fatal) cell.fatal = "memory limit exceeded";
-    /* Thread-safe and allocation-free; re-raises until the cell unwinds. */
+    if (!cell.fatal) {
+        cell.fatal = "memory limit exceeded";
+        if (cell.host && cell.host->abort) cell.host->abort(cell.host->userdata, cell.fatal);
+    }
+    /* Hosts without a terminal handler retain bounded exception unwinding. */
     if (cell.active) (void)Py_AddPendingCall(fatal_pending, NULL);
 }
 
