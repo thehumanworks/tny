@@ -401,8 +401,11 @@ static const char *pv_code_reply(pv_fixture *f, const char *body) {
         buf_appends(&f->tool_reply, " ,\"function\":{\"name\":\"run_code\",\"arguments\":");
         yyjson_val *fn = jget(call, "function");
         buf_t code = {0}, args = {0};
-        buf_appendf(&code, "print(tools.call([=[%s]=], [=[%s]=]))", jget_str(fn, "name"),
-                    jget_str(fn, "arguments"));
+        buf_appends(&code, "print(tools.call(");
+        jescape(&code, jget_str(fn, "name")); /* JSON strings are Python literals */
+        buf_appends(&code, ", ");
+        jescape(&code, jget_str(fn, "arguments"));
+        buf_appends(&code, "))");
         buf_appends(&args, "{\"code\":");
         jescape(&args, code.data);
         buf_appends(&args, "}");

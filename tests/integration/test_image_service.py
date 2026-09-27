@@ -154,10 +154,12 @@ class Handler(BaseHTTPRequestHandler):
                 name = "run_code"
                 args = {
                     "code": (
-                        "local selected = {}; for _, entry in ipairs(json.decode(tools.list())) do "
-                        'local name = entry["function"].name; '
-                        'if name == "image_generate" or name == "image_edit" then '
-                        "selected[#selected + 1] = entry end end; print(json.encode(selected))"
+                        "selected = []\n"
+                        "for entry in json.loads(tools.list()):\n"
+                        '    name = entry["function"]["name"]\n'
+                        '    if name == "image_generate" or name == "image_edit":\n'
+                        "        selected.append(entry)\n"
+                        "print(json.dumps(selected))"
                     )
                 }
             delta = {
