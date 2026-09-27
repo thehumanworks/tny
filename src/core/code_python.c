@@ -844,6 +844,15 @@ int tny_code_python_init(void) {
     if (!PyStatus_Exception(status)) status = Py_InitializeFromConfig(&config);
     PyConfig_Clear(&config);
     if (PyStatus_Exception(status)) return -1;
+    /* Preload the parser's own Unicode normalization/name database before
+     * entering the OS sandbox. It is statically linked, never loaded from a
+     * host stdlib directory, and does not grant an import API to scripts. */
+    PyObject *unicode = PyImport_ImportModule("unicodedata");
+    if (!unicode) {
+        PyErr_Clear();
+        return -1;
+    }
+    Py_DECREF(unicode);
     cell.limit_error = PyErr_NewExceptionWithDoc(
         "tny.CellLimitError", "A code-cell budget was exhausted; the cell is terminal.",
         PyExc_BaseException, NULL);

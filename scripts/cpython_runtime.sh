@@ -56,6 +56,11 @@ test -n "$src"
     cd "$src"
     # A parent make's jobserver/flags must not leak into CPython's own build.
     unset MAKEFLAGS MFLAGS MAKELEVEL
+    # CPython's parser imports unicodedata internally for non-ASCII identifiers
+    # and \N{name} string escapes. Freeze-only bootstrap without this builtin
+    # silently implements a Python subset despite using the CPython parser.
+    # Link it statically; user code still has no general import authority.
+    printf '*static*\nunicodedata unicodedata.c\n' > Modules/Setup.local
     # libintl (e.g. Homebrew gettext on macOS) would become a dynamic
     # dependency of the executable; the code cell never uses gettext.
     ac_cv_lib_intl_textdomain=no ac_cv_header_libintl_h=no \

@@ -247,3 +247,16 @@ confinement receipt is explicitly native, not claimed instrumentor coverage.
 The frame builder also copies a temporary string terminator before appending its
 length-delimited argument bytes, satisfying strict lint without altering wire
 semantics or the independently proven frame-size bound.
+
+### Unicode parser bootstrap correction
+An explicit final probe found that the minimal static interpreter could not
+compile a Greek identifier or a named Unicode escape: CPython internally loads
+unicodedata for normalization/lookup. Ordinary literal Unicode strings worked.
+The pinned build now statically includes that parser dependency and preloads it
+before OS confinement; no user import authority is added. The new regression
+checks Greek identifiers, Kelvin-sign NFKC identifier equivalence, named alpha/
+emoji escapes, and continuing import refusal. Earlier probe/binary measurements
+are retained as pre-correction evidence, not mislabeled as final release size.
+This is a genuine implementation correction, not an alteration of generated
+programs, task oracles or model scores. Production replay and final artifact
+measurement must be refreshed on the rebuilt interpreter.

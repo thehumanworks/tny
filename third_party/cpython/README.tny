@@ -17,3 +17,11 @@ local copy, and CPYTHON_FETCH=0 forbids any download.
 To update: change VERSION and SHA256 together from python.org metadata,
 refresh LICENSE from the new tarball, rebuild, and rerun `make test`, the
 Python conformance cases and the frozen-corpus replay.
+
+### Unicode parser bootstrap
+The builtin unicodedata module is statically linked and preloaded for the
+CPython parser's non-ASCII identifier normalization and named Unicode escapes.
+It is not a general import permission or an external stdlib dependency. A
+production regression verifies Greek identifiers, NFKC normalization and named
+Unicode escapes while user imports remain refused. Earlier minimal-probe sizes
+remain historical; the final production artifact includes this required module.

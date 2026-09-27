@@ -193,3 +193,11 @@ trial commands. Normal verification never calls a provider. Data files and raw
 receipts are synthetic and source-bound. The chronological scratchpad preserves
 old measurements, corrected probes, failed gates and subsequent fixes instead of
 rewriting history into an all-green narrative.
+
+### Unicode parser bootstrap
+The builtin unicodedata module is statically linked and preloaded for the
+CPython parser's non-ASCII identifier normalization and named Unicode escapes.
+It is not a general import permission or an external stdlib dependency. A
+production regression verifies Greek identifiers, NFKC normalization and named
+Unicode escapes while user imports remain refused. Earlier minimal-probe sizes
+remain historical; the final production artifact includes this required module.

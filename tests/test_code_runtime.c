@@ -414,7 +414,26 @@ TEST code_fatal_quota_does_not_run_finally_or_following_bytecode(void) {
     PASS();
 }
 
+TEST code_unicode_parser_is_self_contained(void) {
+    const char *source = "\u03c0 = 3\n"
+                         "print(\u03c0, '\\N{GREEK SMALL LETTER ALPHA}', '\\N{GRINNING FACE}')\n"
+                         "\u212a = 7\n"
+                         "assert K == 7\n"
+                         "try:\n"
+                         "    import unicodedata\n"
+                         "except ImportError:\n"
+                         "    print('no import authority')\n"
+                         "else:\n"
+                         "    raise AssertionError('parser module exposed an import capability')\n";
+    char *out = tny_code_run(source, 5000, NULL, NULL, NULL);
+    ASSERT(out);
+    ASSERT_STR_EQ("3 \u03b1 \U0001f600\nno import authority\n", out);
+    free(out);
+    PASS();
+}
+
 SUITE(code_runtime_suite) {
+    RUN_TEST(code_unicode_parser_is_self_contained);
     RUN_TEST(code_tool_names_preserve_exact_bytes);
     RUN_TEST(code_json_reentrant_container_lifetimes);
     RUN_TEST(code_json_error_metadata_and_describe_boundaries);

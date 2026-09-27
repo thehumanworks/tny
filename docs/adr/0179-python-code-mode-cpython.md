@@ -136,3 +136,11 @@ Native integration, quota/finalizer and exact-name regressions, process-exit tes
 compiler/wasm checks, memory instrumentation and independent evidence replay are
 separate obligations. See the [evidence ledger](../verification/python-code-mode/evidence.md)
 for revision-bound outcomes, failures and platform limits.
+
+### Unicode parser bootstrap
+The builtin unicodedata module is statically linked and preloaded for the
+CPython parser's non-ASCII identifier normalization and named Unicode escapes.
+It is not a general import permission or an external stdlib dependency. A
+production regression verifies Greek identifiers, NFKC normalization and named
+Unicode escapes while user imports remain refused. Earlier minimal-probe sizes
+remain historical; the final production artifact includes this required module.
