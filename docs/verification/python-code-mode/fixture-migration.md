@@ -110,7 +110,7 @@ These need the Python production runtime and were not run here:
    `run` raises), the counter still holds; if an attempt returns normally
    without an effect, the marker (not the invariant) may need rewording. The
    invariant is that `<workspace>/escape.txt` never exists and only nested tools
-   reach the workspace.
+   reach the workspace. The cell also needs the `str` builtin for its marker.
 3. The memory-bound cell relies on `"x" * 100000` allocating a fresh string per
    iteration, as Lua `string.rep` did. CPython does not constant-fold string
    products longer than 4096 characters; a runtime that folds it would reach the
@@ -122,3 +122,9 @@ These need the Python production runtime and were not run here:
    runtime must keep those host strings. Python exception class names (for
    example `SyntaxError`) also satisfy the lowered `error` check.
 5. `test_code_runtime.c` is owned by the runtime branch and was not touched.
+
+Python `json.dumps` separates with `", "`/`": "` where Lua `json.encode` was
+compact. No converted cell's JSON is compared as a raw string: nested
+`web_search` arguments are parsed by tny (the test asserts the
+`configured:fixture` result), image catalogs are `json.loads`-ed, and the
+`"answer":43` check strips spaces.
