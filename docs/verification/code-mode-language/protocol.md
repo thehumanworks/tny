@@ -76,3 +76,24 @@ Independent recomputation must reconcile the raw sample cohort and reported
 aggregates. Proofs certify those deterministic rules, not stochastic model
 competence, the C interpreters, the OS sandbox, or Python memory safety. Existing
 production source-linked SMT checks and executable regressions remain separate.
+
+## Execution notes and deviations (recorded after the first cohort)
+
+The live cohort used a six-second *outer process watchdog*, although every prompt
+advertised two seconds and Lua/QuickJS had two-second interpreter deadlines.
+CPython did not have an internal wall-clock hook. The common outer watchdog was
+then tightened to two seconds, and **all 327 frozen attempt/variant executions
+were replayed without model calls or code edits**. Every pass/fail result was
+unchanged; `data/audit.json` records that replay. Original live timings remain
+unchanged and are not mixed with replay timings. CPython has no matching 16 MiB
+interpreter heap limit: the common process limit was 512 MiB, whereas Lua and
+QuickJS additionally used their 16 MiB heap limit. This is an explicit candidate
+parity gap, not an equal-memory benchmark claim.
+
+A separate serial empty-cell timing probe uses only trusted, handwritten input,
+not generated programs, and excludes bubblewrap overhead. It measures warm-page-
+cache startup, not a cold host. Compatibility probes were added after model
+trials and are reported separately; they never alter model scores or denominators.
+The only model error was decoding an entire NDJSON stream as one JSON document
+before a correct per-line loop. No fixture, task, success oracle, language prompt,
+repair budget, or decision threshold was changed in response to that error.

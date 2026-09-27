@@ -336,6 +336,23 @@ endif
 
 # Measure shipped artifacts without a fixed product size ceiling.
 
+# Experimental language decisions have an offline oracle test and a separate
+# source-linked Lean gate. Live Codex inference is never a build/test prerequisite.
+LEAN ?= lean
+.PHONY: test-code-mode-language verify-code-mode-language bench-code-mode-language
+test-code-mode-language:
+	python3 tests/bench/code_mode/test_benchmark.py
+
+verify-code-mode-language:
+	python3 tests/formal/check_code_mode_language.py --lean "$(LEAN)"
+	LEAN="$(LEAN)" python3 tests/formal/code_mode_language/test_mutations.py
+
+# Explicitly pass CODE_MODE_DOWNLOAD=--download to fetch the hash-pinned probe
+# source. CPython 3.14 headers/library and Linux bwrap/prlimit are required.
+bench-code-mode-language:
+	python3 tests/bench/code_mode/build.py $(CODE_MODE_DOWNLOAD)
+	python3 tests/bench/code_mode/execute.py
+
 .PHONY: verify-formal verify-execution-protocol
 verify-formal: verify-execution-protocol
 	python3 tests/formal/check.py
@@ -1040,7 +1057,7 @@ test-libtny-tsan:
 	@exit 2
 endif
 
-test: verify-formal dictation-fixture test-unit test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
+test: test-code-mode-language verify-formal dictation-fixture test-unit test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
 	tests/integration/run.sh
 
 size: release

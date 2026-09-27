@@ -32,7 +32,10 @@ char *bench_describe(bench_state *s, const char *name) {
     char *out = NULL;
     yyjson_arr_foreach(yyjson_doc_get_root(d), i, n, v) {
         const char *candidate = text(yyjson_obj_get(v, "name"));
-        if (candidate && !strcmp(candidate, name)) { out = yyjson_val_write(v, 0, NULL); break; }
+        if (candidate && !strcmp(candidate, name)) {
+            out = yyjson_val_write(v, 0, NULL);
+            break;
+        }
     }
     yyjson_doc_free(d);
     return out;
@@ -42,7 +45,10 @@ char *bench_call(void *ud, const char *name, const char *args) {
     if (++s->call_count > BENCH_CALL_LIMIT) return invalid(s);
     yyjson_doc *d = yyjson_read(args, strlen(args), 0);
     yyjson_val *a = yyjson_doc_get_root(d);
-    if (!a || !yyjson_is_obj(a)) { yyjson_doc_free(d); return invalid(s); }
+    if (!a || !yyjson_is_obj(a)) {
+        yyjson_doc_free(d);
+        return invalid(s);
+    }
     yyjson_mut_val *event = yyjson_mut_obj(s->result);
     yyjson_mut_obj_add_strcpy(s->result, event, "name", name);
     yyjson_mut_obj_add_val(s->result, event, "args", yyjson_val_mut_copy(s->result, a));
@@ -91,8 +97,8 @@ char *bench_call(void *ud, const char *name, const char *args) {
             yyjson_mut_val *call;
             yyjson_mut_arr_foreach(s->calls, i, n, call) {
                 const char *method = yyjson_mut_get_str(yyjson_mut_obj_get(call, "name"));
-                const char *prior = yyjson_mut_get_str(yyjson_mut_obj_get(
-                    yyjson_mut_obj_get(call, "args"), "id"));
+                const char *prior =
+                    yyjson_mut_get_str(yyjson_mut_obj_get(yyjson_mut_obj_get(call, "args"), "id"));
                 if (method && prior && !strcmp(method, name) && !strcmp(prior, id)) ++seen;
             }
             yyjson_val *replies = yyjson_obj_get(yyjson_obj_get(s->fixture, "checks"), id);
@@ -108,7 +114,10 @@ int main(void) {
     char *wire = malloc(limit + 1);
     if (!wire) return 2;
     size_t len = fread(wire, 1, limit, stdin);
-    if (ferror(stdin) || (!feof(stdin) && fgetc(stdin) != EOF)) { free(wire); return 2; }
+    if (ferror(stdin) || (!feof(stdin) && fgetc(stdin) != EOF)) {
+        free(wire);
+        return 2;
+    }
     wire[len] = 0;
     yyjson_doc *input = yyjson_read(wire, len, 0);
     free(wire);
@@ -117,10 +126,14 @@ int main(void) {
     const char *catalog = text(yyjson_obj_get(root, "catalog"));
     yyjson_val *fixture = yyjson_obj_get(root, "fixture");
     if (!code || strlen(code) > 262144 || !catalog || !yyjson_is_obj(fixture)) {
-        yyjson_doc_free(input); return 2;
+        yyjson_doc_free(input);
+        return 2;
     }
     bench_state *s = calloc(1, sizeof(*s));
-    if (!s) { yyjson_doc_free(input); return 2; }
+    if (!s) {
+        yyjson_doc_free(input);
+        return 2;
+    }
     s->fixture = fixture;
     s->catalog = catalog;
     s->result = yyjson_mut_doc_new(NULL);

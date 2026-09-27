@@ -1,3 +1,5 @@
+# Code-mode language benchmarks, offline tests and Lean AST checker are in the
+# existing ../tests fileset. Optional live trials/downloads are never sandbox inputs.
 # Execution code mode vendors Lua under the existing third_party fileset;
 # The production predicate proof tests/formal/check_execution_protocol.py
 # uses the existing tests fileset and explicit Clang/Z3 inputs in nix/tests.nix.

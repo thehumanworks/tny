@@ -182,3 +182,5 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0173: Local interactive shell mode](0173-interactive-shell-mode.md) — host shell commands stream into the TUI and are disclosed to the next agent prompt.
 
 - [0174: Isolated execution server and code-only agent tools](0174-execution-server-code-mode.md) — bounded Lua and one provider tool surface.
+
+- [0175: Retain Lua after the Codex language benchmark](0175-retain-lua-after-codex-language-benchmark.md) — measured agent efficiency, native embedding probes, synthetic evidence and source-linked Lean decision gates.

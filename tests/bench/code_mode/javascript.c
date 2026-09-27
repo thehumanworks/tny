@@ -14,7 +14,11 @@ static JSValue call(JSContext *ctx, JSValueConst self, int argc, JSValueConst *a
     size_t nlen, alen;
     const char *name = JS_ToCStringLen(ctx, &nlen, argv[0]);
     const char *args = JS_ToCStringLen(ctx, &alen, argv[1]);
-    if (!name || !args) { JS_FreeCString(ctx, name); JS_FreeCString(ctx, args); return JS_EXCEPTION; }
+    if (!name || !args) {
+        JS_FreeCString(ctx, name);
+        JS_FreeCString(ctx, args);
+        return JS_EXCEPTION;
+    }
     char *out = NULL;
     if (nlen && nlen <= 256 && alen <= 262144 && strlen(name) == nlen && strlen(args) == alen)
         out = bench_call(JS_GetContextOpaque(ctx), name, args);
@@ -26,7 +30,9 @@ static JSValue call(JSContext *ctx, JSValueConst self, int argc, JSValueConst *a
     return value;
 }
 static JSValue list(JSContext *ctx, JSValueConst self, int argc, JSValueConst *argv) {
-    (void)self; (void)argc; (void)argv;
+    (void)self;
+    (void)argc;
+    (void)argv;
     return JS_NewString(ctx, ((bench_state *)JS_GetContextOpaque(ctx))->catalog);
 }
 static JSValue describe(JSContext *ctx, JSValueConst self, int argc, JSValueConst *argv) {
@@ -61,7 +67,10 @@ bool bench_execute(bench_state *s, const char *code) {
     JS_SetMaxStackSize(rt, 1024 * 1024);
     JS_SetInterruptHandler(rt, interrupted, s);
     JSContext *ctx = JS_NewContext(rt);
-    if (!ctx) { JS_FreeRuntime(rt); return false; }
+    if (!ctx) {
+        JS_FreeRuntime(rt);
+        return false;
+    }
     JS_SetContextOpaque(ctx, s);
     JSValue global = JS_GetGlobalObject(ctx), tools = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, tools, "call", JS_NewCFunction(ctx, call, "call", 2));

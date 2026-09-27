@@ -1,0 +1,26 @@
+name: Code-mode language verification
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  proofs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: tests/formal/code_mode_language
+          auto-config: false
+          build: true
+      - name: Offline benchmark and source-linked Lean gates
+        run: |
+          make test-code-mode-language
+          LEAN_BIN="$(cd tests/formal/code_mode_language && lake env which lean)"
+          make verify-code-mode-language LEAN="$LEAN_BIN"

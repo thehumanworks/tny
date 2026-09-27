@@ -1,0 +1,111 @@
+{
+  "stripped_libpython_bytes": 31867976,
+  "loaded_module_file_bytes": 562432,
+  "loaded_modules": [
+    {
+      "name": "lib/python3.14/_collections_abc.py",
+      "bytes": 32147
+    },
+    {
+      "name": "lib/python3.14/abc.py",
+      "bytes": 6538
+    },
+    {
+      "name": "lib/python3.14/codecs.py",
+      "bytes": 36840
+    },
+    {
+      "name": "lib/python3.14/collections/__init__.py",
+      "bytes": 53021
+    },
+    {
+      "name": "lib/python3.14/copyreg.py",
+      "bytes": 7716
+    },
+    {
+      "name": "lib/python3.14/encodings/__init__.py",
+      "bytes": 5945
+    },
+    {
+      "name": "lib/python3.14/encodings/aliases.py",
+      "bytes": 16255
+    },
+    {
+      "name": "lib/python3.14/encodings/utf_8.py",
+      "bytes": 1005
+    },
+    {
+      "name": "lib/python3.14/enum.py",
+      "bytes": 85450
+    },
+    {
+      "name": "lib/python3.14/functools.py",
+      "bytes": 43564
+    },
+    {
+      "name": "lib/python3.14/importlib/_bootstrap_external.py",
+      "bytes": 57685
+    },
+    {
+      "name": "lib/python3.14/json/__init__.py",
+      "bytes": 14132
+    },
+    {
+      "name": "lib/python3.14/json/decoder.py",
+      "bytes": 12877
+    },
+    {
+      "name": "lib/python3.14/json/encoder.py",
+      "bytes": 16990
+    },
+    {
+      "name": "lib/python3.14/json/scanner.py",
+      "bytes": 2434
+    },
+    {
+      "name": "lib/python3.14/keyword.py",
+      "bytes": 1073
+    },
+    {
+      "name": "lib/python3.14/linecache.py",
+      "bytes": 8044
+    },
+    {
+      "name": "lib/python3.14/operator.py",
+      "bytes": 11158
+    },
+    {
+      "name": "lib/python3.14/re/__init__.py",
+      "bytes": 17876
+    },
+    {
+      "name": "lib/python3.14/re/_casefix.py",
+      "bytes": 5444
+    },
+    {
+      "name": "lib/python3.14/re/_compiler.py",
+      "bytes": 26855
+    },
+    {
+      "name": "lib/python3.14/re/_constants.py",
+      "bytes": 6036
+    },
+    {
+      "name": "lib/python3.14/re/_parser.py",
+      "bytes": 40353
+    },
+    {
+      "name": "lib/python3.14/reprlib.py",
+      "bytes": 8064
+    },
+    {
+      "name": "lib/python3.14/types.py",
+      "bytes": 11464
+    },
+    {
+      "name": "lib/python3.14/zipimport.py",
+      "bytes": 33466
+    }
+  ],
+  "note": "Observed installed-distribution closure, not a minimized/frozen/static CPython build. Loaded-file list excludes frozen code already in libpython."
+}

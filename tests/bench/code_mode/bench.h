@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #define BENCH_OUTPUT_LIMIT 65536u
-#define BENCH_CALL_LIMIT 64u
+#define BENCH_CALL_LIMIT   64u
 typedef struct {
     yyjson_val *fixture;
     yyjson_mut_doc *result;

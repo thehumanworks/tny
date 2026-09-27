@@ -1,0 +1,784 @@
+{
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "source_revision": "47972c0e876fa0ff07c4f84922ae0054639756df",
+  "codex_version": "codex-cli 0.159.0-alpha.4",
+  "source_sha256": {
+    "tests/bench/code_mode/bench.h": "6838d2ecfc0f2d429b66d6455579732fcd59538419ce215cf8a2f1be1942a041",
+    "tests/bench/code_mode/build.py": "17c286c7ab26e83e6f0e5b4da25362addc459ba6b6ea4421d17eecd8ac0cd45d",
+    "tests/bench/code_mode/cases.py": "d1d1d2c5035fae4d76b94a1a104f1b47e8a0a9aeabd26f50a2a094b251e48f4f",
+    "tests/bench/code_mode/empty.c": "b50e3d18e4a1921286567fdaeb119a3d6e5074e9db586fbb5145ab94c313cb5d",
+    "tests/bench/code_mode/execute.py": "365f92d02049b2fbcefe1a8b053ef4fcf9fb4d5ba2a7f79f49ebb4ba0f2d8452",
+    "tests/bench/code_mode/host.c": "3185de302187c8bce916fe500fa2fb6e424e3a5d9f7012965f98bd8f7219cbad",
+    "tests/bench/code_mode/javascript.c": "74cc21ed2269232038f70fafc9581a26209fce74ab6d5b197c3682c2f52b84e8",
+    "tests/bench/code_mode/lua.c": "150280741844e5aa44ca02fed031b2716e7bb930319735421b62a15d68e5f57c",
+    "tests/bench/code_mode/policy.py": "29a3306352509d92e78d385676ae74b426f74aadab2f47398b423286e48f41dd",
+    "tests/bench/code_mode/python.c": "15ebfc63d27ee0ab940cc0a12ff100b66f249cc8fd0922d06602eb24b999d7a0",
+    "tests/bench/code_mode/references.py": "fde09ea3de41cc1dac7a6e4cb5cdbb9ebd595de70f54bdaa8819331f88cf11a7",
+    "tests/bench/code_mode/run.py": "656849e1d4a7e45e1cd5e6d73057a685b1a67565d26506fd0480fc00f0bc5803"
+  },
+  "executor_build": {
+    "quickjs_version": "2026-06-04",
+    "quickjs_sha256": "b376e839b322978313d929fd20663b11ba58b75df5a46c126dd19ea2fa70ad2a",
+    "python_version": "3.14.7 (main, Sep  1 2026, 14:18:09) [Clang 22.1.3 ]",
+    "python_home": "/home/tomas/.local/share/mise/installs/python/3.14.7",
+    "compiler": "cc (GCC) 16.2.1 20260810",
+    "binaries": {
+      "empty": {
+        "bytes": 96568,
+        "sha256": "1782bc1929596ecfca02c8a775d752270de8e20b2630fffaf119d02095c0da27",
+        "dependencies": "\tlinux-vdso.so.1 (0x00007f30b9509000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007f30b938e000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007f30b9000000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007f30b950b000)\n"
+      },
+      "lua": {
+        "bytes": 277248,
+        "sha256": "1d3ba42b099e24f7dbdb4feb309c43bd7ad709051f8761e468162db3e6faa17c",
+        "dependencies": "\tlinux-vdso.so.1 (0x00007f0be724e000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007f0be70a6000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007f0be6e00000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007f0be7250000)\n"
+      },
+      "javascript": {
+        "bytes": 748088,
+        "sha256": "459ee070053e74696698d8861b22365c3446ef4e52205ce76dc9fa09d18c2878",
+        "dependencies": "\tlinux-vdso.so.1 (0x00007fb51286a000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007fb51264f000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007fb512400000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007fb51286c000)\n"
+      },
+      "python": {
+        "bytes": 117568,
+        "sha256": "1e429875eded956bcc31c17e3413426e7e63ecd8b663b4e8973e6f34d2902239",
+        "dependencies": "\tlinux-vdso.so.1 (0x00007fa32fe52000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007fa32fcd1000)\n\tlibpython3.14.so.1.0 => /home/tomas/.local/share/mise/installs/python/3.14.7/lib/libpython3.14.so.1.0 (0x00007fa32e800000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007fa32e400000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007fa32fe54000)\n\tlibpthread.so.0 => /usr/lib/libpthread.so.0 (0x00007fa32fccc000)\n\tlibrt.so.1 => /usr/lib/librt.so.1 (0x00007fa32fcc5000)\n\tlibdl.so.2 => /usr/lib/libdl.so.2 (0x00007fa32fcc0000)\n\tlibutil.so.1 => /usr/lib/libutil.so.1 (0x00007fa32fcbb000)\n"
+      }
+    },
+    "commands": {
+      "empty": [
+        "cc",
+        "-std=c11",
+        "-D_GNU_SOURCE",
+        "-Os",
+        "-flto=auto",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/home/tomas/Projects/tny/src",
+        "-I/home/tomas/Projects/tny/include",
+        "-I/home/tomas/Projects/tny/third_party",
+        "-I/home/tomas/Projects/tny/third_party/yyjson",
+        "-I/home/tomas/Projects/tny/build/code-mode-bench/quickjs-2026-06-04",
+        "-I/home/tomas/.local/share/mise/installs/python/3.14.7/include/python3.14",
+        "-DCONFIG_VERSION=\"2026-06-04\"",
+        "-DPYHOME=\"/home/tomas/.local/share/mise/installs/python/3.14.7\"",
+        "/home/tomas/Projects/tny/tests/bench/code_mode/host.c",
+        "/home/tomas/Projects/tny/third_party/yyjson/yyjson.c",
+        "/home/tomas/Projects/tny/tests/bench/code_mode/empty.c",
+        "-Wl,--gc-sections",
+        "-o",
+        "/home/tomas/Projects/tny/build/code-mode-bench/empty",
+        "-lm",
+        "-ldl",
+        "-pthread"
+      ],
+      "lua": [
+        "cc",
+        "-std=c11",
+        "-D_GNU_SOURCE",
+        "-Os",
+        "-flto=auto",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/home/tomas/Projects/tny/src",
+        "-I/home/tomas/Projects/tny/include",
+        "-I/home/tomas/Projects/tny/third_party",
+        "-I/home/tomas/Projects/tny/third_party/yyjson",
+        "-I/home/tomas/Projects/tny/build/code-mode-bench/quickjs-2026-06-04",
+        "-I/home/tomas/.local/share/mise/installs/python/3.14.7/include/python3.14",
+        "-DCONFIG_VERSION=\"2026-06-04\"",
+        "-DPYHOME=\"/home/tomas/.local/share/mise/installs/python/3.14.7\"",
+        "/home/tomas/Projects/tny/tests/bench/code_mode/host.c",
+        "/home/tomas/Projects/tny/third_party/yyjson/yyjson.c",
+        "/home/tomas/Projects/tny/tests/bench/code_mode/lua.c",
+        "/home/tomas/Projects/tny/src/core/code_runtime.c",
+        "/home/tomas/Projects/tny/src/util/util.c",
+        "/home/tomas/Projects/tny/third_party/lua/lapi.c",
+        "/home/tomas/Projects/tny/third_party/lua/lauxlib.c",
+        "/home/tomas/Projects/tny/third_party/lua/lbaselib.c",
+        "/home/tomas/Projects/tny/third_party/lua/lcode.c",
+        "/home/tomas/Projects/tny/third_party/lua/lctype.c",
+        "/home/tomas/Projects/tny/third_party/lua/ldebug.c",
+        "/home/tomas/Projects/tny/third_party/lua/ldo.c",
+        "/home/tomas/Projects/tny/third_party/lua/ldump.c",
+        "/home/tomas/Projects/tny/third_party/lua/lfunc.c",
+        "/home/tomas/Projects/tny/third_party/lua/lgc.c",
+        "/home/tomas/Projects/tny/third_party/lua/llex.c",
+        "/home/tomas/Projects/tny/third_party/lua/lmathlib.c",
+        "/home/tomas/Projects/tny/third_party/lua/lmem.c",
+        "/home/tomas/Projects/tny/third_party/lua/lobject.c",
+        "/home/tomas/Projects/tny/third_party/lua/lopcodes.c",
+        "/home/tomas/Projects/tny/third_party/lua/lparser.c",
+        "/home/tomas/Projects/tny/third_party/lua/lstate.c",
+        "/home/tomas/Projects/tny/third_party/lua/lstring.c",
+        "/home/tomas/Projects/tny/third_party/lua/lstrlib.c",
+        "/home/tomas/Projects/tny/third_party/lua/ltable.c",
+        "/home/tomas/Projects/tny/third_party/lua/ltablib.c",
+        "/home/tomas/Projects/tny/third_party/lua/ltm.c",
+        "/home/tomas/Projects/tny/third_party/lua/lundump.c",
+        "/home/tomas/Projects/tny/third_party/lua/lutf8lib.c",
+        "/home/tomas/Projects/tny/third_party/lua/lvm.c",
+        "/home/tomas/Projects/tny/third_party/lua/lzio.c",
+        "-Wl,--gc-sections",
+        "-o",
+        "/home/tomas/Projects/tny/build/code-mode-bench/lua",
+        "-lm",
+        "-ldl",
+        "-pthread"
+      ],
+      "javascript": [
+        "cc",
+        "-std=c11",
+        "-D_GNU_SOURCE",
+        "-Os",
+        "-flto=auto",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/home/tomas/Projects/tny/src",
+        "-I/home/tomas/Projects/tny/include",
+        "-I/home/tomas/Projects/tny/third_party",
+        "-I/home/tomas/Projects/tny/third_party/yyjson",
+        "-I/home/tomas/Projects/tny/build/code-mode-bench/quickjs-2026-06-04",
+        "-I/home/tomas/.local/share/mise/installs/python/3.14.7/include/python3.14",
+        "-DCONFIG_VERSION=\"2026-06-04\"",
+        "-DPYHOME=\"/home/tomas/.local/share/mise/installs/python/3.14.7\"",
+        "/home/tomas/Projects/tny/tests/bench/code_mode/host.c",
+        "/home/tomas/Projects/tny/third_party/yyjson/yyjson.c",
+        "/home/tomas/Projects/tny/tests/bench/code_mode/javascript.c",
+        "/home/tomas/Projects/tny/build/code-mode-bench/quickjs-2026-06-04/quickjs.c",
+        "/home/tomas/Projects/tny/build/code-mode-bench/quickjs-2026-06-04/dtoa.c",
+        "/home/tomas/Projects/tny/build/code-mode-bench/quickjs-2026-06-04/libregexp.c",
+        "/home/tomas/Projects/tny/build/code-mode-bench/quickjs-2026-06-04/libunicode.c",
+        "/home/tomas/Projects/tny/build/code-mode-bench/quickjs-2026-06-04/cutils.c",
+        "-Wl,--gc-sections",
+        "-o",
+        "/home/tomas/Projects/tny/build/code-mode-bench/javascript",
+        "-lm",
+        "-ldl",
+        "-pthread",
+        "-Dasm=__asm__"
+      ],
+      "python": [
+        "cc",
+        "-std=c11",
+        "-D_GNU_SOURCE",
+        "-Os",
+        "-flto=auto",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I/home/tomas/Projects/tny/src",
+        "-I/home/tomas/Projects/tny/include",
+        "-I/home/tomas/Projects/tny/third_party",
+        "-I/home/tomas/Projects/tny/third_party/yyjson",
+        "-I/home/tomas/Projects/tny/build/code-mode-bench/quickjs-2026-06-04",
+        "-I/home/tomas/.local/share/mise/installs/python/3.14.7/include/python3.14",
+        "-DCONFIG_VERSION=\"2026-06-04\"",
+        "-DPYHOME=\"/home/tomas/.local/share/mise/installs/python/3.14.7\"",
+        "/home/tomas/Projects/tny/tests/bench/code_mode/host.c",
+        "/home/tomas/Projects/tny/third_party/yyjson/yyjson.c",
+        "/home/tomas/Projects/tny/tests/bench/code_mode/python.c",
+        "-Wl,--gc-sections",
+        "-o",
+        "/home/tomas/Projects/tny/build/code-mode-bench/python",
+        "-lm",
+        "-ldl",
+        "-pthread",
+        "-L/home/tomas/.local/share/mise/installs/python/3.14.7/lib",
+        "-Wl,-rpath,/home/tomas/.local/share/mise/installs/python/3.14.7/lib",
+        "-lpython3.14",
+        "-lutil"
+      ]
+    },
+    "sources": {
+      "tests/bench/code_mode/host.c": "3185de302187c8bce916fe500fa2fb6e424e3a5d9f7012965f98bd8f7219cbad",
+      "third_party/yyjson/yyjson.c": "ac2e9bbb2e2d9149d90878d40506a1d624fa0b33c979a11b61075c54782c6d6a",
+      "tests/bench/code_mode/empty.c": "b50e3d18e4a1921286567fdaeb119a3d6e5074e9db586fbb5145ab94c313cb5d",
+      "tests/bench/code_mode/lua.c": "150280741844e5aa44ca02fed031b2716e7bb930319735421b62a15d68e5f57c",
+      "src/core/code_runtime.c": "171f94c398cfe38f58414e4ff8c19026f19799840b84a519a2d65eeb78d24c3f",
+      "src/util/util.c": "ac7c57c693e52d513a9d0e843190a7c8742510f91e5a8801ebc9b7bf1393cf03",
+      "third_party/lua/lapi.c": "cd369dc6900a7696ca55ccbd4f50eadfa799b975f34b7afe450e1b859517a56e",
+      "third_party/lua/lauxlib.c": "257c287ed4964ec8bb07fe0a1fd1b52b712e4bccd6c889db62f84abb905d6996",
+      "third_party/lua/lbaselib.c": "5dc9a64468c1ac31e59066c7d3597eeb8ea4ac8fc19a257a74c431624300b487",
+      "third_party/lua/lcode.c": "2cf13c7f8205e9f07c2ccf1fedc3f0f0a05d238c194b176c72cc22b2cc96210e",
+      "third_party/lua/lctype.c": "3e21ae6a8faab3ed470ae0de19360da6b4e21a0a0f8572f502f7e13d590186f8",
+      "third_party/lua/ldebug.c": "06d065d1f26c29546cc74b61a50267cb70567ae538691f190bf15ca5cd29d308",
+      "third_party/lua/ldo.c": "af1522801876fe267bf2f892caa24209c395459331ac9a1fdf7ad3ed82402a6c",
+      "third_party/lua/ldump.c": "3c05402c5e282e06c2218f2469b1f38e1b84c783b9387aec7740c60b287d82c9",
+      "third_party/lua/lfunc.c": "38809428b76fafa79db9f65b7248cc0c02c9b696e7410fc4ab1699940768f1b2",
+      "third_party/lua/lgc.c": "caa4df2eccfae0899686d1aed3f2bad91184de3bd12176fdfead91147f704e0b",
+      "third_party/lua/llex.c": "5cfbaabf3dc0d75835aaafc37fcd87a92f3dba451e002732747b602fda122958",
+      "third_party/lua/lmathlib.c": "da5c7d74cffce22f0a9eb468e6e7e80b543ea6bec5c21aefb8cf285a3556722a",
+      "third_party/lua/lmem.c": "6154c2865bec97e61a92d8284be7e8ba21818f6edc95f5d72adb5dcf3e9532ca",
+      "third_party/lua/lobject.c": "7a9748e38c52e45bc468cae74ccea08b98f8c53a523c1b0f9a117e5cf162c921",
+      "third_party/lua/lopcodes.c": "bdc9d39fd8bf1a350c0249f726c5f61bef64b122b93a0fbc172b0328dc01f594",
+      "third_party/lua/lparser.c": "e24f9e869afd690749404b3075fd82efaf3af882a13a131b612c6ff28e052a8c",
+      "third_party/lua/lstate.c": "e5f3b17104f6764bad609d18ce8f3008a87731491a41cb78b79aed78777c21d8",
+      "third_party/lua/lstring.c": "b6162f3a65735a902911ffafcafe1db0994c3b0df441581dcbb04dca6bc0b71d",
+      "third_party/lua/lstrlib.c": "d386f8bbb75d5ef7b04c8ca9e747ff256525a9546bb6ff01c788b912b6995aa6",
+      "third_party/lua/ltable.c": "27a711276b1e22aaea3b9182e2d17693f598cfe9bc7fd203c05d400df6673853",
+      "third_party/lua/ltablib.c": "3d430a6f9cde66d0b791444c6164e7559ccf62b7cdc3a6325882408c6806e26c",
+      "third_party/lua/ltm.c": "7cbe645ed7e1161d31eb32ea467d8220b592c0acfa6107f0194487f0ddbf954b",
+      "third_party/lua/lundump.c": "7f7b078026e162161d402feba73a69cbe66a98558ec0745a445a595f42eac688",
+      "third_party/lua/lutf8lib.c": "441251bdf176e066e60a36735594f0cb92c067143fed32e373949bdb65a52866",
+      "third_party/lua/lvm.c": "7df5095ee2f6c88162d3536afb1fa04527b98fa3265cb579fc9aa6dcf05606de",
+      "third_party/lua/lzio.c": "fba61ceeeb257a3fe5f63310f21e14fc26c4be647583dcf8e74cbc7fb7e43e8a",
+      "tests/bench/code_mode/javascript.c": "74cc21ed2269232038f70fafc9581a26209fce74ab6d5b197c3682c2f52b84e8",
+      "build/code-mode-bench/quickjs-2026-06-04/quickjs.c": "a00762d2eee42316cecbc9c15efc4549b715ec500461845cd91b2a6c38190d08",
+      "build/code-mode-bench/quickjs-2026-06-04/dtoa.c": "af5abd68fa9806d1a19bdd5f2daef00d5fd0990ae56311382dfed4700343f074",
+      "build/code-mode-bench/quickjs-2026-06-04/libregexp.c": "fdfcf86167029ab2c39c35730d4ae6875b7bbeb9406a0fcc886de4e9b1f5e2ac",
+      "build/code-mode-bench/quickjs-2026-06-04/libunicode.c": "26203ae888c0582e7d0e2113f13db0c9b39dc7b0b3836d68fa308c54f7a0898c",
+      "build/code-mode-bench/quickjs-2026-06-04/cutils.c": "b73a403a59da30726257ddbdf5e399298941c1def997782ee0d4d33f796a80a2",
+      "tests/bench/code_mode/python.c": "15ebfc63d27ee0ab940cc0a12ff100b66f249cc8fd0922d06602eb24b999d7a0"
+    },
+    "python_closure": {
+      "libpython_bytes": 33163040,
+      "stdlib_without_site_packages_or_pycache_bytes": 16857219,
+      "note": "Installed dynamic distribution, not a minimized static CPython bundle"
+    }
+  },
+  "workers": 3,
+  "order": [
+    [
+      "lua",
+      "filter",
+      0
+    ],
+    [
+      "javascript",
+      "filter",
+      0
+    ],
+    [
+      "python",
+      "filter",
+      0
+    ],
+    [
+      "javascript",
+      "aggregate",
+      0
+    ],
+    [
+      "python",
+      "aggregate",
+      0
+    ],
+    [
+      "lua",
+      "aggregate",
+      0
+    ],
+    [
+      "python",
+      "join",
+      0
+    ],
+    [
+      "lua",
+      "join",
+      0
+    ],
+    [
+      "javascript",
+      "join",
+      0
+    ],
+    [
+      "lua",
+      "pagination",
+      0
+    ],
+    [
+      "javascript",
+      "pagination",
+      0
+    ],
+    [
+      "python",
+      "pagination",
+      0
+    ],
+    [
+      "javascript",
+      "batch_edit",
+      0
+    ],
+    [
+      "python",
+      "batch_edit",
+      0
+    ],
+    [
+      "lua",
+      "batch_edit",
+      0
+    ],
+    [
+      "python",
+      "json_shapes",
+      0
+    ],
+    [
+      "lua",
+      "json_shapes",
+      0
+    ],
+    [
+      "javascript",
+      "json_shapes",
+      0
+    ],
+    [
+      "lua",
+      "ndjson",
+      0
+    ],
+    [
+      "javascript",
+      "ndjson",
+      0
+    ],
+    [
+      "python",
+      "ndjson",
+      0
+    ],
+    [
+      "javascript",
+      "top_k",
+      0
+    ],
+    [
+      "python",
+      "top_k",
+      0
+    ],
+    [
+      "lua",
+      "top_k",
+      0
+    ],
+    [
+      "python",
+      "bounded_retry",
+      0
+    ],
+    [
+      "lua",
+      "bounded_retry",
+      0
+    ],
+    [
+      "javascript",
+      "bounded_retry",
+      0
+    ],
+    [
+      "lua",
+      "literal_replace",
+      0
+    ],
+    [
+      "javascript",
+      "literal_replace",
+      0
+    ],
+    [
+      "python",
+      "literal_replace",
+      0
+    ],
+    [
+      "javascript",
+      "unicode",
+      0
+    ],
+    [
+      "python",
+      "unicode",
+      0
+    ],
+    [
+      "lua",
+      "unicode",
+      0
+    ],
+    [
+      "python",
+      "dependency_order",
+      0
+    ],
+    [
+      "lua",
+      "dependency_order",
+      0
+    ],
+    [
+      "javascript",
+      "dependency_order",
+      0
+    ],
+    [
+      "javascript",
+      "filter",
+      1
+    ],
+    [
+      "python",
+      "filter",
+      1
+    ],
+    [
+      "lua",
+      "filter",
+      1
+    ],
+    [
+      "python",
+      "aggregate",
+      1
+    ],
+    [
+      "lua",
+      "aggregate",
+      1
+    ],
+    [
+      "javascript",
+      "aggregate",
+      1
+    ],
+    [
+      "lua",
+      "join",
+      1
+    ],
+    [
+      "javascript",
+      "join",
+      1
+    ],
+    [
+      "python",
+      "join",
+      1
+    ],
+    [
+      "javascript",
+      "pagination",
+      1
+    ],
+    [
+      "python",
+      "pagination",
+      1
+    ],
+    [
+      "lua",
+      "pagination",
+      1
+    ],
+    [
+      "python",
+      "batch_edit",
+      1
+    ],
+    [
+      "lua",
+      "batch_edit",
+      1
+    ],
+    [
+      "javascript",
+      "batch_edit",
+      1
+    ],
+    [
+      "lua",
+      "json_shapes",
+      1
+    ],
+    [
+      "javascript",
+      "json_shapes",
+      1
+    ],
+    [
+      "python",
+      "json_shapes",
+      1
+    ],
+    [
+      "javascript",
+      "ndjson",
+      1
+    ],
+    [
+      "python",
+      "ndjson",
+      1
+    ],
+    [
+      "lua",
+      "ndjson",
+      1
+    ],
+    [
+      "python",
+      "top_k",
+      1
+    ],
+    [
+      "lua",
+      "top_k",
+      1
+    ],
+    [
+      "javascript",
+      "top_k",
+      1
+    ],
+    [
+      "lua",
+      "bounded_retry",
+      1
+    ],
+    [
+      "javascript",
+      "bounded_retry",
+      1
+    ],
+    [
+      "python",
+      "bounded_retry",
+      1
+    ],
+    [
+      "javascript",
+      "literal_replace",
+      1
+    ],
+    [
+      "python",
+      "literal_replace",
+      1
+    ],
+    [
+      "lua",
+      "literal_replace",
+      1
+    ],
+    [
+      "python",
+      "unicode",
+      1
+    ],
+    [
+      "lua",
+      "unicode",
+      1
+    ],
+    [
+      "javascript",
+      "unicode",
+      1
+    ],
+    [
+      "lua",
+      "dependency_order",
+      1
+    ],
+    [
+      "javascript",
+      "dependency_order",
+      1
+    ],
+    [
+      "python",
+      "dependency_order",
+      1
+    ],
+    [
+      "python",
+      "filter",
+      2
+    ],
+    [
+      "lua",
+      "filter",
+      2
+    ],
+    [
+      "javascript",
+      "filter",
+      2
+    ],
+    [
+      "lua",
+      "aggregate",
+      2
+    ],
+    [
+      "javascript",
+      "aggregate",
+      2
+    ],
+    [
+      "python",
+      "aggregate",
+      2
+    ],
+    [
+      "javascript",
+      "join",
+      2
+    ],
+    [
+      "python",
+      "join",
+      2
+    ],
+    [
+      "lua",
+      "join",
+      2
+    ],
+    [
+      "python",
+      "pagination",
+      2
+    ],
+    [
+      "lua",
+      "pagination",
+      2
+    ],
+    [
+      "javascript",
+      "pagination",
+      2
+    ],
+    [
+      "lua",
+      "batch_edit",
+      2
+    ],
+    [
+      "javascript",
+      "batch_edit",
+      2
+    ],
+    [
+      "python",
+      "batch_edit",
+      2
+    ],
+    [
+      "javascript",
+      "json_shapes",
+      2
+    ],
+    [
+      "python",
+      "json_shapes",
+      2
+    ],
+    [
+      "lua",
+      "json_shapes",
+      2
+    ],
+    [
+      "python",
+      "ndjson",
+      2
+    ],
+    [
+      "lua",
+      "ndjson",
+      2
+    ],
+    [
+      "javascript",
+      "ndjson",
+      2
+    ],
+    [
+      "lua",
+      "top_k",
+      2
+    ],
+    [
+      "javascript",
+      "top_k",
+      2
+    ],
+    [
+      "python",
+      "top_k",
+      2
+    ],
+    [
+      "javascript",
+      "bounded_retry",
+      2
+    ],
+    [
+      "python",
+      "bounded_retry",
+      2
+    ],
+    [
+      "lua",
+      "bounded_retry",
+      2
+    ],
+    [
+      "python",
+      "literal_replace",
+      2
+    ],
+    [
+      "lua",
+      "literal_replace",
+      2
+    ],
+    [
+      "javascript",
+      "literal_replace",
+      2
+    ],
+    [
+      "lua",
+      "unicode",
+      2
+    ],
+    [
+      "javascript",
+      "unicode",
+      2
+    ],
+    [
+      "python",
+      "unicode",
+      2
+    ],
+    [
+      "javascript",
+      "dependency_order",
+      2
+    ],
+    [
+      "python",
+      "dependency_order",
+      2
+    ],
+    [
+      "lua",
+      "dependency_order",
+      2
+    ]
+  ],
+  "started_utc": "2026-09-27T14:08:50Z",
+  "authentication": "normal Codex CLI ChatGPT login; credentials never read by benchmark"
+}

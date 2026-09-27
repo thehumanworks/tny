@@ -21,6 +21,7 @@
   clang,
   clang-tools,
   imagemagick,
+  lean4,
   nodejs,
   openssl,
   perl,
@@ -130,6 +131,7 @@ stdenv.mkDerivation {
     imagemagick
     # test_windows_lto_flags.py uses stdenv's make to inspect both platform
     # flag branches; no cross compiler or additional runtime input is needed.
+    lean4 # source-linked code-mode acceptance/promotion proofs; no Lake dependencies
     z3 # make verify-formal checks SMT-LIB proofs without live credentials
     zsh # make test also runs the quick-ask widget in real Zsh PTYs
     tmux # test-only terminal screen assertions; never used by the tny runner
@@ -196,6 +198,7 @@ stdenv.mkDerivation {
     # their environment too, without exporting an empty override on Linux.
     ${lib.optionalString stdenv.hostPlatform.isDarwin "export LIBTNY_MACH_CURRENT_VERSION=1.0.0"}
     runHook preBuild
+    make verify-code-mode-language
     for fixture in codex.toml claude-user.json claude-project.json \
       grok.toml grok-project.toml cursor-user.json cursor-project.json \
       malformed.json malformed.toml; do

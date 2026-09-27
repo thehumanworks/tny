@@ -1,0 +1,28 @@
+{
+  "selected": "lua",
+  "candidates": [
+    {
+      "language": "javascript",
+      "complete": true,
+      "confirmed_gain": false,
+      "parity": false,
+      "first_candidate": 36,
+      "first_baseline": 35,
+      "final_candidate": 36,
+      "final_baseline": 36,
+      "promote": false
+    },
+    {
+      "language": "python",
+      "complete": true,
+      "confirmed_gain": true,
+      "parity": false,
+      "first_candidate": 36,
+      "first_baseline": 35,
+      "final_candidate": 36,
+      "final_baseline": 36,
+      "promote": false
+    }
+  ],
+  "interpretation": "These exact probes are not admitted as production replacements. CPython passes the model-efficiency threshold but its measured dependency cost and missing heap parity are not justified by the observed benefit. QuickJS misses the confidence threshold even assuming parity."
+}

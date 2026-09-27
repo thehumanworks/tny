@@ -15,7 +15,8 @@ static PyObject *call(PyObject *self, PyObject *args) {
     return out;
 }
 static PyObject *list(PyObject *self, PyObject *args) {
-    (void)self; (void)args;
+    (void)self;
+    (void)args;
     return PyUnicode_FromString(active->catalog);
 }
 static PyObject *describe(PyObject *self, PyObject *args) {
@@ -36,24 +37,27 @@ static PyObject *output(PyObject *self, PyObject *args) {
         if (!value) return NULL;
         Py_ssize_t len = 0;
         const char *str = PyUnicode_AsUTF8AndSize(value, &len);
-        bool ok = str && (!i || bench_append(active, "\t", 1)) &&
-                  bench_append(active, str, (size_t)len);
+        bool ok =
+            str && (!i || bench_append(active, "\t", 1)) && bench_append(active, str, (size_t)len);
         Py_DECREF(value);
-        if (!ok) { PyErr_SetString(PyExc_RuntimeError, "output limit exceeded"); return NULL; }
+        if (!ok) {
+            PyErr_SetString(PyExc_RuntimeError, "output limit exceeded");
+            return NULL;
+        }
     }
     if (!bench_append(active, "\n", 1)) {
-        PyErr_SetString(PyExc_RuntimeError, "output limit exceeded"); return NULL;
+        PyErr_SetString(PyExc_RuntimeError, "output limit exceeded");
+        return NULL;
     }
     Py_RETURN_NONE;
 }
-static PyMethodDef methods[] = {
-    {"call", call, METH_VARARGS, NULL}, {"list", list, METH_NOARGS, NULL},
-    {"describe", describe, METH_VARARGS, NULL}, {"output", output, METH_VARARGS, NULL},
-    {NULL, NULL, 0, NULL}
-};
+static PyMethodDef methods[] = {{"call", call, METH_VARARGS, NULL},
+                                {"list", list, METH_NOARGS, NULL},
+                                {"describe", describe, METH_VARARGS, NULL},
+                                {"output", output, METH_VARARGS, NULL},
+                                {NULL, NULL, 0, NULL}};
 static struct PyModuleDef module = {
-    PyModuleDef_HEAD_INIT, "_tnybench", NULL, -1, methods, NULL, NULL, NULL, NULL
-};
+    PyModuleDef_HEAD_INIT, "_tnybench", NULL, -1, methods, NULL, NULL, NULL, NULL};
 static PyObject *init_module(void) { return PyModule_Create(&module); }
 bool bench_execute(bench_state *s, const char *code) {
     active = s;
@@ -68,12 +72,15 @@ bool bench_execute(bench_state *s, const char *code) {
     PyConfig_Clear(&config);
     if (PyStatus_Exception(status)) return false;
     PyObject *scope = PyDict_New();
-    const char *setup =
-        "import json, types, builtins, _tnybench\n"
-        "tools = types.SimpleNamespace(call=_tnybench.call, list=_tnybench.list, describe=_tnybench.describe)\n"
-        "names = 'abs all any bool dict enumerate float int isinstance len list map max min next range reversed round set sorted str sum tuple zip Exception ValueError TypeError'.split()\n"
-        "limited = {name: getattr(builtins, name) for name in names}\n"
-        "scope = {'__builtins__': limited, 'tools': tools, 'json': json, 'print': _tnybench.output}\n";
+    const char *setup = "import json, types, builtins, _tnybench\n"
+                        "tools = types.SimpleNamespace(call=_tnybench.call, list=_tnybench.list, "
+                        "describe=_tnybench.describe)\n"
+                        "names = 'abs all any bool dict enumerate float int isinstance len list "
+                        "map max min next range reversed round set sorted str sum tuple zip "
+                        "Exception ValueError TypeError'.split()\n"
+                        "limited = {name: getattr(builtins, name) for name in names}\n"
+                        "scope = {'__builtins__': limited, 'tools': tools, 'json': json, 'print': "
+                        "_tnybench.output}\n";
     PyObject *ready = scope ? PyRun_String(setup, Py_file_input, scope, scope) : NULL;
     PyObject *globals = ready ? PyDict_GetItemString(scope, "scope") : NULL;
     PyObject *result = globals ? PyRun_String(code, Py_file_input, globals, globals) : NULL;

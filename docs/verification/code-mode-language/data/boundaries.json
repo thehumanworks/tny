@@ -1,0 +1,119 @@
+{
+  "results": {
+    "signed_integer_json_roundtrip": {
+      "lua": {
+        "meets_probed_requirement": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "{\"n\":9007199254740993}\n",
+          "runtime_ns": 166823,
+          "calls": [],
+          "writes": {},
+          "process_wall_seconds": 0.02088990993797779
+        }
+      },
+      "javascript": {
+        "meets_probed_requirement": false,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "{\"n\":9007199254740992}\n",
+          "runtime_ns": 477103,
+          "calls": [],
+          "writes": {},
+          "process_wall_seconds": 0.01970403897576034
+        }
+      },
+      "python": {
+        "meets_probed_requirement": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "{\"n\": 9007199254740993}\n",
+          "runtime_ns": 34028244,
+          "calls": [],
+          "writes": {},
+          "process_wall_seconds": 0.0555547159165144
+        }
+      }
+    },
+    "reject_20_mib_cell_allocation": {
+      "lua": {
+        "meets_probed_requirement": true,
+        "observed": {
+          "runtime_ok": false,
+          "invalid_call": false,
+          "stdout": "error: code: not enough memory",
+          "runtime_ns": 139120,
+          "calls": [],
+          "writes": {},
+          "process_wall_seconds": 0.014567970996722579
+        }
+      },
+      "javascript": {
+        "meets_probed_requirement": true,
+        "observed": {
+          "runtime_ok": false,
+          "invalid_call": false,
+          "stdout": "error: InternalError: out of memory",
+          "runtime_ns": 560440,
+          "calls": [],
+          "writes": {},
+          "process_wall_seconds": 0.014501647092401981
+        }
+      },
+      "python": {
+        "meets_probed_requirement": false,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "20971520\n",
+          "runtime_ns": 52761355,
+          "calls": [],
+          "writes": {},
+          "process_wall_seconds": 0.07083909912034869
+        }
+      }
+    },
+    "reject_output_over_64_kib": {
+      "lua": {
+        "meets_probed_requirement": true,
+        "observed": {
+          "runtime_ok": false,
+          "invalid_call": false,
+          "stdout": "error: code: [string \"code\"]:1: output limit exceeded",
+          "runtime_ns": 886530,
+          "calls": [],
+          "writes": {},
+          "process_wall_seconds": 0.012605234980583191
+        }
+      },
+      "javascript": {
+        "meets_probed_requirement": true,
+        "observed": {
+          "runtime_ok": false,
+          "invalid_call": false,
+          "stdout": "error: InternalError: output limit exceeded",
+          "runtime_ns": 952263,
+          "calls": [],
+          "writes": {},
+          "process_wall_seconds": 0.01318514090962708
+        }
+      },
+      "python": {
+        "meets_probed_requirement": true,
+        "observed": {
+          "runtime_ok": false,
+          "invalid_call": false,
+          "stdout": "error: output limit exceeded",
+          "runtime_ns": 31475503,
+          "calls": [],
+          "writes": {},
+          "process_wall_seconds": 0.049857967998832464
+        }
+      }
+    }
+  },
+  "limits": "Diagnostic probes of these exact adapters only. Not a general impossibility claim about any language and not a full sandbox proof. Never mixed into the 108 model trials."
+}

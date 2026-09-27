@@ -1,0 +1,36 @@
+{
+  "samples": 108,
+  "independently_checked_variant_outcomes": 327,
+  "frozen_program_replays": 327,
+  "raw_usage_and_generated_code_verified": true,
+  "totals": {
+    "lua": {
+      "samples": 36,
+      "first_pass": 35,
+      "eventual_pass": 36,
+      "attempts": 37,
+      "input_tokens": 548869,
+      "cached_input_tokens": 411648,
+      "output_tokens": 6221
+    },
+    "javascript": {
+      "samples": 36,
+      "first_pass": 36,
+      "eventual_pass": 36,
+      "attempts": 36,
+      "input_tokens": 522820,
+      "cached_input_tokens": 365568,
+      "output_tokens": 5025
+    },
+    "python": {
+      "samples": 36,
+      "first_pass": 36,
+      "eventual_pass": 36,
+      "attempts": 36,
+      "input_tokens": 523497,
+      "cached_input_tokens": 365568,
+      "output_tokens": 4545
+    }
+  },
+  "limits": "Independent effect canonicalization and raw-event reconciliation, not an independent fixture author or model identity attestation."
+}

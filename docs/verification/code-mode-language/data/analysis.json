@@ -1,0 +1,188 @@
+{
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "samples": 108,
+  "languages": {
+    "lua": {
+      "samples": 36,
+      "first_pass": 35,
+      "eventual_pass": 36,
+      "repairs": 1,
+      "usage": {
+        "input_tokens": 548869,
+        "cached_input_tokens": 411648,
+        "output_tokens": 6221,
+        "reasoning_output_tokens": 0,
+        "uncached_input_tokens": 137221
+      },
+      "output_tokens_per_solved_task": 172.80555555555554,
+      "source_bytes_mean_first_attempt": 526.8611111111111,
+      "model_wall_seconds_median_per_task": 8.348636375041679,
+      "model_wall_seconds_sum": 314.0844408343546,
+      "nested_calls_total_all_variants_and_attempts": 345,
+      "runtime_ns_median_all_variants": 267241
+    },
+    "javascript": {
+      "samples": 36,
+      "first_pass": 36,
+      "eventual_pass": 36,
+      "repairs": 0,
+      "usage": {
+        "input_tokens": 522820,
+        "cached_input_tokens": 365568,
+        "output_tokens": 5025,
+        "reasoning_output_tokens": 0,
+        "uncached_input_tokens": 157252
+      },
+      "output_tokens_per_solved_task": 139.58333333333334,
+      "source_bytes_mean_first_attempt": 476.77777777777777,
+      "model_wall_seconds_median_per_task": 7.706536250887439,
+      "model_wall_seconds_sum": 289.03222088655457,
+      "nested_calls_total_all_variants_and_attempts": 342,
+      "runtime_ns_median_all_variants": 853940.5
+    },
+    "python": {
+      "samples": 36,
+      "first_pass": 36,
+      "eventual_pass": 36,
+      "repairs": 0,
+      "usage": {
+        "input_tokens": 523497,
+        "cached_input_tokens": 365568,
+        "output_tokens": 4545,
+        "reasoning_output_tokens": 0,
+        "uncached_input_tokens": 157929
+      },
+      "output_tokens_per_solved_task": 126.25,
+      "source_bytes_mean_first_attempt": 369.5833333333333,
+      "model_wall_seconds_median_per_task": 7.516593378502876,
+      "model_wall_seconds_sum": 286.3661536425352,
+      "nested_calls_total_all_variants_and_attempts": 342,
+      "runtime_ns_median_all_variants": 37863353.5
+    }
+  },
+  "comparisons": {
+    "javascript": {
+      "candidate": "javascript",
+      "output_tokens_per_solved_ratio": 0.807747950490275,
+      "output_ratio_task_clustered_95pct_ci": [
+        0.7489146164978292,
+        0.8812411334599999
+      ],
+      "first_pass_difference": 0.027777777777777776,
+      "first_pass_difference_task_clustered_95pct_ci": [
+        0.0,
+        0.08333333333333333
+      ],
+      "supported_gain_under_preregistered_threshold": false,
+      "eligible_even_if_full_production_parity_were_proven": false,
+      "bootstrap": {
+        "clusters": 12,
+        "repetitions_within_cluster": 3,
+        "draws": 10000,
+        "seed": 20260927
+      },
+      "limitations": "Handcrafted families; few independent clusters. Intervals are exploratory, not population guarantees."
+    },
+    "python": {
+      "candidate": "python",
+      "output_tokens_per_solved_ratio": 0.7305899373091144,
+      "output_ratio_task_clustered_95pct_ci": [
+        0.6604051016343233,
+        0.8129734014614683
+      ],
+      "first_pass_difference": 0.027777777777777776,
+      "first_pass_difference_task_clustered_95pct_ci": [
+        0.0,
+        0.08333333333333333
+      ],
+      "supported_gain_under_preregistered_threshold": true,
+      "eligible_even_if_full_production_parity_were_proven": true,
+      "bootstrap": {
+        "clusters": 12,
+        "repetitions_within_cluster": 3,
+        "draws": 10000,
+        "seed": 20260927
+      },
+      "limitations": "Handcrafted families; few independent clusters. Intervals are exploratory, not population guarantees."
+    }
+  },
+  "failures": [
+    {
+      "id": "ndjson-0-lua",
+      "first_pass": false,
+      "passed": true,
+      "first_attempt_feedback": [
+        {
+          "variant": 0,
+          "passed": false,
+          "execution_ok": false,
+          "output_ok": false,
+          "trace_ok": true,
+          "observed": {
+            "runtime_ok": false,
+            "invalid_call": false,
+            "stdout": "error: code: [string \"code\"]:2: invalid JSON or memory limit exceeded",
+            "runtime_ns": 231434,
+            "calls": [
+              {
+                "name": "fs.read",
+                "args": {
+                  "path": "events.ndjson"
+                }
+              }
+            ],
+            "writes": {},
+            "process_wall_seconds": 0.0173190429341048
+          }
+        },
+        {
+          "variant": 1,
+          "passed": false,
+          "execution_ok": false,
+          "output_ok": false,
+          "trace_ok": true,
+          "observed": {
+            "runtime_ok": false,
+            "invalid_call": false,
+            "stdout": "error: code: [string \"code\"]:2: invalid JSON or memory limit exceeded",
+            "runtime_ns": 228067,
+            "calls": [
+              {
+                "name": "fs.read",
+                "args": {
+                  "path": "events.ndjson"
+                }
+              }
+            ],
+            "writes": {},
+            "process_wall_seconds": 0.01799933798611164
+          }
+        },
+        {
+          "variant": 2,
+          "passed": false,
+          "execution_ok": false,
+          "output_ok": false,
+          "trace_ok": true,
+          "observed": {
+            "runtime_ok": false,
+            "invalid_call": false,
+            "stdout": "error: code: [string \"code\"]:2: invalid JSON or memory limit exceeded",
+            "runtime_ns": 256511,
+            "calls": [
+              {
+                "name": "fs.read",
+                "args": {
+                  "path": "events.ndjson"
+                }
+              }
+            ],
+            "writes": {},
+            "process_wall_seconds": 0.021476669004186988
+          }
+        }
+      ]
+    }
+  ]
+}
