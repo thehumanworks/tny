@@ -36,6 +36,9 @@ bool tny_code_output_admit(uint64_t used, uint64_t add);
  * `used`: all of them exactly when tny_code_output_admit holds, never more
  * than the remaining room. The rest only reaches the retained tail. */
 uint64_t tny_code_output_take(uint64_t used, uint64_t available);
+/* UTF-8 lead-byte width, or zero for NUL/invalid/continuation bytes.
+ * The output sanitizer separately validates remaining bytes and scalar bounds. */
+uint64_t tny_code_utf8_lead_width(uint64_t byte);
 /* Allocation accounting without overflow: `request` plus a header fits the
  * remaining heap budget below `limit`. */
 bool tny_code_memory_admit(uint64_t used, uint64_t request, uint64_t header, uint64_t limit);

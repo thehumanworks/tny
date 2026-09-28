@@ -52,6 +52,7 @@ EXPECTED = (
     "tny_code_result_admit",
     "tny_code_output_admit",
     "tny_code_output_take",
+    "tny_code_utf8_lead_width",
     "tny_code_memory_admit",
     "tny_code_frame_admit",
 )
@@ -89,6 +90,10 @@ REQUIRED = (
     "output_take_fits_head",
     "output_take_all_iff_admit",
     "output_take_boundaries",
+    "utf8_lead_width_exact",
+    "utf8_lead_width_bounded",
+    "utf8_invalid_leads_rejected",
+    "utf8_lead_width_boundaries",
     "nonvacuity",
 )
 STANDARD_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}

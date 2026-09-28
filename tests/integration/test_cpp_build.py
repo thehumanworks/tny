@@ -108,6 +108,13 @@ extern "C" __attribute__((visibility("default"))) int tny_probe(void) {
         for name in ("VERSION", "SHA256"):
             pin = f"third_party/cpython/{name}"
             self.write(pin, (ROOT / pin).read_text())
+        # The Makefile cache identity reads every native stdlib dependency
+        # pin even in non-Python lanes. Keep isolated trees complete instead
+        # of hiding missing-input diagnostics in the real build graph.
+        for pin in sorted((ROOT / "third_party").glob("*/URL")):
+            for name in ("URL", "SHA256"):
+                relative = pin.parent.relative_to(ROOT) / name
+                self.write(str(relative), (ROOT / relative).read_text())
         self.write(
             "src/core/code_python_unsupported.c",
             "int tny_code_python_fixture(void);\n"
@@ -723,6 +730,10 @@ void conversions(const char *text) {
         self.make_args.remove("SRC_PY_NATIVE=src/core/code_python_unsupported.c")
         self.write("scripts/cpython_runtime.sh", FAKE_CPYTHON_RUNTIME)
         self.write(
+            "scripts/cpython_freeze_stdlib.py",
+            (ROOT / "scripts/cpython_freeze_stdlib.py").read_text(),
+        )
+        self.write(
             "src/core/code_python.c",
             '#include "tny_fixture_python.h"\n'
             "int tny_code_python_fixture(void);\n"
@@ -763,7 +774,9 @@ void conversions(const char *text) {
         for index, line in compiles:
             self.assertGreater(index, script)
             self.assertIn(f"-isystem {directory}/include", line)
-            self.assertIn(f"-isystem {directory}/frozen", line)
+            # Frozen modules are linked from archives, not included as C
+            # headers by the runtime facade anymore.
+            self.assertNotIn(f"-isystem {directory}/frozen", line)
         self.assertNotIn("code_python_unsupported", output)
         for binary in ("build/tny", "build/tny-test"):
             link = next(
@@ -839,6 +852,23 @@ void conversions(const char *text) {
         self.assertEqual(compilers["gnu-vendor"], compilers["gnu"])
         self.assertNotEqual(compilers["gnu"], compilers["musl"])
         self.assertNotEqual(self.cpython_dir("CPYTHON_CFLAGS=-O2"), directory)
+        # Each downloaded dependency affects the archive cache identity. A
+        # new pin must never reuse a library built from a previous source.
+        for pin in sorted((self.root / "third_party").glob("*/URL")):
+            for name in ("URL", "SHA256"):
+                path = pin.with_name(name)
+                original = path.read_text()
+                path.write_text(original + "fixture-pin-change\n")
+                with self.subTest(pin=str(path.relative_to(self.root))):
+                    self.assertNotEqual(self.cpython_dir(), directory)
+                path.write_text(original)
+        # The freezer is a real archive input, not just a build helper that
+        # may drift without invalidating the cached interpreter/stdlib.
+        time.sleep(1.1)
+        freezer = self.root / "scripts/cpython_freeze_stdlib.py"
+        freezer.write_text(freezer.read_text() + "\n# changed fixture freezer\n")
+        rebuild = self.make("-n", "release", "SANITIZE=0")
+        self.assertIn("cpython_runtime.sh", rebuild)
 
     def test_wasm_exception_catching(self):
         emcc = shlex.split(os.environ.get("EMCC", "emcc"))[0]

@@ -617,7 +617,7 @@ static const char RUN_CODE_SCHEMA[] =
     "[{\"type\":\"function\",\"function\":{\"name\":\"run_code\","
     "\"description\":\"Run a Python 3.14 script in a fresh CPython process on the local host, "
     "in the workspace directory, with the OS user's access to files, network and subprocesses "
-    "and the full standard library. Its stdout and stderr (print, tracebacks, subprocess "
+    "and a bundled standard library. Its stdout and stderr (print, tracebacks, subprocess "
     "output) are the result. Nested tny tools: tools.list(), tools.describe(name), "
     "tools.call(name, arguments_json) with JSON object text such as json.dumps({...}).\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{"
@@ -638,9 +638,11 @@ const char *tools_code_instructions(void) {
            "maximum 600000; pass a longer timeout_ms for builds, tests, installs or network "
            "work). import, open, eval and exec behave as in CPython, and the standard library "
            "is bundled: os, pathlib, shutil, subprocess, socket, urllib.request, http.client, "
-           "ssl, hashlib, zlib, zipfile, tarfile, json, re, datetime, asyncio and the rest "
-           "(sqlite3, ctypes, bz2 and lzma are not built). No third-party packages are "
-           "installed. State never persists between calls; json and tools are pre-bound.\n"
+           "ssl, hashlib, zlib, zipfile, tarfile, json, re, datetime, asyncio, sqlite3, "
+           "ctypes, bz2, lzma and compression.zstd. GUI/interactive optional modules, "
+           "dbm.gnu/dbm.ndbm, ensurepip and venv are not bundled. No third-party packages "
+           "are preinstalled; import workspace modules or call installed host programs. "
+           "State never persists between calls; json and tools are pre-bound.\n"
            "stdout and stderr are the result: print, warnings, tracebacks and the output of "
            "subprocesses that inherit them. Output beyond 64 KiB keeps its beginning and end. "
            "An unhandled exception reports its type, message and line first, then the output "
@@ -826,7 +828,7 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
                                    TNY_CODE_MAX_TIMEOUT_MS);
             return -1;
         }
-        /* The wrapper grants no operation authority. Every nested invocation
+        /* Direct Python has the OS user's host authority. Every nested invocation
          * makes its own ordinary permission decision inside the server. */
         call->verdict = PERM_ALLOW;
         return 0;

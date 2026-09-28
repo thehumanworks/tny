@@ -102,8 +102,8 @@ static void append_utf8(buf_t *b, const unsigned char *s, size_t n) {
     static const char replacement[] = "\xEF\xBF\xBD";
     for (size_t i = 0; i < n;) {
         unsigned char c = s[i];
-        size_t need = c >= 0xF0 && c <= 0xF4 ? 4 : c >= 0xE0 ? 3 : c >= 0xC2 && c < 0xE0 ? 2 : 1;
-        bool ok = c && (c < 0x80 || need > 1) && i + need <= n;
+        size_t need = (size_t)tny_code_utf8_lead_width(c);
+        bool ok = need && need <= n - i;
         for (size_t k = 1; ok && k < need; ++k) ok = (s[i + k] & 0xC0) == 0x80;
         if (ok && need == 3)
             ok = !(c == 0xE0 && s[i + 1] < 0xA0) && !(c == 0xED && s[i + 1] >= 0xA0);
@@ -162,8 +162,14 @@ static char *cell_result(const cell_output *o, const char *error) {
     else {
         size_t elen = strlen(error);
         if (elen > TNY_CODE_RESULT_TEXT_BYTES) elen = TNY_CODE_RESULT_TEXT_BYTES;
-        buf_append(&b, error, elen);
-        size_t used = elen + sizeof separator - 1;
+        append_utf8(&b, (const unsigned char *)error, elen);
+        if (b.len > TNY_CODE_RESULT_TEXT_BYTES && !b.oom) {
+            size_t cut = TNY_CODE_RESULT_TEXT_BYTES;
+            while (cut && ((unsigned char)b.data[cut] & 0xC0) == 0x80) --cut;
+            b.len = cut;
+            b.data[cut] = 0;
+        }
+        size_t used = b.len + sizeof separator - 1;
         if (o->total && used < TNY_CODE_RESULT_TEXT_BYTES) {
             buf_appends(&b, separator);
             size_t room = TNY_CODE_RESULT_TEXT_BYTES - used;

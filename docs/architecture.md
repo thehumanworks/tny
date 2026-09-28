@@ -20,7 +20,7 @@ CLI / TUI / C ABI / Python / Node SDKs
  native HTTP + SSE             run_code RPC
           |                        |
  gateways / providers     fresh execution server
-                            tools + MCP -> confined Python cell
+                            tools + MCP -> host-authorized Python cell
 ```
 
 The event vocabulary remains `text_delta`, `thinking`, `tool_start`, `tool_end`,

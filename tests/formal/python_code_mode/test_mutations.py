@@ -30,6 +30,20 @@ EXTRA = "\nbool tny_code_extra_gate(uint64_t x) { return x != 0; }\n"
 # expressions that must match exactly once in the current production source.
 C_MUTANTS = [
     (
+        "UTF-8 three-byte range admits invalid leads",
+        "core/code_policy.c",
+        r"byte >= 0xe0 && byte <= 0xef",
+        "byte >= 0xe0",
+        "lean",
+    ),
+    (
+        "UTF-8 NUL accepted as text",
+        "core/code_policy.c",
+        r"byte >= 1 && byte <= 0x7f",
+        "byte <= 0x7f",
+        "lean",
+    ),
+    (
         "call budget < becomes <=",
         "core/code_policy.c",
         r"calls_done < TNY_CODE_TOOL_CALLS && name_bytes",

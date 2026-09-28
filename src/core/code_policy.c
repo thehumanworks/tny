@@ -29,6 +29,14 @@ uint64_t tny_code_output_take(uint64_t used, uint64_t available) {
                                                        : TNY_CODE_OUTPUT_BYTES - used;
 }
 
+uint64_t tny_code_utf8_lead_width(uint64_t byte) {
+    return byte >= 1 && byte <= 0x7f      ? 1
+           : byte >= 0xc2 && byte <= 0xdf ? 2
+           : byte >= 0xe0 && byte <= 0xef ? 3
+           : byte >= 0xf0 && byte <= 0xf4 ? 4
+                                          : 0;
+}
+
 bool tny_code_memory_admit(uint64_t used, uint64_t request, uint64_t header, uint64_t limit) {
     return used <= limit && header <= limit - used && request <= limit - used - header;
 }

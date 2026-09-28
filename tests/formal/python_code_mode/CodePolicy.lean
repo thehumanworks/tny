@@ -212,6 +212,58 @@ theorem output_take_boundaries :
     tny_code_output_take (-1#64) (-1#64) = 0#64 := by
   decide
 
+/-! ## UTF-8 output lead classification -/
+
+/-- Independent partition of the byte space. NUL is replaced because the
+outer tool transport carries C strings; continuation bytes cannot start a scalar. -/
+def Utf8LeadSpec (c : Nat) : Nat :=
+  if c = 0 then 0 else if c < 128 then 1 else if c < 194 then 0
+  else if c < 224 then 2 else if c < 240 then 3 else if c < 245 then 4 else 0
+
+theorem utf8_lead_width_exact (c : BitVec 64) :
+    (tny_code_utf8_lead_width c).toNat = Utf8LeadSpec c.toNat := by
+  simp only [tny_code_utf8_lead_width, Utf8LeadSpec, Bool.cond_eq_ite]
+  tny_bv
+  repeat (any_goals split)
+  all_goals (try tny_bv)
+  all_goals simp_all
+  all_goals omega
+
+theorem utf8_lead_width_bounded (c : BitVec 64) :
+    (tny_code_utf8_lead_width c).toNat ≤ 4 := by
+  rw [utf8_lead_width_exact]
+  unfold Utf8LeadSpec
+  repeat (any_goals split)
+  all_goals omega
+
+theorem utf8_invalid_leads_rejected (c : BitVec 64)
+    (h : c.toNat = 0 ∨ (128 ≤ c.toNat ∧ c.toNat < 194) ∨ 245 ≤ c.toNat) :
+    tny_code_utf8_lead_width c = 0#64 := by
+  apply BitVec.eq_of_toNat_eq
+  rw [utf8_lead_width_exact]
+  unfold Utf8LeadSpec
+  repeat (any_goals split)
+  all_goals (try tny_bv)
+  all_goals simp_all
+  all_goals omega
+
+theorem utf8_lead_width_boundaries :
+    tny_code_utf8_lead_width 0#64 = 0#64 ∧
+    tny_code_utf8_lead_width 1#64 = 1#64 ∧
+    tny_code_utf8_lead_width 127#64 = 1#64 ∧
+    tny_code_utf8_lead_width 128#64 = 0#64 ∧
+    tny_code_utf8_lead_width 193#64 = 0#64 ∧
+    tny_code_utf8_lead_width 194#64 = 2#64 ∧
+    tny_code_utf8_lead_width 223#64 = 2#64 ∧
+    tny_code_utf8_lead_width 224#64 = 3#64 ∧
+    tny_code_utf8_lead_width 239#64 = 3#64 ∧
+    tny_code_utf8_lead_width 240#64 = 4#64 ∧
+    tny_code_utf8_lead_width 244#64 = 4#64 ∧
+    tny_code_utf8_lead_width 245#64 = 0#64 ∧
+    tny_code_utf8_lead_width 255#64 = 0#64 ∧
+    tny_code_utf8_lead_width (-1#64) = 0#64 := by
+  decide
+
 /-! ## Interpreter heap accounting -/
 
 theorem memory_admit_iff (u r h l : BitVec 64) :

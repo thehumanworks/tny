@@ -235,6 +235,64 @@ class ExecutionCodeMode(unittest.TestCase):
             self.assertEqual(schema["properties"]["timeout_ms"]["type"], "integer")
             self.assertFalse(schema.get("additionalProperties", True))
 
+    def test_binary_output_and_unicode_error_do_not_break_protocol(self):
+        # Cover every lead byte with representative continuation, overlong,
+        # surrogate, non-continuation and truncation boundaries. Expected text
+        # comes from CPython's strict decoder, not a copy of the C classifier.
+        wire_bytes = (
+            b"".join(
+                bytes((lead, tail, tail, tail, 124))
+                for lead in range(256)
+                for tail in (0, 0x7F, 0x80, 0x8F, 0x90, 0x9F, 0xA0, 0xBF, 0xC0)
+            )
+            + b"\xe2\x82"
+        )
+        expected = []
+        index = 0
+        while index < len(wire_bytes):
+            for count in range(1, min(4, len(wire_bytes) - index) + 1):
+                piece = wire_bytes[index : index + count]
+                try:
+                    character = piece.decode("utf-8", errors="strict")
+                except UnicodeDecodeError:
+                    continue
+                if len(character) == 1 and character != "\0":
+                    expected.append(character)
+                    index += count
+                    break
+            else:
+                expected.append("\ufffd")
+                index += 1
+        for wire in ("responses", "chat"):
+            with self.subTest(wire=wire):
+                output = self.run_code(
+                    f"import os\nos.write(1, {wire_bytes!r})\n", wire=wire
+                )
+                self.assertEqual(output, "".join(expected))
+                error = self.run_code("raise ValueError('\u20ac' * 12000)\n", wire=wire)
+                self.assertTrue(
+                    error.startswith("error: code: ValueError:"), error[:160]
+                )
+                self.assertNotIn("failed protocol/cleanup", error)
+                error.encode("utf-8", errors="strict")
+
+    def test_model_instructions_match_bundled_host_modules(self):
+        for wire in ("responses", "chat"):
+            with self.subTest(wire=wire):
+                output = self.run_code(
+                    "import sqlite3, ctypes, bz2, lzma, compression.zstd, urllib.request, ssl\n"
+                    "assert sqlite3.connect(':memory:').execute('select 42').fetchone() == (42,)\n"
+                    "assert bz2.decompress(bz2.compress(b'hello')) == b'hello'\n"
+                    "assert lzma.decompress(lzma.compress(b'hello', preset=0)) == b'hello'\n"
+                    "print('bundled-host-modules-ok')\n",
+                    wire=wire,
+                )
+                self.assertEqual(output, "bundled-host-modules-ok\n")
+                prompts = json.dumps(self.server.bodies, ensure_ascii=False)
+                self.assertNotIn("sqlite3, ctypes, bz2 and lzma are not built", prompts)
+                self.assertIn("sqlite3, ctypes, bz2, lzma", prompts)
+                self.assertIn("Direct Python effects are not mediated", prompts)
+
     def test_both_wires_no_tool_stream(self):
         for wire in ("responses", "chat"):
             with self.subTest(wire=wire):
