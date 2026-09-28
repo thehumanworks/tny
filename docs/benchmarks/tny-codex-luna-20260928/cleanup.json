@@ -1,0 +1,18 @@
+{
+  "completed_at": "2026-09-28T11:55:47.876479+00:00",
+  "evaluation_branch": "bench/tny-codex-luna-20260928",
+  "evidence_commit": "13d502939c600fa1e32b518b42d5bb8c5fb989c2",
+  "removed_worktree": "/home/tomas/Projects/tny-eval-luna-20260928",
+  "removed_marked_temporary_root": "/var/tmp/tny-codex-eval-20260928-vw93mwpa",
+  "worktree_absent": true,
+  "temporary_root_absent": true,
+  "primary_inference_exit": 0,
+  "cache_inference_exit": 0,
+  "owned_tmux_sessions_absent": true,
+  "unrelated_worktrees_preserved": 26,
+  "production_checkout": "/home/tomas/Projects/tny",
+  "production_head": "c1e11c80582d3c5a517b398d60b7469100af4f49",
+  "production_source_and_worktree_status_unchanged": true,
+  "production_status": "",
+  "scope": "Only this evaluation worktree and its OWNER.json-identified temporary root were removed. The remote evidence branch is retained; unrelated worktrees, credentials, user files and sessions were untouched."
+}
