@@ -1,0 +1,1 @@
+journal.py stores entries in a JSON file. Use --file PATH, then add DATE TAG MINUTES, list, or stats [--since YYYY-MM-DD] [--tag TAG]. stats prints JSON with count and total_minutes; --since is inclusive.

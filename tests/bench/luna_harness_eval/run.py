@@ -1,0 +1,598 @@
+#!/usr/bin/env python3
+"""Run isolated, repeatable harness tasks through the recording proxy."""
+
+import argparse
+import gzip
+import json
+import os
+import shutil
+import signal
+import statistics
+import subprocess
+import tempfile
+import time
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
+from adapters import (
+    ADAPTERS,
+    SESSION_ADAPTERS,
+    final_message,
+    invocation,
+    resume_id,
+    session_invocation,
+)
+from cost import request_cost
+from proxy import RecordingProxy, static_parts
+
+HERE = Path(__file__).resolve().parent
+DEFAULT_OUT = Path("/home/tomas/.cache/tny-opt/runs/bench")
+
+
+def task_prompts(task):
+    """Return user turns while retaining the original single-prompt contract."""
+    if "prompts" not in task:
+        return [task["prompt"]]
+    prompts = task["prompts"]
+    if (
+        not isinstance(prompts, list)
+        or not prompts
+        or any(not isinstance(prompt, str) or not prompt.strip() for prompt in prompts)
+    ):
+        raise ValueError("task prompts must be a nonempty list of strings")
+    return prompts
+
+
+def token_count(value):
+    try:
+        import tiktoken  # noqa: PLC0415
+    except ImportError:
+        return round(len(value) / 4), "chars/4"
+    return len(tiktoken.get_encoding("o200k_base").encode(value)), "o200k_base"
+
+
+def _git_init(workspace):
+    for command in (
+        ["git", "init", "-q"],
+        ["git", "add", "-A"],
+        [
+            "git",
+            "-c",
+            "user.name=Benchmark",
+            "-c",
+            "user.email=benchmark@localhost",
+            "commit",
+            "-qm",
+            "initial fixture",
+            "--allow-empty",
+        ],
+    ):
+        subprocess.run(command, cwd=workspace, check=True, capture_output=True)
+
+
+def setup_task(task_dir, workspace, timeout_s, stdout=None, stderr=None):
+    """Run a fixture's optional setup with the same cwd and argv as the harness."""
+    setup = task_dir / "setup.sh"
+    if setup.exists():
+        return subprocess.run(
+            ["bash", str(setup)],
+            cwd=workspace,
+            check=True,
+            stdout=stdout,
+            stderr=stderr,
+            timeout=timeout_s,
+        )
+    return None
+
+
+def verify_task(task_dir, workspace, message_file, timeout_s=120):
+    """Run hidden verification from the task directory after the harness exits."""
+    command = [
+        "bash",
+        str(task_dir / "verify.sh"),
+        str(workspace),
+        str(message_file),
+    ]
+    verify_temp = Path(tempfile.mkdtemp(prefix=".verify-tmp-", dir=message_file.parent))
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=task_dir,
+            env={**os.environ, "TMPDIR": str(verify_temp)},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+    except OSError as error:
+        shutil.rmtree(verify_temp, ignore_errors=True)
+        return subprocess.CompletedProcess(
+            command, 125, f"error: verifier could not start: {error}\n", ""
+        )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        stdout, stderr = process.communicate()
+        result = subprocess.CompletedProcess(
+            command, 124, f"error: verification timed out after {timeout_s}s\n", stderr
+        )
+    else:
+        result = subprocess.CompletedProcess(
+            command, process.returncode, stdout, stderr
+        )
+    for leftover in message_file.parent.glob(".harness-hidden.*"):
+        shutil.rmtree(leftover, ignore_errors=True)
+    shutil.rmtree(verify_temp, ignore_errors=True)
+    return result
+
+
+def verification_outcome(verify, message_file):
+    """Distinguish an unmet task from a broken verification environment."""
+    lines = verify.stdout.strip().splitlines() or verify.stderr.strip().splitlines()
+    reason = (
+        lines[0] if lines else f"verifier exited {verify.returncode} without a reason"
+    )
+    if reason.startswith("error:"):
+        return "error", reason
+    if verify.returncode == 124:
+        return "error", f"error: {reason}"
+    log = message_file.parent / "verify.log"
+    detail = log.read_text(errors="replace") if log.exists() else ""
+    evidence = "\n".join((verify.stdout, verify.stderr, detail))
+    for marker in (
+        "ASan compiler support is required",
+        "ASan runtime is unavailable",
+        "AddressSanitizer is unavailable",
+    ):
+        if marker in evidence:
+            return "error", f"error: {marker}"
+    for command in ("cc", "make", "python3"):
+        if ("FileNotFoundError:" in evidence and f"'{command}'" in evidence) or any(
+            marker in evidence
+            for marker in (f"{command}: command not found", f"{command}: not found")
+        ):
+            return "error", f"error: verifier prerequisite {command} is missing"
+    if verify.returncode == 0:
+        return "pass", reason
+    if not lines:
+        return "error", f"error: {reason}"
+    return "fail", reason
+
+
+def _summarize(rows, run_dir, model):
+    usage_fields = (
+        "input_tokens",
+        "cached_input_tokens",
+        "cache_write_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+    )
+    totals = {
+        key: sum(row[key] for row in rows)
+        if rows and all(row.get(key) is not None for row in rows)
+        else None
+        for key in usage_fields
+    }
+    costs = [request_cost(row, model) for row in rows]
+    totals["ite"] = (
+        sum(cost[0] for cost in costs)
+        if costs and all(cost[0] is not None for cost in costs)
+        else None
+    )
+    totals["usd"] = (
+        sum(cost[1] for cost in costs)
+        if costs and all(cost[1] is not None for cost in costs)
+        else None
+    )
+    totals["uncached_input_tokens"] = (
+        sum(cost[2] for cost in costs)
+        if costs and all(cost[2] is not None for cost in costs)
+        else None
+    )
+    first = rows[0] if rows else None
+    if first:
+        sections = first["sections"]
+        totals["static_prefix_chars"] = (
+            sections["instructions_chars"] + sections["tools_chars"]
+        )
+        raw = gzip.decompress((run_dir / "proxy" / first["body_file"]).read_bytes())
+        body = json.loads(raw)
+        instruction_parts, tool_parts = static_parts(body)
+        instructions, method = token_count(
+            "".join(
+                part if isinstance(part, str) else json.dumps(part, ensure_ascii=False)
+                for part in instruction_parts
+            )
+        )
+        tools, _ = token_count(
+            json.dumps(tool_parts, ensure_ascii=False, separators=(",", ":"))
+        )
+        totals["static_prefix_tokens"] = instructions + tools
+        totals["static_prefix_token_method"] = method
+    else:
+        totals["static_prefix_chars"] = None
+        totals["static_prefix_tokens"] = None
+        totals["static_prefix_token_method"] = None
+    contexts = [
+        row["input_tokens"] for row in rows if row.get("input_tokens") is not None
+    ]
+    totals["peak_input_tokens_per_request"] = max(contexts, default=None)
+    totals["mean_input_tokens_per_request"] = (
+        statistics.mean(contexts) if contexts else None
+    )
+    totals["total_tool_output_chars"] = sum(
+        sum(row["sections"]["tool_output_chars"]) for row in rows
+    )
+    calls = Counter(
+        item.get("name") or item["type"]
+        for row in rows
+        for item in row.get("output_items", [])
+    )
+    totals["tool_calls_by_name"] = dict(sorted(calls.items()))
+    totals["tool_calls"] = sum(calls.values())
+    totals["http_error_count"] = sum(
+        (row.get("http_status") or 0) >= 400 for row in rows
+    )
+    return totals
+
+
+def _wire_settings_valid(rows, run_dir, model, effort):
+    if not rows:
+        return False
+    for row in rows:
+        raw = gzip.decompress((run_dir / "proxy" / row["body_file"]).read_bytes())
+        body = json.loads(raw)
+        if (
+            body.get("model") != model
+            or (body.get("reasoning") or {}).get("effort") != effort
+        ):
+            return False
+    return True
+
+
+def run_one(args, task_dir, harness, rep):
+    task = json.loads((task_dir / "task.json").read_text())
+    prompts = task_prompts(task)
+    session_task = "prompts" in task
+    if session_task and harness not in SESSION_ADAPTERS:
+        raise ValueError(f"{harness}: multi-turn resume is unsupported")
+    run_dir = args.out / args.label / harness / task["id"] / f"rep-{rep:02d}"
+    result_file = run_dir / "result.json"
+    if result_file.exists():
+        return json.loads(result_file.read_text())
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    published_workspace = run_dir / "workspace"
+    workspace_root = Path(tempfile.mkdtemp(prefix="ws-", dir=run_dir))
+    workspace = workspace_root / "workspace"
+    shutil.copytree(task_dir / "repo", workspace)
+    _git_init(workspace)
+    with (
+        (run_dir / "setup.stdout").open("w") as setup_out,
+        (run_dir / "setup.stderr").open("w") as setup_err,
+    ):
+        setup_task(task_dir, workspace, task["timeout_s"], setup_out, setup_err)
+    started = time.monotonic()
+    exit_code = None
+    timed_out = False
+    adapter_error = None
+    stdout = ""
+    stderr = ""
+    turns_completed = 0
+    turn_records = []
+    session_id = None
+    with RecordingProxy(run_dir / "proxy", args.auth_file) as proxy:
+        for turn_index, prompt in enumerate(prompts, 1):
+            if session_task:
+                proxy.begin_turn(turn_index)
+            turn_started = time.monotonic()
+            exit_code = None
+            stdout = ""
+            stderr = ""
+            try:
+                if session_task:
+                    call = session_invocation(
+                        harness,
+                        run_dir,
+                        proxy.base_url,
+                        prompt,
+                        args.model,
+                        args.effort,
+                        args.tny_bin,
+                        session_id,
+                    )
+                else:
+                    call = invocation(
+                        harness,
+                        run_dir,
+                        proxy.base_url,
+                        prompt,
+                        args.model,
+                        args.effort,
+                        args.tny_bin,
+                    )
+                completed = subprocess.run(
+                    call.command,
+                    cwd=workspace,
+                    env=call.env,
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    timeout=task["timeout_s"],
+                    errors="replace",
+                )
+                exit_code, stdout, stderr = (
+                    completed.returncode,
+                    completed.stdout,
+                    completed.stderr,
+                )
+            except subprocess.TimeoutExpired as error:
+                timed_out = True
+                stdout = (
+                    (error.stdout or b"").decode(errors="replace")
+                    if isinstance(error.stdout, bytes)
+                    else (error.stdout or "")
+                )
+                stderr = (
+                    (error.stderr or b"").decode(errors="replace")
+                    if isinstance(error.stderr, bytes)
+                    else (error.stderr or "")
+                )
+            except (OSError, RuntimeError, ValueError) as error:
+                adapter_error = f"{type(error).__name__}: {error}"
+            if session_task:
+                (run_dir / f"turn-{turn_index:02d}.stdout.txt").write_text(stdout)
+                (run_dir / f"turn-{turn_index:02d}.stderr.txt").write_text(stderr)
+            # A CLI can exit just before the handler writes its accounting row.
+            time.sleep(0.2)
+            turn_records.append(
+                {
+                    "turn": turn_index,
+                    "exit_code": exit_code,
+                    "timeout": timed_out,
+                    "completed": exit_code == 0 and not timed_out and not adapter_error,
+                    "wall_s": round(time.monotonic() - turn_started, 3),
+                }
+            )
+            if timed_out or adapter_error or exit_code != 0:
+                break
+            if session_task:
+                observed_id = resume_id(harness, stdout)
+                if turn_index == 1 and not observed_id:
+                    adapter_error = "first turn did not report a session identifier"
+                    turn_records[-1]["completed"] = False
+                    break
+                if observed_id and session_id and observed_id != session_id:
+                    adapter_error = (
+                        "resumed turn reported a different session identifier"
+                    )
+                    turn_records[-1]["completed"] = False
+                    break
+                session_id = observed_id or session_id
+            turns_completed += 1
+        wall_s = round(time.monotonic() - started, 3)
+        rows = proxy.rows
+    for turn in turn_records:
+        turn_rows = (
+            [row for row in rows if row.get("turn") == turn["turn"]]
+            if session_task
+            else rows
+        )
+        turn["requests"] = len(turn_rows)
+        for key in (
+            "input_tokens",
+            "cached_input_tokens",
+            "cache_write_tokens",
+            "output_tokens",
+            "reasoning_tokens",
+        ):
+            turn[key] = (
+                sum(row[key] for row in turn_rows)
+                if turn_rows and all(row.get(key) is not None for row in turn_rows)
+                else None
+            )
+        costs = [request_cost(row, args.model) for row in turn_rows]
+        for key, index in (("ite", 0), ("usd", 1)):
+            turn[key] = (
+                sum(cost[index] for cost in costs)
+                if costs and all(cost[index] is not None for cost in costs)
+                else None
+            )
+    (run_dir / "stdout.txt").write_text(stdout)
+    (run_dir / "stderr.txt").write_text(stderr)
+    message = final_message(harness, stdout)
+    message_file = run_dir / "final_message.txt"
+    message_file.write_text(message)
+    verify_timeout_s = task.get("verify_timeout_s", 120)
+    verify = verify_task(task_dir, workspace, message_file, verify_timeout_s)
+    verify_status, reason = verification_outcome(verify, message_file)
+    verify_timed_out = verify.returncode == 124
+    passed = (
+        verify_status == "pass"
+        and exit_code == 0
+        and not timed_out
+        and turns_completed == len(prompts)
+    )
+    measurement_valid = bool(rows) and all(
+        row.get(key) is not None
+        for row in rows
+        for key in (
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_tokens",
+        )
+    )
+    model_effort_valid = _wire_settings_valid(rows, run_dir, args.model, args.effort)
+    if adapter_error:
+        reason = f"error: adapter {adapter_error}"
+    elif verify_status == "error":
+        passed = False
+    elif timed_out:
+        reason = "task timed out"
+    elif exit_code != 0:
+        reason = f"harness exit {exit_code}: {reason}"
+    elif not rows:
+        passed = False
+        reason = "no proxy requests"
+    elif not measurement_valid:
+        passed = False
+        reason = "provider usage missing from a recorded request"
+    elif not model_effort_valid:
+        passed = False
+        reason = "wire model or reasoning effort differs from requested setting"
+    shutil.move(str(workspace), str(published_workspace))
+    shutil.rmtree(workspace_root)
+    status = (
+        "error"
+        if adapter_error or verify_status == "error"
+        else ("pass" if passed else "fail")
+    )
+    result = {
+        "schema_version": 1,
+        "label": args.label,
+        "harness": harness,
+        "task": task["id"],
+        "category": task["category"],
+        "tags": task.get("tags", []),
+        "rep": rep,
+        "model": args.model,
+        "effort": args.effort,
+        "pass": passed,
+        "status": status,
+        "measurement_valid": measurement_valid,
+        "model_effort_valid": model_effort_valid,
+        "reason": reason,
+        "wall_s": wall_s,
+        "exit_code": exit_code,
+        "timeout": timed_out or verify_timed_out,
+        "turns_requested": len(prompts),
+        "turns_completed": turns_completed,
+        "turns": turn_records,
+        "requests": len(rows),
+        "request_rows": rows,
+        **_summarize(rows, run_dir, args.model),
+    }
+    temporary = result_file.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(result, indent=2) + "\n")
+    temporary.replace(result_file)
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--harness", action="append", choices=ADAPTERS)
+    parser.add_argument("--task", action="append", default=[])
+    parser.add_argument(
+        "--tasks-dir",
+        type=Path,
+        default=HERE / "tasks",
+        help="task suite directory (default: tasks/)",
+    )
+    parser.add_argument("--reps", type=int, default=3)
+    parser.add_argument("--model", default="gpt-5.6-luna")
+    parser.add_argument("--effort", default="low")
+    parser.add_argument("--concurrency", type=int, default=3)
+    parser.add_argument("--tny-bin", default="build/tny")
+    parser.add_argument("--label", default="baseline")
+    parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    parser.add_argument(
+        "--auth-file", type=Path, default=Path.home() / ".codex" / "auth.json"
+    )
+    args = parser.parse_args()
+    if (
+        args.reps < 1
+        or args.concurrency < 1
+        or "/" in args.label
+        or args.label in {".", ".."}
+    ):
+        parser.error(
+            "reps/concurrency must be positive; label must be one path component"
+        )
+    args.out = args.out.resolve()
+    args.tasks_dir = args.tasks_dir.resolve()
+    if not args.tasks_dir.is_dir():
+        parser.error(f"tasks directory does not exist: {args.tasks_dir}")
+    tasks = {
+        path.name: path
+        for path in args.tasks_dir.iterdir()
+        if path.is_dir() and (path / "task.json").exists()
+    }
+    selected = list(tasks) if not args.task or "all" in args.task else args.task
+    for task in selected:
+        if task not in tasks:
+            parser.error(f"unknown task: {task}")
+    task_info = {
+        name: json.loads((tasks[name] / "task.json").read_text()) for name in selected
+    }
+    for info in task_info.values():
+        task_prompts(info)
+    jobs = []
+    for task in selected:
+        for harness in args.harness or ["tny", "codex"]:
+            for rep in range(1, args.reps + 1):
+                if "prompts" in task_info[task] and harness not in SESSION_ADAPTERS:
+                    print(
+                        json.dumps(
+                            {
+                                "harness": harness,
+                                "task": task,
+                                "rep": rep,
+                                "status": "skipped",
+                                "reason": "noninteractive multi-turn resume unsupported",
+                            }
+                        ),
+                        flush=True,
+                    )
+                else:
+                    jobs.append((tasks[task], harness, rep))
+    errors = 0
+    with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
+        futures = {executor.submit(run_one, args, *job): job for job in jobs}
+        for future in as_completed(futures):
+            task, harness, rep = futures[future]
+            try:
+                row = future.result()
+                if row.get("status") == "error":
+                    errors += 1
+                print(
+                    json.dumps(
+                        {
+                            "harness": harness,
+                            "task": task.name,
+                            "rep": rep,
+                            "pass": row["pass"],
+                            "status": row.get(
+                                "status", "pass" if row["pass"] else "fail"
+                            ),
+                            "reason": row["reason"],
+                            "requests": row["requests"],
+                            "turns_completed": row.get("turns_completed", 1),
+                        }
+                    ),
+                    flush=True,
+                )
+            except Exception as error:
+                errors += 1
+                print(
+                    json.dumps(
+                        {
+                            "harness": harness,
+                            "task": task.name,
+                            "rep": rep,
+                            "error": f"{type(error).__name__}: {error}",
+                        }
+                    ),
+                    flush=True,
+                )
+    return 1 if errors else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,14 @@
+{
+  "id": "sql-report-fix",
+  "difficulty": "medium",
+  "category": "bugfix",
+  "prompt": "Customer balances in the SQLite report are wrong when an order has several items and payments. Fix the report and make the tests pass.\n\nWork only inside this repository. Do not inspect parent directories or benchmark/verifier sources. Do not change existing tests or generated evidence. No internet, delegation, or additional model calls are needed; use the local files and tools. Finish with a brief summary of changes or findings, actual checks run, and any remaining limitations.",
+  "timeout_s": 300,
+  "tags": [
+    "sqlite",
+    "multi-file",
+    "aggregation"
+  ],
+  "eval_tier": 2,
+  "original_task_source": "tasks-heldout/sql-report-fix"
+}

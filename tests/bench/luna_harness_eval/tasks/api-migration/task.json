@@ -1,0 +1,15 @@
+{
+  "id": "api-migration",
+  "category": "long-horizon-hard",
+  "prompt": "Migrate the versioned tenant record API across the repository. Follow README.md for the new resolve contract, update all clients and docs, remove the old lookup API, and make visible and hidden tests pass.\n\nWork only inside this repository. Do not inspect parent directories or benchmark/verifier sources. Do not change existing tests or generated evidence. No internet, delegation, or additional model calls are needed; use the local files and tools. Finish with a brief summary of changes or findings, actual checks run, and any remaining limitations.",
+  "timeout_s": 1200,
+  "tags": [
+    "python",
+    "api-migration",
+    "multi-module",
+    "long-horizon"
+  ],
+  "verify_timeout_s": 300,
+  "eval_tier": 5,
+  "original_task_source": "tasks-long/api-migration"
+}

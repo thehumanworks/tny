@@ -1,0 +1,1 @@
+arena_alloc returns storage aligned for max_align_t and valid until arena_reset or arena_destroy. arena_reset releases every allocated chunk and allows reuse. arena_destroy releases all chunks. arena_live_chunks reports process-wide chunks still allocated for the test harness. Zero-size allocation returns a unique usable byte. Run make test.

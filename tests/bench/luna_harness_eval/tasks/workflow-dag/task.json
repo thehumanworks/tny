@@ -1,0 +1,14 @@
+{
+  "id": "workflow-dag",
+  "difficulty": "hard",
+  "category": "feature",
+  "prompt": "Implement the workflow behavior described in README.md. Make the public test pass and cover the edge cases.\n\nWork only inside this repository. Do not inspect parent directories or benchmark/verifier sources. Do not change existing tests or generated evidence. No internet, delegation, or additional model calls are needed; use the local files and tools. Finish with a brief summary of changes or findings, actual checks run, and any remaining limitations.",
+  "timeout_s": 600,
+  "tags": [
+    "python",
+    "dag",
+    "scheduling"
+  ],
+  "eval_tier": 4,
+  "original_task_source": "tasks/workflow-dag"
+}

@@ -1,0 +1,16 @@
+{
+  "id": "triage-suite",
+  "difficulty": "medium",
+  "category": "bugfix",
+  "prompt": "The commerce operations toolkit has a release-blocking regression suite. Triage and fix the independent bugs across the package until the entire test suite passes. Keep the public function signatures and do not weaken tests. Run the full suite before finishing.\n\nWork only inside this repository. Do not inspect parent directories or benchmark/verifier sources. Do not change existing tests or generated evidence. No internet, delegation, or additional model calls are needed; use the local files and tools. Finish with a brief summary of changes or findings, actual checks run, and any remaining limitations.",
+  "timeout_s": 1200,
+  "tags": [
+    "python",
+    "multi-module",
+    "debugging",
+    "verbose-tests"
+  ],
+  "verify_timeout_s": 300,
+  "eval_tier": 5,
+  "original_task_source": "tasks-long/triage-suite"
+}

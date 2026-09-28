@@ -1,0 +1,14 @@
+{
+  "id": "trace-analysis",
+  "difficulty": "medium",
+  "category": "answer",
+  "prompt": "Which endpoint used the most total exclusive request time among failed root spans in trace.ndjson? Write endpoint=..., failed_count=..., exclusive_us=... to ANSWER.txt.\n\nWork only inside this repository. Do not inspect parent directories or benchmark/verifier sources. Do not change existing tests or generated evidence. No internet, delegation, or additional model calls are needed; use the local files and tools. Finish with a brief summary of changes or findings, actual checks run, and any remaining limitations.",
+  "timeout_s": 600,
+  "tags": [
+    "large-output",
+    "aggregation",
+    "trace"
+  ],
+  "eval_tier": 3,
+  "original_task_source": "tasks-heldout/trace-analysis"
+}
