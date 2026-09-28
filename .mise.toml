@@ -24,6 +24,8 @@ ruff = "0.16.6"
 shellcheck = "0.11.0"
 shfmt = "3.14.0"
 actionlint = "1.7.12"
+# Structural lint rules in ast-grep/ (`make lint-ast`).
+ast-grep = "0.45.3"
 
 # Integration fixtures, the extension host, scripts/site_build.py.
 python = "3.14"

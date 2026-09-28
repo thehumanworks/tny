@@ -1,0 +1,22 @@
+# The legacy session/set_model path must reach the agent before it can fail:
+# no early return may precede the request (see acp-model-catalog-not-a-gate).
+id: acp-legacy-model-request-first
+language: c
+severity: error
+message: ac_set_legacy_model must send session/set_model before failing.
+files:
+  - src/backends/acp/**
+rule:
+  kind: if_statement
+  has:
+    pattern: return -1;
+    stopBy: end
+  precedes:
+    pattern: yyjson_doc *$DOC = ac_rpc($$$ARGS);
+    stopBy: end
+  inside:
+    kind: function_definition
+    stopBy: end
+    has:
+      field: declarator
+      regex: "^ac_set_legacy_model\\("

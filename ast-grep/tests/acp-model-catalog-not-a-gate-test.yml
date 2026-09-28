@@ -1,0 +1,9 @@
+id: acp-model-catalog-not-a-gate
+valid:
+  - |
+    snprintf(e, el, "acp: requested %s '%.*s' is not advertised by the agent", label, 120, w);
+  - |
+    snprintf(e, el, " (model '%.*s' is not in the agent's catalog; see `models`)", 120, w);
+invalid:
+  - |
+    snprintf(e, el, "acp: requested model '%.*s' is not advertised by the agent", 120, w);

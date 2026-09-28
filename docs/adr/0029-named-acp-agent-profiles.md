@@ -58,7 +58,8 @@ the explicit ad-hoc path; combining `--agent` with `acp:NAME` is an error.
 After creating or loading an ACP session, a nonempty requested model is applied
 before the first prompt through the agent-advertised select option with category
 `model` (or conventional id `model` when category is absent). The requested
-value must be advertised and confirmed by the response. Missing, unsupported,
+value must be confirmed by the response; since ADR 0181 it need not be
+advertised. Missing, unsupported,
 rejected, or unconfirmed selections fail setup clearly; an unset model leaves
 the agent default untouched. The same lifecycle runs over stdio and WebSocket,
 so wasm needs no additional platform seam.

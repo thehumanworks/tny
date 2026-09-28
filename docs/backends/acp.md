@@ -42,14 +42,18 @@ Catalog discovery is not a promise that an adapter is admitted for execution.
 Use an absolute executable path or a PATH command; relative paths containing a
 slash are rejected.
 
-The requested model must appear in the adapter's session catalog. tny confirms
+The requested model is sent to the agent even when it is not in the adapter's
+session catalog (ADR 0181): catalogs lag releases, so a newly released model
+can be served before the adapter lists it. The agent decides. tny confirms
 `session/set_config_option`'s returned selection (or the older `set_model`
-acknowledgement) before sending the prompt. Unknown, unavailable, rejected or
-unconfirmed models fail explicitly. Use an exact advertised ID such as
-`sonnet`; an account's default model can be different and more expensive.
+acknowledgement) before sending the prompt. Rejected or unconfirmed models fail
+explicitly, with no retry or fallback; if the model was unlisted the error says
+so. An agent without a model option still fails an explicit `--model`. Prefer
+an exact ID such as `sonnet`; an account's default model can be different and
+more expensive.
 `tny --provider acp --agent claude-agent-acp models` lists the adapter's
 catalog, not Claude Code's CLI catalog. If Claude Code shows a newer model
-but tny does not, check `claude-agent-acp --version` and update the adapter
+but the agent rejects it, check `claude-agent-acp --version` and update the adapter
 (e.g. `mise install 'npm:@agentclientprotocol/claude-agent-acp@latest'` when
 installed with mise). Then run `tny ... models` again. Updating Claude Code
 alone does not update the adapter or its bundled Claude Agent SDK. Model names

@@ -39,6 +39,15 @@ reachable active states (indeed all representable authority values).
 without a fresh connect. `resume_requires_load` proves the capability guard.
 These proofs have no `sorry`, custom axioms, or native-decision shortcuts.
 
+`Model.lean` models requested-model selection (ADR 0181): the adapter catalog
+never gates a request. `catalog_irrelevant_config`/`_legacy` prove that swapping
+the catalog changes neither whether a turn proceeds nor its model;
+`prompt_is_requested`, `config_requires_confirmation`, `rejected_fails`,
+`unusable_selector_fails` and `annotated_iff_unlisted` pin the rest. Export
+writes `golden/models.tsv` (`selector`, `strict`, `wanted`, `accepted`,
+`annotated`; strict agents reject IDs outside the fixture catalog), replayed by
+`test_model_selection_matches_lean`. Only `propext` is used.
+
 `floor_iff` proves that the production numeric comparison is the specialization
 of lexicographic order to the minimum. `Export.lean` deterministically writes
 34 version and 18 handshake fixtures:

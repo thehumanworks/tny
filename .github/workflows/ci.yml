@@ -30,7 +30,7 @@ permissions:
 jobs:
   # Fast first-party quality gate (docs/adr/0039): format, clang-tidy,
   # strict warnings (gcc + clang), GCC -fanalyzer, Ruff, ShellCheck, shfmt,
-  # actionlint, JS syntax. Tool versions are pinned here — formatter output
+  # actionlint, ast-grep, JS syntax. Tool versions are pinned here — formatter output
   # changes between major versions, so bumps are deliberate.
   quality:
     name: quality
@@ -45,6 +45,7 @@ jobs:
           pipx install clang-format==23.1.0
           pipx install clang-tidy==22.1.8
           pipx install ruff==0.16.6
+          pipx install ast-grep-cli==0.45.3
           sudo apt-get update -q
           sudo apt-get install -y -q gcc-14 g++-14 zsh tmux
           go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.0

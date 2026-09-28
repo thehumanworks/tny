@@ -282,12 +282,78 @@ class AcpClientTest(unittest.TestCase):
         self.assertEqual(self.state_json()["set_model_config"]["configId"], "engine")
         self.assertEqual(self.state_json()["set_model"]["modelId"], "selected-model")
 
+    def test_unlisted_model_is_requested_and_agent_decides(self):
+        # A model released after the adapter's catalog was built is still sent;
+        # the catalog informs `models` but never constrains the user.
+        for mode in ("normal", "grouped", "legacy-model"):
+            with self.subTest(mode=mode):
+                self.state.unlink(missing_ok=True)
+                self.ask("--model", "brand-new-model", mode=mode)
+                facts = self.state_json()
+                sent = (
+                    facts["set_model"]["modelId"]
+                    if mode == "legacy-model"
+                    else (facts["set_model_config"]["value"])
+                )
+                self.assertEqual(sent, "brand-new-model")
+                self.assertEqual(facts["model_at_prompt"], "brand-new-model")
+        for mode, env in (
+            ("strict-catalog", None),
+            ("legacy-model", {"ACP_FIXTURE_STRICT_LEGACY": "1"}),
+        ):
+            with self.subTest(mode=mode, rejected=True):
+                self.state.unlink(missing_ok=True)
+                result = self.ask(
+                    "--model", "brand-new-model", mode=mode, env=env, success=False
+                )
+                self.assertIn("-32602", result.stderr)
+                self.assertIn("not in the agent's catalog", result.stderr)
+                self.assertFalse(self.state_json().get("prompted"))
+                # Listed models on the same strict agent keep working, without
+                # the catalog annotation on unrelated failures.
+                self.state.unlink(missing_ok=True)
+                self.ask("--model", "selected-model", mode=mode, env=env)
+                self.assertEqual(self.state_json()["model_at_prompt"], "selected-model")
+
+    def test_model_selection_matches_lean(self):
+        table = ROOT / "tests/formal/acp/golden/models.tsv"
+        with table.open() as stream:
+            rows = list(csv.DictReader(stream, delimiter="\t"))
+        self.assertEqual(len(rows), 24)
+        fixtures = {
+            ("config", "0"): ("normal", None),
+            ("config", "1"): ("strict-catalog", None),
+            ("legacy", "0"): ("legacy-model", None),
+            ("legacy", "1"): ("legacy-model", {"ACP_FIXTURE_STRICT_LEGACY": "1"}),
+            ("absent", "0"): ("no-models", None),
+            ("absent", "1"): ("no-models", None),
+            ("malformed", "0"): ("no-model-values", None),
+            ("malformed", "1"): ("no-model-values", None),
+        }
+        for row in rows:
+            with self.subTest(row=row):
+                mode, env = fixtures[(row["selector"], row["strict"])]
+                self.state.unlink(missing_ok=True)
+                accepted = row["accepted"] == "1"
+                result = self.ask(
+                    "--model", row["wanted"], mode=mode, env=env, success=accepted
+                )
+                facts = self.state_json()
+                self.assertEqual(bool(facts.get("prompted")), accepted)
+                if accepted:
+                    self.assertEqual(facts["model_at_prompt"], row["wanted"])
+                    continue
+                self.assertEqual(
+                    "not in the agent's catalog" in result.stderr,
+                    row["annotated"] == "1",
+                    result.stderr,
+                )
+
     def test_explicit_model_errors_precede_prompt(self):
         for mode, model in (
             ("no-models", "selected-model"),
             ("no-model-values", "selected-model"),
-            ("normal", "unknown-model"),
-            ("grouped", "unknown-model"),
+            ("strict-catalog", "unknown-model"),
             ("reject-model", "selected-model"),
             ("unconfirmed-model", "selected-model"),
         ):

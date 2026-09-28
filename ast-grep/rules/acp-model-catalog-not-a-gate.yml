@@ -1,0 +1,13 @@
+# docs/backends/acp.md: adapter model catalogs lag releases, so an unlisted
+# model ID is still requested and the agent alone decides. Rejecting it
+# client-side would block newly released models until the adapter updates.
+id: acp-model-catalog-not-a-gate
+language: c
+severity: error
+message: ACP must request unlisted model IDs; the agent decides, not the catalog.
+note: Annotate agent rejections with ac_note_unlisted_model instead.
+files:
+  - src/backends/acp/**
+rule:
+  kind: string_literal
+  regex: "requested model .*not advertised"

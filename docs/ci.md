@@ -129,6 +129,7 @@ make leaks
 | shellcheck | 0.11.0 | `aqua:koalaman/shellcheck` |
 | shfmt | 3.14.0 | `aqua:mvdan/sh` |
 | actionlint | 1.7.12 | `aqua:rhysd/actionlint` |
+| ast-grep | 0.45.3 | `aqua:ast-grep/ast-grep` |
 | python | 3.14 | core |
 | node | 26 | core |
 

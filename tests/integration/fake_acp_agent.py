@@ -165,6 +165,15 @@ def model_options(current=None):
     return configs
 
 
+def listed_model(value):
+    """Mimic an adapter whose backend knows only its advertised catalog."""
+    options = json.loads(os.environ.get("ACP_FIXTURE_CATALOG", "null")) or [
+        {"value": "default-model"},
+        {"value": "selected-model"},
+    ]
+    return value in [option.get("value") for option in options]
+
+
 def session_result(fresh):
     value = {"sessionId": SID} if fresh else {}
     if MODE == "legacy-model":
@@ -470,7 +479,11 @@ def main():
             record("set_config", params)
             if params["configId"] in ("engine", "model"):
                 record("set_model_config", params)
-            if MODE == "reject-model":
+            if MODE == "reject-model" or (
+                MODE == "strict-catalog"
+                and params["configId"] == "model"
+                and not listed_model(params["value"])
+            ):
                 error(message["id"], -32602, "fixture model selection rejected")
                 continue
             if params["configId"] == "mode":
@@ -490,8 +503,13 @@ def main():
                 },
             )
         elif method == "session/set_model":
-            MODEL = params["modelId"]
             record("set_model", params)
+            if os.environ.get("ACP_FIXTURE_STRICT_LEGACY") == "1" and not listed_model(
+                params["modelId"]
+            ):
+                error(message["id"], -32602, "fixture model selection rejected")
+                continue
+            MODEL = params["modelId"]
             result(message["id"], {})
         elif method == "session/prompt":
             prompt(message)

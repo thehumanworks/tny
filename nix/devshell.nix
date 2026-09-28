@@ -36,6 +36,7 @@ mkShell {
     # not a real failure — `mise install` is the version-exact path
     # (docs/adr/0061).
     actionlint
+    ast-grep # make lint-ast
     clang-tools # clang-format, clang-tidy
     ruff
     shellcheck

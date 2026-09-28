@@ -1,0 +1,7 @@
+# ast-grep structural lint (`make lint-ast`, part of `make quality`).
+# Rules encode contracts that grep cannot express; each has valid/invalid
+# cases under ast-grep/tests, run by `ast-grep test`.
+ruleDirs:
+  - ast-grep/rules
+testConfigs:
+  - testDir: ast-grep/tests

@@ -1302,6 +1302,7 @@ RUFF         ?= ruff
 SHELLCHECK   ?= shellcheck
 SHFMT        ?= shfmt
 ACTIONLINT   ?= actionlint
+AST_GREP     ?= ast-grep
 ANALYZER_CC  ?= gcc
 ANALYZER_CXX ?= $(call cxx_driver,$(ANALYZER_CC))
 
@@ -1418,6 +1419,11 @@ lint-sh:
 lint-workflows:
 	$(ACTIONLINT)
 
+# Structural rules (sgconfig.yml, ast-grep/rules) and their own test cases.
+lint-ast:
+	$(AST_GREP) test --skip-snapshot-tests
+	$(AST_GREP) scan
+
 lint-js:
 	@for f in $(JS_SRC); do node --check $$f || exit 1; done
 	@echo "lint-js: $(words $(JS_SRC)) files clean"
@@ -1428,7 +1434,7 @@ else
   QUALITY_ANALYZE :=
 endif
 
-quality: format-check tidy warn-strict lint-py lint-sh lint-workflows lint-js $(QUALITY_ANALYZE)
+quality: format-check tidy warn-strict lint-py lint-sh lint-workflows lint-ast lint-js $(QUALITY_ANALYZE)
 	@if [ -z "$(QUALITY_ANALYZE)" ]; then \
 		echo "quality: GCC -fanalyzer skipped on $(UNAME_S); CI runs it on Linux"; \
 	fi

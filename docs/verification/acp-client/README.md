@@ -34,7 +34,7 @@ are authorized only for small ACP validation using Sonnet; never expose secrets.
 | --- | --- |
 | Text/thinking/tool/plan events | Normalized when agent reports them |
 | Named Claude/pi or custom executable | Explicit argv, no shell parsing |
-| Model selection | Advertised config option with confirmation; legacy advertised model acknowledged |
+| Model selection | Model config option with confirmation; legacy model acknowledged; unlisted IDs are sent, the agent decides (ADR 0181) |
 | Native tool schemas | Exact description/parameter conversion to MCP tools/list |
 | Native files/shell/search/jobs/teams/subagents | Shared dispatch through tny MCP; tool's own configuration/platform restrictions still apply |
 | Imported MCP tools | Same native discovery/describe/call tools and imported configuration |

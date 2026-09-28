@@ -22,6 +22,7 @@ PINS = {
     '"pipx:clang-format"': r"pipx install clang-format==([0-9.]+)",
     '"pipx:clang-tidy"': r"pipx install clang-tidy==([0-9.]+)",
     "ruff": r"pipx install ruff==([0-9.]+)",
+    "ast-grep": r"pipx install ast-grep-cli==([0-9.]+)",
     "shfmt": r"go install mvdan\.cc/sh/v3/cmd/shfmt@v([0-9.]+)",
     "actionlint": r"go install github\.com/rhysd/actionlint/cmd/actionlint@v([0-9.]+)",
 }

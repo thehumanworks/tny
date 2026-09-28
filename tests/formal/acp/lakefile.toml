@@ -1,9 +1,12 @@
 name = "tny-acp-proofs"
 version = "0.1.0"
-defaultTargets = ["Acp", "export"]
+defaultTargets = ["Acp", "Model", "export"]
 
 [[lean_lib]]
 name = "Acp"
+
+[[lean_lib]]
+name = "Model"
 
 [[lean_exe]]
 name = "export"

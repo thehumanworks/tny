@@ -50,20 +50,26 @@ static bool ac_config_has_value(yyjson_val *options, const char *wanted) {
     return false;
 }
 
+/* Model catalogs lag releases: an adapter can serve a model before it lists
+ * it, so an unlisted model ID is still requested and the agent decides. Its
+ * rejection or non-confirmation fails the turn; this only annotates why. */
+static void ac_note_unlisted_model(char *e, size_t el, const char *wanted) {
+    size_t len = strnlen(e, el);
+    if (len + 1 < el)
+        snprintf(e + len, el - len, " (model '%.*s' is not in the agent's catalog; see `models`)",
+                 120, wanted);
+}
+
 static int ac_set_legacy_model(ac_impl *o, yyjson_val *models, const char *sid, char *e,
                                size_t el) {
     const char *wanted = o->ctx->model;
-    bool found = false;
+    bool listed = false;
     size_t i, n;
     yyjson_val *model;
     yyjson_val *available = jget(models, "availableModels");
     yyjson_arr_foreach(available, i, n, model) {
         const char *id = jget_str(model, "modelId");
-        if (id && strcmp(id, wanted) == 0) found = true;
-    }
-    if (!found) {
-        snprintf(e, el, "acp: requested model '%.*s' is not advertised by the agent", 120, wanted);
-        return -1;
+        if (id && strcmp(id, wanted) == 0) listed = true;
     }
     buf_t p;
     buf_init(&p);
@@ -74,10 +80,10 @@ static int ac_set_legacy_model(ac_impl *o, yyjson_val *models, const char *sid, 
     buf_appends(&p, "}");
     yyjson_doc *doc = ac_rpc(o, "session/set_model", p.data, e, el);
     buf_free(&p);
-    if (!doc) return -1;
-    bool ok = yyjson_is_obj(jget(yyjson_doc_get_root(doc), "result"));
+    bool ok = doc && yyjson_is_obj(jget(yyjson_doc_get_root(doc), "result"));
+    if (doc && !ok) snprintf(e, el, "acp: malformed session/set_model acknowledgement");
     yyjson_doc_free(doc);
-    if (!ok) snprintf(e, el, "acp: malformed session/set_model acknowledgement");
+    if (!ok && !listed) ac_note_unlisted_model(e, el, wanted);
     return ok ? 0 : -1;
 }
 
@@ -150,10 +156,15 @@ static yyjson_val *ac_find_config(yyjson_val *configs, const char *category) {
     return NULL;
 }
 
+/* Only the model may be requested outside the advertised values (see
+ * ac_note_unlisted_model); the selector itself must still be well formed. */
 static int ac_set_config(ac_impl *o, yyjson_val *config, const char *sid, const char *wanted,
                          const char *label, char *e, size_t el) {
     const char *config_id = jget_str(config, "id");
-    if (!config_id || !ac_config_has_value(jget(config, "options"), wanted)) {
+    yyjson_val *options = jget(config, "options");
+    bool is_model = strcmp(label, "model") == 0;
+    bool listed = ac_config_has_value(options, wanted);
+    if (!config_id || !yyjson_is_arr(options) || (!listed && !is_model)) {
         snprintf(e, el, "acp: requested %s '%.*s' is not advertised by the agent", label, 120,
                  wanted);
         return -1;
@@ -169,7 +180,10 @@ static int ac_set_config(ac_impl *o, yyjson_val *config, const char *sid, const 
     buf_appends(&p, "}");
     yyjson_doc *doc = ac_rpc(o, "session/set_config_option", p.data, e, el);
     buf_free(&p);
-    if (!doc) return -1;
+    if (!doc) {
+        if (!listed) ac_note_unlisted_model(e, el, wanted);
+        return -1;
+    }
     yyjson_val *confirmed = NULL;
     yyjson_val *configs = jget(jget(yyjson_doc_get_root(doc), "result"), "configOptions");
     size_t idx, max;
@@ -185,10 +199,11 @@ static int ac_set_config(ac_impl *o, yyjson_val *config, const char *sid, const 
     if (!current || strcmp(current, wanted) != 0) {
         snprintf(e, el, "acp: agent did not confirm requested %s '%.*s' after configuration", label,
                  120, wanted);
+        if (!listed) ac_note_unlisted_model(e, el, wanted);
         yyjson_doc_free(doc);
         return -1;
     }
-    if (strcmp(label, "model") != 0 && o->ctx->model && o->config_doc &&
+    if (!is_model && o->ctx->model && o->config_doc &&
         ac_find_model_config(
             jget(jget(yyjson_doc_get_root(o->config_doc), "result"), "configOptions"))) {
         const char *model = jget_str(ac_find_model_config(configs), "currentValue");

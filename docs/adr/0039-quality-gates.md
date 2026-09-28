@@ -45,6 +45,8 @@ uninitialized struct on early failure) plus eight leak-on-OOM realloc sites.
 - `lint-sh` — ShellCheck (`.shellcheckrc` documents the two disabled
   info-level codes) over every tracked script.
 - `lint-workflows` — actionlint over `.github/workflows/`.
+- `lint-ast` — `ast-grep test` then `ast-grep scan` over the rules in `ast-grep/`
+  (`sgconfig.yml`); each rule records the contract it protects.
 - `lint-js` — `node --check` syntax gate over first-party `.js`/`.mjs`
   (vendored xterm.js and built wasm artifacts exempt). ESLint or
   `tsc --checkJs` remains a possible deepening; not adopted yet to keep the

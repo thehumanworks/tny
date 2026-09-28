@@ -1,4 +1,5 @@
 import Acp
+import Model
 
 open Tny.Acp
 
@@ -48,8 +49,30 @@ def transitionTable : String :=
     bit t.load ++ "\t" ++ bit t.resume ++ "\t" ++
     bit (handshake (fieldOption t.name) (fieldOption t.version) t.protocol t.load t.resume) ++ "\n")
 
+/-- Model selection against the fixture catalog. `strict` agents reject IDs
+outside their catalog; others serve and confirm any requested ID. -/
+def fixtureCatalog : List String := ["default-model", "selected-model"]
+
+def selectors : List (String × Model.Selector) :=
+  [("config", .config fixtureCatalog), ("legacy", .legacy fixtureCatalog),
+   ("absent", .absent), ("malformed", .malformed)]
+
+def modelRow (label : String) (s : Model.Selector) (strict : Bool) (w : String) : String :=
+  let reply : Model.Reply := if strict && !Model.listed s w then .rejected else .confirmed w
+  let (accepted, annotated) := match Model.select s (some w) reply with
+    | .fail a => (false, a)
+    | _ => (true, false)
+  label ++ "\t" ++ bit strict ++ "\t" ++ w ++ "\t" ++ bit accepted ++ "\t" ++
+    bit annotated ++ "\n"
+
+def modelTable : String :=
+  "selector\tstrict\twanted\taccepted\tannotated\n" ++ String.join
+    (selectors.flatMap fun (label, s) => [false, true].flatMap fun strict =>
+      ["selected-model", "brand-new-model", "claude-sonnet-5-5"].map (modelRow label s strict))
+
 def main (args : List String) : IO Unit := do
   let dir : System.FilePath := args.headD "golden"
   IO.FS.createDirAll dir
   IO.FS.writeFile (dir / "versions.tsv") versionTable
   IO.FS.writeFile (dir / "transitions.tsv") transitionTable
+  IO.FS.writeFile (dir / "models.tsv") modelTable
