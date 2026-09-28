@@ -1,7 +1,9 @@
 # Optional python-embed-bench links the existing C/CPython graph and test fileset;
 # generated-code execution remains outside package builds and requires bwrap.
 # tests/build/test_code_cell_seams.py host-compiles the explicit unsupported
-# code-cell seams with the existing compiler/Python inputs.
+# code-cell seams with the existing compiler/Python inputs. Its
+# tests/fixtures/code_output_pipe.c fault matrix inserts the actual production
+# helper and checks descriptor cleanup without downloads or new dependencies.
 # Code-mode language benchmarks, offline tests and Lean AST checker are in the
 # existing ../tests fileset. Optional live trials/downloads are never sandbox inputs.
 # Python code cells build third_party/cpython's pinned tarball (fetched by

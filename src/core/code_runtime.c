@@ -216,9 +216,14 @@ static int output_pipe(int fds[2]) {
     if (flags < 0 || fcntl(fds[0], F_SETFL, flags | O_NONBLOCK) < 0) goto fail;
     return 0;
 fail:
-    close(fds[0]);
-    close(fds[1]);
-    return -1;
+    {
+        int saved = errno;
+        close(fds[0]);
+        close(fds[1]);
+        fds[0] = fds[1] = -1;
+        errno = saved;
+        return -1;
+    }
 }
 #endif
 
@@ -427,7 +432,9 @@ static char *child_call(void *ud, const char *name, const char *arguments) {
         frame[0] = TNY_CODE_FRAME_CALL;
         int prefix = snprintf(frame + 1, 4, "%03u", (unsigned)name_len);
         if (prefix == 3 && name_len >= 1 && name_len <= TNY_CODE_NAME_BYTES) {
-            memcpy(frame + 4, name, name_len);
+            /* Copy the temporary terminator too; the following argument
+             * bytes overwrite it at the exact length-delimited boundary. */
+            memcpy(frame + 4, name, name_len + 1);
             memcpy(frame + 4 + name_len, arguments, args_len + 1);
             rc = child_send(c, frame);
         }
@@ -500,8 +507,11 @@ int tny_code_cell_main(void) {
     if (fd < 0) return 2;
     cell_child child = {.fd = fd};
 #ifndef __EMSCRIPTEN__
+    if (pthread_atfork(NULL, NULL, forked_child)) {
+        close(fd);
+        return 2;
+    }
     forked_owner = &child;
-    if (pthread_atfork(NULL, NULL, forked_child)) return 2;
 #endif
     char *start = tny_exec_host_receive(fd, child_wait(), NULL, NULL);
     const char *catalog = NULL, *code = NULL;

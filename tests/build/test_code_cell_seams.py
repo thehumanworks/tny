@@ -19,7 +19,14 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-FLAGS = ["-std=c11", "-D_DEFAULT_SOURCE", "-Wall", "-Wextra", "-Werror", f"-I{ROOT / 'src'}"]
+FLAGS = [
+    "-std=c11",
+    "-D_DEFAULT_SOURCE",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    f"-I{ROOT / 'src'}",
+]
 
 
 def build_and_run(sources, probe, extra=()):
@@ -29,7 +36,15 @@ def build_and_run(sources, probe, extra=()):
         (work / "probe.c").write_text(probe)
         binary = work / "probe"
         build = subprocess.run(
-            [*compiler, *FLAGS, *extra, *map(str, sources), str(work / "probe.c"), "-o", str(binary)],
+            [
+                *compiler,
+                *FLAGS,
+                *extra,
+                *map(str, sources),
+                str(work / "probe.c"),
+                "-o",
+                str(binary),
+            ],
             capture_output=True,
             text=True,
             timeout=60,
@@ -49,13 +64,37 @@ def mutant(source: Path, old: str, new: str, directory: Path) -> Path:
 
 
 class CodeCellSeams(unittest.TestCase):
+    def test_output_pipe_failure_releases_owned_descriptors_once(self):
+        text = (ROOT / "src/core/code_runtime.c").read_text()
+        start = text.index("static int output_pipe(")
+        end = text.index("\n}\n", start) + len("\n}\n")
+        actual = text[start:end]
+        fixture = (ROOT / "tests/fixtures/code_output_pipe.c").read_text()
+        self.assertEqual(fixture.count("/* ACTUAL_OUTPUT_PIPE */"), 1)
+        rc, output = build_and_run(
+            [], fixture.replace("/* ACTUAL_OUTPUT_PIPE */", actual)
+        )
+        self.assertEqual(rc, 0, output)
+        for name, old, new in (
+            ("closed descriptors remain owned", "fds[0] = fds[1] = -1;", ";"),
+            ("read descriptor leaks", "close(fds[0]);", ";"),
+            ("original setup error lost", "errno = saved;", "errno = saved + 1;"),
+        ):
+            self.assertEqual(actual.count(old), 1)
+            broken = actual.replace(old, new)
+            with self.subTest(mutation=name):
+                rc, output = build_and_run(
+                    [], fixture.replace("/* ACTUAL_OUTPUT_PIPE */", broken)
+                )
+                self.assertIn(rc, range(21, 46), output)
+
     def test_unsupported_interpreter_refuses_explicitly(self):
         source = ROOT / "src/core/code_python_unsupported.c"
         probe = (
             '#include "core/code_python.h"\n#include <stdlib.h>\n#include <string.h>\n'
             "int main(void) {\n"
             "  if (tny_code_python_available() || tny_code_python_init() != -1) return 1;\n"
-            "  char *out = tny_code_python_run(\"print(1)\", NULL);\n"
+            '  char *out = tny_code_python_run("print(1)", NULL);\n'
             '  int ok = out && strcmp(out, "error: code: Python code cells are unavailable in '
             'this build") == 0;\n'
             "  free(out);\n  return ok ? 0 : 2;\n}\n"
@@ -81,7 +120,7 @@ class CodeCellSeams(unittest.TestCase):
             "  if (tny_exec_host_start_cell(&host, 1) != ENOTSUP) return 1;\n"
             "  if (host.fd != -1 || host.pid != -1) return 2;\n"
             "  errno = 0;\n"
-            '  if (tny_exec_host_receive_aux(3, NULL, 0, NULL, NULL) || errno != ENOTSUP) return 3;\n'
+            "  if (tny_exec_host_receive_aux(3, NULL, 0, NULL, NULL) || errno != ENOTSUP) return 3;\n"
             "  return 0;\n}\n"
         )
         rc, output = build_and_run([source], probe, ["-D__EMSCRIPTEN__"])
@@ -96,7 +135,9 @@ class CodeCellSeams(unittest.TestCase):
                 Path(tmp),
             )
             rc, output = build_and_run([broken], probe, ["-D__EMSCRIPTEN__"])
-            self.assertEqual(rc, 1, "a wasm seam that reports a started cell must be rejected")
+            self.assertEqual(
+                rc, 1, "a wasm seam that reports a started cell must be rejected"
+            )
 
 
 if __name__ == "__main__":
