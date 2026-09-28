@@ -3,6 +3,7 @@
 
 import argparse
 import gzip
+import hashlib
 import json
 import os
 import shutil
@@ -278,6 +279,16 @@ def run_one(args, task_dir, harness, rep):
         (run_dir / "setup.stderr").open("w") as setup_err,
     ):
         setup_task(task_dir, workspace, task["timeout_s"], setup_out, setup_err)
+    initial_files = {
+        str(p.relative_to(workspace)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in workspace.rglob("*")
+        if p.is_file() and ".git" not in p.parts
+    }
+    (run_dir / "initial-files.json").write_text(
+        json.dumps(initial_files, indent=2) + "\n"
+    )
+    (run_dir / "task.json").write_text(json.dumps(task, indent=2) + "\n")
+    commands = []
     started = time.monotonic()
     exit_code = None
     timed_out = False
@@ -317,6 +328,7 @@ def run_one(args, task_dir, harness, rep):
                         args.effort,
                         args.tny_bin,
                     )
+                commands.append(call.command)
                 completed = subprocess.run(
                     call.command,
                     cwd=workspace,
@@ -409,6 +421,28 @@ def run_one(args, task_dir, harness, rep):
     message = final_message(harness, stdout)
     message_file = run_dir / "final_message.txt"
     message_file.write_text(message)
+    (run_dir / "commands.json").write_text(json.dumps(commands, indent=2) + "\n")
+    changes = subprocess.run(
+        ["git", "diff", "--binary", "HEAD"], cwd=workspace, capture_output=True
+    )
+    (run_dir / "agent.patch").write_bytes(changes.stdout)
+    protected = [
+        name
+        for name in initial_files
+        if name.startswith("tests/")
+        or Path(name).name.startswith("test")
+        or Path(name).suffix in (".ndjson", ".csv", ".tsv", ".json")
+    ]
+    altered = [
+        name
+        for name in protected
+        if not (workspace / name).is_file()
+        or hashlib.sha256((workspace / name).read_bytes()).hexdigest()
+        != initial_files[name]
+    ]
+    (run_dir / "integrity.json").write_text(
+        json.dumps({"protected": protected, "altered": altered}, indent=2) + "\n"
+    )
     verify_timeout_s = task.get("verify_timeout_s", 120)
     verify = verify_task(task_dir, workspace, message_file, verify_timeout_s)
     verify_status, reason = verification_outcome(verify, message_file)
@@ -418,6 +452,7 @@ def run_one(args, task_dir, harness, rep):
         and exit_code == 0
         and not timed_out
         and turns_completed == len(prompts)
+        and not altered
     )
     measurement_valid = bool(rows) and all(
         row.get(key) is not None
@@ -430,7 +465,9 @@ def run_one(args, task_dir, harness, rep):
         )
     )
     model_effort_valid = _wire_settings_valid(rows, run_dir, args.model, args.effort)
-    if adapter_error:
+    if altered:
+        reason = "protected tests or input evidence changed: " + ", ".join(altered)
+    elif adapter_error:
         reason = f"error: adapter {adapter_error}"
     elif verify_status == "error":
         passed = False
@@ -460,6 +497,8 @@ def run_one(args, task_dir, harness, rep):
         "harness": harness,
         "task": task["id"],
         "category": task["category"],
+        "tier": task.get("eval_tier"),
+        "protected_files_changed": altered,
         "tags": task.get("tags", []),
         "rep": rep,
         "model": args.model,

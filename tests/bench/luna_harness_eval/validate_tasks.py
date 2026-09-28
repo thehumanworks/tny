@@ -122,11 +122,7 @@ def main() -> int:
     tasks_dir = (args.tasks_dir_option or args.tasks_dir or ROOT).resolve()
     if not tasks_dir.is_dir():
         parser.error(f"tasks directory does not exist: {tasks_dir}")
-    names = (
-        IDS
-        if tasks_dir.resolve() == ROOT.resolve()
-        else tuple(sorted(path.parent.name for path in tasks_dir.glob("*/task.json")))
-    )
+    names = tuple(sorted(path.parent.name for path in tasks_dir.glob("*/task.json")))
     if not names:
         parser.error(f"no tasks found in {tasks_dir}")
     tmp_root = Path(os.environ.get("TMPDIR", tempfile.gettempdir()))

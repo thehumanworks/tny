@@ -222,13 +222,19 @@ class _Handler(BaseHTTPRequestHandler):
             "request_sha256": hashlib.sha256(raw).hexdigest(),
             "requested_model": body.get("model"),
             "requested_effort": (body.get("reasoning") or {}).get("effort"),
-            "cache_key_hash": hashlib.sha256(str(body.get("prompt_cache_key", "")).encode()).hexdigest(),
+            "cache_key_hash": hashlib.sha256(
+                str(body.get("prompt_cache_key", "")).encode()
+            ).hexdigest(),
             "cache_key_present": bool(body.get("prompt_cache_key")),
             "cache_options": body.get("prompt_cache_options"),
             "cache_retention": body.get("prompt_cache_retention"),
             "affinity_sent": "x-codex-turn-state" in self.headers,
-            "instruction_sha256": hashlib.sha256(json.dumps(body.get("instructions"), sort_keys=True).encode()).hexdigest(),
-            "tools_sha256": hashlib.sha256(json.dumps(body.get("tools"), sort_keys=True).encode()).hexdigest(),
+            "instruction_sha256": hashlib.sha256(
+                json.dumps(body.get("instructions"), sort_keys=True).encode()
+            ).hexdigest(),
+            "tools_sha256": hashlib.sha256(
+                json.dumps(body.get("tools"), sort_keys=True).encode()
+            ).hexdigest(),
             "http_status": None,
             "first_event_ms": None,
             "input_tokens": None,
@@ -319,7 +325,14 @@ class _Handler(BaseHTTPRequestHandler):
                             row["completion"] = event["type"]
                             result = event.get("response") or {}
                             row["reported_model"] = result.get("model")
-                            row["response_output"] = [{k: v for k, v in item.items() if k != "encrypted_content"} for item in result.get("output", [])]
+                            row["response_output"] = [
+                                {
+                                    k: v
+                                    for k, v in item.items()
+                                    if k != "encrypted_content"
+                                }
+                                for item in result.get("output", [])
+                            ]
                             usage = result.get("usage") or {}
                             row["raw_usage"] = usage
                             details = usage.get("input_tokens_details") or {}
