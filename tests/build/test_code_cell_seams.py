@@ -26,6 +26,8 @@ FLAGS = [
     "-Wextra",
     "-Werror",
     f"-I{ROOT / 'src'}",
+    # execution_protocol.h pulls in json.h, which includes yyjson.h.
+    f"-I{ROOT / 'third_party/yyjson'}",
 ]
 
 
