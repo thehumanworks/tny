@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import socket
+import ssl
 import struct
 import subprocess
 import sys
@@ -131,6 +133,18 @@ class Provider(BaseHTTPRequestHandler):
             self.wfile.write(data)
         except (BrokenPipeError, ConnectionResetError):
             pass
+
+
+class Loopback(BaseHTTPRequestHandler):
+    def log_message(self, *_args):
+        pass
+
+    def do_GET(self):
+        body = f"loopback:{self.path}".encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 @unittest.skipIf(WASM, "wasm execution is covered by the clean-error seam")
@@ -282,33 +296,117 @@ class ExecutionCodeMode(unittest.TestCase):
         self.assertIn("42", self.server.outputs[0])
         self.assertIn("fresh state", self.server.outputs[1])
 
-    def test_restricted_python_and_json(self):
-        # Attempt host access instead of probing names: only nested tools may
-        # reach the workspace, whichever confinement the runtime uses.
-        escape = python_string(str(self.workspace / "escape.txt"))
-        output = self.run_code(f"""
-blocked = 0
-try:
-    open({escape}, "w").write("escaped")
-except Exception:
-    blocked += 1
-try:
-    os = __import__("os")
-    os.close(os.open({escape}, os.O_WRONLY | os.O_CREAT))
-except Exception:
-    blocked += 1
-try:
-    import subprocess
-    subprocess.run(["touch", {escape}])
-except Exception:
-    blocked += 1
-print("blocked=" + str(blocked))
+    def test_direct_host_python_on_both_wires(self):
+        # Direct Python acts on the host as the OS user (ADR 0180): the --cwd
+        # workspace (tny itself runs elsewhere), the inherited environment,
+        # files, subprocesses and loopback HTTP, with no tool mediation.
+        web = ThreadingHTTPServer(("127.0.0.1", 0), Loopback)
+        threading.Thread(target=web.serve_forever, daemon=True).start()
+        self.addCleanup(web.server_close)
+        self.addCleanup(web.shutdown)
+        url = python_string(f"http://127.0.0.1:{web.server_port}/plain")
+        for wire in ("responses", "chat"):
+            with self.subTest(wire=wire):
+                output = self.run_code(
+                    f"""
+import os, pathlib, subprocess, sys, urllib.request
+print("cwd", os.getcwd() == {python_string(str(self.workspace.resolve()))})
+pathlib.Path("{wire}.txt").write_text("direct write")
+fd = os.open("{wire}-os.txt", os.O_WRONLY | os.O_CREAT)
+os.close(fd)
+print("env", os.environ.get("TNY_CELL_FIXTURE"), repr(sys.executable))
+done = subprocess.run(["sh", "-c", "cat {wire}.txt; echo; echo inherited-output; exit 5"])
+print("exit", done.returncode)
+with urllib.request.urlopen({url}, timeout=5) as reply:
+    print("http", reply.status, reply.read().decode())
 value = json.loads('{{"value":42}}')
 print(json.dumps({{"answer": value["value"] + 1}}))
-""")
-        self.assertIn("blocked=3", output)
-        self.assertFalse((self.workspace / "escape.txt").exists())
-        self.assertIn('"answer":43', output.replace(" ", ""))
+""",
+                    wire=wire,
+                    env={"TNY_CELL_FIXTURE": "visible-to-python"},
+                )
+                self.assertIn("cwd True", output)
+                self.assertIn("env visible-to-python ''", output)
+                self.assertIn("direct write\ninherited-output\nexit 5", output)
+                self.assertIn("http 200 loopback:/plain", output)
+                self.assertIn('"answer":43', output.replace(" ", ""))
+                self.assertEqual(
+                    (self.workspace / f"{wire}.txt").read_text(), "direct write"
+                )
+                self.assertTrue((self.workspace / f"{wire}-os.txt").exists())
+
+    def test_direct_https_verifies_certificates(self):
+        openssl = shutil.which("openssl")
+        if not openssl:
+            self.skipTest(
+                "openssl CLI unavailable to mint a throwaway loopback certificate"
+            )
+        cert, key = self.home / "loopback.pem", self.home / "loopback.key"
+        subprocess.run(
+            [
+                openssl,
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-days",
+                "1",
+                "-subj",
+                "/CN=127.0.0.1",
+                "-addext",
+                "subjectAltName=IP:127.0.0.1",
+                "-keyout",
+                str(key),
+                "-out",
+                str(cert),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        web = ThreadingHTTPServer(("127.0.0.1", 0), Loopback)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert, key)
+        web.socket = context.wrap_socket(web.socket, server_side=True)
+        threading.Thread(target=web.serve_forever, daemon=True).start()
+        self.addCleanup(web.server_close)
+        self.addCleanup(web.shutdown)
+        url = python_string(f"https://127.0.0.1:{web.server_port}/tls")
+        output = self.run_code(
+            f"""
+import ssl, urllib.request
+try:
+    urllib.request.urlopen({url}, timeout=5)
+except urllib.error.URLError as error:
+    print("default verification", type(error.reason).__name__)
+trusted = ssl.create_default_context(cafile={python_string(str(cert))})
+with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
+    print("https", reply.status, reply.read().decode(), ssl.OPENSSL_VERSION.split()[1])
+"""
+        )
+        self.assertIn("default verification SSLCertVerificationError", output)
+        self.assertIn("https 200 loopback:/tls 3.5.8", output)
+
+    def test_timeout_stops_python_descendants_and_keeps_output(self):
+        pid_file = self.home / "sleep.pid"
+        started = time.monotonic()
+        output = self.run_code(
+            arguments={
+                "code": "import subprocess, time\n"
+                "child = subprocess.Popen(['sleep', '30'])\n"
+                f"open({python_string(str(pid_file))}, 'w').write(str(child.pid))\n"
+                "print('started child', flush=True)\n"
+                "time.sleep(60)\n",
+                "timeout_ms": 1500,
+            }
+        )
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertIn("timeout", output)
+        self.assertIn("started child", output)
+        pid = int(pid_file.read_text())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
 
     def test_profile_cannot_be_widened_by_code(self):
         output = self.run_code(
@@ -322,7 +420,6 @@ print(json.dumps({{"answer": value["value"] + 1}}))
         cases = [
             ({"code": "value ="}, "error"),
             ({"code": "while True:\n    pass", "timeout_ms": 40}, "error"),
-            ({"code": 'print("x" * 70000)'}, "error"),
             (
                 {"code": 't = []\nwhile True:\n    t.append("x" * 100000)'},
                 "error",
@@ -334,13 +431,18 @@ print(json.dumps({{"answer": value["value"] + 1}}))
                 },
                 "error",
             ),
-            ({"code": "print(1)", "timeout_ms": 30001}, "error"),
+            ({"code": "print(1)", "timeout_ms": 600001}, "error"),
         ]
         for arguments, expected in cases:
             with self.subTest(arguments=arguments):
                 started = time.monotonic()
                 self.assertIn(expected, self.run_code(arguments=arguments).lower())
                 self.assertLess(time.monotonic() - started, 8)
+        # Excess output is summarized, not fatal: later statements still run.
+        output = self.run_code('print("x" * 70000)\nprint("after")')
+        self.assertLess(len(output.encode()), 70000)
+        self.assertIn("bytes of output omitted", output)
+        self.assertTrue(output.endswith("after\n"), output[-200:])
 
     def test_nested_permission_and_pretool_hooks_use_owner(self):
         directory = self.home / ".tny/extensions"

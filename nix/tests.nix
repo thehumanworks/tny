@@ -1,8 +1,9 @@
 # Optional python-embed-bench links the existing C/CPython graph and test fileset;
 # generated-code execution remains outside package builds and requires bwrap.
-# Python-cell confinement checks compile tests/fixtures/code_sandbox_host.c
-# against the production OS seam using the existing compiler/Python inputs;
-# native enforcement is checked separately from Valgrind syscall emulation.
+# tests/build/test_code_cell_seams.py host-compiles the explicit unsupported
+# code-cell seams with the existing compiler/Python inputs. Host-capable cells
+# (ADR 0180) use loopback sockets, temporary files, sh/sleep subprocesses and
+# openssl.bin (already an input) to mint a throwaway loopback certificate.
 # Python code cells (ADR 0179) build the pinned CPython tarball from
 # nix/cpython-source.nix; no host/system Python is linked or used by cells.
 # test_code_runtime.c and integration/test_execution_code_mode.py plus its
@@ -23,6 +24,7 @@
   stdenv,
   darwin,
   fetchurl,
+  linkFarm,
   git,
   bash,
   bubblewrap,
@@ -46,6 +48,7 @@
 let
   src = (import ./source.nix { inherit lib; }).tests;
   cpythonSource = import ./cpython-source.nix { inherit lib fetchurl; };
+  cpythonDeps = import ./cpython-deps.nix { inherit lib fetchurl linkFarm; };
   # Terminal background completion uses only the existing Python/POSIX tools.
   # Its short-lived detached waiters also use this test runner's adoption.
   # Linux fixture descendants can outlive their direct parent. Adopt and reap
@@ -248,8 +251,10 @@ stdenv.mkDerivation {
     "BASH=${bash}/bin/bash"
     "ZSH=${zsh}/bin/zsh"
     "TMUX_BIN=${tmux}/bin/tmux"
-    # Code cells embed the pinned static CPython; the sandbox has no network.
+    # Code cells embed the pinned static CPython and its pinned libraries
+    # (perl, already an input, runs OpenSSL's Configure); no network.
     "CPYTHON_TARBALL=${cpythonSource}"
+    "CPYTHON_DEPS_DIR=${cpythonDeps}"
     "CPYTHON_FETCH=0"
   ] ++ lib.optionals stdenv.hostPlatform.isDarwin [
     # Keep the displayed flake revision while supplying dyld's numeric field

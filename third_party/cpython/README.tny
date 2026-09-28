@@ -1,27 +1,29 @@
-CPython for Python code cells (docs/adr/0179)
+CPython for Python code cells (docs/adr/0179, docs/adr/0180)
 
 Source:  https://www.python.org/ftp/python/3.14.7/Python-3.14.7.tar.xz
 Version: VERSION (3.14.7)
 SHA256:  SHA256 (checked against the python.org release-file metadata)
-License: LICENSE (PSF License Version 2 and the notices CPython ships)
+License: LICENSE (PSF License Version 2 and the notices CPython ships);
+         LICENSE-incorporated.rst (CPython's Doc/license.rst: software CPython
+         incorporates, e.g. expat and libmpdec); HACL-LICENSE (the MIT notice
+         of the HACL* hashes, from Modules/_hacl)
 
 The source tarball is not committed. `make` builds it with
-scripts/cpython_runtime.sh into <BUILD>/cpython-<version>-<ABI>-<flags>/: a static
-libpython with only the interpreter core and its bootstrap modules, no
-docstrings, ensurepip, test modules, mimalloc, remote-debug attach or
-libintl, plus frozen `encodings` modules. The executable needs no stdlib
-directory and no system Python. `make fetch-cpython` downloads the pinned
-tarball (a hash mismatch always fails); CPYTHON_TARBALL=/path supplies a
-local copy, and CPYTHON_FETCH=0 forbids any download.
+scripts/cpython_runtime.sh into <BUILD>/cpython-<version>-<ABI>-<flags>/: a
+static libpython with every buildable stdlib extension module
+(MODULE_BUILDTYPE=static) against the pinned libraries in
+third_party/{openssl,zlib,bzip2,xz,zstd,sqlite,libffi}, plus the pure-Python
+standard library frozen by scripts/cpython_freeze_stdlib.py with the
+just-built interpreter. The executable needs no stdlib directory and no system
+Python. Excluded: the regression-test suite, Tk/IDLE/turtle, ensurepip/venv,
+and native modules without a pinned library (curses, readline, gdbm/ndbm,
+_uuid, macOS _scproxy, which a frozen shim replaces). No ensurepip wheels,
+test modules, mimalloc, remote-debug attach or libintl are built.
+`make fetch-cpython` downloads the pinned tarballs (a hash mismatch always
+fails); CPYTHON_TARBALL=/path and CPYTHON_DEPS_DIR=/dir supply local copies,
+and CPYTHON_FETCH=0 forbids any download.
 
 To update: change VERSION and SHA256 together from python.org metadata,
-refresh LICENSE from the new tarball, rebuild, and rerun `make test`, the
-Python conformance cases and the frozen-corpus replay.
-
-### Unicode parser bootstrap
-The builtin unicodedata module is statically linked and preloaded for the
-CPython parser's non-ASCII identifier normalization and named Unicode escapes.
-It is not a general import permission or an external stdlib dependency. A
-production regression verifies Greek identifiers, NFKC normalization and named
-Unicode escapes while user imports remain refused. Earlier minimal-probe sizes
-remain historical; the final production artifact includes this required module.
+refresh LICENSE and LICENSE-incorporated.rst (Doc/license.rst) from the new
+tarball, rebuild, and rerun `make test`, the Python conformance cases and the
+import sweep in docs/verification/host-code-mode/.

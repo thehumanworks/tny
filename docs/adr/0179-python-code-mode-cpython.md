@@ -1,7 +1,11 @@
 # 0179 — Python code mode on pinned embedded CPython
 
 Date: 2026-09-27
-Status: accepted; release verification is recorded separately
+Status: accepted; release verification is recorded separately. Its confinement,
+empty environment, restricted builtins, JSON facade, stdlib packaging, 64 MiB heap,
+30 s ceiling and terminal output budget are superseded by
+[ADR 0180](0180-host-authorized-python-code-cells.md); the runtime choice, cell
+protocol, tool-call budgets and no-replay rules stand.
 Supersedes: the language/runtime choice in ADRs 0174 and 0178, not their tool authority or no-replay rules
 
 ## Decision and motivation

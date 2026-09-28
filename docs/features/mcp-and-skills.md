@@ -23,12 +23,21 @@ Native loop only, unless noted.
 
 ## Code-only agent interface
 
-Agents receive exactly `run_code({code, timeout_ms?})`. A bounded Python 3.14
-script composes the tools below through `tools.call(name, arguments_json)`,
-with discovery via `tools.list()` and `tools.describe(name)`. Results are
-strings; `json.loads` and `json.dumps` provide explicit JSON conversion
-([ADR 0179](../adr/0179-python-code-mode-cpython.md)). Native cells run in a
-fresh execution process; direct provider tool names are rejected. Wasm returns
+Agents receive exactly `run_code({code, timeout_ms?})`. A Python 3.14 script
+(timeout 5 s by default, up to 600 s) composes the tools below through
+`tools.call(name, arguments_json)`, with discovery via `tools.list()` and
+`tools.describe(name)`. Results are strings; the pre-bound stdlib `json` module
+converts explicitly ([ADR 0179](../adr/0179-python-code-mode-cpython.md)). The
+script is also an ordinary CPython program on the local host
+([ADR 0180](../adr/0180-host-authorized-python-code-cells.md)): the bundled
+standard library imports, and `open`, `subprocess`, `socket`/`urllib`/`ssl` act
+with the OS user's authority in the local workspace directory with the host
+environment. Its stdout/stderr (print, tracebacks, inherited subprocess output)
+is the result, bounded to 64 KiB with the beginning and end kept. Direct Python
+effects are **not** mediated by tny permissions, hooks, tool profiles, workspace
+policy or the command sandbox, and under `--ssh` they stay on the local machine;
+only nested `tools.call` operations are. Native cells run in a fresh execution
+process; direct provider tool names are rejected. Wasm returns
 a clean unsupported-execution error. Native runner permissions cross a checked
 owner reply channel; user waits pause the code deadline (bounded to five minutes).
 The catalog below names nested operations,

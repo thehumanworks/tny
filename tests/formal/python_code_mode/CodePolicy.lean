@@ -5,8 +5,8 @@ tests/formal/check_code_policy.py prepends the `TnyC` definitions it generates
 from the Clang AST of src/core/code_policy.c (exact C widths: `BitVec 64` for
 uint64_t/int64_t, `BitVec 32` for int, `Bool` for _Bool) and appends generated
 no-wrap obligations, so this file never contains a copy of the C code. The
-limits below are the intended contract (code_policy.h / code_runtime.h, ADR
-0179) restated as plain numbers; changing a production limit fails these
+limits below are the intended contract (code_policy.h / code_runtime.h, ADRs
+0179 and 0180) restated as plain numbers; changing a production limit fails these
 theorems until the contract is deliberately updated here.
 -/
 
@@ -30,7 +30,7 @@ open TnyC
 
 /-! ## Contract, restated independently of the C source -/
 
-def MaxTimeoutMs : Int := 30000
+def MaxTimeoutMs : Int := 600000
 def SourceBytes : Nat := 256 * 1024
 def ToolCalls : Nat := 64
 def NameBytes : Nat := 256
@@ -45,15 +45,6 @@ def Finished : Int := 2
 def Failed : Int := 3
 def FrameCall : Int := 67 -- 'C'
 def FrameDone : Int := 68 -- 'D'
-/-- JSON kinds, in the facade's classification order. -/
-def JNull : Nat := 0
-def JBool : Nat := 1
-def JInt : Nat := 2
-def JFloat : Nat := 3
-def JString : Nat := 4
-def JArray : Nat := 5
-def JObject : Nat := 6
-def JDefault : Nat := 7
 
 /-- A CALL frame is 'C', a three-digit byte length, the exact name and JSON arguments; DONE is 'D' and
 the final text: bounded output plus at most one error line. -/
@@ -62,12 +53,10 @@ def FrameSpec (phase type : Int) (payload calls : Nat) : Prop :=
     ((type = FrameCall ∧ calls < ToolCalls ∧ payload ≤ 1 + 3 + NameBytes + ArgumentBytes) ∨
      (type = FrameDone ∧ payload ≤ 1 + OutputBytes + ErrorLineBytes))
 
-/-- First matching Python type test wins: None, then bool (an int subclass),
-then int, float, str, list/tuple, dict; anything else uses the default hook. -/
-def JsonSpec (none bool int float str list dict : Bool) : Nat :=
-  if none then JNull else if bool then JBool else if int then JInt else
-  if float then JFloat else if str then JString else if list then JArray else
-  if dict then JObject else JDefault
+/-- Captured output (ADR 0180): the kept head takes new bytes while room
+remains, never more than the remaining room; the rest reaches only the tail. -/
+def TakeSpec (used available : Nat) : Nat :=
+  if OutputBytes ≤ used then 0 else min available (OutputBytes - used)
 
 /-- C `int` values that fit are the same as their bit patterns. -/
 theorem toInt32_eq_small (x : BitVec 32) (k : Nat) (hk : k < 2 ^ 31) :
@@ -84,9 +73,9 @@ theorem timeout_admit_iff (t : BitVec 64) :
 
 theorem timeout_boundaries :
     tny_code_timeout_admit 0#64 = false ∧ tny_code_timeout_admit 1#64 = true ∧
-    tny_code_timeout_admit 30000#64 = true ∧ tny_code_timeout_admit 30001#64 = false ∧
+    tny_code_timeout_admit 600000#64 = true ∧ tny_code_timeout_admit 600001#64 = false ∧
     tny_code_timeout_admit (BitVec.ofInt 64 (-1)) = false ∧
-    tny_code_timeout_admit (BitVec.ofInt 64 (-30000)) = false ∧
+    tny_code_timeout_admit (BitVec.ofInt 64 (-600000)) = false ∧
     tny_code_timeout_admit (BitVec.ofInt 64 (-2 ^ 63)) = false ∧
     tny_code_timeout_admit (BitVec.ofInt 64 (2 ^ 63 - 1)) = false ∧
     ∀ t : BitVec 64, t.toInt ≤ 0 → tny_code_timeout_admit t = false := by
@@ -178,6 +167,50 @@ theorem output_wrap_rejected (u a : BitVec 64) (h : 2 ^ 64 ≤ u.toNat + a.toNat
   cases e : tny_code_output_admit u a
   · rfl
   · have := (output_admit_iff u a).mp e; simp [OutputBytes] at this; omega
+
+/-! ## Captured output: head admission for the bounded result -/
+
+theorem output_take_eq (u a : BitVec 64) :
+    (tny_code_output_take u a).toNat = TakeSpec u.toNat a.toNat := by
+  simp only [tny_code_output_take, TakeSpec, OutputBytes, BitVec.reduceMul,
+    BitVec.reduceZeroExtend, BitVec.reduceSignExtend, BitVec.ule, Nat.reduceMul]
+  have hs : u.toNat < 65536 → (65536#64 - u).toNat = 65536 - u.toNat := by
+    intro h; rw [BitVec.toNat_sub]; simp; omega
+  by_cases h1 : 65536 ≤ u.toNat
+  · simp [h1]
+  · have e := hs (by omega)
+    by_cases h2 : a.toNat ≤ 65536 - u.toNat
+    · simp [h1, h2, e]
+    · simp [h1, h2, e]; omega
+
+/-- The head never takes more bytes than arrived ... -/
+theorem output_take_le_available (u a : BitVec 64) :
+    (tny_code_output_take u a).toNat ≤ a.toNat := by
+  rw [output_take_eq]; unfold TakeSpec; split <;> omega
+
+/-- ... and an in-bounds head stays within the output limit after taking them. -/
+theorem output_take_fits_head (u a : BitVec 64) (h : u.toNat ≤ OutputBytes) :
+    u.toNat + (tny_code_output_take u a).toNat ≤ OutputBytes := by
+  rw [output_take_eq]; unfold TakeSpec; split <;> omega
+
+/-- Everything is kept exactly when the existing admission gate holds. -/
+theorem output_take_all_iff_admit (u a : BitVec 64) :
+    tny_code_output_admit u a = true ↔
+      u.toNat ≤ OutputBytes ∧ tny_code_output_take u a = a := by
+  rw [output_admit_iff, ← BitVec.toNat_inj, output_take_eq]
+  unfold TakeSpec; constructor
+  · intro h; refine ⟨by simp [OutputBytes] at h ⊢; omega, ?_⟩
+    split <;> simp [OutputBytes] at * <;> omega
+  · rintro ⟨h1, h2⟩; split at h2 <;> simp [OutputBytes] at * <;> omega
+
+theorem output_take_boundaries :
+    tny_code_output_take 0#64 5#64 = 5#64 ∧
+    tny_code_output_take 65535#64 5#64 = 1#64 ∧
+    tny_code_output_take 65536#64 5#64 = 0#64 ∧
+    tny_code_output_take 65537#64 0#64 = 0#64 ∧
+    tny_code_output_take 0#64 (-1#64) = 65536#64 ∧
+    tny_code_output_take (-1#64) (-1#64) = 0#64 := by
+  decide
 
 /-! ## Interpreter heap accounting -/
 
@@ -281,58 +314,16 @@ theorem admitted_output_fits_done_frame (u a e p c : BitVec 64)
   simp only [FrameSpec, Running, FrameDone, OutputBytes, ErrorLineBytes] at *
   refine ⟨by decide, by omega, Or.inr ⟨by decide, by omega⟩⟩
 
-/-! ## Python value -> JSON kind -/
-
-theorem json_kind_first_match : ∀ a b c d e f g : Bool,
-    (tny_code_json_kind a b c d e f g).toNat = JsonSpec a b c d e f g := by
-  decide
-
-theorem json_kind_in_range : ∀ a b c d e f g : Bool,
-    (tny_code_json_kind a b c d e f g).toNat ≤ JDefault := by
-  decide
-
-/-- None is checked first: whatever other tests claim, None is null. -/
-theorem json_null_first : ∀ b c d e f g : Bool,
-    (tny_code_json_kind true b c d e f g).toNat = JNull := by
-  decide
-
-/-- No null confusion: only None encodes as null. -/
-theorem json_null_exact : ∀ a b c d e f g : Bool,
-    (tny_code_json_kind a b c d e f g).toNat = JNull ↔ a = true := by
-  decide
-
-/-- bool is tested before int (bool is an int subclass): True/False stay booleans. -/
-theorem json_bool_before_int : ∀ c d e f g : Bool,
-    (tny_code_json_kind false true c d e f g).toNat = JBool := by
-  decide
-
-/-- A bool is never encoded as a number: false never becomes 0. -/
-theorem json_bool_never_int : ∀ a c d e f g : Bool,
-    (tny_code_json_kind a true c d e f g).toNat ≠ JInt := by
-  decide
-
-theorem json_int_exact : ∀ a b c d e f g : Bool,
-    (tny_code_json_kind a b c d e f g).toNat = JInt ↔ a = false ∧ b = false ∧ c = true := by
-  decide
-
-theorem json_default_exact : ∀ a b c d e f g : Bool,
-    (tny_code_json_kind a b c d e f g).toNat = JDefault ↔
-      (a || b || c || d || e || f || g) = false := by
-  decide
-
-/-! ## Non-vacuity: every gate admits something and every kind is reachable -/
+/-! ## Non-vacuity: every gate admits something -/
 
 theorem nonvacuity :
     tny_code_timeout_admit 5000#64 = true ∧ tny_code_source_admit 1#64 = true ∧
     tny_code_call_admit 0#64 4#64 false 2#64 true = true ∧
     tny_code_result_admit 1#64 = true ∧ tny_code_output_admit 10#64 10#64 = true ∧
+    tny_code_output_take 10#64 10#64 = 10#64 ∧
     tny_code_memory_admit 1024#64 64#64 16#64 67108864#64 = true ∧
     tny_code_frame_admit 1#32 67#32 8#64 0#64 = true ∧
-    tny_code_frame_admit 1#32 68#32 1#64 0#64 = true ∧
-    (tny_code_json_kind false false false true false false false).toNat = JFloat ∧
-    (tny_code_json_kind false false false false true false false).toNat = JString ∧
-    (tny_code_json_kind false false false false false true false).toNat = JArray ∧
-    (tny_code_json_kind false false false false false false true).toNat = JObject := by
+    tny_code_frame_admit 1#32 68#32 1#64 0#64 = true := by
   decide
 
 end CodePolicy

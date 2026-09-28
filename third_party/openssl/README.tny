@@ -1,0 +1,15 @@
+openssl 3.5.8 for Python code cells: ssl and hashlib, OPENSSLDIR=/etc/ssl; tny's own provider HTTPS still dlopens the system TLS library (docs/adr/0180)
+
+Source:  URL
+Version: VERSION
+SHA256:  SHA256 (matches the release's published .sha256 file)
+License: LICENSE.txt (Apache License 2.0)
+
+The tarball is not committed. scripts/cpython_runtime.sh reads URL and SHA256
+from this directory, verifies the tarball in CPYTHON_DEPS_DIR (default
+build/deps; `make fetch-cpython` downloads it, a hash mismatch always
+fails), builds a static library and links it into the embedded CPython runtime
+of the `tny` executable only; libtny and wasm do not contain it.
+
+To update: change VERSION, URL and SHA256 together from the upstream release
+metadata, refresh the license file, rebuild, and rerun `make test`.

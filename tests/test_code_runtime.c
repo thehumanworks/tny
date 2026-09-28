@@ -2,13 +2,19 @@
 #include "core/code_policy.h"
 #include "core/code_runtime.h"
 #include "util/util.h"
+#include <errno.h>
+#include <limits.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 /* Every cell below runs through the production path: a fresh `--code-cell`
- * child of this test binary with the OS sandbox, not an in-process shortcut. */
+ * child of this test binary with host authority (docs/adr/0180), not an
+ * in-process shortcut. Host effects use private temporary directories,
+ * loopback sockets and benign subprocesses only. */
 
 static char *fake_tool(void *userdata, const char *name, const char *args) {
     unsigned *count = userdata;
@@ -41,29 +47,23 @@ TEST code_composes_calls_and_json(void) {
     PASS();
 }
 
-TEST code_state_is_fresh_and_loading_names_absent(void) {
-    /* Check the actual builtins dict keys (dir() of a dict lists its methods). */
-    const char *script = "absent = [n for n in ('__import__', 'open', 'eval', 'exec', 'compile',\n"
-                         "          'input', 'breakpoint') if n not in __builtins__]\n"
-                         "try:\n"
-                         "    import os\n"
-                         "    imported = True\n"
-                         "except ImportError:\n"
-                         "    imported = False\n"
+TEST code_state_is_fresh_and_builtins_present(void) {
+    /* The ordinary builtins module, import system and __main__ namespace. */
+    const char *script = "import builtins\n"
+                         "present = [n for n in ('__import__', 'open', 'eval', 'exec', 'compile',\n"
+                         "           'input', 'breakpoint', 'print') if n in vars(builtins)]\n"
+                         "import os, subprocess, socket, pathlib\n"
                          "try:\n"
                          "    saved\n"
                          "    fresh = False\n"
                          "except NameError:\n"
                          "    fresh = True\n"
                          "saved = 42\n"
-                         "# Control: the same membership test sees keys that must be present.\n"
-                         "present = all(n in __builtins__ for n in ('len', 'print', 'sorted', "
-                         "'type'))\n"
-                         "print(len(absent), imported, fresh, present)\n";
+                         "print(len(present), __name__, fresh, eval('6 * 7'))\n";
     for (int i = 0; i < 2; ++i) {
         char *out = tny_code_run(script, 5000, NULL, NULL, NULL);
         ASSERT(out);
-        ASSERT_STR_EQ("7 False True True\n", out);
+        ASSERT_STR_EQ("8 __main__ True 42\n", out);
         free(out);
     }
     PASS();
@@ -72,7 +72,6 @@ TEST code_state_is_fresh_and_loading_names_absent(void) {
 TEST code_limits_are_enforced(void) {
     const char *scripts[] = {
         "while True:\n    pass\n",
-        "print('x' * 65537)\n",
         "data = []\nwhile True:\n    data.append('x' * 1000000)\n",
         "for _ in range(65):\n    tools.call('echo', '{}')\n",
         "tools.call('run_code', '{}')\n",
@@ -80,7 +79,7 @@ TEST code_limits_are_enforced(void) {
         "tools.call('echo', {'path': 'x'})\n",
         "t = []\nt.append(t)\njson.dumps(t)\n",
         "raise ValueError('boom')\n",
-        "print('hello\\x00')\n",
+        "import sys\nsys.exit(3)\n",
         "local x = 1\n",
         "tools.call('fail', '{}')\n",
         "tools.call('huge', '{}')\n",
@@ -104,9 +103,6 @@ TEST code_limits_are_sticky(void) {
         const char *script, *reason;
         unsigned max_calls;
     } cases[] = {
-        {"try:\n    print('x' * 70000)\nexcept BaseException:\n    pass\n"
-         "tools.call('echo', '{}')\n",
-         "output limit exceeded", 0},
         {"try:\n    data = []\n    while True:\n        data.append('x' * 1000000)\n"
          "except BaseException:\n    data = None\n"
          "tools.call('echo', '{}')\n",
@@ -147,25 +143,248 @@ TEST code_finalizers_cannot_reach_tools(void) {
     PASS();
 }
 
-/* Host effects only through tools: a direct write attempt fails inside the
- * cell and leaves no file behind. */
-TEST code_cell_has_no_ambient_file_authority(void) {
-    char dir[] = "/var/tmp/tny-code-cell-XXXXXX";
-    ASSERT(mkdtemp(dir));
-    char target[128], code[512];
-    snprintf(target, sizeof target, "%s/escape.txt", dir);
+static char *temp_dir(void) {
+    char *dir = xstrdup("/var/tmp/tny-code-cell-XXXXXX");
+    if (dir && !mkdtemp(dir)) {
+        free(dir);
+        return NULL;
+    }
+    return dir;
+}
+
+/* A Python string literal for a temporary path (one use per statement). */
+static const char *json_quote_python(const char *text) {
+    static char quoted[PATH_MAX * 2 + 3];
+    size_t n = 0;
+    quoted[n++] = '\'';
+    for (; *text && n < sizeof quoted - 3; ++text) {
+        if (*text == '\\' || *text == '\'') quoted[n++] = '\\';
+        quoted[n++] = *text;
+    }
+    quoted[n++] = '\'';
+    quoted[n] = 0;
+    return quoted;
+}
+
+static void remove_tree(const char *dir) {
+    char command[PATH_MAX + 16];
+    snprintf(command, sizeof command, "rm -rf '%s'", dir);
+    if (system(command) != 0) fprintf(stderr, "could not remove %s\n", dir);
+}
+
+/* Direct Python acts on the host as the OS user: files, subprocesses and the
+ * inherited environment, in the requested working directory. */
+TEST code_cell_acts_on_the_host(void) {
+    char *dir = temp_dir();
+    ASSERT(dir);
+    char *real = realpath(dir, NULL);
+    ASSERT(real);
+    ASSERT_EQ(0, setenv("TNY_CELL_TEST_VISIBLE", "inherited-value", 1));
+    ASSERT_EQ(0, setenv("TNY_JOB_SCOPE_TEST", "private", 1));
+    char code[2048];
     snprintf(code, sizeof code,
-             "blocked = 0\n"
-             "try:\n    open('%s', 'w')\nexcept Exception:\n    blocked += 1\n"
-             "try:\n    __import__('os')\nexcept Exception:\n    blocked += 1\n"
-             "print('blocked', blocked)\n",
-             target);
+             "import os, pathlib, subprocess, sys\n"
+             "assert os.getcwd() == %s, os.getcwd()\n"
+             "assert os.environ['PWD'] == os.getcwd()\n"
+             "pathlib.Path('made.txt').write_text('from python')\n"
+             "with open('made.txt', 'a') as f:\n"
+             "    print(' and print', file=f, end='')\n"
+             "r = subprocess.run(['sh', '-c', 'cat made.txt; echo; exit 7'],\n"
+             "                   capture_output=True, text=True)\n"
+             "print(r.returncode, r.stdout.strip())\n"
+             "print(os.environ.get('TNY_CELL_TEST_VISIBLE'), 'TNY_JOB_SCOPE_TEST' in os.environ)\n"
+             "print(repr(sys.executable), 'PATH' in os.environ)\n",
+             json_quote_python(real));
+    int64_t deadline = monotonic_ms() + 10000;
+    char *out = tny_code_run_with_deadline(code, dir, &deadline, NULL, NULL, NULL);
+    unsetenv("TNY_CELL_TEST_VISIBLE");
+    unsetenv("TNY_JOB_SCOPE_TEST");
+    ASSERT(out);
+    ASSERT_STR_EQ("7 from python and print\ninherited-value False\n'' True\n", out);
+    char made[PATH_MAX];
+    snprintf(made, sizeof made, "%s/made.txt", dir);
+    char *text = file_slurp(made, NULL);
+    ASSERT(text);
+    ASSERT_STR_EQ("from python and print", text);
+    free(text);
+    free(out);
+    remove_tree(dir);
+    free(real);
+    free(dir);
+    PASS();
+}
+
+/* No kernel confinement or resource denial: the cell has no seccomp filter,
+ * no no_new_privs bit, and the parent's descriptor/process limits. */
+TEST code_cell_has_no_confinement(void) {
+#ifdef __linux__
+    struct rlimit files, procs;
+    ASSERT_EQ(0, getrlimit(RLIMIT_NOFILE, &files));
+    ASSERT_EQ(0, getrlimit(RLIMIT_NPROC, &procs));
+    char code[1024];
+    snprintf(code, sizeof code,
+             "import resource\n"
+             "status = open('/proc/self/status').read()\n"
+             "print('Seccomp:\\t0' in status, 'NoNewPrivs:\\t0' in status)\n"
+             "print(resource.getrlimit(resource.RLIMIT_NOFILE) == (%lld, %lld),\n"
+             "      resource.getrlimit(resource.RLIMIT_NPROC) == (%lld, %lld))\n"
+             "print(resource.getrlimit(resource.RLIMIT_FSIZE)[0] == resource.RLIM_INFINITY)\n",
+             (long long)files.rlim_cur, (long long)files.rlim_max, (long long)procs.rlim_cur,
+             (long long)procs.rlim_max);
     char *out = tny_code_run(code, 5000, NULL, NULL, NULL);
     ASSERT(out);
-    ASSERT_STR_EQ("blocked 2\n", out);
-    ASSERT(access(target, F_OK) != 0);
+    ASSERT_STR_EQ("True True\nTrue True\nTrue\n", out);
     free(out);
-    rmdir(dir);
+#endif
+    PASS();
+}
+
+/* A loopback HTTP server and client inside one cell: sockets, threads and
+ * urllib all work. */
+TEST code_cell_uses_loopback_http(void) {
+    const char *code = "import http.server, threading, urllib.request, socket\n"
+                       "class H(http.server.BaseHTTPRequestHandler):\n"
+                       "    def do_GET(self):\n"
+                       "        body = ('path=' + self.path).encode()\n"
+                       "        self.send_response(200)\n"
+                       "        self.send_header('Content-Length', str(len(body)))\n"
+                       "        self.end_headers()\n"
+                       "        self.wfile.write(body)\n"
+                       "    def log_message(self, *args):\n"
+                       "        pass\n"
+                       "server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), H)\n"
+                       "threading.Thread(target=server.serve_forever, daemon=True).start()\n"
+                       "url = 'http://127.0.0.1:%d/probe' % server.server_address[1]\n"
+                       "with urllib.request.urlopen(url, timeout=5) as r:\n"
+                       "    print(r.status, r.read().decode())\n"
+                       "server.shutdown()\n";
+    char *out = tny_code_run(code, 10000, NULL, NULL, NULL);
+    ASSERT(out);
+    ASSERT_STR_EQ("200 path=/probe\n", out);
+    free(out);
+    PASS();
+}
+
+/* stdout, stderr and inherited subprocess output form one ordered result. */
+TEST code_captures_ordered_process_output(void) {
+    const char *code = "import os, subprocess, sys\n"
+                       "print('one')\n"
+                       "sys.stderr.write('two\\n')\n"
+                       "subprocess.run(['sh', '-c', 'echo three; echo four >&2'])\n"
+                       "os.write(1, b'five\\n')\n"
+                       "print('six', flush=True)\n";
+    char *out = tny_code_run(code, 5000, NULL, NULL, NULL);
+    ASSERT(out);
+    ASSERT_STR_EQ("one\ntwo\nthree\nfour\nfive\nsix\n", out);
+    free(out);
+    PASS();
+}
+
+/* Excess output is bounded without ending the cell: the beginning and the
+ * end stay, the middle is summarized, and later code still runs. NUL and
+ * malformed UTF-8 become U+FFFD so the JSON result stays valid. */
+TEST code_output_is_bounded_not_terminal(void) {
+    char *out = tny_code_run("import subprocess\n"
+                             "print('BEGIN' + 'a' * 100000)\n"
+                             "subprocess.run(['sh', '-c', 'yes b | head -c 200000'])\n"
+                             "print('END')\n",
+                             10000, NULL, NULL, NULL);
+    ASSERT(out);
+    ASSERT(strlen(out) <= TNY_CODE_OUTPUT_BYTES);
+    ASSERT(str_starts(out, "BEGINaaa"));
+    ASSERT(strstr(out, "bytes of output omitted]"));
+    size_t len = strlen(out);
+    ASSERT(len > 4 && strcmp(out + len - 4, "END\n") == 0);
+    free(out);
+    out = tny_code_run("import os\nos.write(1, b'a\\x00b\\xffc\\xe2\\x82\\n')\n", 5000, NULL, NULL,
+                       NULL);
+    ASSERT(out);
+    ASSERT_STR_EQ("a\xef\xbf\xbd"
+                  "b\xef\xbf\xbd"
+                  "c\xef\xbf\xbd\xef\xbf\xbd\n",
+                  out);
+    free(out);
+    PASS();
+}
+
+/* Errors put the summary line first, then the output with the traceback;
+ * SystemExit behaves like the interpreter's. */
+TEST code_errors_report_traceback_and_exit_status(void) {
+    char *out = tny_code_run("print('before')\n"
+                             "def inner():\n"
+                             "    raise ValueError('boom')\n"
+                             "inner()\n",
+                             5000, NULL, NULL, NULL);
+    ASSERT(out);
+    ASSERT(str_starts(out, "error: code: ValueError: boom (line 3)\n[output before the error]\n"
+                           "before\nTraceback"));
+    ASSERT(strstr(out, "raise ValueError('boom')"));
+    free(out);
+    out = tny_code_run("import sys\nprint('done')\nsys.exit(0)\nprint('not reached')\n", 5000, NULL,
+                       NULL, NULL);
+    ASSERT(out);
+    ASSERT_STR_EQ("done\n", out);
+    free(out);
+    out = tny_code_run("raise SystemExit('stopped here')\n", 5000, NULL, NULL, NULL);
+    ASSERT(out);
+    ASSERT_STR_EQ("error: code: SystemExit: stopped here", out);
+    free(out);
+    PASS();
+}
+
+/* The deadline stops the cell and its ordinary descendants; output written
+ * before the deadline is kept. */
+TEST code_deadline_stops_owned_descendants(void) {
+    char *dir = temp_dir();
+    ASSERT(dir);
+    char pidfile[PATH_MAX], code[1024];
+    snprintf(pidfile, sizeof pidfile, "%s/pid", dir);
+    snprintf(code, sizeof code,
+             "import subprocess, time\n"
+             "child = subprocess.Popen(['sleep', '30'])\n"
+             "open(%s, 'w').write(str(child.pid))\n"
+             "print('started', flush=True)\n"
+             "child.wait()\n",
+             json_quote_python(pidfile));
+    int64_t started = monotonic_ms();
+    char *out = tny_code_run(code, 1500, NULL, NULL, NULL);
+    ASSERT(out);
+    ASSERT(monotonic_ms() - started < 5000);
+    ASSERT(str_starts(out, "error: code: deadline exceeded"));
+    ASSERT(strstr(out, "started\n"));
+    char *text = file_slurp(pidfile, NULL);
+    ASSERT(text);
+    pid_t pid = (pid_t)atoi(text);
+    ASSERT(pid > 1);
+    ASSERT(kill(pid, 0) != 0 && errno == ESRCH);
+    free(text);
+    free(out);
+    remove_tree(dir);
+    free(dir);
+    PASS();
+}
+
+/* A fork() child of the cell neither holds the protocol open nor reaches the
+ * tools; the cell finishes without waiting for it. */
+TEST code_fork_child_has_no_protocol(void) {
+    unsigned calls = 0;
+    int64_t started = monotonic_ms();
+    char *out = tny_code_run("import os, time\n"
+                             "pid = os.fork()\n"
+                             "if pid == 0:\n"
+                             "    try:\n"
+                             "        tools.call('echo', '{}')\n"
+                             "    except RuntimeError:\n"
+                             "        pass\n"
+                             "    time.sleep(3)\n"
+                             "    os._exit(0)\n"
+                             "print('parent', tools.call('echo', '{\"n\": 1}'))\n",
+                             5000, NULL, fake_tool, &calls);
+    ASSERT(out);
+    ASSERT_STR_EQ("parent {\"n\": 1}\n", out);
+    ASSERT_EQ(1u, calls);
+    ASSERT(monotonic_ms() - started < 2500);
+    free(out);
     PASS();
 }
 
@@ -186,7 +405,7 @@ TEST code_preserves_denial_and_catalog(void) {
 }
 
 /* Expected text generated by CPython 3.14.7 with the stdlib json module. */
-TEST code_json_facade_matches_cpython(void) {
+TEST code_json_matches_cpython(void) {
     struct {
         const char *code, *expected;
     } cases[] = {
@@ -265,13 +484,13 @@ TEST code_observes_trusted_prompt_deadline_updates(void) {
     prompt_deadline prompt = {.deadline = &deadline, .extend = true};
     char *out = tny_code_run_with_deadline("print(tools.call('prompt', '{}'))\n"
                                            "n = 0\nfor i in range(2000):\n    n += 1\nprint(n)\n",
-                                           &deadline, NULL, fake_prompt_wait, &prompt);
+                                           NULL, &deadline, NULL, fake_prompt_wait, &prompt);
     ASSERT(out);
     ASSERT_STR_EQ("approved\n2000\n", out);
     free(out);
     prompt.extend = false;
     deadline = monotonic_ms() + 5000;
-    out = tny_code_run_with_deadline("print(tools.call('prompt', '{}'))\n", &deadline, NULL,
+    out = tny_code_run_with_deadline("print(tools.call('prompt', '{}'))\n", NULL, &deadline, NULL,
                                      fake_prompt_wait, &prompt);
     ASSERT(out);
     ASSERT(strstr(out, "deadline exceeded"));
@@ -297,6 +516,11 @@ TEST code_policy_boundaries(void) {
     ASSERT(tny_code_output_admit(0, TNY_CODE_OUTPUT_BYTES));
     ASSERT(!tny_code_output_admit(1, TNY_CODE_OUTPUT_BYTES));
     ASSERT(!tny_code_output_admit(TNY_CODE_OUTPUT_BYTES + 1, 0));
+    ASSERT_EQ(5u, tny_code_output_take(0, 5));
+    ASSERT_EQ(1u, tny_code_output_take(TNY_CODE_OUTPUT_BYTES - 1, 5));
+    ASSERT_EQ(0u, tny_code_output_take(TNY_CODE_OUTPUT_BYTES, 5));
+    ASSERT_EQ(0u, tny_code_output_take(UINT64_MAX, UINT64_MAX));
+    ASSERT_EQ(TNY_CODE_OUTPUT_BYTES, tny_code_output_take(0, UINT64_MAX));
     ASSERT(tny_code_memory_admit(0, 10, 16, 26));
     ASSERT(!tny_code_memory_admit(0, 11, 16, 26));
     ASSERT(!tny_code_memory_admit(UINT64_MAX - 1, 1, 16, UINT64_MAX));
@@ -307,14 +531,6 @@ TEST code_policy_boundaries(void) {
     ASSERT(!tny_code_frame_admit(TNY_CODE_PHASE_RUNNING, TNY_CODE_FRAME_RESULT, 2, 0));
     ASSERT(!tny_code_frame_admit(TNY_CODE_PHASE_RUNNING, TNY_CODE_FRAME_DONE,
                                  TNY_CODE_RESULT_TEXT_BYTES + 2, 0));
-    ASSERT_EQ(TNY_CODE_JSON_BOOL,
-              tny_code_json_kind(false, true, true, false, false, false, false));
-    ASSERT_EQ(TNY_CODE_JSON_NULL,
-              tny_code_json_kind(true, false, false, false, false, false, false));
-    ASSERT_EQ(TNY_CODE_JSON_INT,
-              tny_code_json_kind(false, false, true, false, false, false, false));
-    ASSERT_EQ(TNY_CODE_JSON_DEFAULT,
-              tny_code_json_kind(false, false, false, false, false, false, false));
     PASS();
 }
 
@@ -398,13 +614,15 @@ TEST code_json_error_metadata_and_describe_boundaries(void) {
 TEST code_fatal_quota_does_not_run_finally_or_following_bytecode(void) {
     unsigned calls = 0;
     const char *source = "try:\n"
-                         "    print('x' * 70000)\n"
+                         "    data = []\n"
+                         "    while True:\n"
+                         "        data.append('x' * 1000000)\n"
                          "finally:\n"
                          "    tools.call('echo', '{\"finally\":true}')\n"
                          "tools.call('echo', '{\"after\":true}')\n";
-    char *out = tny_code_run(source, 5000, NULL, fake_tool, &calls);
+    char *out = tny_code_run(source, 10000, NULL, fake_tool, &calls);
     ASSERT(out);
-    ASSERT(strstr(out, "output limit exceeded"));
+    ASSERT(strstr(out, "memory limit exceeded"));
     ASSERT_EQ(0u, calls);
     free(out);
     out = tny_code_run("print('fresh')\n", 5000, NULL, NULL, NULL);
@@ -419,15 +637,14 @@ TEST code_unicode_parser_is_self_contained(void) {
                          "print(\u03c0, '\\N{GREEK SMALL LETTER ALPHA}', '\\N{GRINNING FACE}')\n"
                          "\u212a = 7\n"
                          "assert K == 7\n"
-                         "try:\n"
-                         "    import unicodedata\n"
-                         "except ImportError:\n"
-                         "    print('no import authority')\n"
-                         "else:\n"
-                         "    raise AssertionError('parser module exposed an import capability')\n";
+                         "import unicodedata\n"
+                         "print(unicodedata.name('\u03b1'), 'x'.encode('cp1252'),\n"
+                         "      '\u00e9'.encode('utf-8-sig'), 'b\u00fccher.de'.encode('idna'))\n";
     char *out = tny_code_run(source, 5000, NULL, NULL, NULL);
     ASSERT(out);
-    ASSERT_STR_EQ("3 \u03b1 \U0001f600\nno import authority\n", out);
+    ASSERT_STR_EQ("3 \u03b1 \U0001f600\nGREEK SMALL LETTER ALPHA b'x' b'\\xef\\xbb\\xbf\\xc3\\xa9' "
+                  "b'xn--bcher-kva.de'\n",
+                  out);
     free(out);
     PASS();
 }
@@ -439,13 +656,20 @@ SUITE(code_runtime_suite) {
     RUN_TEST(code_json_error_metadata_and_describe_boundaries);
     RUN_TEST(code_fatal_quota_does_not_run_finally_or_following_bytecode);
     RUN_TEST(code_composes_calls_and_json);
-    RUN_TEST(code_state_is_fresh_and_loading_names_absent);
+    RUN_TEST(code_state_is_fresh_and_builtins_present);
     RUN_TEST(code_limits_are_enforced);
     RUN_TEST(code_limits_are_sticky);
     RUN_TEST(code_finalizers_cannot_reach_tools);
-    RUN_TEST(code_cell_has_no_ambient_file_authority);
+    RUN_TEST(code_cell_acts_on_the_host);
+    RUN_TEST(code_cell_has_no_confinement);
+    RUN_TEST(code_cell_uses_loopback_http);
+    RUN_TEST(code_captures_ordered_process_output);
+    RUN_TEST(code_output_is_bounded_not_terminal);
+    RUN_TEST(code_errors_report_traceback_and_exit_status);
+    RUN_TEST(code_deadline_stops_owned_descendants);
+    RUN_TEST(code_fork_child_has_no_protocol);
     RUN_TEST(code_preserves_denial_and_catalog);
-    RUN_TEST(code_json_facade_matches_cpython);
+    RUN_TEST(code_json_matches_cpython);
     RUN_TEST(code_observes_trusted_prompt_deadline_updates);
     RUN_TEST(code_policy_boundaries);
 }

@@ -1,0 +1,15 @@
+zlib 1.3.2 for Python code cells: zlib, gzip, zipfile (docs/adr/0180)
+
+Source:  URL
+Version: VERSION
+SHA256:  SHA256 (matches the digest published on zlib.net)
+License: LICENSE (zlib License)
+
+The tarball is not committed. scripts/cpython_runtime.sh reads URL and SHA256
+from this directory, verifies the tarball in CPYTHON_DEPS_DIR (default
+build/deps; `make fetch-cpython` downloads it, a hash mismatch always
+fails), builds a static library and links it into the embedded CPython runtime
+of the `tny` executable only; libtny and wasm do not contain it.
+
+To update: change VERSION, URL and SHA256 together from the upstream release
+metadata, refresh the license file, rebuild, and rerun `make test`.

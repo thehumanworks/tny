@@ -20,6 +20,20 @@ Always (unless allowed by rule/grant): `write_file`, `edit_file`, `delete_file`,
 
 Prompt choices: Yes / Yes and don't ask again (session grant) / No. Grants die with the session.
 
+## Direct Python in `run_code` is not mediated
+
+Everything above governs **nested tools** (`tools.call(...)` inside a
+`run_code` cell). The cell's own Python is an ordinary CPython process with the
+OS user's authority ([ADR 0180](../adr/0180-host-authorized-python-code-cells.md)):
+`open()`, `os`, `shutil`, `subprocess`, `socket`, `urllib`/`ssl` and every other
+direct call run without any tny rule, prompt, session grant, pre/post-tool hook,
+tool profile (`TNY_TOOLS`), workspace/extra-dir boundary or command sandbox, in
+every mode including `ask` and `auto`. Starting a cell is not itself a permission
+prompt. Under `--ssh`, direct Python runs on the local machine in the local
+workspace while nested tools act remotely. The host's own access controls (file
+permissions, users, containers, MAC policy) are the only limit; run tny inside
+one of those if cells must be confined. Nested tools keep all of the checks here.
+
 ## How a shell command is classified
 
 `run_command` / `terminal` details are read by a small POSIX-aware tokeniser

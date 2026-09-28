@@ -1,0 +1,15 @@
+xz 5.8.4 for Python code cells: lzma (liblzma only) (docs/adr/0180)
+
+Source:  URL
+Version: VERSION
+SHA256:  SHA256 (tarball verified against the release's GPG signature by Lasse Collin, key 3690C240CE51B4670D30AD1C38EE757D69184620)
+License: COPYING.0BSD (liblzma: BSD Zero Clause); COPYING (package overview)
+
+The tarball is not committed. scripts/cpython_runtime.sh reads URL and SHA256
+from this directory, verifies the tarball in CPYTHON_DEPS_DIR (default
+build/deps; `make fetch-cpython` downloads it, a hash mismatch always
+fails), builds a static library and links it into the embedded CPython runtime
+of the `tny` executable only; libtny and wasm do not contain it.
+
+To update: change VERSION, URL and SHA256 together from the upstream release
+metadata, refresh the license file, rebuild, and rerun `make test`.

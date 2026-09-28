@@ -53,10 +53,13 @@ Keep the *user-visible harness*, not another vendor's branding:
 
 ## What tny adds
 
-tny owns tools, permissions and context. Agent tool calls use bounded Python through
+tny owns tools, permissions and context. Agent tool calls use Python through
 `run_code`, with each native invocation in a fresh execution server
-([ADR 0174](adr/0174-execution-server-code-mode.md)) and each cell in a confined,
-embedded-CPython child ([ADR 0179](adr/0179-python-code-mode-cpython.md)). HTTP uses the native agent loop;
+([ADR 0174](adr/0174-execution-server-code-mode.md)) and each cell in a fresh
+embedded-CPython child ([ADR 0179](adr/0179-python-code-mode-cpython.md)) that acts
+on the host with the OS user's authority and the bundled standard library
+([ADR 0180](adr/0180-host-authorized-python-code-cells.md)); nested tools keep
+tny's permissions and hooks, direct Python effects are not mediated by them. HTTP uses the native agent loop;
 optional ACP agents own their loop and reach tny tools through MCP.
 BYOK keys come from environment variables; OAuth subscription login and
 refresh are native. Claude models work through configured compatible gateways.

@@ -49,8 +49,10 @@ gates are tracked in [purposeful-swarms evidence](verification/purposeful-swarms
 ## Execution server and code-only tools (ADR 0174)
 
 Replace the provider-facing native tool registry with `run_code`, preserve the
-filtered nested catalog, and execute each bounded Python cell in a fresh, OS-confined process
-([ADR 0179](adr/0179-python-code-mode-cpython.md)).
+filtered nested catalog, and execute each bounded Python cell in a fresh process
+([ADR 0179](adr/0179-python-code-mode-cpython.md)) with the OS user's host
+authority and the bundled standard library
+([ADR 0180](adr/0180-host-authorized-python-code-cells.md)).
 Native Chat/Responses and verified ACP share the same authority checks. The
 [acceptance contract](verification/execution-code-mode/contract.md) and
 [evidence ledger](verification/execution-code-mode/evidence.md) track protocol,

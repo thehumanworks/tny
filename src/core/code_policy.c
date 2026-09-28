@@ -23,6 +23,12 @@ bool tny_code_output_admit(uint64_t used, uint64_t add) {
     return used <= TNY_CODE_OUTPUT_BYTES && add <= TNY_CODE_OUTPUT_BYTES - used;
 }
 
+uint64_t tny_code_output_take(uint64_t used, uint64_t available) {
+    return used >= TNY_CODE_OUTPUT_BYTES               ? 0
+           : available <= TNY_CODE_OUTPUT_BYTES - used ? available
+                                                       : TNY_CODE_OUTPUT_BYTES - used;
+}
+
 bool tny_code_memory_admit(uint64_t used, uint64_t request, uint64_t header, uint64_t limit) {
     return used <= limit && header <= limit - used && request <= limit - used - header;
 }
@@ -32,16 +38,4 @@ bool tny_code_frame_admit(int phase, int type, uint64_t payload_bytes, uint64_t 
            ((type == TNY_CODE_FRAME_CALL && calls_done < TNY_CODE_TOOL_CALLS &&
              payload_bytes <= TNY_CODE_NAME_BYTES + 4 + TNY_CODE_ARGUMENT_BYTES) ||
             (type == TNY_CODE_FRAME_DONE && payload_bytes <= TNY_CODE_RESULT_TEXT_BYTES + 1));
-}
-
-int tny_code_json_kind(bool is_none, bool is_bool, bool is_int, bool is_float, bool is_str,
-                       bool is_list_or_tuple, bool is_dict) {
-    return is_none            ? TNY_CODE_JSON_NULL
-           : is_bool          ? TNY_CODE_JSON_BOOL
-           : is_int           ? TNY_CODE_JSON_INT
-           : is_float         ? TNY_CODE_JSON_FLOAT
-           : is_str           ? TNY_CODE_JSON_STRING
-           : is_list_or_tuple ? TNY_CODE_JSON_ARRAY
-           : is_dict          ? TNY_CODE_JSON_OBJECT
-                              : TNY_CODE_JSON_DEFAULT;
 }

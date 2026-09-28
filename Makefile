@@ -203,18 +203,26 @@ SRC := $(SRC_SHARED) $(SRC_NATIVE) $(SRC_PY_NATIVE)
 TP := third_party/yyjson/yyjson.c third_party/picohttpparser/picohttpparser.c
 TP_WASM := third_party/yyjson/yyjson.c
 
-# Pinned, self-contained CPython for code cells (docs/adr/0179): built from the
-# hash-verified python.org source into a static library with only the core and
-# its bootstrap modules; encodings are frozen in, so no stdlib directory or
-# system Python is used at run time. `make fetch-cpython` downloads the pinned
-# tarball; CPYTHON_TARBALL=/path supplies an existing copy (Nix, offline).
+# Pinned, self-contained CPython for code cells (docs/adr/0179, 0180): built
+# from the hash-verified python.org source into static archives with every
+# buildable stdlib extension module, pinned static OpenSSL and zlib, and the
+# pure-Python standard library frozen in, so no stdlib directory or system
+# Python is used at run time. `make fetch-cpython` downloads the pinned
+# tarballs; CPYTHON_TARBALL=/path and CPYTHON_DEPS_DIR=/dir supply existing
+# copies (Nix, offline).
 # The default cache lives under build/, so `make clean` removes it too.
 CPYTHON_VERSION := $(shell cat third_party/cpython/VERSION)
 CPYTHON_SHA256 := $(shell cat third_party/cpython/SHA256)
-# 1: download the pinned tarball when missing; 0: fail instead (offline).
+# 1: download the pinned tarballs when missing; 0: fail instead (offline).
 CPYTHON_FETCH ?= 1
 CPYTHON_URL := https://www.python.org/ftp/python/$(CPYTHON_VERSION)/Python-$(CPYTHON_VERSION).tar.xz
 CPYTHON_TARBALL ?= build/deps/Python-$(CPYTHON_VERSION).tar.xz
+# Native libraries behind stdlib extension modules (ssl/hashlib, zlib, bz2,
+# lzma, compression.zstd, sqlite3, ctypes), pinned in third_party/<name>/
+# {URL,SHA256}; their tarballs are looked up in CPYTHON_DEPS_DIR by file name.
+CPYTHON_LIBRARIES := zlib bzip2 xz zstd sqlite libffi openssl
+CPYTHON_DEPS_DIR ?= build/deps
+CPYTHON_PINS := $(foreach d,$(CPYTHON_LIBRARIES),third_party/$(d)/URL third_party/$(d)/SHA256)
 CPYTHON_JOBS ?= 4
 # Linux keeps the published glibc floor in the interpreter objects too.
 CPYTHON_FLOOR_H := $(if $(CXX_GLIBC_FLOOR),src/util/cxx_glibc_floor.h)
@@ -225,10 +233,10 @@ CPYTHON_CFLAGS ?= -Os -ffunction-sections -fdata-sections \
 # and clang share it) and per interpreter flags, under the selected BUILD, so
 # a glibc archive never reaches a musl link and flag changes rebuild.
 CPYTHON_TARGET := $(shell $(CC) -dumpmachine 2>/dev/null | sed -E 's/-(pc|unknown|alpine)-/-/')
-CPYTHON_FLAGS_KEY := $(shell printf '%s' '$(CPYTHON_CFLAGS) $(MACOSX_DEPLOYMENT_TARGET)' | cksum | cut -d' ' -f1)
+CPYTHON_FLAGS_KEY := $(shell { printf '%s' '$(CPYTHON_CFLAGS) $(MACOSX_DEPLOYMENT_TARGET)'; cat $(CPYTHON_PINS); } | cksum | cut -d' ' -f1)
 CPYTHON_DIR ?= $(BUILD)/cpython-$(CPYTHON_VERSION)-$(or $(CPYTHON_TARGET),host)-$(CPYTHON_FLAGS_KEY)
 CPYTHON_LIB = $(CPYTHON_DIR)/libpython3.14.a
-CPYTHON_INC := -isystem $(CPYTHON_DIR)/include -isystem $(CPYTHON_DIR)/frozen
+CPYTHON_INC := -isystem $(CPYTHON_DIR)/include
 ifeq ($(SRC_PY_NATIVE),$(SRC_PY_RUNTIME))
   # Expanded when a link recipe runs. Every link containing the interpreter
   # object has already built the archive (an order-only prerequisite of that
@@ -386,7 +394,7 @@ LEAN ?= lean
 .PHONY: test-code-mode-language verify-code-mode-language bench-code-mode-language
 test-code-mode-language:
 	python3 tests/bench/code_mode/test_benchmark.py
-	python3 tests/build/test_code_sandbox_wasm.py
+	python3 tests/build/test_code_cell_seams.py
 	python3 tests/bench/python_runtime/test_evidence.py
 
 verify-code-mode-language:
@@ -552,21 +560,26 @@ $(call objects,$(OBJ_FAULT_SAN_PIC),$(SRC_PY_RUNTIME)): FAULT_SAN_PIC_CFLAGS += 
 $(call objects,$(OBJ_FAULT_PIC),$(SRC_PY_RUNTIME)) \
 $(call objects,$(OBJ_FAULT_SAN_PIC),$(SRC_PY_RUNTIME)): $(CPYTHON_LIB)
 
-$(CPYTHON_LIB): scripts/cpython_runtime.sh third_party/cpython/VERSION third_party/cpython/SHA256 \
+$(CPYTHON_LIB): scripts/cpython_runtime.sh scripts/cpython_freeze_stdlib.py \
+		third_party/cpython/VERSION third_party/cpython/SHA256 $(CPYTHON_PINS) \
 		$(CPYTHON_FLOOR_H)
 	CC='$(CC)' CPYTHON_CFLAGS='$(CPYTHON_CFLAGS)' CPYTHON_JOBS='$(CPYTHON_JOBS)' \
-		TNY_CPYTHON_FETCH='$(CPYTHON_FETCH)' \
+		TNY_CPYTHON_FETCH='$(CPYTHON_FETCH)' TNY_CPYTHON_DEPS_DIR='$(CPYTHON_DEPS_DIR)' \
 		$(SHELL) scripts/cpython_runtime.sh $(CPYTHON_DIR) $(CPYTHON_TARBALL) \
 		$(CPYTHON_SHA256) $(CPYTHON_URL)
 
 .PHONY: fetch-cpython cpython-runtime
 fetch-cpython:
-	@mkdir -p $(dir $(CPYTHON_TARBALL))
-	@if [ ! -f $(CPYTHON_TARBALL) ]; then \
-		curl -fsSL --retry 3 -o $(CPYTHON_TARBALL).part $(CPYTHON_URL) && \
-		mv $(CPYTHON_TARBALL).part $(CPYTHON_TARBALL); fi
-	@actual=$$( (sha256sum $(CPYTHON_TARBALL) 2>/dev/null || shasum -a 256 $(CPYTHON_TARBALL)) | cut -d' ' -f1); \
-	test "$$actual" = "$(CPYTHON_SHA256)" || { echo "error: $(CPYTHON_TARBALL) SHA256 mismatch" >&2; exit 1; }
+	@set -e; fetch() { \
+		mkdir -p $$(dirname $$1); \
+		if [ ! -f $$1 ]; then curl -fsSL --retry 3 -o $$1.part $$3 && mv $$1.part $$1; fi; \
+		actual=$$( (sha256sum $$1 2>/dev/null || shasum -a 256 $$1) | cut -d' ' -f1); \
+		test "$$actual" = "$$2" || { echo "error: $$1 SHA256 mismatch" >&2; exit 1; }; }; \
+	fetch $(CPYTHON_TARBALL) $(CPYTHON_SHA256) $(CPYTHON_URL); \
+	for d in $(CPYTHON_LIBRARIES); do \
+		url=$$(cat third_party/$$d/URL); \
+		fetch $(CPYTHON_DEPS_DIR)/$${url##*/} $$(cat third_party/$$d/SHA256) $$url; \
+	done
 cpython-runtime: $(CPYTHON_LIB)
 
 $(OBJ_REL)/%.o: %.c | $(VERSION_H)
@@ -1243,9 +1256,7 @@ install: release
 	cp python/tny_ext/*.py python/tny_ext/py.typed \
 		"$(DESTDIR)$(PREFIX)/lib/tny/tny_ext/"
 	cp shell/tny-workflows.sh "$(DESTDIR)$(PREFIX)/share/tny/"
-	mkdir -p "$(DESTDIR)$(PREFIX)/share/doc/tny"
-	cp THIRD_PARTY_NOTICES.md "$(DESTDIR)$(PREFIX)/share/doc/tny/"
-	cp third_party/cpython/LICENSE "$(DESTDIR)$(PREFIX)/share/doc/tny/CPython-LICENSE"
+	$(SHELL) scripts/install_licenses.sh "$(DESTDIR)$(PREFIX)/share/doc/tny"
 	cp shell/tny.zsh "$(DESTDIR)$(PREFIX)/share/tny/"
 	chmod 755 "$(DESTDIR)$(PREFIX)/share/tny/tny-workflows.sh"
 

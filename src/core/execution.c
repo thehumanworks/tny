@@ -713,14 +713,27 @@ int tny_execution_server_main(void) {
         s.env.session->execution_save_ud = &s;
     }
     char *catalog = !s.failed ? tools_catalog_json(&s.env) : NULL;
-    char *output =
-        catalog ? tny_code_run_with_deadline(code, &s.deadline, catalog, server_tool, &s) : NULL;
+    /* Direct Python acts in the selected local workspace (ctx->cwd), also
+     * under --ssh, where only nested tools reach the remote host. */
+    char *output = catalog ? tny_code_run_with_deadline(code, s.env.ctx->cwd, &s.deadline, catalog,
+                                                        server_tool, &s)
+                           : NULL;
     free(catalog);
     if (!output) output = tool_err("execution runtime allocation failure");
     if (s.stopped || monotonic_ms() >= s.deadline) {
-        free(output);
-        output = tool_err("execution %s; completed effects retained, uncertain calls not replayed",
-                          s.stopped ? "cancelled by owner policy" : "timeout");
+        /* Keep what the cell printed before it was stopped: it shows which
+         * effects already happened. */
+        char *cell = output;
+        buf_t b;
+        buf_init(&b);
+        buf_appendf(&b,
+                    "error: execution %s; completed effects retained, uncertain calls not "
+                    "replayed",
+                    s.stopped ? "cancelled by owner policy" : "timeout");
+        if (cell && *cell) buf_appendf(&b, "\n%s", cell);
+        free(cell);
+        output = buf_detach(&b);
+        if (!output) output = tool_err("execution runtime allocation failure");
     }
     s.finished = true;
     s.settlement_deadline = monotonic_ms() + SETTLEMENT_MS;

@@ -69,8 +69,12 @@ skips the wrapper.
    framework linking costs ~1.2 ms per launch and loses the startup race),
    Linux the distro's `libssl.so.3`/`.so.1.1`
    ([adr/0007](adr/0007-linux-tls-system-openssl.md), +4 KiB total, `ldd`
-   stays libssl-free). Never static or vendored OpenSSL. musl static builds
-   cannot dlopen: plain http works, https errors cleanly there.
+   stays libssl-free). Never static or vendored OpenSSL for tny's own TLS.
+   musl static builds cannot dlopen: plain http works, https errors cleanly
+   there. The one exception is the embedded Python runtime for code cells
+   ([ADR 0180](adr/0180-host-authorized-python-code-cells.md)): its `ssl`
+   module links a pinned static OpenSSL (never used by tny's provider TLS),
+   so cells get HTTPS in every lane, musl included.
 5. Lazy backend load: HTTP connections stay cold until a turn. No upgrade/MCP/skill walk before first prompt.
 6. No NAPI, sounds, or bundled Node in the default CLI. wasm is the landing
    terminal ([ADR 0017](adr/0017-wasm-browser-parity.md)), not a second

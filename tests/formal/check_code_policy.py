@@ -51,9 +51,9 @@ EXPECTED = (
     "tny_code_call_admit",
     "tny_code_result_admit",
     "tny_code_output_admit",
+    "tny_code_output_take",
     "tny_code_memory_admit",
     "tny_code_frame_admit",
-    "tny_code_json_kind",
 )
 # Theorems the proof file must contain; each one's axioms are printed.
 REQUIRED = (
@@ -84,14 +84,11 @@ REQUIRED = (
     "frame_boundaries",
     "admitted_call_fits_call_frame",
     "admitted_output_fits_done_frame",
-    "json_kind_first_match",
-    "json_kind_in_range",
-    "json_null_first",
-    "json_null_exact",
-    "json_bool_before_int",
-    "json_bool_never_int",
-    "json_int_exact",
-    "json_default_exact",
+    "output_take_eq",
+    "output_take_le_available",
+    "output_take_fits_head",
+    "output_take_all_iff_admit",
+    "output_take_boundaries",
     "nonvacuity",
 )
 STANDARD_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
@@ -426,7 +423,7 @@ def translate(clang: str, src: Path) -> list[Function]:
         result_spelling = node["type"]["qualType"].split("(", 1)[0].strip()
         typedefs = {"uint64_t": "unsigned long", "int64_t": "long", "bool": "_Bool"}
         result = C_TYPES.get(typedefs.get(result_spelling, result_spelling))
-        if result is None or result[0] not in (1, 32):
+        if result is None or result[0] not in (1, 32, 64):
             raise Unsupported(f"{name}: unsupported return type {result_spelling!r}")
         parameters = []
         body = None
@@ -569,9 +566,13 @@ def compiled_results(
                 f"static const {c_type_name(ctype)} {f.name}_{column}[] = {{{values}}};"
             )
         arguments = ", ".join(f"{f.name}_{c}[i]" for c in range(len(f.parameters)))
+        # Unsigned results print as unsigned: no implementation-defined cast.
+        form, cast = (
+            ("%llu", "unsigned long long") if not f.result[1] else ("%lld", "long long")
+        )
         main.append(
             f"    for (size_t i = 0; i < {len(rows)}; ++i)\n"
-            f'        printf("%lld\\n", (long long){f.name}({arguments}));'
+            f'        printf("{form}\\n", ({cast}){f.name}({arguments}));'
         )
     main.append("    return 0;\n}\n")
     probe.write_text("\n".join(body + main))

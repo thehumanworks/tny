@@ -1,4 +1,4 @@
-/* code_python.h — the embedded CPython interpreter used inside one confined
+/* code_python.h — the embedded CPython interpreter used inside one
  * code cell (docs/adr/0179). Only the cell child process calls this in
  * production; it is not an isolation boundary by itself (the OS sandbox and
  * the parent's authority checks are). Native builds link the pinned static

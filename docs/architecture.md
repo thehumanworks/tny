@@ -47,12 +47,17 @@ protocol checks on every connection, including resume.
 
 Agent tools use the singleton `run_code` surface on both HTTP wires and ACP.
 Each cell starts a fresh native execution process with a trusted context
-snapshot. Each cell's Python runs in a further fresh child with an empty
-environment and an OS sandbox; the execution server answers its nested calls.
-Nested operations keep existing permissions and workspace policy; direct
-provider tool names fail closed. See
+snapshot. Each cell's Python runs in a further fresh child with the host
+environment, the local workspace as working directory and the OS user's
+authority: files, sockets, subprocesses and the bundled standard library. The
+execution server captures its stdout/stderr (bounded) and answers its nested
+calls. Nested operations keep existing permissions, hooks and workspace policy;
+direct Python effects are not mediated by them, including under `--ssh` (where
+Python stays local) and restrictive modes or profiles. Direct provider tool
+names fail closed. See
 [ADR 0174](adr/0174-execution-server-code-mode.md),
-[ADR 0179](adr/0179-python-code-mode-cpython.md) and the
+[ADR 0179](adr/0179-python-code-mode-cpython.md),
+[ADR 0180](adr/0180-host-authorized-python-code-cells.md) and the
 [acceptance contract](verification/execution-code-mode/contract.md).
 Wasm returns an unsupported-execution error because it cannot spawn this server.
 

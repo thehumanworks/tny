@@ -6,8 +6,10 @@
   stdenv,
   cacert,
   fetchurl,
+  linkFarm,
   makeBinaryWrapper,
   openssl,
+  perl,
   python3,
   tini,
 
@@ -28,13 +30,15 @@ let
   sources = import ./source.nix { inherit lib; };
   src = sources.build;
   cpythonSource = import ./cpython-source.nix { inherit lib fetchurl; };
+  cpythonDeps = import ./cpython-deps.nix { inherit lib fetchurl linkFarm; };
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "tny";
   inherit version src;
 
   strictDeps = true;
-  nativeBuildInputs = lib.optionals wrapRuntime [ makeBinaryWrapper ];
+  # perl runs OpenSSL's Configure for the embedded runtime (ADR 0180).
+  nativeBuildInputs = [ perl ] ++ lib.optionals wrapRuntime [ makeBinaryWrapper ];
   nativeInstallCheckInputs = lib.optionals stdenv.hostPlatform.isLinux [
     python3
     openssl.bin
@@ -68,8 +72,10 @@ stdenv.mkDerivation (finalAttrs: {
     "CXX=${stdenv.cc.targetPrefix}c++"
     "TNY_VERSION=${finalAttrs.version}"
     "TNY_SHELL_PATH=${stdenv.shell}"
-    # Code cells embed the pinned static CPython; the sandbox has no network.
+    # Code cells embed the pinned static CPython and its pinned libraries;
+    # the sandbox has no network.
     "CPYTHON_TARBALL=${cpythonSource}"
+    "CPYTHON_DEPS_DIR=${cpythonDeps}"
     "CPYTHON_FETCH=0"
   ];
 

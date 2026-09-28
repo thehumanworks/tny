@@ -11,3 +11,8 @@ the live docs, not here.
 
 Do not rewrite these snapshots to match later policy. Keep the measured
 sizes and pass/fail rows as originally recorded.
+
+The `python-code-mode/` records describe ADR 0179's OS-confined, restricted
+Python cells. [ADR 0180](../adr/0180-host-authorized-python-code-cells.md)
+superseded that confinement with host-authorized cells; its evidence is in
+`host-code-mode/`. The older records stay as measured.

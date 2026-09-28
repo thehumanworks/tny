@@ -30,7 +30,7 @@ static int configure(int fd) {
     return 0;
 }
 
-static int start_entry(tny_exec_host *host, const char *entry, bool inherit_environment) {
+static int start_entry(tny_exec_host *host, const char *entry, int output_fd) {
     *host = (tny_exec_host){.fd = -1, .pid = -1};
     /* Exact process identity is required for cancellation, not best-effort groups. */
     if (!tny_process_tree_supported()) return ENOTSUP;
@@ -46,16 +46,19 @@ static int start_entry(tny_exec_host *host, const char *entry, bool inherit_envi
     if (!rc) {
         char *option = xstrdup(entry);
         char *argv[] = {exe, option, NULL};
-        tny_fd_mapping map = {.source = fds[1], .target = 3};
+        tny_fd_mapping maps[] = {{.source = fds[1], .target = 3},
+                                 {.source = output_fd, .target = 1},
+                                 {.source = output_fd, .target = 2}};
         size_t count = 0;
-        while (inherit_environment && environ[count]) count++;
+        while (environ[count]) count++;
         char **environment = option ? calloc(count + 1, sizeof *environment) : NULL;
         if (!environment) rc = ENOMEM;
         else {
             size_t used = 0;
             for (size_t i = 0; i < count; i++)
                 if (!tny_process_scope_env_reserved(environ[i])) environment[used++] = environ[i];
-            rc = tny_process_spawn_mapped(argv, environment, &map, 1, &host->pid);
+            rc = tny_process_spawn_mapped(argv, environment, maps, output_fd >= 0 ? 3 : 1,
+                                          &host->pid);
             free(environment);
         }
         free(option);
@@ -67,12 +70,17 @@ static int start_entry(tny_exec_host *host, const char *entry, bool inherit_envi
     return rc;
 }
 
-int tny_exec_host_start(tny_exec_host *host) { return start_entry(host, "--exec-server", true); }
+int tny_exec_host_start(tny_exec_host *host) { return start_entry(host, "--exec-server", -1); }
 
-/* Code cells inherit nothing from the environment: credentials and settings
- * belong to the execution server, which answers every nested call itself. */
-int tny_exec_host_start_cell(tny_exec_host *host) {
-    return start_entry(host, "--code-cell", false);
+/* Code cells act on the host as the OS user (docs/adr/0180): they inherit the
+ * execution server's environment like any tool process. Only tny's private
+ * process-scope fields are withheld, as for every unrelated child launch. */
+int tny_exec_host_start_cell(tny_exec_host *host, int output_fd) {
+    if (output_fd < 0) {
+        *host = (tny_exec_host){.fd = -1, .pid = -1};
+        return EBADF;
+    }
+    return start_entry(host, "--code-cell", output_fd);
 }
 
 int tny_exec_host_accept(void) {
@@ -104,7 +112,8 @@ int tny_exec_host_accept(void) {
     return 3;
 }
 
-static int ready(int fd, short events, int64_t deadline, tny_exec_cancel_fn cancel, void *ud) {
+static int ready(int fd, short events, tny_exec_aux *aux, int64_t deadline,
+                 tny_exec_cancel_fn cancel, void *ud) {
     for (;;) {
         if (cancel && cancel(ud)) {
             errno = ECANCELED;
@@ -115,19 +124,22 @@ static int ready(int fd, short events, int64_t deadline, tny_exec_cancel_fn canc
             errno = ETIMEDOUT;
             return -1;
         }
-        struct pollfd p = {.fd = fd, .events = events};
-        int rc = tny_poll(&p, 1, left > 25 ? 25 : (int)left);
+        struct pollfd p[2] = {{.fd = fd, .events = events}};
+        nfds_t n = 1;
+        if (aux && aux->fd >= 0) p[n++] = (struct pollfd){.fd = aux->fd, .events = POLLIN};
+        int rc = tny_poll(p, n, left > 25 ? 25 : (int)left);
         if (rc < 0 && errno == EINTR) continue;
         if (rc < 0) return -1;
-        if (rc > 0) return 0; /* recv/send distinguishes EOF from readiness */
+        if (n == 2 && p[1].revents) aux->drain(aux->ud);
+        if (p[0].revents) return 0; /* recv/send distinguishes EOF from readiness */
     }
 }
 
-static int transfer(int fd, void *data, size_t len, bool writing, int64_t deadline,
-                    tny_exec_cancel_fn cancel, void *ud) {
+static int transfer(int fd, void *data, size_t len, bool writing, tny_exec_aux *aux,
+                    int64_t deadline, tny_exec_cancel_fn cancel, void *ud) {
     size_t offset = 0;
     while (offset < len) {
-        if (ready(fd, writing ? POLLOUT : POLLIN, deadline, cancel, ud)) return -1;
+        if (ready(fd, writing ? POLLOUT : POLLIN, aux, deadline, cancel, ud)) return -1;
         ssize_t n;
         if (writing) {
 #ifdef MSG_NOSIGNAL
@@ -146,8 +158,8 @@ static int transfer(int fd, void *data, size_t len, bool writing, int64_t deadli
     return 0;
 }
 
-int tny_exec_host_send(int fd, const char *json, int64_t deadline, tny_exec_cancel_fn cancel,
-                       void *ud) {
+int tny_exec_host_send_aux(int fd, const char *json, tny_exec_aux *aux, int64_t deadline,
+                           tny_exec_cancel_fn cancel, void *ud) {
     size_t len = json ? strlen(json) : 0;
     if (!len || len > TNY_EXEC_FRAME_MAX) {
         errno = EMSGSIZE;
@@ -155,13 +167,19 @@ int tny_exec_host_send(int fd, const char *json, int64_t deadline, tny_exec_canc
     }
     unsigned char header[4] = {(unsigned char)(len >> 24), (unsigned char)(len >> 16),
                                (unsigned char)(len >> 8), (unsigned char)len};
-    if (transfer(fd, header, sizeof header, true, deadline, cancel, ud)) return -1;
-    return transfer(fd, (void *)json, len, true, deadline, cancel, ud);
+    if (transfer(fd, header, sizeof header, true, aux, deadline, cancel, ud)) return -1;
+    return transfer(fd, (void *)json, len, true, aux, deadline, cancel, ud);
 }
 
-char *tny_exec_host_receive(int fd, int64_t deadline, tny_exec_cancel_fn cancel, void *ud) {
+int tny_exec_host_send(int fd, const char *json, int64_t deadline, tny_exec_cancel_fn cancel,
+                       void *ud) {
+    return tny_exec_host_send_aux(fd, json, NULL, deadline, cancel, ud);
+}
+
+char *tny_exec_host_receive_aux(int fd, tny_exec_aux *aux, int64_t deadline,
+                                tny_exec_cancel_fn cancel, void *ud) {
     unsigned char h[4];
-    if (transfer(fd, h, sizeof h, false, deadline, cancel, ud)) return NULL;
+    if (transfer(fd, h, sizeof h, false, aux, deadline, cancel, ud)) return NULL;
     size_t len = ((size_t)h[0] << 24) | ((size_t)h[1] << 16) | ((size_t)h[2] << 8) | h[3];
     if (!len || len > TNY_EXEC_FRAME_MAX) {
         errno = EMSGSIZE;
@@ -169,12 +187,16 @@ char *tny_exec_host_receive(int fd, int64_t deadline, tny_exec_cancel_fn cancel,
     }
     char *data = malloc(len + 1);
     if (!data) return NULL;
-    if (transfer(fd, data, len, false, deadline, cancel, ud) || memchr(data, 0, len)) {
+    if (transfer(fd, data, len, false, aux, deadline, cancel, ud) || memchr(data, 0, len)) {
         free(data);
         return NULL;
     }
     data[len] = 0;
     return data;
+}
+
+char *tny_exec_host_receive(int fd, int64_t deadline, tny_exec_cancel_fn cancel, void *ud) {
+    return tny_exec_host_receive_aux(fd, NULL, deadline, cancel, ud);
 }
 
 bool tny_exec_host_disconnected(int fd) {
@@ -183,9 +205,10 @@ bool tny_exec_host_disconnected(int fd) {
     return n == 0 || (n < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK);
 }
 
-int tny_exec_host_expect_eof(int fd, int64_t deadline, tny_exec_cancel_fn cancel, void *ud) {
+int tny_exec_host_expect_eof_aux(int fd, tny_exec_aux *aux, int64_t deadline,
+                                 tny_exec_cancel_fn cancel, void *ud) {
     for (;;) {
-        if (ready(fd, POLLIN, deadline, cancel, ud)) return -1;
+        if (ready(fd, POLLIN, aux, deadline, cancel, ud)) return -1;
         char byte;
         ssize_t n = recv(fd, &byte, 1, 0);
         if (n == 0) return 0;
@@ -193,6 +216,10 @@ int tny_exec_host_expect_eof(int fd, int64_t deadline, tny_exec_cancel_fn cancel
         errno = EPROTO;
         return -1;
     }
+}
+
+int tny_exec_host_expect_eof(int fd, int64_t deadline, tny_exec_cancel_fn cancel, void *ud) {
+    return tny_exec_host_expect_eof_aux(fd, NULL, deadline, cancel, ud);
 }
 
 int tny_exec_host_kill(tny_exec_host *host) {
@@ -238,7 +265,10 @@ int tny_exec_host_start(tny_exec_host *host) {
     *host = (tny_exec_host){.fd = -1, .pid = -1};
     return ENOTSUP;
 }
-int tny_exec_host_start_cell(tny_exec_host *host) { return tny_exec_host_start(host); }
+int tny_exec_host_start_cell(tny_exec_host *host, int output_fd) {
+    (void)output_fd;
+    return tny_exec_host_start(host);
+}
 int tny_exec_host_kill(tny_exec_host *host) {
     (void)host;
     return -1;
@@ -260,6 +290,21 @@ char *tny_exec_host_receive(int fd, int64_t deadline, tny_exec_cancel_fn c, void
     (void)ud;
     errno = ENOTSUP;
     return NULL;
+}
+int tny_exec_host_send_aux(int fd, const char *json, tny_exec_aux *aux, int64_t deadline,
+                           tny_exec_cancel_fn c, void *ud) {
+    (void)aux;
+    return tny_exec_host_send(fd, json, deadline, c, ud);
+}
+char *tny_exec_host_receive_aux(int fd, tny_exec_aux *aux, int64_t deadline, tny_exec_cancel_fn c,
+                                void *ud) {
+    (void)aux;
+    return tny_exec_host_receive(fd, deadline, c, ud);
+}
+int tny_exec_host_expect_eof_aux(int fd, tny_exec_aux *aux, int64_t deadline, tny_exec_cancel_fn c,
+                                 void *ud) {
+    (void)aux;
+    return tny_exec_host_expect_eof(fd, deadline, c, ud);
 }
 bool tny_exec_host_disconnected(int fd) {
     (void)fd;

@@ -1,5 +1,6 @@
 /* tools.c — registry, permission gate, dispatch, result bounding. */
 #include "core/tools.h"
+#include "core/code_runtime.h"
 #include "core/execution.h"
 #include "core/image.h"
 #include "util/image_io.h"
@@ -614,13 +615,14 @@ char *tools_catalog_json(tools_env *env) {
 
 static const char RUN_CODE_SCHEMA[] =
     "[{\"type\":\"function\",\"function\":{\"name\":\"run_code\","
-    "\"description\":\"Run a bounded Python 3.14 script in an isolated code cell. Discover tools "
-    "with tools.list() and tools.describe(name); invoke with tools.call(name, arguments_json), "
-    "where arguments_json is JSON object text such as json.dumps({...}). Use print to return "
-    "results.\","
+    "\"description\":\"Run a Python 3.14 script in a fresh CPython process on the local host, "
+    "in the workspace directory, with the OS user's access to files, network and subprocesses "
+    "and the full standard library. Its stdout and stderr (print, tracebacks, subprocess "
+    "output) are the result. Nested tny tools: tools.list(), tools.describe(name), "
+    "tools.call(name, arguments_json) with JSON object text such as json.dumps({...}).\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{"
     "\"code\":{\"type\":\"string\",\"minLength\":1},"
-    "\"timeout_ms\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":30000,\"default\":5000}},"
+    "\"timeout_ms\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":600000,\"default\":5000}},"
     "\"required\":[\"code\"],\"additionalProperties\":false}}}]";
 
 char *tools_schema_json(tools_env *env) {
@@ -630,28 +632,35 @@ char *tools_schema_json(tools_env *env) {
 
 const char *tools_code_instructions(void) {
     return "\n# Code execution\n"
-           "The only model-facing tool is run_code. Its code is a Python 3.14 script run in a "
-           "fresh embedded CPython interpreter per call (timeout_ms defaults to 5000, maximum "
-           "30000). json.loads(text) and json.dumps(value, ...) are pre-bound as json, and tools "
-           "and print are pre-bound. There is no import statement, open, eval, exec, filesystem, "
-           "network or process access: only nested tools reach the outside world. Builtins, "
-           "str/list/dict/set/tuple methods, comprehensions, generators, classes and exceptions "
-           "behave as in CPython.\n"
-           "Discover the available nested tools with print(tools.list()), then inspect a tool "
-           "with print(tools.describe(\"read_file\")). Both return JSON strings; describe returns "
-           "None for an unknown tool.\n"
+           "The only model-facing tool is run_code. Its code is a Python 3.14 script run by a "
+           "fresh embedded CPython process per call, in the local workspace directory, with the "
+           "host environment and the OS user's own permissions (timeout_ms defaults to 5000, "
+           "maximum 600000; pass a longer timeout_ms for builds, tests, installs or network "
+           "work). import, open, eval and exec behave as in CPython, and the standard library "
+           "is bundled: os, pathlib, shutil, subprocess, socket, urllib.request, http.client, "
+           "ssl, hashlib, zlib, zipfile, tarfile, json, re, datetime, asyncio and the rest "
+           "(sqlite3, ctypes, bz2 and lzma are not built). No third-party packages are "
+           "installed. State never persists between calls; json and tools are pre-bound.\n"
+           "stdout and stderr are the result: print, warnings, tracebacks and the output of "
+           "subprocesses that inherit them. Output beyond 64 KiB keeps its beginning and end. "
+           "An unhandled exception reports its type, message and line first, then the output "
+           "with the traceback. Background processes meant to outlive the cell must redirect "
+           "their output. sys.executable is empty; use multiprocessing.get_context(\"fork\").\n"
+           "Direct Python effects are not mediated by tny tool permissions, hooks or workspace "
+           "policies; nested tools are. Discover the nested tools with print(tools.list()), "
+           "then inspect one with print(tools.describe(\"read_file\")). Both return JSON "
+           "strings; describe returns None for an unknown tool.\n"
            "tools.call(name, arguments_json) takes two strings, a tool name and JSON object "
            "text, and synchronously returns the tool's text result. For example: "
            "print(tools.call(\"read_file\", json.dumps({\"path\": \"README.md\"}))). Use None "
            "for JSON null.\n"
-           "Compose dependent steps with Python variables, functions, loops and conditionals; "
-           "only nested tools access the workspace, shell, network or other services. "
+           "Compose dependent steps with Python variables, functions, loops and conditionals. "
            "Nested calls retain permissions, hooks and cancellation. run_code cannot "
-           "recursively call itself. A cell may make 64 nested calls and print 64 KiB; "
-           "exceeding a budget ends the cell with an error.\n"
+           "recursively call itself. A cell may make 64 nested calls; exceeding the call or "
+           "memory budget ends the cell with an error.\n"
            "When a workflow will be useful repeatedly, save a parameterized reusable "
-           "workflow in the project through the available file tools. Do this when useful, "
-           "without making a saved workflow a prerequisite for ordinary work.\n";
+           "workflow in the project. Do this when useful, without making a saved workflow a "
+           "prerequisite for ordinary work.\n";
 }
 
 static bool json_type_matches(yyjson_val *value, const char *type) {
@@ -811,8 +820,10 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
             call->error = tool_err("run_code code must be nonempty and contain no NUL bytes");
             return -1;
         }
-        if (timeout && (yyjson_get_sint(timeout) < 1 || yyjson_get_uint(timeout) > 30000)) {
-            call->error = tool_err("run_code timeout_ms must be an integer from 1 to 30000");
+        if (timeout &&
+            (yyjson_get_sint(timeout) < 1 || yyjson_get_uint(timeout) > TNY_CODE_MAX_TIMEOUT_MS)) {
+            call->error = tool_err("run_code timeout_ms must be an integer from 1 to %d",
+                                   TNY_CODE_MAX_TIMEOUT_MS);
             return -1;
         }
         /* The wrapper grants no operation authority. Every nested invocation

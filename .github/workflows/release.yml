@@ -123,10 +123,8 @@ jobs:
           cp python/tny_extension_host.py python/tny_improve.py python/tny_improve_propose.py dist/stage/lib/tny/
           cp python/tny_ext/*.py python/tny_ext/py.typed dist/stage/lib/tny/tny_ext/
           cp shell/tny-workflows.sh dist/stage/share/tny/
-          # The executable embeds CPython for code cells (ADR 0179).
-          mkdir -p dist/stage/share/doc/tny
-          cp THIRD_PARTY_NOTICES.md dist/stage/share/doc/tny/
-          cp third_party/cpython/LICENSE dist/stage/share/doc/tny/CPython-LICENSE
+          # The executable embeds CPython and its pinned libraries (ADR 0179, 0180).
+          sh scripts/install_licenses.sh dist/stage/share/doc/tny
           tar -C dist/stage -czf dist/tny-${{ matrix.triple }}.tar.gz tny lib share
 
       - name: Package immutable libtny SDK input
@@ -346,7 +344,7 @@ jobs:
           # the container has no git; pass the version from the pushed tag
           docker run --rm -v "$PWD":/src -w /src \
             -e TNY_VERSION="${GITHUB_REF_NAME#v}" alpine:3.21 \
-            sh -c 'apk add --no-cache build-base g++ curl xz linux-headers \
+            sh -c 'apk add --no-cache build-base g++ curl xz perl linux-headers \
               && make -j"$(getconf _NPROCESSORS_ONLN)" release STATIC=1 \
               && make size-check STATIC=1 \
               && make pack TRIPLE='"${{ matrix.triple }}"' STATIC=1 \
@@ -356,9 +354,7 @@ jobs:
               && cp python/tny_extension_host.py python/tny_improve.py python/tny_improve_propose.py dist/stage/lib/tny/ \
               && cp python/tny_ext/*.py python/tny_ext/py.typed dist/stage/lib/tny/tny_ext/ \
               && cp shell/tny-workflows.sh dist/stage/share/tny/ \
-              && mkdir -p dist/stage/share/doc/tny \
-              && cp THIRD_PARTY_NOTICES.md dist/stage/share/doc/tny/ \
-              && cp third_party/cpython/LICENSE dist/stage/share/doc/tny/CPython-LICENSE \
+              && sh scripts/install_licenses.sh dist/stage/share/doc/tny \
               && tar -C dist/stage -czf dist/tny-'"${{ matrix.triple }}"'.tar.gz tny lib share'
           # dist/ is root-owned (created by the container), so package inside
           # the container and only inspect from the host.

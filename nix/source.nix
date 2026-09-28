@@ -1,12 +1,13 @@
 # Optional python-embed-bench links the existing C/CPython graph and test fileset;
 # generated-code execution remains outside package builds and requires bwrap.
-# Python-cell confinement checks compile tests/fixtures/code_sandbox_host.c
-# against the production OS seam using the existing compiler/Python inputs;
-# native enforcement is checked separately from Valgrind syscall emulation.
+# tests/build/test_code_cell_seams.py host-compiles the explicit unsupported
+# code-cell seams with the existing compiler/Python inputs.
 # Code-mode language benchmarks, offline tests and Lean AST checker are in the
 # existing ../tests fileset. Optional live trials/downloads are never sandbox inputs.
 # Python code cells build third_party/cpython's pinned tarball (fetched by
-# nix/cpython-source.nix) with scripts/cpython_runtime.sh; see ADR 0179.
+# nix/cpython-source.nix) and the pinned third_party/<name>/URL libraries
+# (nix/cpython-deps.nix) with scripts/cpython_runtime.sh, which freezes the
+# stdlib via scripts/cpython_freeze_stdlib.py; see ADRs 0179 and 0180.
 # The production predicate proof tests/formal/check_execution_protocol.py
 # uses the existing tests fileset and explicit Clang/Z3 inputs in nix/tests.nix.
 # test_code_runtime.c and integration/test_execution_code_mode.py plus its
@@ -44,6 +45,8 @@ let
     ../python
     ../scripts/check_abi_baseline.py
     ../scripts/cpython_runtime.sh # builds the pinned CPython for code cells
+    ../scripts/cpython_freeze_stdlib.py # freezes its standard library
+    ../scripts/install_licenses.sh # `make install` ships the embedded licenses
     ../THIRD_PARTY_NOTICES.md # `make install` ships notices with the CPython license
     ../shell # installed workflows and the Zsh quick-ask widget
     ../src

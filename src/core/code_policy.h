@@ -1,4 +1,4 @@
-/* code_policy.h — pure, loop-free Python code-cell gates (docs/adr/0179).
+/* code_policy.h — pure, loop-free Python code-cell gates (docs/adr/0179, 0180).
  * tests/formal/check_code_policy.py translates these exact definitions through
  * the Clang AST into Lean and proves their properties; keep them integer and
  * Boolean only (no enums, pointers, loops or calls) so the translator can
@@ -22,16 +22,6 @@
 #define TNY_CODE_PHASE_FINISHED 2 /* DONE received: only EOF may follow */
 #define TNY_CODE_PHASE_FAILED   3 /* terminal: nothing further is admitted */
 
-/* JSON encoding kinds, in the facade's classification order. */
-#define TNY_CODE_JSON_NULL    0
-#define TNY_CODE_JSON_BOOL    1
-#define TNY_CODE_JSON_INT     2
-#define TNY_CODE_JSON_FLOAT   3
-#define TNY_CODE_JSON_STRING  4
-#define TNY_CODE_JSON_ARRAY   5
-#define TNY_CODE_JSON_OBJECT  6
-#define TNY_CODE_JSON_DEFAULT 7 /* unsupported: default= hook or TypeError */
-
 bool tny_code_timeout_admit(int64_t timeout_ms);
 bool tny_code_source_admit(uint64_t bytes);
 /* A nested call is admitted only before the call budget is spent, with a
@@ -39,16 +29,17 @@ bool tny_code_source_admit(uint64_t bytes);
 bool tny_code_call_admit(uint64_t calls_done, uint64_t name_bytes, bool recursive,
                          uint64_t argument_bytes, bool argument_is_object);
 bool tny_code_result_admit(uint64_t result_bytes);
-/* Appending `add` printed bytes to `used` stays within the output limit. */
+/* Appending `add` captured output bytes to `used` stays within the kept
+ * output head. */
 bool tny_code_output_admit(uint64_t used, uint64_t add);
+/* How many of `available` new output bytes still fit the kept head after
+ * `used`: all of them exactly when tny_code_output_admit holds, never more
+ * than the remaining room. The rest only reaches the retained tail. */
+uint64_t tny_code_output_take(uint64_t used, uint64_t available);
 /* Allocation accounting without overflow: `request` plus a header fits the
  * remaining heap budget below `limit`. */
 bool tny_code_memory_admit(uint64_t used, uint64_t request, uint64_t header, uint64_t limit);
 /* Parent admission of a child frame. FAILED and FINISHED admit nothing. */
 bool tny_code_frame_admit(int phase, int type, uint64_t payload_bytes, uint64_t calls_done);
-/* Python values map to JSON kinds with bool checked before int (bool is an
- * int subclass) and None before everything: false never becomes 0. */
-int tny_code_json_kind(bool is_none, bool is_bool, bool is_int, bool is_float, bool is_str,
-                       bool is_list_or_tuple, bool is_dict);
 
 #endif
