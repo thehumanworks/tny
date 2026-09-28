@@ -1,0 +1,169 @@
+{
+  "production_source_revision": "a1676de76b3cf74b165ac25415c37d88e909bd9a",
+  "source_hashes": {
+    "Makefile": "cf3142381b86210669815c442abff1d8615cdd42ac6c9b02a52fb1199a4a064d",
+    "scripts/cpython_freeze_stdlib.py": "74b4bce0ef8cda30caa4314ab391faf9221db5633125b153b86a46d6de0251e4",
+    "scripts/cpython_runtime.sh": "baf942ef4f364de996a92a3cfe6df463446e90c5de6d8e5cc3b8f13f8589d427",
+    "scripts/install_licenses.sh": "8099bc7f5a1a086c20ab9c2096a22215e7d4689742f71cdfc92754770804f219",
+    "src/core/code_policy.c": "0fb05173cb1a354cbf483f0322dc145a23c3de9f7bfa0e42582206ea9b625058",
+    "src/core/code_policy.h": "614c047134295e18a102ab76596f4f3b4cf892203cab488605481222ccc311c2",
+    "src/core/code_python.c": "ab437ab3f72e8b24370ac20553e97049002b4c7aad573d8350cc2fd8983dc2c7",
+    "src/core/code_python.h": "2db7b7dd7afbe425ad44929a4b2660b405bac1581fb46892f0e7693acfc3061e",
+    "src/core/code_runtime.c": "f320dc4a0643981563fff5f36a05c99f2a39a9636d66f1db5d9763746e184079",
+    "src/core/code_runtime.h": "81ceb60cd149b6551c97462f3c8b03926ccc9f2da1a91e8dc56ead5f03bccdd5",
+    "src/core/execution.c": "1ab3b05ea285427d52a51fbe717e19246ca3c8bbbb9bac708830185132529911",
+    "src/core/tools.c": "8bf744ad25bfd15af5178ecba1a8b613ea981f464282e631ea8b27bcadf819d6",
+    "src/util/execution_host.c": "3100aa8262a4c07abc3fae6c7d0703560a530ef4272b073b4037f9162559e826",
+    "src/util/execution_host.h": "72edfc45f6aea5e8288258ad9a831fb98b2e0489c0af33d63c6d8df53dad60be",
+    "third_party/bzip2/LICENSE": "c6dbbf828498be844a89eaa3b84adbab3199e342eb5cb2ed2f0d4ba7ec0f38a3",
+    "third_party/bzip2/README.tny": "ce6b722a5a495f87b911b51b3f120298ff9a6edc481d6c546c9f7c737f4cae19",
+    "third_party/bzip2/SHA256": "01ebd01b399ff35543bf35ac6409940ce8d470040d6fd8f247443802c701daeb",
+    "third_party/bzip2/URL": "8e8ea5a618ebdbf4a59d655f9f607c16802dedaa5261dfd53e28393991ac81ff",
+    "third_party/bzip2/VERSION": "326dd5d8641f399990de42def50ac29eb4c9222601c0a0a3fc3c947dd3bec65d",
+    "third_party/cpython/HACL-LICENSE": "998ce04fb8ad9dedb0bc1b44938f8c3dcf1089780fa105ce1c8c30fb5554d78c",
+    "third_party/cpython/LICENSE-incorporated.rst": "cd6f471c0bfdb099efefc25ddff9b3df8bf62e10428987f1f05e6f2f9e35d563",
+    "third_party/cpython/README.tny": "52266400b8e6515669ff3282187c76402aec6ba1dfd1e62b74be60178e2edf91",
+    "third_party/libffi/LICENSE": "17b64dc60f3b6897a60f971e288b973f655c2edcdf08b25f3c3dd5549857881c",
+    "third_party/libffi/README.tny": "daf3796b4f43bf839bd6fc9183edfd40266c3861da863eb0fd856e92ffb7f606",
+    "third_party/libffi/SHA256": "8d6a4e4f3413c48394669ed30b1b43a04cd1cdea1458ff80068e9054901c66f3",
+    "third_party/libffi/URL": "1e26af088dbd66b52c9c9116b6b2aa8c62d0a77b4f07d3a35f6a387ceec5e54f",
+    "third_party/libffi/VERSION": "88206afd2d9b56ca71466c85d1ed1421b1db0e78fa00072697918fb8a9ac54ef",
+    "third_party/openssl/LICENSE.txt": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+    "third_party/openssl/README.tny": "5eab053b1e429f5c62a0f012728eda2e7072ed34390bba097c5c7f1926880e3f",
+    "third_party/openssl/SHA256": "78e632505ea359e411954028550bcbe885fe527633dee155d62c7320c9a210eb",
+    "third_party/openssl/URL": "1d47dfc33b962e19bbefca6b6d3a73e2a5e76fb437670020463e7b04c58e8f3a",
+    "third_party/openssl/VERSION": "11c5470f57b04e1a885c08a6a2303d7353b0748d5db96fe01f90a3cb3cff77bb",
+    "third_party/sqlite/LICENSE": "ab2700605478759e6f4d70efe9be9278131c08bb49053929668ddf14f355a212",
+    "third_party/sqlite/README.tny": "3eb8380a8f5e83acfa5086d76d3b3296b5f6846f85608083abe423bcf49cf16f",
+    "third_party/sqlite/SHA256": "bbb0709d292d62e31f96db90508a9c2d0161056729dc174a204ea4ac095fb662",
+    "third_party/sqlite/URL": "dc0995651fdf9a9cae3c09a051fd2b3b3fa0b55679b810bb923dfa0556ce0cbf",
+    "third_party/sqlite/VERSION": "632cf989f3b8c2925dc35a67d06535db480cb97d53f78c14bb159f3de4e9bb04",
+    "third_party/xz/COPYING": "616a3ad264ce29b8f1cb97e53037b139d406899ca8d1f799651e17bfa09830b8",
+    "third_party/xz/COPYING.0BSD": "0b01625d853911cd0e2e088dcfb743261034a091bb379246cb25a14cc4c74bf1",
+    "third_party/xz/README.tny": "694894f71b10200a06b14374fe4331357cd80562e8729d8ee591102a82b6effb",
+    "third_party/xz/SHA256": "20c850bde8a397d8a993799f30c44779d6b3998d2f4d9cb7009d60d57418b905",
+    "third_party/xz/URL": "f47076a821918122af825ed10200c72e533e25e33532cea4dc9b7bbfae3a400b",
+    "third_party/xz/VERSION": "2dd4aa5a03bbeca76076be98e02d86929b451d398c277890454adc7cbe068a7b",
+    "third_party/zlib/LICENSE": "e32ff4e00d9d94930537635291da39e7e612703334bf6fde8c7f1686fe8a45a2",
+    "third_party/zlib/README.tny": "ffd152df924fef0c8573bbac170700e8ff51fe14f0495f291a59e760ee29a79a",
+    "third_party/zlib/SHA256": "0c33b50c4e4590c7432a4428c1268768a6bc85c839ca59ee327b7bb470adfc0b",
+    "third_party/zlib/URL": "b5ed10af3ab9818237a452eacbc685a6220bc986b6d81f890542b70d3b601e48",
+    "third_party/zlib/VERSION": "33158972a53877b421cfe2598b8d93cab169963a4964b45ee889e85349979018",
+    "third_party/zstd/LICENSE": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8",
+    "third_party/zstd/README.tny": "fe895444564f9509349a24dea62e934d09ef4b4d6445fdb8150b800b53c6e98b",
+    "third_party/zstd/SHA256": "559cb318b60af0523c69a1ba7d87e7cdabb016d0ccebdb4ca2e844e1cf5eac36",
+    "third_party/zstd/URL": "ec50bdd238e64a65b45a69378d01d8c9e7414224199ae8a6a2b570b517677633",
+    "third_party/zstd/VERSION": "2ba0c4acefd378988cd7a510eb0ab4a45857306a5f54c3627a688d7e48240a3e"
+  },
+  "native_binary": {
+    "bytes": 27084600,
+    "sha256": "d923ea81af450659e974067822cca072caaff9d937a0492dcb4e5a3aad40f6ec",
+    "version": "0.24.0-7-g68861ae-dirty",
+    "dependencies": "\tlinux-vdso.so.1 (0x00007fab186cb000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007fab16ac9000)\n\tlibstdc++.so.6 => /usr/lib/libstdc++.so.6 (0x00007fab16600000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007fab18672000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007fab16200000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007fab186cd000)\n"
+  },
+  "checks": {
+    "unit-ready": {
+      "exit": 0,
+      "log": "unit-ready.log",
+      "bytes": 10183,
+      "sha256": "fc7ecccb68e0dca9443a2426ada7e4dbf6a4e89c8a0ef9eab67d32c90b26b30a"
+    },
+    "runtime-ready": {
+      "exit": 0,
+      "log": "runtime-ready.log",
+      "bytes": 207,
+      "sha256": "1fbf30a8f0c402d0f247ce4aca9eb3b6f6353625a988191e9f1db635ede387c3"
+    },
+    "execution-ready": {
+      "exit": 0,
+      "log": "execution-ready.log",
+      "bytes": 134,
+      "sha256": "407ce17fceac748a2f85bfe7f61c2a65b1fd7aa4c416050724a1f4bd1a98a5a2"
+    },
+    "host-capabilities-ready": {
+      "exit": 0,
+      "log": "host-capabilities-ready.log",
+      "bytes": 264,
+      "sha256": "78f9dc11cc631b90cfc7f24fff20e03294daaf3f05799928c009c6d906e0c0ad"
+    },
+    "permissions-final": {
+      "exit": 0,
+      "log": "permissions-final.log",
+      "bytes": 106,
+      "sha256": "dc0ae4f32475f8cc0a1266e9b1e932841be1076492eac69625c1baa8c4647234"
+    },
+    "command-final": {
+      "exit": 0,
+      "log": "command-final.log",
+      "bytes": 100,
+      "sha256": "1701afa6598a33273c6bc949890eadd5ac6d595675e9dd5f26329d7ff77c0c67"
+    },
+    "descriptor-seams-final": {
+      "exit": 0,
+      "log": "descriptor-seams-final.log",
+      "bytes": 101,
+      "sha256": "7d809800b3fbf498af788857f38416314c2e18713ed1dd322ca6ecaf0e629cf8"
+    },
+    "build-fixtures-final": {
+      "exit": 0,
+      "log": "build-fixtures-final.log",
+      "bytes": 3249,
+      "sha256": "c9520a6796bc32e8e74ec396aab4c5c605a2d430b3a4c36d70578055190dee2c"
+    },
+    "install-final": {
+      "exit": 0,
+      "log": "install-final.log",
+      "bytes": 99,
+      "sha256": "9478bf0a02c639b5d89f786290c8b918643ff480c99e4bfd5e986329c0a954ce"
+    },
+    "collective-final": {
+      "exit": 0,
+      "log": "collective-final.log",
+      "bytes": 2475,
+      "sha256": "b51d63dc62400e4d312e1e4e52abd9c2547bbd26a23d3f0ce5792273f09c63cb"
+    },
+    "jobs-recheck": {
+      "exit": 0,
+      "log": "jobs-recheck.log",
+      "bytes": 128,
+      "sha256": "8a0e36b06f43b75f3b6dc5bc7a08aabb9d5eec63530865a92c526db75e743e9f"
+    },
+    "formal-final": {
+      "exit": 0,
+      "log": "formal-final.log",
+      "bytes": 5118,
+      "sha256": "56cc603022735324fef1c48f0ff570df5ff4d02462160a98c0c354dd9ebddc99"
+    },
+    "protocol-final": {
+      "exit": 0,
+      "log": "protocol-final.log",
+      "bytes": 900,
+      "sha256": "0ed27adaaa25055b665772b47d32febe0cf9eca142e4637ed384270ef35b1021"
+    },
+    "scoped-quality-final": {
+      "exit": 0,
+      "log": "scoped-quality-final.log",
+      "bytes": 24445,
+      "sha256": "ba12227af3f67c29cc8ed3ed3d0644a73b61276bfbe476fba1e82cd3985d64d2"
+    },
+    "original-replay-final": {
+      "exit": 0,
+      "log": "original-replay-final.log",
+      "bytes": 1317,
+      "sha256": "04c918c275262be0d9831df0590198d4ee0de4a726d2b2ab8f07f6a3f441f4af"
+    },
+    "heldout-replay-final": {
+      "exit": 0,
+      "log": "heldout-replay-final.log",
+      "bytes": 316,
+      "sha256": "d3e877b42c8f64eea5226a90c23c62b8a55420ed1e12f3f5245887289bc2de00"
+    },
+    "realistic-final": {
+      "exit": 0,
+      "log": "realistic-final.json",
+      "bytes": 1166,
+      "sha256": "9d02c5bba9d948d940f908339621374306104aaff70f0dab419a2c4bb2b0c3ae"
+    }
+  },
+  "scope": "Local Linux x86-64. The saved-program replay binary predates the final failure-cleanup-only patch; latest lifecycle/descriptor tests use the final frozen executable. No complete single-revision broad integration or whole-repository quality pass is claimed. All model corpora are replayed unchanged, without inference."
+}

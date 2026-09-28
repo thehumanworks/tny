@@ -1,6 +1,6 @@
 /* Replay executor: the preserved benchmark host over the PRODUCTION code-cell
- * path (tny_code_run spawns this executable's --code-cell entry with the OS
- * sandbox). Built by `make python-cell-bench`; benchmark only. */
+ * path (tny_code_run spawns this executable's host-authorized --code-cell entry). Built by `make
+ * python-cell-bench`; benchmark only. */
 #include "bench.h"
 #include "core/code_runtime.h"
 #include <stdlib.h>

@@ -162,14 +162,17 @@ ceiling (ADR 0150).
 
 ## Verification
 
-Lean 4.30.0 checks the eight production gates in `src/core/code_policy.c`
+Lean 4.30.0 checks the nine production gates in `src/core/code_policy.c`
 through the Clang-AST translator (now accepting 64-bit results): the new
 `tny_code_output_take` (exact specification, never exceeds the arrivals or the
 head, equals "keep everything" exactly when `tny_code_output_admit` holds) and
 the raised timeout ceiling, alongside the retained protocol, call, result,
-output and heap gates. No `sorry`, axiom or `native_decide`; GCC/Clang UBSan
-vectors cross-check the translation and weakened mutants fail at the expected
-stage. Production-path tests (unit `--code-cell` children and both provider
+output and heap gates. The UTF-8 lead classifier additionally proves its exact
+byte partition, invalid-lead rejection and width bound. The gate checks 37
+specifications, one helper and 22 no-wrap obligations, with 6,054 GCC/Clang UBSan
+cross-check vectors and 41 rejected mutations. There are no admitted proofs,
+newly declared axioms or `native_decide`; the checker reports the standard Lean
+axioms used by completed proofs. Production-path tests (unit `--code-cell` children and both provider
 wires) cover imports, files, environment, working directory, loopback HTTP and
 HTTPS, subprocess exit/output, output bounds, tracebacks, fork, deadlines and
 descendant cleanup; see the [evidence](../verification/host-code-mode/evidence.md).

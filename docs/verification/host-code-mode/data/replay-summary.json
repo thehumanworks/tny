@@ -1,0 +1,33 @@
+{
+  "original": {
+    "binary_sha256": "8f3571cc9c1c902eac83c32d92830103bc9165720f969598b5a531c116b429f4",
+    "programs_passed": 36,
+    "variant_executions_passed": 108
+  },
+  "heldout": {
+    "executor": "production",
+    "binary_sha256": "8f3571cc9c1c902eac83c32d92830103bc9165720f969598b5a531c116b429f4",
+    "samples_sha256": "3e0426b55c6f686959cdd3b1edf3740f782c59c4255e933c95fb218baf2f2a3e",
+    "variant_matches": 333,
+    "variant_total": 333,
+    "by_arm": {
+      "cpython": {
+        "programs": 36,
+        "first_pass": 35,
+        "final_pass": 35
+      },
+      "cpython_pr197": {
+        "programs": 36,
+        "first_pass": 35,
+        "final_pass": 35
+      },
+      "monty": {
+        "programs": 36,
+        "first_pass": 35,
+        "final_pass": 36
+      }
+    },
+    "attempts": 111,
+    "same_outcome": 111
+  }
+}

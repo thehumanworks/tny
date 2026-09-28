@@ -1,3 +1,6 @@
+# Host-capability integration uses existing Python/OpenSSL, private workspaces,
+# loopback HTTP/HTTPS and a synthetic trust root. No account/network service
+# or new dependency is required by test_host_code_mode.py.
 # Optional python-embed-bench links the existing C/CPython graph and test fileset;
 # generated-code execution remains outside package builds and requires bwrap.
 # tests/build/test_code_cell_seams.py host-compiles the explicit unsupported

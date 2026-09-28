@@ -1,0 +1,44 @@
+{
+  "c_build_and_test": {
+    "exit": 0,
+    "summary": "",
+    "seconds": 0.272,
+    "output_bytes": 9,
+    "output_tail": "built 42\n"
+  },
+  "git_repository": {
+    "exit": 0,
+    "summary": "",
+    "seconds": 0.223,
+    "output_bytes": 10,
+    "output_tail": "['first']\n"
+  },
+  "http_json_to_sqlite": {
+    "exit": 0,
+    "summary": "",
+    "seconds": 0.283,
+    "output_bytes": 16,
+    "output_tail": "rows (500, 499)\n"
+  },
+  "archives_and_hashes": {
+    "exit": 0,
+    "summary": "",
+    "seconds": 0.216,
+    "output_bytes": 11,
+    "output_tail": "22 None 64\n"
+  },
+  "concurrency": {
+    "exit": 0,
+    "summary": "",
+    "seconds": 0.304,
+    "output_bytes": 53,
+    "output_tail": "asyncio [0, 1, 2, 3]\nthreads 285\nfork pool [1, 4, 9]\n"
+  },
+  "verbose_subprocess_output": {
+    "exit": 0,
+    "summary": "",
+    "seconds": 0.46,
+    "output_bytes": 208914,
+    "output_tail": " 19980\nline 19981\nline 19982\nline 19983\nline 19984\nline 19985\nline 19986\nline 19987\nline 19988\nline 19989\nline 19990\nline 19991\nline 19992\nline 19993\nline 19994\nline 19995\nline 19996\nline 19997\nline 19998\nline 19999\nafter the noisy command\n"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "realistic-cells.json": {
+    "bytes": 1166,
+    "sha256": "9d02c5bba9d948d940f908339621374306104aaff70f0dab419a2c4bb2b0c3ae"
+  },
+  "receipt.json": {
+    "bytes": 9600,
+    "sha256": "c2d15ba5915311286ef813d8d30279bf1ce8be60cf20b01a05d99e19ab886eb7"
+  },
+  "replay-summary.json": {
+    "bytes": 840,
+    "sha256": "43cc0bf9b3ff540dfa224c09a58fe9184b19c35720ec3c0d288e98d9cfc83168"
+  },
+  "verification.tar.gz": {
+    "bytes": 53505,
+    "sha256": "56fb88303ab87f6a52b3bc1d03983931f5d02f46494a041ade80fd5edf494456"
+  }
+}
