@@ -231,8 +231,12 @@ if [ "$(uname -s)" = Darwin ]; then
         'def _get_proxies():' '    return {}' > "$work/_scproxy.py"
     extras="$extras $work/_scproxy.py"
 fi
+# On case-insensitive filesystems (macOS default) `python` names the Python/
+# source directory, so CPython's build names its interpreter python.exe.
+python="$src/python"
+[ -f "$src/python.exe" ] && python="$src/python.exe"
 # shellcheck disable=SC2086 # extras is a list of generated module paths
-"$src/python" -E -S "$root/scripts/cpython_freeze_stdlib.py" "$src/Lib" "$work/frozen" $extras
+"$python" -E -S "$root/scripts/cpython_freeze_stdlib.py" "$src/Lib" "$work/frozen" $extras
 (
     cd "$work/frozen"
     # shellcheck disable=SC2086 # cflags is a flag list
