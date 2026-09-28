@@ -12,6 +12,8 @@ import statistics
 from collections import Counter
 from pathlib import Path
 
+from proxy import static_parts
+
 HERE = Path(__file__).resolve().parent
 FIELDS = (
     "input_tokens",
@@ -81,6 +83,8 @@ def inspect_run(path):
     calls = Counter()
     tool_outputs = {}
     input_bodies = []
+    actual_instruction_hashes = set()
+    actual_tool_hashes = set()
     affinity_count = 0
     failures = []
     for row in rows:
@@ -89,6 +93,15 @@ def inspect_run(path):
             raise ValueError("Request hash mismatch")
         body = json.loads(raw)
         input_bodies.append(body)
+        instructions, tools = static_parts(body)
+        actual_instruction_hashes.add(
+            hashlib.sha256(
+                json.dumps(instructions, sort_keys=True).encode()
+            ).hexdigest()
+        )
+        actual_tool_hashes.add(
+            hashlib.sha256(json.dumps(tools, sort_keys=True).encode()).hexdigest()
+        )
         if body["model"] != "gpt-6-luna" or body["reasoning"]["effort"] != "low":
             raise ValueError("Wire configuration mismatch")
         affinity_count += bool(row.get("affinity_sent"))
@@ -143,8 +156,8 @@ def inspect_run(path):
         static_tokenizer=result.get("static_prefix_token_method"),
         final_answer_chars=len(answer),
         cache_keys=len({r["cache_key_hash"] for r in rows}),
-        instruction_versions=len({r["instruction_sha256"] for r in rows}),
-        tool_versions=len({r["tools_sha256"] for r in rows}),
+        instruction_versions=len(actual_instruction_hashes),
+        tool_versions=len(actual_tool_hashes),
         affinity_sent_requests=affinity_count,
         tool_error_indicators=failures,
         final_answer=answer,
@@ -300,6 +313,22 @@ def main():
                 for h in ("tny", "codex")
             }
             for task in sorted({r["task"] for r in rows})
+        },
+    }
+    paired_success = {
+        (r["task"], r["rep"]) for r in rows if r["harness"] == "tny" and r["pass"]
+    } & {(r["task"], r["rep"]) for r in rows if r["harness"] == "codex" and r["pass"]}
+    report["both_successful_pairs"] = {
+        "pairs": len(paired_success),
+        "summary": {
+            h: summary(
+                [
+                    r
+                    for r in rows
+                    if r["harness"] == h and (r["task"], r["rep"]) in paired_success
+                ]
+            )
+            for h in ("tny", "codex")
         },
     }
     if complete and all(r["measurement_valid"] for r in rows):

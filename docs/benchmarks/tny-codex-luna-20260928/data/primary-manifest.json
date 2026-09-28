@@ -1,0 +1,28 @@
+{
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "primary": true,
+  "started_utc": "2026-09-28T11:25:28Z",
+  "tny_revision": "c1e11c80582d3c5a517b398d60b7469100af4f49",
+  "driver_revision": "9ce95dd3fe8cb9e1260d27cd403761db802e0774",
+  "binaries": {
+    "tny": {
+      "path": "/var/tmp/tny-codex-eval-20260928-vw93mwpa/bin/tny",
+      "sha256": "7f98becd9dc11909fa0f054ce8d2abb71250768ec3e0affcc5d6ea7ba3a138e6",
+      "version": "0.24.0-8-ga1676de-dirty"
+    },
+    "codex": {
+      "path": "/home/tomas/.local/share/mise/installs/codex/0.159.0-alpha.4/bin/codex",
+      "sha256": "117275c8e94f616848e3cdf2f86b870d531fc213f405eabfaccd39a2f2bb6be4",
+      "version": "codex-cli 0.159.0-alpha.4"
+    }
+  },
+  "driver_sources": {
+    "adapters.py": "688150e855f18fa0ae5a004f19a8b3d48cc36711d44edd2ae2aaa17ed31a0c65",
+    "proxy.py": "53106d1cad0eab9abeaf96b8c970e7387990770903925ded130d2a9d20ddc064",
+    "run.py": "9edb94fc707026332e33009bc52cce91014bb92a5c5daee84e19be1c2888a8be",
+    "cost.py": "6d6448966c39573b0b8ff83ebc6a52bdf83a5f0c5f685f6caa08ee99bd246958",
+    "validate_tasks.py": "49281b932a14bf4ddbcada00b39834d6f5413e2707734ed9b270e17edb1a264d",
+    "experiment.py": "dd707ca76c9860fa5b4fc4b5705a056552c659440b613a513a0513c1c7889663"
+  }
+}

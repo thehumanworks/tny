@@ -1,0 +1,33 @@
+{
+  "totals": {
+    "tny": {
+      "runs": 20,
+      "unique_visible_model_calls": 135,
+      "runtime_failure_calls": 15,
+      "runtime_failure_runs": 10,
+      "empty_sys_executable_failure_calls": 7,
+      "empty_sys_executable_failure_runs": 7,
+      "missing_cell_state_failure_calls": 3,
+      "missing_cell_state_failure_runs": 3,
+      "catalog_discovery_calls": 0,
+      "catalog_discovery_runs": 0,
+      "code_bytes": 61230,
+      "largest_tool_output_bytes": 65510
+    },
+    "codex": {
+      "runs": 20,
+      "unique_visible_model_calls": 114,
+      "runtime_failure_calls": 0,
+      "runtime_failure_runs": 0,
+      "empty_sys_executable_failure_calls": 0,
+      "empty_sys_executable_failure_runs": 0,
+      "missing_cell_state_failure_calls": 0,
+      "missing_cell_state_failure_runs": 0,
+      "catalog_discovery_calls": 0,
+      "catalog_discovery_runs": 0,
+      "code_bytes": 81300,
+      "largest_tool_output_bytes": 40154
+    }
+  },
+  "limits": "Call-site counts are syntactic, not execution counts. Codex internal native actions and Tny Python operations are not equivalent. Error flags identify only named wrapper failures, not every failed shell command or intentional pre-fix test."
+}

@@ -1,0 +1,743 @@
+{
+  "rubric": "Manual trace-backed claim assessment, not a blinded external judge and not a composite aesthetic score. Oracle pass includes required output format and untouched original tests/evidence. Claim support is separate from general correctness: real tests can miss hidden defects.",
+  "summary": {
+    "tny": {
+      "runs": 20,
+      "functional_pass": 20,
+      "task_relevant_summary": 20,
+      "completion_claim_supported": 20,
+      "specific_validation_claim_supported": 20,
+      "validation_execution_reported": 20
+    },
+    "codex": {
+      "runs": 20,
+      "functional_pass": 16,
+      "task_relevant_summary": 20,
+      "completion_claim_supported": 16,
+      "specific_validation_claim_supported": 19,
+      "validation_execution_reported": 18
+    }
+  },
+  "reviews": [
+    {
+      "harness": "codex",
+      "task": "api-migration",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/api-migration/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/api-migration/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/api-migration/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/api-migration/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "api-migration",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/api-migration/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/api-migration/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/api-migration/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/api-migration/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "build-fix",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/build-fix/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/build-fix/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/build-fix/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/build-fix/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "build-fix",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/build-fix/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/build-fix/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/build-fix/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/build-fix/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "c-arena-leak",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/c-arena-leak/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/c-arena-leak/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/c-arena-leak/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/c-arena-leak/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "c-arena-leak",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": false,
+      "failure_kind": null,
+      "note": "Correct patch passed the independent oracle. The agent explicitly said it only inspected source and did not run tests.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/c-arena-leak/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/c-arena-leak/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/c-arena-leak/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/c-arena-leak/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "cli-feature",
+      "rep": 1,
+      "functional_oracle_pass": false,
+      "task_relevant_summary": true,
+      "completion_claim_supported": false,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": false,
+      "failure_kind": "no implementation",
+      "note": "Only inventory/source reads occurred. No source edits. Final answer claimed stats and README were implemented, while honestly saying no checks ran.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/cli-feature/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/cli-feature/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/cli-feature/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/cli-feature/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "cli-feature",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/cli-feature/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/cli-feature/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/cli-feature/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/cli-feature/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "codebase-qa",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/codebase-qa/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/codebase-qa/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/codebase-qa/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/codebase-qa/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "codebase-qa",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/codebase-qa/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/codebase-qa/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/codebase-qa/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/codebase-qa/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "json-diff-tool",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/json-diff-tool/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/json-diff-tool/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/json-diff-tool/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/json-diff-tool/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "json-diff-tool",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Correct implementation passed the independent oracle. Final answer accurately disclosed its own check failed because the expected order was wrong, rather than claiming verification success.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/json-diff-tool/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/json-diff-tool/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/json-diff-tool/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/json-diff-tool/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "sql-report-fix",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/sql-report-fix/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/sql-report-fix/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/sql-report-fix/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/sql-report-fix/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "sql-report-fix",
+      "rep": 2,
+      "functional_oracle_pass": false,
+      "task_relevant_summary": true,
+      "completion_claim_supported": false,
+      "specific_validation_claim_supported": false,
+      "validation_execution_reported": true,
+      "failure_kind": "no implementation",
+      "note": "Only inventory/source reads occurred. No edits or test execution. Final answer claimed a query fix and a passing public test; the unchanged join fails the oracle.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/sql-report-fix/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/sql-report-fix/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/sql-report-fix/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/sql-report-fix/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "trace-analysis",
+      "rep": 1,
+      "functional_oracle_pass": false,
+      "task_relevant_summary": true,
+      "completion_claim_supported": false,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": "required output format",
+      "note": "Computed all three correct values but wrote one comma-separated line instead of the explicitly required three lines. Headline strict oracle remains failed; not a numerical-reasoning error.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/trace-analysis/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/trace-analysis/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/trace-analysis/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/trace-analysis/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "trace-analysis",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/trace-analysis/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/trace-analysis/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/trace-analysis/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/trace-analysis/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "triage-suite",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/triage-suite/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/triage-suite/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/triage-suite/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/triage-suite/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "triage-suite",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/triage-suite/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/triage-suite/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/triage-suite/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/triage-suite/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "workflow-dag",
+      "rep": 1,
+      "functional_oracle_pass": false,
+      "task_relevant_summary": true,
+      "completion_claim_supported": false,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": "implementation correctness",
+      "note": "Public/agent-created checks really ran and passed, but the hidden matrix found duplicate scheduling/attempt counts and wrong concurrent schedules. This is not a fabricated test-execution claim.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/workflow-dag/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/workflow-dag/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/workflow-dag/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/workflow-dag/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "codex",
+      "task": "workflow-dag",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/workflow-dag/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/workflow-dag/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/workflow-dag/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/codex/workflow-dag/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "api-migration",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/api-migration/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/api-migration/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/api-migration/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/api-migration/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "api-migration",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/api-migration/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/api-migration/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/api-migration/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/api-migration/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "build-fix",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/build-fix/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/build-fix/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/build-fix/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/build-fix/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "build-fix",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/build-fix/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/build-fix/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/build-fix/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/build-fix/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "c-arena-leak",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/c-arena-leak/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/c-arena-leak/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/c-arena-leak/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/c-arena-leak/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "c-arena-leak",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/c-arena-leak/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/c-arena-leak/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/c-arena-leak/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/c-arena-leak/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "cli-feature",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/cli-feature/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/cli-feature/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/cli-feature/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/cli-feature/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "cli-feature",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/cli-feature/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/cli-feature/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/cli-feature/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/cli-feature/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "codebase-qa",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/codebase-qa/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/codebase-qa/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/codebase-qa/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/codebase-qa/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "codebase-qa",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/codebase-qa/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/codebase-qa/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/codebase-qa/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/codebase-qa/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "json-diff-tool",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/json-diff-tool/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/json-diff-tool/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/json-diff-tool/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/json-diff-tool/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "json-diff-tool",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/json-diff-tool/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/json-diff-tool/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/json-diff-tool/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/json-diff-tool/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "sql-report-fix",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/sql-report-fix/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/sql-report-fix/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/sql-report-fix/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/sql-report-fix/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "sql-report-fix",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/sql-report-fix/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/sql-report-fix/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/sql-report-fix/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/sql-report-fix/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "trace-analysis",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/trace-analysis/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/trace-analysis/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/trace-analysis/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/trace-analysis/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "trace-analysis",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/trace-analysis/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/trace-analysis/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/trace-analysis/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/trace-analysis/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "triage-suite",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/triage-suite/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/triage-suite/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/triage-suite/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/triage-suite/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "triage-suite",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/triage-suite/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/triage-suite/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/triage-suite/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/triage-suite/rep-02/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "workflow-dag",
+      "rep": 1,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/workflow-dag/rep-01/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/workflow-dag/rep-01/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/workflow-dag/rep-01/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/workflow-dag/rep-01/verify.log"
+      ]
+    },
+    {
+      "harness": "tny",
+      "task": "workflow-dag",
+      "rep": 2,
+      "functional_oracle_pass": true,
+      "task_relevant_summary": true,
+      "completion_claim_supported": true,
+      "specific_validation_claim_supported": true,
+      "validation_execution_reported": true,
+      "failure_kind": null,
+      "note": "Final summary and named checks were compared with retained call/result traces and produced artifacts. No specific contradictory claim identified.",
+      "evidence": [
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/workflow-dag/rep-02/final_message.txt",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/workflow-dag/rep-02/agent.patch",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/workflow-dag/rep-02/proxy/requests.jsonl",
+        "/var/tmp/tny-codex-eval-20260928-vw93mwpa/output/primary/tny/workflow-dag/rep-02/verify.log"
+      ]
+    }
+  ]
+}

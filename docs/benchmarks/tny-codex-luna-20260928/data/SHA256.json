@@ -1,0 +1,26 @@
+{
+  "evidence.tar.gz": {
+    "bytes": 4269297,
+    "sha256": "882eec9d2eb5b0c5a4aac51eb1bae2d6aa5fb080ff222695e2fb283b584e4d55"
+  },
+  "analysis.json": {
+    "bytes": 103760,
+    "sha256": "edc27c727976fbaed6c83d7852af691428ef25e42705eda3d0f668a396b79147"
+  },
+  "cache-analysis.json": {
+    "bytes": 24981,
+    "sha256": "d2b89aec9bacd79192efbcd566923432d80181364d0c86aed35bbff23ddf547c"
+  },
+  "call-diagnostics.json": {
+    "bytes": 1214,
+    "sha256": "464c3292a7a549afab347a50bc0591d608197e966476d38aa6a7edaa812ba8d5"
+  },
+  "quality-review.json": {
+    "bytes": 39011,
+    "sha256": "f7628a496a7a9a9b41f24b49445d6d2f843f68a3118b80d96a01e52f86f4711d"
+  },
+  "primary-manifest.json": {
+    "bytes": 1251,
+    "sha256": "ab176464761a56e1199660460c33c2fcfe46182eca9f75c9913921786cf230ca"
+  }
+}
