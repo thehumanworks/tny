@@ -224,15 +224,17 @@ CPYTHON_LIBRARIES := zlib bzip2 xz zstd sqlite libffi openssl
 CPYTHON_DEPS_DIR ?= build/deps
 CPYTHON_PINS := $(foreach d,$(CPYTHON_LIBRARIES),third_party/$(d)/URL third_party/$(d)/SHA256)
 CPYTHON_JOBS ?= 4
-# Linux keeps the published glibc floor in the interpreter objects too.
-CPYTHON_FLOOR_H := $(if $(CXX_GLIBC_FLOOR),src/util/cxx_glibc_floor.h)
+CPYTHON_TARGET := $(shell $(CC) -dumpmachine 2>/dev/null | sed -E 's/-(pc|unknown|alpine)-/-/')
+# glibc Linux keeps the published glibc floor in the interpreter objects too.
+# musl has no symbol versions to pin, and the header's forced _GNU_SOURCE
+# makes bundled OpenSSL expect GNU strerror_r (char *) where musl returns int.
+CPYTHON_FLOOR_H := $(if $(filter %-musl,$(CPYTHON_TARGET)),,$(if $(CXX_GLIBC_FLOOR),src/util/cxx_glibc_floor.h))
 CPYTHON_CFLAGS ?= -Os -ffunction-sections -fdata-sections \
                   $(if $(CPYTHON_FLOOR_H),-include $(abspath $(CPYTHON_FLOOR_H)))
 # Shared by every lane (release/debug/leak builds): release-flag C objects.
 # One archive per target ABI (arch + libc; the vendor field is dropped so gcc
 # and clang share it) and per interpreter flags, under the selected BUILD, so
 # a glibc archive never reaches a musl link and flag changes rebuild.
-CPYTHON_TARGET := $(shell $(CC) -dumpmachine 2>/dev/null | sed -E 's/-(pc|unknown|alpine)-/-/')
 CPYTHON_FLAGS_KEY := $(shell { printf '%s' '$(CPYTHON_CFLAGS) $(MACOSX_DEPLOYMENT_TARGET)'; cat $(CPYTHON_PINS); } | cksum | cut -d' ' -f1)
 CPYTHON_DIR ?= $(BUILD)/cpython-$(CPYTHON_VERSION)-$(or $(CPYTHON_TARGET),host)-$(CPYTHON_FLAGS_KEY)
 CPYTHON_LIB = $(CPYTHON_DIR)/libpython3.14.a
