@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -66,6 +67,66 @@ def mutant(source: Path, old: str, new: str, directory: Path) -> Path:
 
 
 class CodeCellSeams(unittest.TestCase):
+    def test_openssl_configure_without_host_shebang_interpreter(self):
+        """Run the real build stanza with an unusable Configure shebang."""
+        text = (ROOT / "scripts/cpython_runtime.sh").read_text()
+        quiet = text.split("quiet() {", 1)[1].split("\n}", 1)[0]
+        configure = text.split("            openssl)\n", 1)[1].split(
+            "                ;;", 1
+        )[0]
+        with tempfile.TemporaryDirectory(prefix="tny-openssl-shebang-") as tmp:
+            work = Path(tmp).resolve()
+            # A missing absolute interpreter reproduces the kernel failure
+            # without needing Nix or changing the host's /usr/bin/env.
+            fixture = work / "Configure"
+            fixture.write_text(
+                f"#!{work}/missing-env perl\n"
+                'open(my $out, ">", "configured") or die $!;\n'
+                'print $out join("\\n", @ARGV);\n'
+                "close($out) or die $!;\n"
+            )
+            fixture.chmod(0o755)
+            with self.assertRaises(FileNotFoundError):
+                subprocess.run([str(fixture)], check=True)
+            make = work / "make"
+            make.write_text(
+                f"#!{shutil.which('sh')}\n"
+                "test -s configured || exit 1\n"
+                'printf "%s\\n" "$*" >> made\n'
+            )
+            make.chmod(0o755)
+            driver = (
+                f"set -eu\nquiet() {{{quiet}\n}}\n"
+                'stage="$PWD/stage"\ncc=cc\ncflags=-Os\njobs=2\n' + configure
+            )
+            env = {**os.environ, "PATH": f"{work}{os.pathsep}{os.environ['PATH']}"}
+            result = subprocess.run(
+                ["sh", "-c", driver],
+                cwd=work,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            args = (work / "configured").read_text().splitlines()
+            self.assertIn("no-shared", args)
+            self.assertIn(f"--prefix={work}/stage", args)
+            self.assertEqual(
+                (work / "made").read_text().splitlines(),
+                ["-j2 build_libs", "install_dev"],
+            )
+            # Prove the test rejects the old direct-exec launch path.
+            broken = subprocess.run(
+                ["sh", "-c", driver.replace("perl ./Configure", "./Configure")],
+                cwd=work,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            self.assertNotEqual(broken.returncode, 0)
+
     def test_output_pipe_failure_releases_owned_descriptors_once(self):
         text = (ROOT / "src/core/code_runtime.c").read_text()
         start = text.index("static int output_pipe(")

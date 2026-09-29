@@ -165,6 +165,12 @@ inputs for that check; the unwrapped runtime gains no test-runner dependency.
 
 ## Developing
 
+The embedded CPython build unpacks its pinned dependency sources during
+`buildPhase`, after Nix's source patching. OpenSSL's `Configure` is therefore
+invoked explicitly with the declared build-time `perl`, rather than relying
+on its `/usr/bin/env perl` shebang. This applies to the wrapped and unwrapped
+CLI packages and the test derivation; no host `/usr/bin/env` is required.
+
 ```sh
 nix develop                # cc, make, python3, node, hyperfine, openssl, git,
                            # the make quality linters, valgrind on Linux

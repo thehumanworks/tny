@@ -154,7 +154,10 @@ for name in $libraries; do
                 # cell sets SSL_CERT_FILE only when that default is absent
                 # (src/core/code_python.c). No engines, provider modules,
                 # apps or tests.
-                quiet configure.log ./Configure no-shared no-module no-dso no-engine no-tests \
+                # Configure's /usr/bin/env shebang is unavailable in Nix
+                # builders. Use the declared build-time Perl directly; this
+                # source is unpacked after Nix's shebang-patching phase.
+                quiet configure.log perl ./Configure no-shared no-module no-dso no-engine no-tests \
                     no-apps no-docs --prefix="$stage" --libdir=lib --openssldir=/etc/ssl \
                     CC="$cc" CFLAGS="$cflags"
                 quiet make.log make -j"$jobs" build_libs
