@@ -95,6 +95,46 @@ def events(wire, name=None, arguments=None, call_id="execution_1"):
     )
 
 
+def mint_loopback_certificate(cert, key, subject, alt_names, openssl="openssl"):
+    """Write a throwaway self-signed certificate and key for loopback TLS.
+
+    An explicit minimal config keeps this independent of the host's
+    openssl.cnf, which a Homebrew install may lack or point elsewhere.
+    Failures carry openssl's own diagnostics.
+    """
+    config = Path(key).with_suffix(".cnf")
+    config.write_text("[req]\ndistinguished_name = dn\n[dn]\n", encoding="utf-8")
+    run = subprocess.run(
+        [
+            openssl,
+            "req",
+            "-config",
+            str(config),
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-days",
+            "1",
+            "-subj",
+            f"/CN={subject}",
+            "-addext",
+            f"subjectAltName={alt_names}",
+            "-keyout",
+            str(key),
+            "-out",
+            str(cert),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if run.returncode:
+        raise AssertionError(
+            f"openssl req exited {run.returncode}: {run.stderr.strip() or run.stdout}"
+        )
+
+
 class Provider(BaseHTTPRequestHandler):
     def log_message(self, *_args):
         pass
@@ -400,30 +440,7 @@ print(json.dumps({{"answer": value["value"] + 1}}))
                 "openssl CLI unavailable to mint a throwaway loopback certificate"
             )
         cert, key = self.home / "loopback.pem", self.home / "loopback.key"
-        subprocess.run(
-            [
-                openssl,
-                "req",
-                "-x509",
-                "-newkey",
-                "rsa:2048",
-                "-nodes",
-                "-days",
-                "1",
-                "-subj",
-                "/CN=127.0.0.1",
-                "-addext",
-                "subjectAltName=IP:127.0.0.1",
-                "-keyout",
-                str(key),
-                "-out",
-                str(cert),
-            ],
-            check=True,
-            capture_output=True,
-            env=dict(os.environ, OPENSSL_CONF="/dev/null"),
-            timeout=60,
-        )
+        mint_loopback_certificate(cert, key, "127.0.0.1", "IP:127.0.0.1", openssl)
         web = ThreadingHTTPServer(("127.0.0.1", 0), Loopback)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(cert, key)

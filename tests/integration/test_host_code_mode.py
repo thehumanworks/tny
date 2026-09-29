@@ -7,7 +7,6 @@ No provider account or public-network request is used.
 import json
 import os
 import ssl
-import subprocess
 import sys
 import threading
 import unittest
@@ -16,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests/integration"))
-from test_execution_code_mode import WASM, ExecutionCodeMode
+from test_execution_code_mode import WASM, ExecutionCodeMode, mint_loopback_certificate
 
 
 class Endpoint(BaseHTTPRequestHandler):
@@ -88,31 +87,7 @@ print(json.dumps({{'host':'ok','cwd':os.getcwd(),'child':child.stdout,'network':
     def test_verified_https(self):
         cert = self.home / "test-cert.pem"
         key = self.home / "test-key.pem"
-        subprocess.run(
-            [
-                "openssl",
-                "req",
-                "-x509",
-                "-newkey",
-                "rsa:2048",
-                "-nodes",
-                "-keyout",
-                str(key),
-                "-out",
-                str(cert),
-                "-days",
-                "1",
-                "-subj",
-                "/CN=localhost",
-                "-addext",
-                "subjectAltName=DNS:localhost,IP:127.0.0.1",
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=dict(os.environ, OPENSSL_CONF="/dev/null"),
-            timeout=10,
-        )
+        mint_loopback_certificate(cert, key, "localhost", "DNS:localhost,IP:127.0.0.1")
         endpoint = ThreadingHTTPServer(("127.0.0.1", 0), Endpoint)
         endpoint.paths = []
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
