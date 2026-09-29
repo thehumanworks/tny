@@ -1,7 +1,9 @@
 #include "greatest.h"
 #include "core/code_policy.h"
 #include "core/code_runtime.h"
+#include "util/process.h"
 #include "util/util.h"
+#include <dirent.h>
 #include <errno.h>
 #include <limits.h>
 #include <signal.h>
@@ -9,12 +11,93 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <unistd.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif
 
 /* Every cell below runs through the production path: a fresh `--code-cell`
  * child of this test binary with host authority (docs/adr/0180), not an
  * in-process shortcut. Host effects use private temporary directories,
  * loopback sockets and benign subprocesses only. */
+
+/* Whether this host can stop a cell's process tree. The nominal seam probe
+ * does not certify every syscall an instrumentor exposes: Valgrind offers
+ * pidfd_open but cannot forward pidfd_send_signal (see tests/test_mcp.c).
+ * Probe the exact operation with signal zero. */
+static bool process_tree_signals(void) {
+    bool supported = tny_process_tree_supported();
+#ifdef __linux__
+    int probe = (int)syscall(SYS_pidfd_open, getpid(), 0);
+    supported = supported && probe >= 0 && syscall(SYS_pidfd_send_signal, probe, 0, NULL, 0) == 0;
+    if (probe >= 0) close(probe);
+#endif
+    return supported;
+}
+
+#ifdef __linux__
+static pid_t proc_parent(pid_t pid) {
+    char path[64], data[512];
+    snprintf(path, sizeof path, "/proc/%ld/stat", (long)pid);
+    FILE *file = fopen(path, "r");
+    if (!file) return -1;
+    bool ok = fgets(data, sizeof data, file) != NULL;
+    fclose(file);
+    char *end = ok ? strrchr(data, ')') : NULL;
+    long parent = -1;
+    if (!end || sscanf(end + 1, " %*c %ld", &parent) != 1) return -1;
+    return (pid_t)parent;
+}
+
+static bool proc_is_code_cell(pid_t pid) {
+    char path[64], argv[256] = {0};
+    snprintf(path, sizeof path, "/proc/%ld/cmdline", (long)pid);
+    FILE *file = fopen(path, "r");
+    if (!file) return false;
+    size_t n = fread(argv, 1, sizeof argv - 1, file);
+    fclose(file);
+    size_t first = strnlen(argv, n);
+    return first + 1 < n && strcmp(argv + first + 1, "--code-cell") == 0;
+}
+
+/* SIGKILL every descendant of `root`, deepest first, by /proc ancestry. */
+static void kill_descendants(pid_t root) {
+    DIR *dir = opendir("/proc");
+    if (!dir) return;
+    struct dirent *entry;
+    while ((entry = readdir(dir))) {
+        pid_t pid = (pid_t)atol(entry->d_name);
+        if (pid <= 1 || proc_parent(pid) != root) continue;
+        kill_descendants(pid);
+        kill(pid, SIGKILL);
+    }
+    closedir(dir);
+}
+#endif
+
+/* Test-only cleanup where cells cannot be stopped (Valgrind): the production
+ * path correctly refuses raw-PID signals, which strands a timed-out cell as an
+ * unreaped child of this binary. Left running, such cells spin or sleep and
+ * starve every later fork/wait suite. They are direct unreaped children, so
+ * their PIDs cannot be reused before this reaps them. */
+static void reap_stranded_cells(void *userdata) {
+    (void)userdata;
+#ifdef __linux__
+    if (process_tree_signals()) return;
+    DIR *dir = opendir("/proc");
+    if (!dir) return;
+    struct dirent *entry;
+    while ((entry = readdir(dir))) {
+        pid_t pid = (pid_t)atol(entry->d_name);
+        if (pid <= 1 || proc_parent(pid) != getpid() || !proc_is_code_cell(pid)) continue;
+        kill_descendants(pid);
+        kill(pid, SIGKILL);
+        while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
+    }
+    closedir(dir);
+#endif
+}
 
 static char *fake_tool(void *userdata, const char *name, const char *args) {
     unsigned *count = userdata;
@@ -185,7 +268,8 @@ TEST code_cell_acts_on_the_host(void) {
     snprintf(code, sizeof code,
              "import os, pathlib, subprocess, sys\n"
              "assert os.getcwd() == %s, os.getcwd()\n"
-             "assert os.environ['PWD'] == os.getcwd()\n"
+             "pwd = os.environ['PWD']\n"
+             "assert os.path.isabs(pwd) and os.path.samefile(pwd, '.'), pwd\n"
              "pathlib.Path('made.txt').write_text('from python')\n"
              "with open('made.txt', 'a') as f:\n"
              "    print(' and print', file=f, end='')\n"
@@ -214,23 +298,48 @@ TEST code_cell_acts_on_the_host(void) {
     PASS();
 }
 
-/* No kernel confinement or resource denial: the cell has no seccomp filter,
- * no no_new_privs bit, and the parent's descriptor/process limits. */
+#ifdef __linux__
+/* The value of a "Name:\tvalue" line in /proc/self/status, or -1. */
+static long proc_status_field(const char *name) {
+    char *status = file_slurp("/proc/self/status", NULL);
+    if (!status) return -1;
+    long value = -1;
+    size_t len = strlen(name);
+    for (const char *line = status; line && *line; line = strchr(line, '\n')) {
+        if (*line == '\n') line++;
+        if (strncmp(line, name, len) == 0 && line[len] == ':') {
+            value = strtol(line + len + 1, NULL, 10);
+            break;
+        }
+    }
+    free(status);
+    return value;
+}
+#endif
+
+/* No kernel confinement or resource denial: tny adds no seccomp filter, no
+ * no_new_privs bit and no lower limits than the parent's. The comparison is to
+ * the parent, not to absolute values: containers (Docker's default seccomp
+ * profile) confine both, and valgrind lowers only its own client's NOFILE. */
 TEST code_cell_has_no_confinement(void) {
 #ifdef __linux__
     struct rlimit files, procs;
     ASSERT_EQ(0, getrlimit(RLIMIT_NOFILE, &files));
     ASSERT_EQ(0, getrlimit(RLIMIT_NPROC, &procs));
+    long seccomp = proc_status_field("Seccomp");
+    long no_new_privs = proc_status_field("NoNewPrivs");
+    ASSERT(seccomp >= 0 && no_new_privs >= 0);
     char code[1024];
     snprintf(code, sizeof code,
              "import resource\n"
              "status = open('/proc/self/status').read()\n"
-             "print('Seccomp:\\t0' in status, 'NoNewPrivs:\\t0' in status)\n"
-             "print(resource.getrlimit(resource.RLIMIT_NOFILE) == (%lld, %lld),\n"
+             "print('Seccomp:\\t%ld\\n' in status, 'NoNewPrivs:\\t%ld\\n' in status)\n"
+             "soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)\n"
+             "print(soft >= %lld and hard >= %lld,\n"
              "      resource.getrlimit(resource.RLIMIT_NPROC) == (%lld, %lld))\n"
              "print(resource.getrlimit(resource.RLIMIT_FSIZE)[0] == resource.RLIM_INFINITY)\n",
-             (long long)files.rlim_cur, (long long)files.rlim_max, (long long)procs.rlim_cur,
-             (long long)procs.rlim_max);
+             seccomp, no_new_privs, (long long)files.rlim_cur, (long long)files.rlim_max,
+             (long long)procs.rlim_cur, (long long)procs.rlim_max);
     char *out = tny_code_run(code, 5000, NULL, NULL, NULL);
     ASSERT(out);
     ASSERT_STR_EQ("True True\nTrue True\nTrue\n", out);
@@ -335,6 +444,8 @@ TEST code_errors_report_traceback_and_exit_status(void) {
 /* The deadline stops the cell and its ordinary descendants; output written
  * before the deadline is kept. */
 TEST code_deadline_stops_owned_descendants(void) {
+    bool supported = process_tree_signals();
+    if (getenv("TNY_TEST_REQUIRE_PROCESS_TREE")) ASSERT(supported);
     char *dir = temp_dir();
     ASSERT(dir);
     char pidfile[PATH_MAX], code[1024];
@@ -348,15 +459,28 @@ TEST code_deadline_stops_owned_descendants(void) {
              json_quote_python(pidfile));
     int64_t started = monotonic_ms();
     char *out = tny_code_run(code, 1500, NULL, NULL, NULL);
+    int64_t elapsed = monotonic_ms() - started;
     ASSERT(out);
-    ASSERT(monotonic_ms() - started < 5000);
     ASSERT(str_starts(out, "error: code: deadline exceeded"));
     ASSERT(strstr(out, "started\n"));
     char *text = file_slurp(pidfile, NULL);
     ASSERT(text);
     pid_t pid = (pid_t)atoi(text);
     ASSERT(pid > 1);
-    ASSERT(kill(pid, 0) != 0 && errno == ESRCH);
+    errno = 0;
+    int alive = kill(pid, 0);
+    int alive_error = errno;
+    if (supported) {
+        ASSERT(elapsed < 5000);
+        ASSERT(alive != 0 && alive_error == ESRCH);
+    } else {
+        /* No signal could be delivered: verify the deadline still ends the
+         * call and that nothing substituted an unsafe raw-PID kill. The
+         * native CI invocation requires the real capability (ci.yml). */
+        ASSERT(elapsed < 12000);
+        ASSERT_EQ(0, alive);
+        fprintf(stderr, "code deadline: verified unavailable-signal refusal, not tree stop\n");
+    }
     free(text);
     free(out);
     remove_tree(dir);
@@ -650,6 +774,7 @@ TEST code_unicode_parser_is_self_contained(void) {
 }
 
 SUITE(code_runtime_suite) {
+    SET_TEARDOWN(reap_stranded_cells, NULL);
     RUN_TEST(code_unicode_parser_is_self_contained);
     RUN_TEST(code_tool_names_preserve_exact_bytes);
     RUN_TEST(code_json_reentrant_container_lifetimes);

@@ -5,6 +5,7 @@ No provider account or public-network request is used.
 """
 
 import json
+import os
 import ssl
 import subprocess
 import sys
@@ -48,7 +49,7 @@ class HostAcceptance(ExecutionCodeMode):
                 code = f"""import os, pathlib, subprocess, socket, urllib.request, threading
 import tny_host_probe
 assert tny_host_probe.VALUE == 73
-assert os.getcwd() == {str(self.workspace)!r}, os.getcwd()
+assert os.getcwd() == {os.path.realpath(self.workspace)!r}, os.getcwd()
 assert os.environ['TNY_HOST_TEST_SENTINEL'] == 'synthetic-only'
 assert os.environ['HOME'] == {str(self.home)!r}
 p = pathlib.Path({str(marker)!r})
@@ -109,6 +110,7 @@ print(json.dumps({{'host':'ok','cwd':os.getcwd(),'child':child.stdout,'network':
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=dict(os.environ, OPENSSL_CONF="/dev/null"),
             timeout=10,
         )
         endpoint = ThreadingHTTPServer(("127.0.0.1", 0), Endpoint)

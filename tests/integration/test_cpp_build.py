@@ -828,7 +828,13 @@ void conversions(const char *text) {
             for line in hosts.splitlines()
             if " -shared " in line and " -c " not in line
         ]
-        self.assertEqual(len(libraries), 3, hosts)
+        # The active ABI 1 library needs a real glibc host (the Makefile asks
+        # getconf, which UNAME_S=Linux cannot fake); the fault libraries don't.
+        try:
+            glibc = bool(os.confstr("CS_GNU_LIBC_VERSION"))
+        except (ValueError, OSError):
+            glibc = False
+        self.assertEqual(len(libraries), 3 if glibc else 2, hosts)
         for link in libraries:
             self.assertIn("src/core/code_python_unsupported.o", link)
             self.assertNotIn("src/core/code_python.o", link)

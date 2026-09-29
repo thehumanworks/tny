@@ -421,6 +421,7 @@ print(json.dumps({{"answer": value["value"] + 1}}))
             ],
             check=True,
             capture_output=True,
+            env=dict(os.environ, OPENSSL_CONF="/dev/null"),
             timeout=60,
         )
         web = ThreadingHTTPServer(("127.0.0.1", 0), Loopback)

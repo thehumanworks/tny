@@ -102,6 +102,13 @@ jobs:
             -s mcp_suite -t stdio_close_reaps_peer_ignoring_sigterm -e > /tmp/mcp-reaping.log
           cat /tmp/mcp-reaping.log
           grep -F '1 test - 1 passed, 0 failed, 0 skipped' /tmp/mcp-reaping.log
+          # Same for code cells: a timed-out cell and its descendants must be
+          # stopped natively; under Valgrind the suite checks the refusal.
+          TNY_TEST_REQUIRE_PROCESS_TREE=1 ./build/leakcheck/tny-test \
+            -s code_runtime_suite -t code_deadline_stops_owned_descendants -e \
+            > /tmp/code-deadline.log
+          cat /tmp/code-deadline.log
+          grep -F '1 test - 1 passed, 0 failed, 0 skipped' /tmp/code-deadline.log
 
   build:
     name: ${{ matrix.name }}
