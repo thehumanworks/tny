@@ -73,6 +73,15 @@ valgrind.**
      `possibly lost` is glibc's per-thread stack/DTV for threads alive at
      exit. Definite and indirect losses decide the exit code.
    - **macOS**: `/usr/bin/leaks --atExit`, **suite by suite**.
+     Checker success alone is insufficient: `leaks` can return zero after a
+     failing test. The driver also requires exactly one completed Greatest
+     summary with positive passes and zero failures, rejects explicit failure
+     lines, and refuses an empty suite selection. Missing or invalid results
+     fail the gate; subsequent suites still run to retain their diagnostics.
+     Exact-output shell fixtures disable inherited malloc-logging flags only
+     for their helper shell. The descriptor-reuse probe starts a fresh test
+     executable so it cannot inherit the checker's live fork state. The parent
+     runner stays instrumented and production environment inheritance is unchanged.
    - **anything else**: an honest skip, exit 0.
 
    `make valgrind` is the explicit Linux-only target (a clean error, exit 2,

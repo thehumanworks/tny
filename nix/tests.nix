@@ -69,6 +69,8 @@ stdenv.mkDerivation {
   # test_jobs_msys.py skips on Nix hosts; its optional local MSYS fixtures use
   # the existing gcc/make/python toolchain and the Makefile object inventory.
   strictDeps = true;
+  # test_leakcheck.py exercises the shell gate with generated Python helpers;
+  # the existing bash, Python and core utility inputs cover it on every host.
   nativeBuildInputs = [
     bash
     clang # verify-execution-protocol translates and compiles the production predicate

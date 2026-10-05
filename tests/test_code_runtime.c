@@ -377,15 +377,24 @@ TEST code_cell_uses_loopback_http(void) {
 /* stdout, stderr and inherited subprocess output form one ordered result. */
 TEST code_captures_ordered_process_output(void) {
     const char *code = "import os, subprocess, sys\n"
+                       /* Keep the cell and test runner instrumented. Only the
+                        * shell fixture must not add malloc-logging banners to
+                        * the stdout/stderr bytes whose order is under test. */
+                       "env = dict(os.environ)\n"
+                       "env.pop('MallocStackLogging', None)\n"
+                       "env.pop('MallocStackLoggingNoCompact', None)\n"
                        "print('one')\n"
                        "sys.stderr.write('two\\n')\n"
-                       "subprocess.run(['sh', '-c', 'echo three; echo four >&2'])\n"
+                       "subprocess.run(['sh', '-c', 'echo three; echo four >&2'], "
+                       "env=env, check=True)\n"
                        "os.write(1, b'five\\n')\n"
                        "print('six', flush=True)\n";
     char *out = tny_code_run(code, 5000, NULL, NULL, NULL);
     ASSERT(out);
-    ASSERT_STR_EQ("one\ntwo\nthree\nfour\nfive\nsix\n", out);
+    bool ordered = strcmp("one\ntwo\nthree\nfour\nfive\nsix\n", out) == 0;
+    if (!ordered) fprintf(stderr, "unexpected captured output: %s\n", out);
     free(out);
+    ASSERTm("stdout, stderr and subprocess output retain exact order", ordered);
     PASS();
 }
 

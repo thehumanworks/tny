@@ -49,7 +49,10 @@ SUITE_EXTERN(dictation_suite);
 SUITE_EXTERN(tnyjev_suite);
 SUITE_EXTERN(image_service_suite);
 
+int test_acp_stdin_probe(void);
+
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--test-acp-stdin") == 0) return test_acp_stdin_probe();
     if (argc == 2 && strcmp(argv[1], "--exec-command") == 0) return tny_exec_command_main();
     if (argc == 2 && strcmp(argv[1], "--exec-server") == 0) return tny_execution_server_main();
     if (argc == 2 && strcmp(argv[1], "--code-cell") == 0) return tny_code_cell_main();

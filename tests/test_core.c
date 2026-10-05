@@ -4990,45 +4990,65 @@ TEST wire_api_resolution(void) {
     PASS();
 }
 
-/* The pipe's read end reuses fd 0; child cleanup must retain that endpoint. */
+/* The pipe's read end reuses fd 0; child cleanup must retain that endpoint.
+ * A fresh test executable avoids copying the leak checker's live threads and
+ * exit hooks into the probe. The production adapter still performs the fork
+ * and descriptor redirection whose behavior this fixture verifies. */
+int test_acp_stdin_probe(void) {
+    signal(SIGALRM, SIG_DFL);
+    signal(SIGPIPE, SIG_IGN);
+    alarm(5);
+    /* This shell is a descriptor fixture, not the leak-check target.
+     * MallocStackLogging banners otherwise fill its diagnostic pipe.
+     * The parent test process keeps its original instrumentation. */
+    unsetenv("MallocStackLogging");
+    unsetenv("MallocStackLoggingNoCompact");
+    char *argv[] = {(char *)TNY_SHELL_PATH, (char *)"-c",
+                    (char *)"IFS= read -r value || exit 13; printf '%s' \"$value\"; "
+                            "printf diagnostic >&2",
+                    NULL};
+    tny_ctx ctx = {.cwd = (char *)".", .agent_argv = argv};
+    ac_impl agent = {.ctx = &ctx, .in_fd = -1, .out_fd = -1, .err_fd = -1};
+    char error[256];
+    agent.bridge = tny_acp_bridge_new(&ctx, error, sizeof error);
+    if (!agent.bridge) return 3;
+    close(STDIN_FILENO);
+    if (ac_spawn_agent(&agent, error, sizeof error) != 0) {
+        tny_acp_bridge_destroy(agent.bridge);
+        return 1;
+    }
+    bool sent = write(agent.in_fd, "payload\n", 8) == 8;
+    close(agent.in_fd);
+    (void)set_nonblock(agent.out_fd, false);
+    (void)set_nonblock(agent.err_fd, false);
+    char output[32] = {0}, diagnostic[32] = {0};
+    ssize_t out_len = read(agent.out_fd, output, sizeof output - 1);
+    ssize_t err_len = read(agent.err_fd, diagnostic, sizeof diagnostic - 1);
+    close(agent.out_fd);
+    close(agent.err_fd);
+    int status = 0;
+    pid_t reaped;
+    do { reaped = waitpid(agent.pid, &status, 0); } while (reaped < 0 && errno == EINTR);
+    tny_acp_bridge_destroy(agent.bridge);
+    return sent && out_len == 7 && strcmp(output, "payload") == 0 && err_len == 10 &&
+                   strcmp(diagnostic, "diagnostic") == 0 && reaped == agent.pid &&
+                   WIFEXITED(status) && WEXITSTATUS(status) == 0
+               ? 0
+               : 2;
+}
+
 TEST acp_spawn_preserves_reused_stdin(void) {
     ensure_env();
-    pid_t probe = fork();
-    ASSERT(probe >= 0);
-    if (probe == 0) {
-        signal(SIGALRM, SIG_DFL);
-        signal(SIGPIPE, SIG_IGN);
-        alarm(5);
-        char *argv[] = {(char *)TNY_SHELL_PATH, (char *)"-c",
-                        (char *)"IFS= read -r value || exit 13; printf '%s' \"$value\"; "
-                                "printf diagnostic >&2",
-                        NULL};
-        tny_ctx ctx = {.cwd = (char *)".", .agent_argv = argv};
-        ac_impl agent = {.ctx = &ctx, .in_fd = -1, .out_fd = -1, .err_fd = -1};
-        char error[256];
-        agent.bridge = tny_acp_bridge_new(&ctx, error, sizeof error);
-        if (!agent.bridge) _exit(3);
-        close(STDIN_FILENO);
-        if (ac_spawn_agent(&agent, error, sizeof error) != 0) _exit(1);
-        bool sent = write(agent.in_fd, "payload\n", 8) == 8;
-        close(agent.in_fd);
-        (void)set_nonblock(agent.out_fd, false);
-        (void)set_nonblock(agent.err_fd, false);
-        char output[32] = {0}, diagnostic[32] = {0};
-        ssize_t out_len = read(agent.out_fd, output, sizeof output - 1);
-        ssize_t err_len = read(agent.err_fd, diagnostic, sizeof diagnostic - 1);
-        close(agent.out_fd);
-        close(agent.err_fd);
-        int status = 0;
-        pid_t reaped;
-        do { reaped = waitpid(agent.pid, &status, 0); } while (reaped < 0 && errno == EINTR);
-        tny_acp_bridge_destroy(agent.bridge);
-        _exit(sent && out_len == 7 && strcmp(output, "payload") == 0 && err_len == 10 &&
-                      strcmp(diagnostic, "diagnostic") == 0 && reaped == agent.pid &&
-                      WIFEXITED(status) && WEXITSTATUS(status) == 0
-                  ? 0
-                  : 2);
-    }
+    char *self = tny_process_self_path();
+    ASSERT(self);
+    char *argv[] = {self, "--test-acp-stdin", NULL};
+    extern char **environ;
+    pid_t probe = -1;
+    tny_fd_mapping diagnostic = {STDERR_FILENO, STDERR_FILENO};
+    int spawned = tny_process_spawn_mapped(argv, environ, &diagnostic, 1, &probe);
+    free(self);
+    if (spawned) fprintf(stderr, "could not start descriptor probe: %s\n", strerror(spawned));
+    ASSERT_EQ(0, spawned);
     int status = 0;
     pid_t reaped;
     do { reaped = waitpid(probe, &status, 0); } while (reaped < 0 && errno == EINTR);

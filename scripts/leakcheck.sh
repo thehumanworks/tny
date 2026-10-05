@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Memory-leak gate (docs/adr/0061). Runs the sanitizer-free unit binary and the
-# CLI smoke under the host's leak checker and fails on a leak:
+# CLI smoke under the host's leak checker and fails on a leak or test error:
 #
 #   Linux   valgrind memcheck, whole binary in one run
 #   macOS   /usr/bin/leaks --atExit, suite by suite (valgrind has no arm64 port)
@@ -51,19 +51,46 @@ run_valgrind() {
     fi
 }
 
+unit_log_clean() {
+    # leaks --atExit can return success even when the inspected binary fails.
+    # Greatest must have completed exactly once with at least one passing test.
+    awk '
+        /^FAIL([[:space:]]|$)/ { failed = 1 }
+        /^Pass:/ {
+            summaries++
+            if ($0 !~ /^Pass: [0-9]+, fail: [0-9]+, skip: [0-9]+\.$/) {
+                invalid = 1
+            } else {
+                passed = $2 + 0
+                errors = $4 + 0
+            }
+        }
+        END { exit (summaries != 1 || invalid || failed || passed < 1 || errors != 0) }
+    ' "$1"
+}
+
 run_leaks() {
     label=$1
-    shift
+    kind=$2
+    shift 2
     log="build/leakcheck/$(printf '%s' "$label" | tr -c 'A-Za-z0-9_.-' '_').log"
     mkdir -p "$(dirname "$log")"
     echo "== leak: $label"
-    if "$LEAKS" --atExit -- "$@" > "$log" 2>&1; then
+    checker_ok=1
+    if ! "$LEAKS" --atExit -- "$@" > "$log" 2>&1; then
+        checker_ok=0
+    fi
+    if [ "$kind" = unit ] && ! unit_log_clean "$log"; then
+        echo "   unit test result missing, invalid, or failing: $label" >&2
+        checker_ok=0
+    fi
+    if [ "$checker_ok" -eq 1 ]; then
         # The report is the only line worth echoing; MallocStackLogging
         # writes a banner into every process it instruments.
         grep -a 'leaks for' "$log" | tail -1 || echo "   ok"
     else
-        echo "   LEAK: $label ($log)" >&2
-        grep -a 'leaks for' "$log" | tail -1 >&2 || true
+        echo "   LEAK/ERROR: $label ($log)" >&2
+        grep -aE '^(FAIL([[:space:]]|$)|Pass:|Total:)|leaks for' "$log" >&2 || true
         fail=1
     fi
 }
@@ -93,13 +120,17 @@ case "$MODE" in
             echo "error: $TEST_BIN missing — run 'make leaks'" >&2
             exit 2
         }
+        if ! printf '%s' "$LEAK_SUITES" | grep -q '[^[:space:]]'; then
+            echo "error: LEAK_SUITES is empty; no unit tests selected" >&2
+            exit 2
+        fi
         for suite in $LEAK_SUITES; do
-            run_leaks "$suite" "./$TEST_BIN" -s "$suite" -e
+            run_leaks "$suite" unit "./$TEST_BIN" -s "$suite" -e
         done
-        run_leaks "tny --version" "./$CLI_BIN" --version
-        run_leaks "tny --help" "./$CLI_BIN" --help
-        run_leaks "tny ask --help" "./$CLI_BIN" ask --help
-        run_leaks "tny doctor --json" "./$CLI_BIN" doctor --json
+        run_leaks "tny --version" cli "./$CLI_BIN" --version
+        run_leaks "tny --help" cli "./$CLI_BIN" --help
+        run_leaks "tny ask --help" cli "./$CLI_BIN" ask --help
+        run_leaks "tny doctor --json" cli "./$CLI_BIN" doctor --json
         ;;
     skip)
         echo "leaks: no leak checker on $(uname -s); Linux CI runs valgrind"
