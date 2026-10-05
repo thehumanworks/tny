@@ -36,6 +36,8 @@ typedef struct {
     const char **add_dirs;                /* --add-dir, repeatable */
     int n_add_dirs;
     bool json;              /* --json */
+    int tui_mode;           /* 0=settings, 1=inline, 2=fullscreen */
+    int tui_alt_screen;     /* 0=settings, 1=enabled, 2=disabled */
     const char *color;      /* --color auto|always|never (--no-color = never) */
     const char *ssh;        /* --ssh user@host[:port] */
     const char *ssh_cwd;    /* --ssh-cwd DIR (remote) */
@@ -93,6 +95,7 @@ int cmd_dictate(const cli_globals *g, int argc, char **argv);
 int cmd_optimise(const cli_globals *g, int argc, char **argv);
 int cmd_jev(const cli_globals *g, int argc, char **argv, bool choose);
 int cmd_edit(const cli_globals *g, int argc, char **argv);
+int cmd_settings(const cli_globals *g, int argc, char **argv);
 /* Durable ask/image jobs (docs/jobs.md, docs/adr/0093). `jobs _worker ID` is
  * the hidden supervisor entry point, never a documented verb. */
 int cmd_jobs(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

@@ -20,6 +20,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 static const struct {
     const char *name, *hint;
@@ -44,6 +45,7 @@ static const struct {
     {"task", "/task [NAME|clear] — select a session task preset"},
     {"max-steps", "/max-steps [set N|clear] — cap the agent loop per turn"},
     {"status", "provider, auth, workspace, subscription usage"},
+    {"settings", "display defaults: inline/fullscreen and alternate screen"},
     {"usage", "token usage for this workspace"},
     {"sessions", "list sessions for this workspace"},
     {"agents", "background agents dashboard; attach or inspect saved text"},
@@ -276,9 +278,69 @@ static int tokenize(char *s, char **av, int max) {
 static int run_cli(tui *t, int (*fn)(tny_ctx *, const cli_globals *, int, char **), int argc,
                    char **argv) {
     tui_raw_begin(t);
+    /* Noninteractive CLI commands print directly. Keep their output in the
+     * fullscreen transcript so the next frame does not erase the result.
+     * Login must retain its live terminal for authorization prompts. */
+    FILE *capture = NULL;
+    int saved = -1, saved_err = -1;
+    if (t->tty && t->fullscreen && fn != cmd_login) {
+        fflush(stdout);
+        fflush(stderr);
+        capture = tmpfile();
+        if (capture) {
+            saved = dup(STDOUT_FILENO);
+            saved_err = dup(STDERR_FILENO);
+            if (saved < 0 || saved_err < 0 || dup2(fileno(capture), STDOUT_FILENO) < 0 ||
+                dup2(fileno(capture), STDERR_FILENO) < 0) {
+                if (saved >= 0) {
+                    if (dup2(saved, STDOUT_FILENO) < 0) t->quit = true;
+                    close(saved);
+                }
+                if (saved_err >= 0) {
+                    if (dup2(saved_err, STDERR_FILENO) < 0) t->quit = true;
+                    close(saved_err);
+                }
+                saved = -1;
+                fclose(capture);
+                capture = NULL;
+            }
+        }
+    }
     int rc = fn(t->ctx, t->g, argc, argv);
+    if (capture) {
+        fflush(stdout);
+        fflush(stderr);
+        int out_rc = dup2(saved, STDOUT_FILENO);
+        int err_rc = dup2(saved_err, STDERR_FILENO);
+        if (out_rc < 0 || err_rc < 0) {
+            t->quit = true;
+            t->exit_code = 1;
+        }
+        close(saved);
+        close(saved_err);
+        if (fseek(capture, 0, SEEK_SET) != 0) rc = 1;
+        else {
+            char bytes[4096];
+            for (;;) {
+                size_t n = fread(bytes, 1, sizeof bytes, capture);
+                if (n) tui_write(t, bytes, n);
+                if (n < sizeof bytes) {
+                    if (ferror(capture)) rc = 1;
+                    break;
+                }
+            }
+        }
+        fclose(capture);
+    }
     tui_raw_end(t);
+    if (rc != 0) tui_note(t, "command failed (exit %d)", rc);
     return rc;
+}
+
+static int resolve_provider(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
+    (void)g;
+    (void)argc;
+    return tny_resolve_backend(ctx, argv[0]);
 }
 
 /* Rebinding commands drop the live backend; warming the (possibly new)
@@ -491,6 +553,50 @@ static void cmd_resume_id(tui *t, const char *id) {
 
 /* ---- dispatch ---- */
 
+void tui_settings_show(tui *t) {
+    tui_overlay_clear(t);
+    tui_overlay_linef(t, "Settings — display defaults (next launch)");
+    tui_overlay_linef(t, "  [m] ui.mode: %s", tny_settings_ui_mode(t->ctx));
+    tui_overlay_linef(t, "  [a] ui.alternate_screen: %s",
+                      tny_settings_ui_alternate_screen(t->ctx) ? "true" : "false");
+    if (t->tty) tui_overlay_linef(t, "  m / a toggle · Enter / Esc close");
+    else {
+        tui_overlay_linef(t, "  /settings ui.mode inline|fullscreen");
+        tui_overlay_linef(t, "  /settings ui.alternate_screen true|false");
+    }
+    t->settings_open = t->tty;
+}
+
+void tui_settings_command(tui *t, const char *arg) {
+    if (!arg || !*arg) {
+        tui_settings_show(t);
+        return;
+    }
+    char *copy = xstrdup(arg);
+    if (!copy) {
+        tui_err(t, "could not allocate display settings");
+        return;
+    }
+    char *av[3];
+    int ac = tokenize(copy, av, 3);
+    const char *key = ac == 2 && strncmp(av[0], "ui.", 3) == 0 ? av[0] + 3 : NULL;
+    if (!key || (strcmp(key, "mode") != 0 && strcmp(key, "alternate_screen") != 0) ||
+        (strcmp(key, "mode") == 0 && strcmp(av[1], "inline") != 0 &&
+         strcmp(av[1], "fullscreen") != 0) ||
+        (strcmp(key, "alternate_screen") == 0 && strcmp(av[1], "true") != 0 &&
+         strcmp(av[1], "false") != 0)) {
+        tui_err(t, "usage: /settings ui.mode inline|fullscreen | "
+                   "/settings ui.alternate_screen true|false");
+    } else if (tny_settings_set_ui(t->ctx, key, av[1]) != 0) {
+        tui_err(t, "could not save display settings");
+    } else {
+        if (t->settings_open) tui_settings_show(t);
+        else tui_linef(t, "  saved ui.%s = %s (next launch)", key, av[1]);
+        tui_note(t, "saved; applies to the next TUI launch");
+    }
+    free(copy);
+}
+
 bool tui_command_is_builtin(const char *name) {
     if (!name || !*name) return true; /* a bare "/" is /help */
     for (int i = 0; i < N_CMDS; i++)
@@ -561,6 +667,7 @@ void tui_command(tui *t, const char *line) {
     }
 
     if (!*c || strcmp(c, "help") == 0) cmd_help(t);
+    else if (strcmp(c, "settings") == 0) tui_settings_command(t, arg);
     else if (strcmp(c, "dictate") == 0) tui_dictation_start(t, arg);
     else if (strcmp(c, "optimise") == 0) tui_optimise_start(t, arg ? arg : "");
     else if (strcmp(c, "worktree") == 0) tui_worktree_enter(t, arg);
@@ -600,9 +707,7 @@ void tui_command(tui *t, const char *line) {
         }
     } else if (strcmp(c, "quit") == 0 || strcmp(c, "exit") == 0) t->quit = true;
     else if (strcmp(c, "clear") == 0) {
-        tui_raw_begin(t);
-        fputs("\x1b[H\x1b[2J\x1b[3J", stdout);
-        tui_raw_end(t);
+        tui_clear_screen(t);
     } else if (strcmp(c, "new") == 0) {
         tui_new_session(t, false);
     } else if (strcmp(c, "reset") == 0) {
@@ -707,9 +812,8 @@ void tui_command(tui *t, const char *line) {
                     char *previous_effort =
                         t->ctx->reasoning_effort ? xstrdup(t->ctx->reasoning_effort) : NULL;
                     /* full resolve: also swaps in the provider's saved model */
-                    tui_raw_begin(t);
-                    int resolved = tny_resolve_backend(t->ctx, arg);
-                    tui_raw_end(t);
+                    char *resolve_args[] = {arg};
+                    int resolved = run_cli(t, resolve_provider, 1, resolve_args);
                     if (resolved < 0) {
                         tui_err(t, "provider switch failed; previous configuration retained (see "
                                    "diagnostic)");
@@ -1037,9 +1141,8 @@ static void wiz_finish(tui *t) {
         return;
     }
     tui_prewarm_drop(t);
-    tui_raw_begin(t);
-    int resolved = tny_resolve_backend(t->ctx, name);
-    tui_raw_end(t);
+    char *resolve_args[] = {name};
+    int resolved = run_cli(t, resolve_provider, 1, resolve_args);
     if (resolved < 0) {
         tui_err(t, "provider saved, but switch failed; previous configuration retained");
         free(name);

@@ -4,13 +4,31 @@ Match fx's form: a **Unix shell**, not an IDE. Streaming transcript, a pinned co
 
 ## Layout
 
+Inline is the default: output shares the shell's normal scrollback.
+`tny --fullscreen` instead fills the terminal and anchors the composer at
+the bottom. Fullscreen clears its screen before drawing and uses the alternate
+screen buffer; exiting restores the shell's previous screen. Use
+`tny --fullscreen --no-alt-screen` for hosts that need the primary buffer.
+`tny --inline` overrides a saved fullscreen default. Piped input/output
+continues to use the plain, noninteractive mode.
+
+Open `/settings` for display defaults: `m` toggles inline/fullscreen, `a`
+toggles the alternate buffer, and Enter/Esc closes the section. Changes are
+saved for the next launch; the current display stays as it was. Defaults can
+also be changed through `tny settings` or `settings.json`; see
+[TUI display settings](settings.md#tui-display) and
+[ADR 0182](adr/0182-fullscreen-tui.md).
+
 ```text
 [transcript: user / assistant / tools / approvals]
 [status: backend  model  perm  session  cwd]
 > composer
 ```
 
-- Transcript is append-only with scrollback. Markdown-ish: headings, lists, fenced code, diffs as plain text with `+`/`-` coloring.
+- Inline transcript is append-only with terminal scrollback. Fullscreen shows
+  a bounded recent transcript above the composer; `/transcript` prints the
+  saved session transcript. Markdown-ish: headings, lists, fenced code, diffs
+  as plain text with `+`/`-` coloring.
 - Composer wraps at the terminal width and supports real newlines
   (`Ctrl-J`, `Option-J` / `Alt-J`, `Alt-Enter`, kitty/CSI-u `Shift-Enter`
   `\x1b[13;2u`, or `\\` then Enter). Plain Enter still submits.

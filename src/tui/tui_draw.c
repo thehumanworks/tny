@@ -212,10 +212,10 @@ static void queue_row(tui *t, buf_t *b, int *rows, int maxw) {
     buf_free(&line);
 }
 
-static void popover_rows(tui *t, buf_t *b, int *rows, int maxw) {
+static void popover_rows(tui *t, buf_t *b, int *rows, int maxw, int limit) {
     int first = 0;
-    if (t->sel >= TUI_POP_ROWS) first = t->sel - TUI_POP_ROWS + 1;
-    for (int i = first; i < t->n_items && i - first < TUI_POP_ROWS; i++) {
+    if (t->sel >= limit) first = t->sel - limit + 1;
+    for (int i = first; i < t->n_items && i - first < limit; i++) {
         row_sep(b, rows);
         bool on = i == t->sel;
         if (on) { /* bold is structural, cyan is the color on top */
@@ -326,8 +326,7 @@ int tui_overlay_budget(const tui *t) {
     return budget > 0 ? budget : 0;
 }
 
-static void overlay_rows(tui *t, buf_t *b, int *rows, int maxw) {
-    int budget = tui_overlay_budget(t);
+static void overlay_rows(tui *t, buf_t *b, int *rows, int maxw, int budget) {
     if (budget <= 0) return;
 
     int total = 0;
@@ -358,7 +357,8 @@ static void overlay_rows(tui *t, buf_t *b, int *rows, int maxw) {
     }
 }
 
-static void composer_rows(tui *t, buf_t *b, int *rows, int maxw, int *cur_row, int *cur_col) {
+static void composer_rows(tui *t, buf_t *b, int *rows, int maxw, int limit, int *cur_row,
+                          int *cur_col) {
     if (t->approval) {
         row_sep(b, rows);
         *cur_row = *rows - 1;
@@ -378,9 +378,9 @@ static void composer_rows(tui *t, buf_t *b, int *rows, int maxw, int *cur_row, i
     tui_wrap_locate(data, len, t->cur, avail, &caret_row, &caret_col, &total);
 
     int first = 0;
-    if (caret_row >= TUI_COMP_ROWS) first = caret_row - TUI_COMP_ROWS + 1;
+    if (caret_row >= limit) first = caret_row - limit + 1;
 
-    for (int vr = first; vr < total && vr - first < TUI_COMP_ROWS; vr++) {
+    for (int vr = first; vr < total && vr - first < limit; vr++) {
         row_sep(b, rows);
         size_t ls = tui_wrap_index(data, len, avail, vr, 0);
         size_t le = vr + 1 < total ? tui_wrap_index(data, len, avail, vr + 1, 0) : len;
@@ -397,6 +397,183 @@ static void composer_rows(tui *t, buf_t *b, int *rows, int maxw, int *cur_row, i
     }
 }
 
+/* Retain display text only. Durable session history has its own lifecycle;
+ * the renderer needs a bounded tail to rebuild after a resize or overlay. */
+static void transcript_commit(tui *t) {
+    if (!t->out.len) return;
+    buf_append(&t->transcript, t->out.data, t->out.len);
+    buf_clear(&t->out);
+    if (t->transcript.len <= TUI_TRANSCRIPT_BYTES) return;
+    size_t cut = t->transcript.len - TUI_TRANSCRIPT_BYTES;
+    const char *nl = memchr(t->transcript.data + cut, '\n', t->transcript.len - cut);
+    if (nl && nl + 1 < t->transcript.data + t->transcript.len)
+        cut = (size_t)(nl + 1 - t->transcript.data);
+    else {
+        while (cut < t->transcript.len && ((unsigned char)t->transcript.data[cut] & 0xc0) == 0x80)
+            cut++;
+    }
+    buf_consume(&t->transcript, cut);
+}
+
+/* Convert transcript text to explicit physical rows. Only SGR survives:
+ * OSC, cursor movement and other controls cannot escape this viewport. */
+static int transcript_cell_width(const char *s, size_t n) {
+    unsigned char first = (unsigned char)s[0];
+    uint32_t cp = first;
+    if (n > 1) {
+        cp = first & (n == 2 ? 0x1fu : n == 3 ? 0x0fu : 0x07u);
+        for (size_t i = 1; i < n; i++) cp = (cp << 6) | ((unsigned char)s[i] & 0x3fu);
+    }
+    /* Deterministic terminal widths, independent of the process locale.
+     * Combining blocks and selectors consume no cells; ambiguous characters
+     * and private-use font icons stay single-width. */
+    static const uint32_t zero[][2] = {
+        {0x0300, 0x036f}, {0x0483, 0x0489}, {0x0591, 0x05bd}, {0x05bf, 0x05bf},   {0x05c1, 0x05c2},
+        {0x05c4, 0x05c5}, {0x05c7, 0x05c7}, {0x0610, 0x061a}, {0x064b, 0x065f},   {0x0670, 0x0670},
+        {0x06d6, 0x06ed}, {0x1ab0, 0x1aff}, {0x1dc0, 0x1dff}, {0x200b, 0x200f},   {0x2060, 0x2064},
+        {0x20d0, 0x20ff}, {0xfe00, 0xfe0f}, {0xfe20, 0xfe2f}, {0xe0100, 0xe01ef},
+    };
+    static const uint32_t wide[][2] = {
+        {0x1100, 0x115f},   {0x2329, 0x232a},   {0x2e80, 0x303e},   {0x3041, 0x33ff},
+        {0x3400, 0x4dbf},   {0x4e00, 0x9fff},   {0xa000, 0xa4cf},   {0xa960, 0xa97f},
+        {0xac00, 0xd7a3},   {0xf900, 0xfaff},   {0xfe30, 0xfe4f},   {0xff00, 0xff60},
+        {0xffe0, 0xffe6},   {0x1f300, 0x1f64f}, {0x1f680, 0x1f6ff}, {0x1f900, 0x1faff},
+        {0x20000, 0x2fffd}, {0x30000, 0x3fffd},
+    };
+    for (size_t i = 0; i < sizeof zero / sizeof *zero; i++)
+        if (cp >= zero[i][0] && cp <= zero[i][1]) return 0;
+    for (size_t i = 0; i < sizeof wide / sizeof *wide; i++)
+        if (cp >= wide[i][0] && cp <= wide[i][1]) return 2;
+    return 1;
+}
+
+static void transcript_wrap(buf_t *b, const char *s, size_t n, int width, bool attr) {
+    int col = 0;
+    for (size_t i = 0; i < n;) {
+        unsigned char ch = (unsigned char)s[i];
+        if (ch == 0x1b) {
+            size_t j = i + 1;
+            if (j < n && s[j] == '[') {
+                j++;
+                while (j < n && !((unsigned char)s[j] >= 0x40 && (unsigned char)s[j] <= 0x7e)) j++;
+                if (j < n && s[j] == 'm' && attr) buf_append(b, s + i, j - i + 1);
+                i = j < n ? j + 1 : n;
+            } else if (j < n && s[j] == ']') {
+                j++;
+                while (j < n && s[j] != '\a' && !(s[j] == '\x1b' && j + 1 < n && s[j + 1] == '\\'))
+                    j++;
+                i = j < n ? j + (s[j] == '\a' ? 1u : 2u) : n;
+            } else i = j < n ? j + 1 : n;
+            continue;
+        }
+        if (ch == '\n') {
+            buf_appends(b, "\n");
+            col = 0;
+            i++;
+            continue;
+        }
+        if ((ch < 0x20 && ch != '\t') || ch == 0x7f) {
+            i++;
+            continue;
+        }
+        size_t j = i + 1;
+        while (j < n && ((unsigned char)s[j] & 0xc0) == 0x80) j++;
+        int cells = ch == '\t' ? 1 : transcript_cell_width(s + i, j - i);
+        if (cells && col + cells > width) {
+            buf_appends(b, "\n");
+            col = 0;
+        }
+        if (ch == '\t') buf_appends(b, " ");
+        else buf_append(b, s + i, j - i);
+        col += cells;
+        i = j;
+    }
+}
+
+static void fullscreen_transcript(tui *t, buf_t *frame, int height, int width) {
+    if (height <= 0) return;
+    buf_t source, visual;
+    buf_init(&source);
+    buf_init(&visual);
+    buf_append(&source, t->transcript.data, t->transcript.len);
+    buf_append(&source, t->partial.data, t->partial.len);
+    transcript_wrap(&visual, source.data, source.len, width, t->attr);
+    buf_free(&source);
+    int total = visual.len && visual.data[visual.len - 1] != '\n' ? 1 : 0;
+    for (size_t i = 0; i < visual.len; i++)
+        if (visual.data[i] == '\n') total++;
+    int skip = total > height ? total - height : 0;
+    size_t at = 0;
+    for (int i = 0; i < skip; i++) {
+        const char *nl = memchr(visual.data + at, '\n', visual.len - at);
+        if (!nl) break;
+        at = (size_t)(nl + 1 - visual.data);
+    }
+    /* A wrapped visible row can inherit an attribute from discarded rows.
+     * Replay only those zero-width SGR sequences, never their text. */
+    if (at && t->attr) tui_push_ansi(frame, visual.data, at, 0);
+    for (int row = 1; row <= height && at < visual.len; row++) {
+        const char *nl = memchr(visual.data + at, '\n', visual.len - at);
+        size_t end = nl ? (size_t)(nl - visual.data) : visual.len;
+        buf_appendf(frame, "\x1b[%d;1H", row);
+        buf_append(frame, visual.data + at, end - at);
+        at = nl ? end + 1 : end;
+    }
+    buf_appends(frame, tui_attr(t, "\x1b[0m"));
+    buf_free(&visual);
+}
+
+void tui_fullscreen_frame(tui *t, buf_t *frame) {
+    transcript_commit(t);
+    int height = t->rows > 0 ? t->rows : 1;
+    int width = t->cols > 3 ? t->cols - 1 : 3;
+    /* Reserve transcript space whenever the terminal can fit all three
+     * regions. Composer and status take priority over menus on short ttys. */
+    int bottom_budget = height >= 3 ? height - 1 : height;
+    int status = height >= 2 ? 1 : 0;
+    int comp = 1;
+    if (!t->approval)
+        tui_wrap_locate(t->input.data, t->input.len, t->cur, tui_wrap_width(t), NULL, NULL, &comp);
+    if (comp > TUI_COMP_ROWS) comp = TUI_COMP_ROWS;
+    if (comp > bottom_budget - status) comp = bottom_budget - status;
+    int left = bottom_budget - status - comp;
+    int queued = t->n_queue && left > 0 ? 1 : 0;
+    left -= queued;
+    int pick = t->pick != PICK_NONE ? t->n_items : 0;
+    if (pick > TUI_POP_ROWS) pick = TUI_POP_ROWS;
+    if (pick > left) pick = left;
+    left -= pick;
+
+    buf_t bottom;
+    buf_init(&bottom);
+    int rows = 0, caret_row = 0, caret_col = 0;
+    if (t->overlay.len) overlay_rows(t, &bottom, &rows, width, left);
+    if (pick > 0) popover_rows(t, &bottom, &rows, width, pick);
+    if (queued) queue_row(t, &bottom, &rows, width);
+    if (status) {
+        row_sep(&bottom, &rows);
+        tui_status_row(t, &bottom, width);
+    }
+    composer_rows(t, &bottom, &rows, width, comp, &caret_row, &caret_col);
+
+    buf_appends(frame, "\x1b[?25l\x1b[?7l\x1b[H\x1b[2J");
+    fullscreen_transcript(t, frame, height - rows, width);
+    size_t at = 0;
+    int top = height - rows + 1;
+    for (int row = 0; row < rows; row++) {
+        const char *nl = memchr(bottom.data + at, '\n', bottom.len - at);
+        size_t end = nl ? (size_t)(nl - bottom.data) : bottom.len;
+        buf_appendf(frame, "\x1b[%d;1H", top + row);
+        tui_push_ansi(frame, bottom.data + at, end - at, width);
+        at = nl ? end + 1 : end;
+    }
+    if (caret_col >= t->cols) caret_col = t->cols > 0 ? t->cols - 1 : 0;
+    buf_appendf(frame, "\x1b[%d;%dH\x1b[?7h\x1b[?25h", top + caret_row, caret_col + 1);
+    t->block_rows = rows;
+    t->cur_row = caret_row;
+    buf_free(&bottom);
+}
+
 void tui_clear_screen(tui *t) {
     if (!t->tty) return;
     /* Discard only pending display text, never the saved session. Queue the
@@ -404,7 +581,8 @@ void tui_clear_screen(tui *t) {
      * The old block's cursor coordinates are no longer valid after home. */
     buf_clear(&t->out);
     buf_clear(&t->partial);
-    buf_appends(&t->out, "\x1b[H\x1b[2J\x1b[3J");
+    buf_clear(&t->transcript);
+    if (!t->fullscreen) buf_appends(&t->out, "\x1b[H\x1b[2J\x1b[3J");
     t->block_rows = t->cur_row = 0;
     t->dirty = true;
 }
@@ -425,6 +603,17 @@ void tui_render(tui *t) {
         return;
     }
     if (!t->dirty) return;
+
+    if (t->fullscreen) {
+        buf_t frame;
+        buf_init(&frame);
+        tui_fullscreen_frame(t, &frame);
+        wout(frame.data, frame.len);
+        buf_free(&frame);
+        t->dirty = false;
+        fflush(stdout);
+        return;
+    }
 
     erase_block(t);
     if (t->out.len) {
@@ -452,12 +641,12 @@ void tui_render(tui *t) {
         tui_push_ansi(&b, t->partial.data, t->partial.len, maxw);
         buf_appends(&b, tui_attr(t, "\x1b[0m"));
     }
-    if (t->overlay.len) overlay_rows(t, &b, &rows, maxw);
-    if (t->pick != PICK_NONE && t->n_items > 0) popover_rows(t, &b, &rows, maxw);
+    if (t->overlay.len) overlay_rows(t, &b, &rows, maxw, tui_overlay_budget(t));
+    if (t->pick != PICK_NONE && t->n_items > 0) popover_rows(t, &b, &rows, maxw, TUI_POP_ROWS);
     if (t->n_queue) queue_row(t, &b, &rows, maxw);
     row_sep(&b, &rows);
     tui_status_row(t, &b, maxw);
-    composer_rows(t, &b, &rows, maxw, &cur_row, &cur_col);
+    composer_rows(t, &b, &rows, maxw, TUI_COMP_ROWS, &cur_row, &cur_col);
 
     wout(b.data, b.len);
     buf_free(&b);
@@ -482,6 +671,20 @@ void tui_render(tui *t) {
 }
 
 void tui_raw_begin(tui *t) {
+    if (t->tty && t->fullscreen) {
+        tui_bol(t);
+        tui_render_force(t);
+        /* Release the bottom composer and permit ordinary command output
+         * to scroll. Interactive commands (SSH, login) keep live stdout. */
+        char esc[64];
+        int row = t->rows - t->block_rows + 1;
+        if (row < 1) row = 1;
+        int n = snprintf(esc, sizeof esc, "\x1b[?7h\x1b[r\x1b[%d;1H\x1b[J", row);
+        wout(esc, (size_t)n);
+        t->block_rows = t->cur_row = 0;
+        fflush(stdout);
+        return;
+    }
     erase_block(t);
     if (t->out.len) {
         wout(t->out.data, t->out.len);
@@ -602,6 +805,7 @@ void tui_overlay_linef(tui *t, const char *fmt, ...) {
 }
 
 void tui_overlay_clear(tui *t) {
+    t->settings_open = false;
     if (!t->overlay.len) return;
     buf_clear(&t->overlay);
     t->dirty = true;

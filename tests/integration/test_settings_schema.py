@@ -1,25 +1,31 @@
 #!/usr/bin/env python3
-"""schemas/settings.schema.json: editor contract for settings keys.
+"""Settings editor contract and generated headless UI persistence checks.
 
-Focused on the image_input map (docs/adr/0089): editors must accept the
-documented shapes, reject the malformed ones, and never mistake the reserved
-root key for a named OpenAI-compatible provider profile. This is editor-side
-evidence only; the runtime parser is verified separately by
-tests/integration/test_image_input.py and the C unit suite. Uses jsonschema
-when it is installed, and always runs the stdlib pattern checks.
+Schema tests cover image_input, dictation.normalize and ui, including reserved
+root names. Uses jsonschema when installed and always checks stdlib patterns.
+The UI CLI tests use TNY (default build/tny) and a temporary HOME without
+provider credentials, verifying strict values, field preservation and output
+privacy. The C suite separately verifies runtime defaults and failed saves.
 
-Accepts (and ignores) the binary path tests/integration/run.sh appends.
+Accepts the binary path tests/integration/run.sh appends.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import random
 import re
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+SUPPLIED_BINARY = (
+    sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else None
+)
 SCHEMA_PATH = ROOT / "schemas/settings.schema.json"
 SCHEMA = json.loads(SCHEMA_PATH.read_text())
 
@@ -30,6 +36,117 @@ except ImportError:  # pragma: no cover - depends on the environment
 
 
 DICTIONARY = json.loads((ROOT / "schemas/dictionary.schema.json").read_text())
+
+
+class UiSettingsTests(unittest.TestCase):
+    def test_ui_schema_defaults_and_reserved_name(self):
+        ui = SCHEMA["properties"]["ui"]
+        self.assertEqual(ui["properties"]["mode"]["enum"], ["inline", "fullscreen"])
+        self.assertEqual(ui["properties"]["mode"]["default"], "inline")
+        self.assertEqual(ui["properties"]["alternate_screen"]["type"], "boolean")
+        self.assertTrue(ui["properties"]["alternate_screen"]["default"])
+        self.assertFalse(ui["additionalProperties"])
+        self.assertFalse(
+            any(re.fullmatch(p, "ui") for p in SCHEMA["patternProperties"])
+        )
+        if jsonschema is None:
+            return
+        for mode in ("inline", "fullscreen"):
+            for alternate in (False, True):
+                jsonschema.validate(
+                    {"ui": {"mode": mode, "alternate_screen": alternate}}, SCHEMA
+                )
+        for ui in (
+            [],
+            "fullscreen",
+            {"mode": "full"},
+            {"alternate_screen": "false"},
+            {"extra": 1},
+        ):
+            with self.assertRaises(jsonschema.ValidationError):
+                jsonschema.validate({"ui": ui}, SCHEMA)
+
+    def test_generated_headless_ui_updates_preserve_other_fields(self):
+        binary = Path(
+            os.environ.get("TNY", SUPPLIED_BINARY or str(ROOT / "build/tny"))
+        ).resolve()
+        if not binary.is_file():
+            self.skipTest("tny binary is unavailable")
+        seed = random.Random(0x1A2B3C4D)
+        with tempfile.TemporaryDirectory(prefix="tny-ui-settings-") as home:
+            env = {
+                "PATH": os.environ.get("PATH", ""),
+                "HOME": home,
+                "TNY_SELF_IMPROVE": "0",
+            }
+            settings = Path(home) / ".tny/settings.json"
+
+            def run(*args):
+                return subprocess.run(
+                    [str(binary), *args],
+                    cwd=home,
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    timeout=10,
+                )
+
+            result = run("settings", "--json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                json.loads(result.stdout)["ui"],
+                {"mode": "inline", "alternate_screen": True},
+            )
+            self.assertFalse(settings.exists())
+            settings.parent.mkdir()
+            for _ in range(32):
+                mode = seed.choice(("inline", "fullscreen"))
+                alternate = seed.choice((False, True))
+                original = {
+                    "provider": "missing-provider",
+                    "models": {"openai": f"keep-{seed.getrandbits(32)}"},
+                    "permission": {"edit": {"*": "deny"}},
+                    "private_sentinel": "synthetic-secret-do-not-print",
+                }
+                settings.write_text(json.dumps(original))
+                for key, value in (
+                    ("ui.mode", mode),
+                    ("ui.alternate_screen", str(alternate).lower()),
+                ):
+                    result = run("settings", "set", key, value, "--json")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertNotIn(
+                        original["private_sentinel"], result.stdout + result.stderr
+                    )
+                saved = json.loads(settings.read_text())
+                self.assertEqual(
+                    saved.pop("ui"), {"mode": mode, "alternate_screen": alternate}
+                )
+                self.assertEqual(saved, original)
+                for key, expected in (
+                    ("ui.mode", mode),
+                    ("ui.alternate_screen", alternate),
+                ):
+                    result = run("--json", "settings", "get", key)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(
+                        json.loads(result.stdout),
+                        {"kind": "setting", "key": key, "value": expected},
+                    )
+                before = settings.read_bytes()
+                for key, bad in (
+                    ("ui.mode", "Fullscreen"),
+                    ("ui.mode", "fullscreen "),
+                    ("ui.alternate_screen", "1"),
+                    ("ui.alternate_screen", "TRUE"),
+                    ("private_sentinel", "synthetic-secret-do-not-print"),
+                ):
+                    result = run("settings", "set", key, bad)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertNotIn(
+                        original["private_sentinel"], result.stdout + result.stderr
+                    )
+                    self.assertEqual(settings.read_bytes(), before)
 
 
 class DictationSchemaTests(unittest.TestCase):

@@ -110,6 +110,10 @@ int main(int argc, char **argv) {
         rc = cmd_edit(&g, cargc, cargv);
         goto done;
     }
+    if (cmd && strcmp(cmd, "settings") == 0) {
+        rc = cmd_settings(&g, cargc, cargv);
+        goto done;
+    }
 
     if (cmd &&
         (strcmp(cmd, "speak") == 0 || strcmp(cmd, "image") == 0 || strcmp(cmd, "dictate") == 0)) {

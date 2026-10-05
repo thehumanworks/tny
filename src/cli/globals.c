@@ -29,7 +29,8 @@ bool cli_is_command(const char *name) {
         "acp",    "sessions", "session",        "provider",  "providers", "backends", "models",
         "tasks",  "task",     "permissions",    "workspace", "status",    "doctor",   "usage",
         "cursor", "mcp",      "login",          "logout",    "setup",     "agents",   "web",
-        "jobs",   "mailbox",  "task-workspace", "team",      "swarm",     "help",     NULL};
+        "jobs",   "mailbox",  "task-workspace", "team",      "swarm",     "settings", "help",
+        NULL};
     for (size_t i = 0; names[i]; i++)
         if (strcmp(name, names[i]) == 0) return true;
     return false;
@@ -120,6 +121,14 @@ static int parse_globals(int argc, char **argv, cli_globals *g, bool diagnostics
             g->perm_mode = "auto";
         } else if (strcmp(a, "--json") == 0) {
             g->json = true;
+        } else if (strcmp(a, "--fullscreen") == 0) {
+            g->tui_mode = 2;
+        } else if (strcmp(a, "--inline") == 0) {
+            g->tui_mode = 1;
+        } else if (strcmp(a, "--alt-screen") == 0) {
+            g->tui_alt_screen = 1;
+        } else if (strcmp(a, "--no-alt-screen") == 0) {
+            g->tui_alt_screen = 2;
         } else if (strcmp(a, "--color") == 0) {
             if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
             g->color = v;

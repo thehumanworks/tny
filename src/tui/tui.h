@@ -20,11 +20,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TUI_POP_ROWS   8
-#define TUI_COMP_ROWS  8
-#define TUI_MAX_IMAGES 8
-#define TUI_MAX_FILES  6000
-#define TUI_MAX_HIST   500
+#define TUI_POP_ROWS         8
+#define TUI_COMP_ROWS        8
+#define TUI_MAX_IMAGES       8
+#define TUI_MAX_FILES        6000
+#define TUI_MAX_HIST         500
+#define TUI_TRANSCRIPT_BYTES (256u * 1024u)
 
 typedef enum { PICK_NONE = 0, PICK_CMD, PICK_FILE, PICK_SKILL } pick_kind;
 
@@ -48,11 +49,13 @@ typedef struct tui {
      * attr: non-color SGR (bold/dim/reverse/reset) — structural, survives
      * NO_COLOR (docs/adr/0026). Both come from tny_color_resolve. */
     bool tty, color, attr;
+    bool fullscreen, alternate_screen; /* effective launch choices; tty only */
     int rows, cols;
     int block_rows, cur_row;
 
-    buf_t out;     /* committed transcript bytes not yet written */
-    buf_t partial; /* transcript line still being streamed */
+    buf_t out;        /* committed transcript bytes not yet written */
+    buf_t partial;    /* transcript line still being streamed */
+    buf_t transcript; /* bounded fullscreen display tail; session is authoritative */
     bool dirty;
 
     bool shell_mode; /* ! at the start of an empty composer */
@@ -112,9 +115,10 @@ typedef struct tui {
     int spin;        /* status-row spinner frame while a turn runs */
     int64_t spin_ms; /* last frame advance */
 
-    buf_t overlay;     /* transient menu block ('\n' lines, SGR allowed):
-                        * drawn above the status row, dropped after the
-                        * interaction ends — never enters the transcript */
+    buf_t overlay; /* transient menu block ('\n' lines, SGR allowed):
+                    * drawn above the status row, dropped after the
+                    * interaction ends — never enters the transcript */
+    bool settings_open;
     buf_t note;        /* transient status-line note */
     buf_t last_reply;  /* last assistant text, for /copy */
     buf_t prompt_text; /* prompt that started the active turn */
@@ -216,6 +220,8 @@ void tui_background_arm(tui *t);
 bool tui_runner_attach(tui *t, tny_session_state *session);
 
 /* tui.c */
+void tui_terminal_begin(tui *t);
+void tui_terminal_end(void); /* restore modes and alternate screen, idempotently */
 void tui_submit(tui *t, const char *text);
 bool tui_shell_start(tui *t, const char *command);
 void tui_shell_drain(tui *t);
@@ -269,6 +275,9 @@ void tui_size_report(tui *t, int rows, int cols);
 void tui_resize(tui *t); /* SIGWINCH: winsize + probe + repaint */
 void tui_render(tui *t);
 void tui_render_force(tui *t);
+/* Build a bounded, absolute-positioned fullscreen frame without writing stdout.
+ * Consumes pending transcript output; exposed for generated layout tests. */
+void tui_fullscreen_frame(tui *t, buf_t *frame);
 /* Next tty paint starts at home on a cleared screen/scrollback, without
  * pending transcript text. Non-tty output and saved sessions are unchanged. */
 void tui_clear_screen(tui *t);
@@ -312,6 +321,8 @@ void tui_pick_refresh(tui *t);
 
 /* tui_commands.c */
 void tui_command(tui *t, const char *line);
+void tui_settings_show(tui *t);
+void tui_settings_command(tui *t, const char *arg);
 /* true when `name` (no slash) is a builtin slash command; a `/name` line that
  * is not builtin but names a discovered skill is a prompt (docs/adr/0056) */
 bool tui_command_is_builtin(const char *name);

@@ -61,6 +61,10 @@ tny doctor
 tny login                   # provider-specific; see --provider
 tny logout
 tny setup                   # write provider config from flags/env
+tny settings                # show saved TUI display defaults (no provider needed)
+tny settings get ui.mode --json
+tny settings set ui.mode fullscreen
+tny settings set ui.alternate_screen false
 tny mcp [list]              # list configured MCP servers (source attributed)
 tny mcp tools SERVER        # a server's tools with their argument names
 tny mcp describe SERVER/TOOL # one tool's description and input schema
@@ -95,6 +99,8 @@ tny --no-extensions         # skip ~/.tny/extensions for this process
 tny --fast                  # paid fast tier (TNY_CAP_FAST providers only)
 tny --json                  # where listed
 tny --color auto|always|never   # SGR styling; --no-color is never
+tny --fullscreen | --inline # override the saved TUI display mode
+tny --alt-screen | --no-alt-screen # fullscreen buffer choice for this launch
 tny --ephemeral             # conversation/session artifacts stay in memory
 tny -r                      # session picker (TUI)
 tny -c                      # resume last for this workspace

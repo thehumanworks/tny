@@ -475,6 +475,21 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         return; /* recording/transcription keys cannot submit or mutate the draft */
     }
 
+    if (t->settings_open) {
+        if (k == TUI_K_ESC || k == TUI_K_ENTER || k == TUI_K_CTRLC) tui_overlay_clear(t);
+        else if (k == TUI_K_CTRLD) t->quit = true;
+        else if (k == TUI_K_PASTE_BEGIN) t->in_paste = true;
+        else if (k == TUI_K_CHAR && chlen == 1 && ch[0] == 'm')
+            tui_settings_command(t, strcmp(tny_settings_ui_mode(t->ctx), "inline") == 0
+                                        ? "ui.mode fullscreen"
+                                        : "ui.mode inline");
+        else if (k == TUI_K_CHAR && chlen == 1 && ch[0] == 'a')
+            tui_settings_command(t, tny_settings_ui_alternate_screen(t->ctx)
+                                        ? "ui.alternate_screen false"
+                                        : "ui.alternate_screen true");
+        return;
+    }
+
     if (t->agents_dashboard) {
         if (t->g->agents_run) {
             if (k == TUI_K_UP && t->agent_selected > 0) t->agent_selected--;
@@ -695,11 +710,7 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
             t->dirty = true;
         }
         break;
-    case TUI_K_CTRLL:
-        tui_raw_begin(t);
-        fputs("\x1b[H\x1b[2J\x1b[3J", stdout);
-        tui_raw_end(t);
-        break;
+    case TUI_K_CTRLL: tui_clear_screen(t); break;
     case TUI_K_CTRLO: tui_optimise_start(t, NULL); break;
     case TUI_K_CTRLX:
         if (t->turn_active && !t->background_view) tui_background_arm(t);
@@ -917,7 +928,7 @@ static bool decode_all(tui *t, bool final) {
             buf_init(&txt);
             bool done = false;
             used = tui_paste_scan(g_kb, g_kn, &txt, &done);
-            if (txt.len && !t->approval && !t->dictation && !t->optimise) {
+            if (txt.len && !t->approval && !t->dictation && !t->optimise && !t->settings_open) {
                 if (t->agents_dashboard && !t->g->agents_run)
                     dashboard_filter_append(t, txt.data, txt.len);
                 else {
@@ -928,7 +939,8 @@ static bool decode_all(tui *t, bool final) {
             buf_free(&txt);
             if (done) {
                 t->in_paste = false;
-                if (!t->approval && !t->dictation && !t->optimise && !t->agents_dashboard)
+                if (!t->approval && !t->dictation && !t->optimise && !t->agents_dashboard &&
+                    !t->settings_open)
                     tui_pick_refresh(t);
             }
         } else {

@@ -23,16 +23,39 @@ EM_JS(int, js_tui_page, (void), { return Module.tnyOut ? 1 : 0; });
 /* ---- terminal ---- */
 
 static struct termios g_saved;
-static bool g_raw, g_restore_sgr;
+static bool g_raw, g_restore_sgr, g_terminal_active, g_alternate_screen;
 static volatile sig_atomic_t g_winch, g_sigint, g_exit_signal;
 
 static void term_restore(void) {
-    if (!g_raw) return;
+    if (!g_raw && !g_terminal_active) return;
+    bool raw = g_raw;
     g_raw = false;
-    fputs(g_restore_sgr ? "\x1b[?2004l\x1b[0m\x1b[?25h" : "\x1b[?2004l\x1b[?25h", stdout);
+    if (g_terminal_active) {
+        fputs("\x1b[?2004l\x1b[?7h\x1b[r", stdout);
+        if (g_restore_sgr) fputs("\x1b[0m", stdout);
+        fputs("\x1b[?25h", stdout);
+        if (g_alternate_screen) fputs("\x1b[?1049l", stdout);
+    }
+    g_terminal_active = g_alternate_screen = false;
     fflush(stdout);
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &g_saved);
+    if (raw) tcsetattr(STDIN_FILENO, TCSAFLUSH, &g_saved);
 }
+
+void tui_terminal_begin(tui *t) {
+    if (!t->tty || g_terminal_active) return;
+    g_terminal_active = true;
+    g_restore_sgr = t->attr;
+    g_alternate_screen = t->fullscreen && t->alternate_screen;
+    if (g_alternate_screen) fputs("\x1b[?1049h", stdout);
+    /* Fullscreen owns every visible row, including when the user elects to
+     * keep the primary screen. Clear before the first UI paint or probe. */
+    if (t->fullscreen) fputs("\x1b[H\x1b[2J", stdout);
+    fputs("\x1b[?2004h", stdout);
+    fflush(stdout);
+    atexit(term_restore);
+}
+
+void tui_terminal_end(void) { term_restore(); }
 
 static void on_winch(int s) {
     (void)s;
@@ -72,9 +95,6 @@ static bool term_raw(bool restore_sgr) {
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &r) != 0) return false;
     g_raw = true;
     g_restore_sgr = restore_sgr;
-    /* bracketed paste: pasted newlines land in the composer, not as Enter */
-    fputs("\x1b[?2004h", stdout);
-    fflush(stdout);
     atexit(term_restore);
     return true;
 }
@@ -544,11 +564,7 @@ void tui_new_session(tui *t, bool clear_screen) {
     tui_prewarm_start(t); /* the next first prompt should not pay startup */
     t->in_tok = t->out_tok = 0;
     buf_clear(&t->last_reply);
-    if (clear_screen) {
-        tui_raw_begin(t);
-        fputs("\x1b[H\x1b[2J\x1b[3J", stdout);
-        tui_raw_end(t);
-    }
+    if (clear_screen) { tui_clear_screen(t); }
     tui_sys(t, "new session");
 }
 
@@ -858,6 +874,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     buf_init(&t.shell_pending);
     buf_init(&t.out);
     buf_init(&t.partial);
+    buf_init(&t.transcript);
     buf_init(&t.input);
     buf_init(&t.agent_filter);
     buf_init(&t.overlay);
@@ -879,6 +896,12 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         tny_color_resolve(ctx, true, &t.color, &t.attr);
     }
 #endif
+    t.fullscreen =
+        t.tty && (g->tui_mode == 2 ||
+                  (g->tui_mode == 0 && strcmp(tny_settings_ui_mode(ctx), "fullscreen") == 0));
+    t.alternate_screen =
+        g->tui_alt_screen ? g->tui_alt_screen == 1 : tny_settings_ui_alternate_screen(ctx);
+    tui_terminal_begin(&t);
     tui_size(&t);
     tui_size_probe(&t);
 
@@ -1027,6 +1050,12 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     }
     if (t.turn_active && t.rc && !t.background_view && !tui_runner_stop(&t, false)) t.exit_code = 1;
     tui_raw_begin(&t);
+    /* Worktree exit prompts still use raw keyboard input, but must appear
+     * on the original screen, where their final result survives shell exit. */
+    if (g_alternate_screen) {
+        fputs("\x1b[?1049l", stdout);
+        g_alternate_screen = false;
+    }
     fflush(stdout);
     if (!t.worktree) term_restore();
     bool had_runner = t.rc != NULL;
@@ -1043,6 +1072,12 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     }
     mcp_shutdown_all();
     bool stopped = !t.worktree || tui_worktree_wait_runner(runner_pid);
+    if (g_exit_signal) {
+        /* A hangup/termination has no interactive owner to answer an exit
+         * prompt. Restore first and use the worktree's safe keep default. */
+        term_restore();
+        t.tty = false;
+    }
     tui_worktree_finish(&t, stopped);
     term_restore();
     session_meta_free(t.agents, t.n_agents);
@@ -1058,6 +1093,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     buf_free(&t.out);
     buf_free(&t.agent_filter);
     buf_free(&t.partial);
+    buf_free(&t.transcript);
     buf_free(&t.input);
     buf_free(&t.overlay);
     buf_free(&t.note);

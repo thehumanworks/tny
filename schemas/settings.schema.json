@@ -267,10 +267,28 @@
       "additionalProperties": {
         "$ref": "#/$defs/acpAgent"
       }
+    },
+    "ui": {
+      "type": "object",
+      "description": "Interactive UI defaults. Leading --fullscreen/--inline and --alt-screen/--no-alt-screen flags override these for one run.",
+      "properties": {
+        "mode": {
+          "enum": [
+            "inline",
+            "fullscreen"
+          ],
+          "default": "inline"
+        },
+        "alternate_screen": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
     }
   },
   "patternProperties": {
-    "^(?!\\$schema$|provider$|model$|models$|optimise$|dictation$|effort$|fast$|image_input$|permission_mode$|tools$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|permission$|workspaces$|web_search_command$|web_search_url$|web_search_model$|web_search_timeout_seconds$|mcp$)[A-Za-z0-9_-]+$": {
+    "^(?!\\$schema$|provider$|model$|models$|optimise$|dictation$|effort$|fast$|image_input$|permission_mode$|tools$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|ui$|permission$|workspaces$|web_search_command$|web_search_url$|web_search_model$|web_search_timeout_seconds$|mcp$)[A-Za-z0-9_-]+$": {
       "$ref": "#/$defs/openAIProfile",
       "description": "Named OpenAI-compatible provider profile."
     }

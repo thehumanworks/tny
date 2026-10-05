@@ -39,6 +39,7 @@ void help_root(void) {
           "  tasks                  List built-in and discovered task presets\n"
           "  task show NAME         Inspect one resolved task preset\n"
           "  permissions            Show the permission mode and rules\n"
+          "  settings [get|set]     Read or change UI defaults without a provider\n"
           "  workspace list|add|remove|clear\n"
           "                         Manage additional workspace directories\n"
           "  status                 Show configuration and runtime information\n"
@@ -49,6 +50,8 @@ void help_root(void) {
           "  help                   Show this help\n"
           "\n"
           "Global flags (leading, before the command):\n"
+          "  --fullscreen | --inline  Override the interactive UI mode for this run\n"
+          "  --alt-screen | --no-alt-screen  Enable or disable the fullscreen alternate screen\n"
           "  --ssh TARGET           Run every workspace tool (files, grep, terminal)\n"
           "                         on user@host[:port] over OpenSSH; tny stays local\n"
           "  --ssh-cwd DIR          Remote working directory for --ssh (default: login\n"
@@ -348,6 +351,16 @@ static const char *resume_help =
 bool help_for(const char *command) {
     const char *text = NULL;
     if (strcmp(command, "ask") == 0) text = ask_help;
+    else if (strcmp(command, "settings") == 0)
+        text = "Usage: tny settings [get KEY | set KEY VALUE] [--json]\n\n"
+               "Read or change UI defaults in ~/.tny/settings.json without provider credentials.\n"
+               "Keys: ui.mode (inline|fullscreen), ui.alternate_screen (true|false).\n"
+               "Defaults: inline, true. Global UI flags override these for one run.\n\n"
+               "Examples:\n"
+               "  tny settings --json\n"
+               "  tny settings get ui.mode\n"
+               "  tny settings set ui.mode fullscreen\n"
+               "  tny settings set ui.alternate_screen false\n";
     else if (strcmp(command, "speak") == 0)
         text = "Usage: printf 'Hello' | tny speak [OPTIONS]\n"
                "       tny speak --check [--json]\n\n"

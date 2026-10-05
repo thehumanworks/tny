@@ -74,6 +74,7 @@ static void mk_tui(tui *t, int rows) {
     memset(t, 0, sizeof *t);
     buf_init(&t->out);
     buf_init(&t->partial);
+    buf_init(&t->transcript);
     buf_init(&t->input);
     buf_init(&t->shell_pending);
     t->shell_fd = -1;
@@ -89,6 +90,7 @@ static void mk_tui(tui *t, int rows) {
 static void free_tui(tui *t) {
     buf_free(&t->out);
     buf_free(&t->partial);
+    buf_free(&t->transcript);
     tui_shell_stop(t);
     buf_free(&t->input);
     buf_free(&t->shell_pending);
@@ -778,15 +780,30 @@ static void scr_feed(scr *s, const char *p, size_t n) {
             if (priv) j++;
             int arg = 0;
             while (j < n && p[j] >= '0' && p[j] <= '9') arg = arg * 10 + (p[j++] - '0');
+            int col = 1;
+            if (j < n && p[j] == ';') {
+                col = 0;
+                j++;
+                while (j < n && p[j] >= '0' && p[j] <= '9') col = col * 10 + (p[j++] - '0');
+            }
             while (j < n && !((unsigned char)p[j] >= 0x40 && (unsigned char)p[j] <= 0x7e)) j++;
             char fin = j < n ? p[j] : 0;
             if (fin == 'A') s->r -= arg ? arg : 1, s->pend = false;
             else if (fin == 'C') s->c += arg ? arg : 1;
-            else if (fin == 'J') {
-                memset(s->cell[s->r] + s->c, ' ', (size_t)(SCR_W - s->c));
-                for (int k = s->r + 1; k < SCR_H; k++) memset(s->cell[k], ' ', SCR_W);
+            else if (fin == 'H') {
+                s->r = arg ? arg - 1 : 0;
+                s->c = col ? col - 1 : 0;
+                s->pend = false;
+            } else if (fin == 'J') {
+                if (arg == 2) {
+                    for (int k = 0; k < SCR_H; k++) memset(s->cell[k], ' ', SCR_W);
+                } else if (arg != 3) {
+                    memset(s->cell[s->r] + s->c, ' ', (size_t)(SCR_W - s->c));
+                    for (int k = s->r + 1; k < SCR_H; k++) memset(s->cell[k], ' ', SCR_W);
+                }
             } else if (priv && arg == 7) s->wrap = fin == 'h';
             if (s->r < 0) s->r = 0;
+            if (s->r >= SCR_H) s->r = SCR_H - 1;
             if (s->c >= SCR_W) s->c = SCR_W - 1;
             i = j + 1;
         } else if (ch == 0x1b) {
@@ -1302,7 +1319,235 @@ TEST shell_mode_denies_unrecordable_command(void) {
     PASS();
 }
 
+static bool frame_positions_bounded(const buf_t *frame, int rows, int cols) {
+    for (size_t i = 0; i < frame->len; i++) {
+        if (frame->data[i] == '\n' || frame->data[i] == '\r') return false;
+        if (frame->data[i] != '\x1b' || i + 1 >= frame->len || frame->data[i + 1] != '[') continue;
+        size_t j = i + 2;
+        int row = 0, col = 0;
+        while (j < frame->len && frame->data[j] >= '0' && frame->data[j] <= '9')
+            row = row * 10 + frame->data[j++] - '0';
+        if (j < frame->len && frame->data[j] == ';') {
+            j++;
+            while (j < frame->len && frame->data[j] >= '0' && frame->data[j] <= '9')
+                col = col * 10 + frame->data[j++] - '0';
+        }
+        if (j < frame->len && frame->data[j] == 'H' &&
+            ((row && (row < 1 || row > rows)) || (col && (col < 1 || col > cols))))
+            return false;
+    }
+    return true;
+}
+
+TEST fullscreen_generated_layout_stays_within_terminal(void) {
+    uint32_t seed = 0x746e79;
+    for (int sample = 0; sample < 256; sample++) {
+        seed = seed * 1664525u + 1013904223u;
+        tui t;
+        mk_tui(&t, 1 + (int)(seed % 60));
+        t.cols = 20 + (int)((seed >> 8) % 120);
+        t.fullscreen = true;
+        tny_ctx ctx = {0};
+        ctx.cwd = (char *)"/workspace";
+        t.ctx = &ctx;
+        for (unsigned i = 0; i < (seed >> 16) % 40; i++)
+            buf_appends(&t.input, "a long composer line that wraps into the viewport\n");
+        buf_appends(&t.input, "draft");
+        t.cur = t.input.len;
+        t.approval = (seed & 1) != 0;
+        t.pick = (seed & 2) ? PICK_CMD : PICK_NONE;
+        for (unsigned i = 0; i < (seed >> 10) % 30; i++) tui_items_add(&t, "candidate", "hint");
+        for (unsigned i = 0; i < (seed >> 12) % 90; i++) tui_overlay_linef(&t, "menu %u", i);
+        if (seed & 4) tui_queue_push(&t, "waiting prompt", false);
+        for (int i = 0; i < 100; i++) tui_linef(&t, "transcript %d", i);
+        buf_appends(&t.partial, "streamed partial");
+        buf_t frame;
+        buf_init(&frame);
+        tui_fullscreen_frame(&t, &frame);
+        ASSERT(frame_positions_bounded(&frame, t.rows, t.cols));
+        ASSERT(t.block_rows > 0 && t.block_rows <= t.rows);
+        ASSERT(t.cur_row >= 0 && t.cur_row < t.block_rows);
+        ASSERT_EQ(t.block_rows - 1, t.cur_row);         /* caret at end of draft */
+        if (t.rows >= 3) ASSERT(t.block_rows < t.rows); /* transcript remains visible */
+        ASSERT_EQ(0, (int)t.out.len);
+        ASSERT_STR_EQ("streamed partial", t.partial.data);
+        ASSERT(strstr(frame.data, "\x1b[?7h\x1b[?25h"));
+        buf_free(&frame);
+        tui_queue_clear(&t);
+        free_tui(&t);
+    }
+    PASS();
+}
+
+TEST fullscreen_redraw_keeps_tail_and_bottom_composer(void) {
+    tui t;
+    tny_ctx ctx = {0};
+    ctx.cwd = (char *)"/workspace";
+    mk_tui(&t, SCR_H);
+    t.ctx = &ctx;
+    t.cols = SCR_W;
+    t.fullscreen = true;
+    t.attr = false;
+    for (int i = 0; i < 30; i++) tui_linef(&t, "line %d", i);
+    buf_appends(&t.input, "editable");
+    t.cur = t.input.len;
+    buf_t frame;
+    buf_init(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    scr s;
+    scr_init(&s);
+    scr_feed(&s, frame.data, frame.len);
+    ASSERT(row_is(&s, SCR_H - 3, "line 29"));
+    ASSERT(row_is(&s, SCR_H - 1, "> editable"));
+    ASSERT_EQ(0, scr_count(&s, "line 0"));
+
+    /* Resize + overlay + removing the overlay all use retained text. */
+    t.rows = 6;
+    tui_overlay_linef(&t, "temporary menu");
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT(frame_positions_bounded(&frame, 6, SCR_W));
+    ASSERT(strstr(frame.data, "line 29"));
+    tui_overlay_clear(&t);
+    t.rows = SCR_H;
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT(strstr(frame.data, "line 29"));
+    ASSERT_FALSE(strstr(frame.data, "temporary menu"));
+    tui_clear_screen(&t);
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT_FALSE(strstr(frame.data, "line 29"));
+    ASSERT_STR_EQ("editable", t.input.data);
+    buf_free(&frame);
+    free_tui(&t);
+    PASS();
+}
+
+TEST fullscreen_wraps_wide_and_combining_transcript_cells(void) {
+    const char *text[] = {"aaaaaaaaaaaaaaaaaa界end\n", "aaaaaaaaaaaaaaaaaa🦊end\n",
+                          "aaaaaaaaaaaaaaaaaaa\xcc\x81\x62\n"};
+    const char *first[] = {"aaaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaa",
+                           "aaaaaaaaaaaaaaaaaaa\xcc\x81"};
+    const char *second[] = {"界end", "🦊end", "b"};
+    for (size_t i = 0; i < sizeof text / sizeof *text; i++) {
+        tui t;
+        mk_tui(&t, 8);
+        t.cols = 20; /* usable transcript width is 19 cells */
+        t.fullscreen = true;
+        tny_ctx ctx = {0};
+        ctx.cwd = (char *)"/workspace";
+        t.ctx = &ctx;
+        tui_write(&t, text[i], strlen(text[i]));
+        buf_t frame, expect;
+        buf_init(&frame);
+        buf_init(&expect);
+        tui_fullscreen_frame(&t, &frame);
+        buf_appendf(&expect, "\x1b[1;1H%s\x1b[2;1H%s", first[i], second[i]);
+        ASSERT(strstr(frame.data, expect.data));
+        buf_free(&frame);
+        buf_free(&expect);
+        free_tui(&t);
+    }
+    PASS();
+}
+
+TEST fullscreen_history_is_bounded_and_controls_stay_inert(void) {
+    tui t;
+    mk_tui(&t, 12);
+    t.fullscreen = true;
+    tny_ctx ctx = {0};
+    ctx.cwd = (char *)"/workspace";
+    t.ctx = &ctx;
+    for (unsigned i = 0; i < TUI_TRANSCRIPT_BYTES / 4 + 20; i++) buf_appends(&t.out, "old\n");
+    tui_linef(&t, "\x1b]0;bad title\a\x1b[999;999Hlatest sentinel");
+    buf_t frame;
+    buf_init(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT(t.transcript.len <= TUI_TRANSCRIPT_BYTES);
+    ASSERT(strstr(frame.data, "latest sentinel"));
+    ASSERT_FALSE(strstr(frame.data, "bad title"));
+    ASSERT_FALSE(strstr(frame.data, "999;999H"));
+    buf_free(&frame);
+    free_tui(&t);
+    PASS();
+}
+
+static char *terminal_capture(tui *t) {
+    FILE *capture = tmpfile();
+    if (!capture) return NULL;
+    fflush(stdout);
+    int saved = dup(STDOUT_FILENO);
+    if (saved < 0 || dup2(fileno(capture), STDOUT_FILENO) < 0) {
+        if (saved >= 0) close(saved);
+        fclose(capture);
+        return NULL;
+    }
+    tui_terminal_begin(t);
+    tui_terminal_begin(t); /* repeated begin/end cannot flip screen buffers */
+    tui_terminal_end();
+    tui_terminal_end();
+    fflush(stdout);
+    dup2(saved, STDOUT_FILENO);
+    close(saved);
+    if (fseek(capture, 0, SEEK_SET) != 0) {
+        fclose(capture);
+        return NULL;
+    }
+    buf_t out;
+    buf_init(&out);
+    char bytes[256];
+    for (;;) {
+        size_t got = fread(bytes, 1, sizeof bytes, capture);
+        if (got) buf_append(&out, bytes, got);
+        if (got < sizeof bytes) {
+            if (ferror(capture)) {
+                buf_free(&out);
+                fclose(capture);
+                return NULL;
+            }
+            break;
+        }
+    }
+    fclose(capture);
+    return out.data ? out.data : xstrdup("");
+}
+
+TEST terminal_generated_modes_restore_once_and_non_tty_is_plain(void) {
+    for (unsigned choices = 0; choices < 16; choices++) {
+        tui t;
+        mk_tui(&t, 24);
+        t.tty = (choices & 1) != 0;
+        t.fullscreen = (choices & 2) != 0;
+        t.alternate_screen = (choices & 4) != 0;
+        t.attr = (choices & 8) != 0;
+        char *out = terminal_capture(&t);
+        ASSERT(out);
+        if (!t.tty) ASSERT_STR_EQ("", out);
+        else {
+            ASSERT(strstr(out, "\x1b[?2004h"));
+            ASSERT(strstr(out, "\x1b[?2004l\x1b[?7h\x1b[r"));
+            bool alternate = t.fullscreen && t.alternate_screen;
+            ASSERT_EQ(alternate, strstr(out, "\x1b[?1049h") != NULL);
+            ASSERT_EQ(alternate, strstr(out, "\x1b[?1049l") != NULL);
+            ASSERT_EQ(t.fullscreen, strstr(out, "\x1b[H\x1b[2J") != NULL);
+            ASSERT_EQ(t.attr, strstr(out, "\x1b[0m") != NULL);
+            const char *begin = strstr(out, "\x1b[?2004h");
+            ASSERT_FALSE(strstr(begin + 1, "\x1b[?2004h"));
+            if (t.fullscreen) ASSERT(strstr(out, "\x1b[H\x1b[2J") < begin);
+        }
+        free(out);
+        free_tui(&t);
+    }
+    PASS();
+}
+
 SUITE(tui_suite) {
+    RUN_TEST(fullscreen_generated_layout_stays_within_terminal);
+    RUN_TEST(fullscreen_redraw_keeps_tail_and_bottom_composer);
+    RUN_TEST(fullscreen_wraps_wide_and_combining_transcript_cells);
+    RUN_TEST(fullscreen_history_is_bounded_and_controls_stay_inert);
+    RUN_TEST(terminal_generated_modes_restore_once_and_non_tty_is_plain);
     RUN_TEST(shell_mode_streams_and_discloses_only_once);
     RUN_TEST(shell_mode_preserves_context_for_builtin_and_blank);
     RUN_TEST(shell_mode_closed_output_does_not_block_the_tui);

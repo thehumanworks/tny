@@ -20,6 +20,41 @@ Command-line flags have the highest precedence. Environment variables remain
 above settings where an environment override exists. Settings are defaults,
 not replacements for one-off flags.
 
+## TUI display
+
+```json
+{
+  "ui": { "mode": "inline", "alternate_screen": true }
+}
+```
+
+`ui.mode` accepts `inline` (default) or `fullscreen`. Fullscreen fills the
+terminal and pins the composer at the bottom. `ui.alternate_screen` defaults
+to `true`: fullscreen uses a separate terminal buffer and restores the
+previous screen on exit. Set it to `false` for terminal hosts that need the
+primary buffer. Fullscreen clears the visible screen before its first paint
+with either buffer choice. Plain piped input/output remains noninteractive
+and emits no screen-control sequences.
+
+Edit the file, use the headless CLI, or open `/settings` in the TUI:
+
+```sh
+tny settings
+tny settings get ui.mode --json
+tny settings set ui.mode fullscreen
+tny settings set ui.alternate_screen false
+```
+
+In `/settings`, press `m` to toggle the default mode, `a` to toggle the
+alternate buffer, and Enter or Esc to close. Changes apply on the next TUI
+launch. `/settings ui.mode fullscreen` and
+`/settings ui.alternate_screen false` also save explicit values.
+
+Leading flags `--fullscreen` / `--inline` and `--alt-screen` /
+`--no-alt-screen` override saved defaults for one launch, without saving.
+The alternate-screen setting has no effect in inline mode. These options
+also work in the browser terminal using its virtual settings filesystem.
+
 ## Conversation image input
 
 `"image_input": { "codex": true, "openai": false }` configures

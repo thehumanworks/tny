@@ -5144,6 +5144,102 @@ TEST color_flag(void) {
     PASS();
 }
 
+TEST ui_settings_defaults_and_generated_roundtrips(void) {
+    ensure_env();
+    const char *malformed[] = {
+        "{}", "{\"ui\":null}", "{\"ui\":[]}",
+        "{\"ui\":{\"mode\":\"fullscreen\\u0000junk\",\"alternate_screen\":1}}"};
+    for (size_t i = 0; i < sizeof malformed / sizeof malformed[0]; i++) {
+        write_settings(malformed[i]);
+        tny_ctx *ctx = tny_ctx_load(g_ws);
+        ASSERT(ctx);
+        ASSERT_STR_EQ("inline", tny_settings_ui_mode(ctx));
+        ASSERT(tny_settings_ui_alternate_screen(ctx));
+        if (i == 1 || i == 2) {
+            ASSERT_EQ(-1, tny_settings_set_ui(ctx, "mode", "fullscreen"));
+            char *unchanged = file_slurp(ctx->settings_path, NULL);
+            ASSERT(unchanged);
+            ASSERT_STR_EQ(malformed[i], unchanged);
+            free(unchanged);
+        }
+        tny_ctx_free(ctx);
+    }
+    unsigned seed = 0x1a2b3c4du;
+    for (unsigned i = 0; i < 64; i++) {
+        seed = seed * 1664525u + 1013904223u;
+        const char *mode = seed & 1u ? "fullscreen" : "inline";
+        const char *alternate = seed & 2u ? "true" : "false";
+        char original[256];
+        snprintf(original, sizeof original,
+                 "{\"models\":{\"openai\":\"keep-%u\"},\"permission\":{\"edit\":{\"*\":\"deny\"}},"
+                 "\"ui\":{\"other\":%u}}",
+                 seed, i);
+        write_settings(original);
+        tny_ctx *ctx = tny_ctx_load(g_ws);
+        ASSERT(ctx);
+        ASSERT_EQ(0, tny_settings_set_ui(ctx, "mode", mode));
+        ASSERT_EQ(0, tny_settings_set_ui(ctx, "alternate_screen", alternate));
+        ASSERT_STR_EQ(mode, tny_settings_ui_mode(ctx));
+        ASSERT_EQ(strcmp(alternate, "true") == 0, tny_settings_ui_alternate_screen(ctx));
+        yyjson_val *root = yyjson_doc_get_root(ctx->settings);
+        ASSERT_EQ(i, jget_int(jget(root, "ui"), "other", -1));
+        ASSERT_STR_EQ("deny", jget_str(jget(jget(root, "permission"), "edit"), "*"));
+        char *before = file_slurp(ctx->settings_path, NULL);
+        ASSERT(before);
+        ASSERT_EQ(-1, tny_settings_set_ui(ctx, "mode", "fullscreen "));
+        ASSERT_EQ(-1, tny_settings_set_ui(ctx, "alternate_screen", "1"));
+        ASSERT_EQ(-1, tny_settings_set_ui(ctx, "unknown", "true"));
+        char *after = file_slurp(ctx->settings_path, NULL);
+        ASSERT(after);
+        ASSERT_STR_EQ(before, after);
+        free(before);
+        free(after);
+        tny_ctx_free(ctx);
+        ctx = tny_ctx_load(g_ws);
+        ASSERT(ctx);
+        ASSERT_STR_EQ(mode, tny_settings_ui_mode(ctx));
+        ASSERT_EQ(strcmp(alternate, "true") == 0, tny_settings_ui_alternate_screen(ctx));
+        tny_ctx_free(ctx);
+    }
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    char *settings_path = ctx->settings_path;
+    ctx->settings_path = ctx->tny_dir; /* atomic rename cannot replace a directory */
+    ASSERT_EQ(-1, tny_settings_set_ui(ctx, "mode", "fullscreen"));
+    ASSERT_STR_EQ("inline", tny_settings_ui_mode(ctx));
+    ctx->settings_path = settings_path;
+    tny_ctx_free(ctx);
+    write_settings("{broken manual edit");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT_FALSE(ctx->settings);
+    ASSERT_EQ(-1, tny_settings_set_ui(ctx, "mode", "fullscreen"));
+    char *invalid = file_slurp(ctx->settings_path, NULL);
+    ASSERT(invalid);
+    ASSERT_STR_EQ("{broken manual edit", invalid);
+    free(invalid);
+    tny_ctx_free(ctx);
+    write_settings("{}");
+    PASS();
+}
+
+TEST ui_global_flags_last_override_wins(void) {
+    const char *flags[] = {"--inline", "--fullscreen", "--alt-screen", "--no-alt-screen"};
+    for (unsigned i = 0; i < 4; i++) {
+        for (unsigned j = 0; j < 4; j++) {
+            cli_globals g = {0};
+            char *argv[] = {"tny", (char *)flags[i], (char *)flags[j], "settings"};
+            ASSERT_EQ(3, cli_parse_globals(4, argv, &g));
+            int mode = j < 2 ? (int)j + 1 : i < 2 ? (int)i + 1 : 0;
+            int alt = j >= 2 ? (int)j - 1 : i >= 2 ? (int)i - 1 : 0;
+            ASSERT_EQ(mode, g.tui_mode);
+            ASSERT_EQ(alt, g.tui_alt_screen);
+        }
+    }
+    PASS();
+}
+
 /* TNY_VERSION is generated from git describe at build time (docs/adr/0014).
  * Assert shape, never a literal: non-empty, no v prefix, printable, no
  * whitespace or quotes that would break JSON/header embedding. */
@@ -6202,5 +6298,7 @@ SUITE(core_suite) {
     RUN_TEST(wire_api_resolution);
     RUN_TEST(wire_api_flag);
     RUN_TEST(color_flag);
+    RUN_TEST(ui_settings_defaults_and_generated_roundtrips);
+    RUN_TEST(ui_global_flags_last_override_wins);
     RUN_TEST(version_string_is_sane);
 }

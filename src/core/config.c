@@ -1280,6 +1280,64 @@ int tny_settings_set_str(tny_ctx *ctx, const char *key, const char *value) {
     return settings_edit(ctx, edit_set_str, &kv);
 }
 
+static yyjson_val *settings_ui(tny_ctx *ctx) {
+    return ctx && ctx->settings ? jget(yyjson_doc_get_root(ctx->settings), "ui") : NULL;
+}
+
+const char *tny_settings_ui_mode(tny_ctx *ctx) {
+    yyjson_val *v = jget(settings_ui(ctx), "mode");
+    const char *mode = yyjson_get_str(v);
+    return mode && yyjson_get_len(v) == 10 && strcmp(mode, "fullscreen") == 0 ? "fullscreen"
+                                                                              : "inline";
+}
+
+bool tny_settings_ui_alternate_screen(tny_ctx *ctx) {
+    return jget_bool(settings_ui(ctx), "alternate_screen", true);
+}
+
+int tny_settings_set_ui(tny_ctx *ctx, const char *key, const char *value) {
+    if (!ctx || !ctx->tny_dir || !ctx->settings_path || !key || !value) return -1;
+    /* A failed initial parse is not an empty settings file. Preserve it so
+     * the settings UI cannot replace a malformed manual edit with defaults. */
+    if (!ctx->settings && file_exists(ctx->settings_path)) return -1;
+    bool mode = strcmp(key, "mode") == 0;
+    if (mode ? strcmp(value, "inline") != 0 && strcmp(value, "fullscreen") != 0
+             : strcmp(key, "alternate_screen") != 0 ||
+                   (strcmp(value, "true") != 0 && strcmp(value, "false") != 0))
+        return -1;
+    if (ctx->settings && !yyjson_is_obj(yyjson_doc_get_root(ctx->settings))) return -1;
+    yyjson_mut_doc *doc =
+        ctx->settings ? yyjson_doc_mut_copy(ctx->settings, NULL) : yyjson_mut_doc_new(NULL);
+    if (!doc) return -1;
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(doc);
+    if (!root) {
+        root = yyjson_mut_obj(doc);
+        yyjson_mut_doc_set_root(doc, root);
+    }
+    yyjson_mut_val *ui = root ? yyjson_mut_obj_get(root, "ui") : NULL;
+    bool ok = root && (!ui || yyjson_mut_is_obj(ui));
+    if (ok && !ui) {
+        ui = yyjson_mut_obj(doc);
+        ok = ui && yyjson_mut_obj_add_val(doc, root, "ui", ui);
+    }
+    yyjson_mut_val *k = yyjson_mut_strcpy(doc, key);
+    yyjson_mut_val *v =
+        mode ? yyjson_mut_strcpy(doc, value) : yyjson_mut_bool(doc, strcmp(value, "true") == 0);
+    ok = ok && k && v && yyjson_mut_obj_put(ui, k, v);
+    char *out = ok ? jwrite_pretty(doc) : NULL;
+    yyjson_mut_doc_free(doc);
+    yyjson_doc *saved = out ? jparse(out, strlen(out)) : NULL;
+    int rc = saved && mkdir_p(ctx->tny_dir) == 0
+                 ? file_write_atomic(ctx->settings_path, out, strlen(out))
+                 : -1;
+    free(out);
+    if (rc == 0) {
+        yyjson_doc_free(ctx->settings);
+        ctx->settings = saved;
+    } else yyjson_doc_free(saved);
+    return rc;
+}
+
 /* ---- `provider setup` writer (docs/adr/0018) ---- */
 
 struct profile_edit {
@@ -1360,6 +1418,7 @@ int tny_provider_write_profile(tny_ctx *ctx, const char *name, const tny_provide
                                            "effort",
                                            "image_input",
                                            "extensions",
+                                           "ui",
                                            "acp",
                                            "last_provider",
                                            "last_backend",

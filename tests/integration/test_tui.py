@@ -13,12 +13,14 @@ Pure stdlib: pty, os, select, subprocess, termios.
 """
 
 import fcntl
+import itertools
 import json
 import os
 import pty
 import re
 import select
 import shutil
+import signal
 import socket
 import struct
 import subprocess
@@ -74,19 +76,35 @@ class Screen:
         self.rows, self.cols = rows, cols
         self.grid = [[" "] * cols for _ in range(rows)]
         self.r = self.c = 0
+        self.autowrap = True
+        self.scroll_top, self.scroll_bottom = 0, rows - 1
+        self.primary = None
+
+    def resize(self, rows, cols):
+        self.grid = [
+            row[:cols] + [" "] * max(0, cols - len(row)) for row in self.grid[:rows]
+        ]
+        self.grid.extend([[" "] * cols for _ in range(rows - len(self.grid))])
+        self.rows, self.cols = rows, cols
+        self.r, self.c = min(self.r, rows - 1), min(self.c, cols - 1)
+        self.scroll_top, self.scroll_bottom = 0, rows - 1
 
     def _put(self, ch):
         if self.c >= self.cols:
+            if not self.autowrap:
+                self.c = self.cols - 1
+                self.grid[self.r][self.c] = ch
+                return
             self.c = 0
             self._lf()
         self.grid[self.r][self.c] = ch
         self.c += 1
 
     def _lf(self):
-        if self.r == self.rows - 1:
-            self.grid.pop(0)
-            self.grid.append([" "] * self.cols)
-        else:
+        if self.r == self.scroll_bottom:
+            self.grid.pop(self.scroll_top)
+            self.grid.insert(self.scroll_bottom, [" "] * self.cols)
+        elif self.r < self.rows - 1:
             self.r += 1
 
     def feed(self, s):
@@ -107,10 +125,45 @@ class Screen:
                     continue
                 args, fin = m.group(1), m.group(2)
                 n = int(args.split(";")[0]) if args and args[0].isdigit() else None
+                if args.startswith("?") and fin in ("h", "l"):
+                    for mode in args[1:].split(";"):
+                        if mode == "7":
+                            self.autowrap = fin == "h"
+                        elif mode == "1049":
+                            if fin == "h" and self.primary is None:
+                                self.primary = (self.grid, self.r, self.c)
+                                self.grid = [
+                                    [" "] * self.cols for _ in range(self.rows)
+                                ]
+                                self.r = self.c = 0
+                            elif fin == "l" and self.primary is not None:
+                                self.grid, self.r, self.c = self.primary
+                                self.primary = None
+                                self.resize(self.rows, self.cols)
                 if fin == "A":
                     self.r = max(0, self.r - (n or 1))
+                elif fin == "B":
+                    self.r = min(self.rows - 1, self.r + (n or 1))
                 elif fin == "C":
                     self.c = min(self.cols, self.c + (n or 1))
+                elif fin == "D":
+                    self.c = max(0, self.c - (n or 1))
+                elif fin == "G":
+                    self.c = min(self.cols - 1, max(0, (n or 1) - 1))
+                elif fin == "K":
+                    start, end = (0, self.cols) if n == 2 else (self.c, self.cols)
+                    if n == 1:
+                        start, end = 0, self.c + 1
+                    self.grid[self.r][start:end] = [" "] * (end - start)
+                elif fin == "r":
+                    parts = args.split(";") if args else []
+                    self.scroll_top = max(0, int(parts[0]) - 1) if parts else 0
+                    self.scroll_bottom = (
+                        min(self.rows - 1, int(parts[1]) - 1)
+                        if len(parts) > 1
+                        else self.rows - 1
+                    )
+                    self.r = self.c = 0
                 elif fin == "J":
                     if n in (None, 0):
                         for j in range(self.c, self.cols):
@@ -154,10 +207,12 @@ def free_port():
 class Term:
     """A child process attached to a pseudo-terminal."""
 
-    def __init__(self, argv, env, cwd, prelude=b""):
+    def __init__(self, argv, env, cwd, prelude=b"", rows=ROWS, cols=COLS):
         self.master, self.slave = pty.openpty()
+        self.initial_size = (rows, cols)
+        self.resize_events = []
         fcntl.ioctl(
-            self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0)
+            self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0)
         )
         self.before = termios.tcgetattr(self.slave)
         # Seed real screen contents before the child can paint its first view.
@@ -222,9 +277,34 @@ class Term:
         os.write(self.master, s.encode())
 
     def screen(self):
-        s = Screen()
-        s.feed(self.buf)
+        s = Screen(*self.initial_size)
+        offset = 0
+        for at, rows, cols in self.resize_events:
+            s.feed(self.buf[offset:at])
+            s.resize(rows, cols)
+            offset = at
+        s.feed(self.buf[offset:])
         return s.text()
+
+    def resize(self, rows, cols):
+        self.pump(0.05)
+        self.resize_events.append((len(self.buf), rows, cols))
+        fcntl.ioctl(
+            self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0)
+        )
+        self.proc.send_signal(signal.SIGWINCH)
+
+    def expect_composer_at_bottom(self, needle, rows, timeout=10.0):
+        needle = needle.rstrip()
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            screen = self.screen().split("\n")
+            if len(screen) == rows and needle in screen[-1]:
+                return
+            self.pump(0.1)
+        raise AssertionError(
+            "composer %r not pinned to row %d:\n%s" % (needle, rows, self.screen())
+        )
 
     def expect_on_screen(self, needle, timeout=10.0):
         end = time.time() + timeout
@@ -754,6 +834,301 @@ def test_dumb_mode_announces_itself(home, ws):
     print("ok  dumb mode announces the missing status bar, zero escapes")
 
 
+def test_ui_settings_cli(_home, ws):
+    with tempfile.TemporaryDirectory(prefix="tny-ui-settings-") as home:
+        env = base_env(home)
+
+        def settings(*args):
+            proc = subprocess.run(
+                [TNY, "settings", *args, "--json"],
+                env=env,
+                cwd=ws,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            assert proc.returncode == 0, (args, proc.stderr)
+            return json.loads(proc.stdout)
+
+        assert settings()["ui"] == {"mode": "inline", "alternate_screen": True}
+        assert settings("get", "ui.mode")["value"] == "inline"
+        assert settings("get", "ui.alternate_screen")["value"] is True
+        proc = subprocess.run(
+            [TNY, "--json", "settings", "get", "ui.mode"],
+            env=env,
+            cwd=ws,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["value"] == "inline"
+        path = os.path.join(home, ".tny", "settings.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        original = {"openai": {"model": "kept-model"}, "custom": {"keep": [1, 2]}}
+        with open(path, "w") as f:
+            json.dump(original, f)
+        for mode, alternate in itertools.product(
+            ("inline", "fullscreen"), (False, True)
+        ):
+            assert settings("set", "ui.mode", mode)["value"] == mode
+            assert (
+                settings("set", "ui.alternate_screen", str(alternate).lower())["value"]
+                is alternate
+            )
+            assert settings()["ui"] == {"mode": mode, "alternate_screen": alternate}
+            with open(path) as f:
+                saved = json.load(f)
+            assert saved["ui"] == {"mode": mode, "alternate_screen": alternate}, saved
+            assert all(saved[key] == value for key, value in original.items()), saved
+        with open(path, "rb") as f:
+            before = f.read()
+        for args in (
+            ("set", "ui.mode", "sideways"),
+            ("set", "ui.alternate_screen", "yes"),
+            ("set", "ui.unknown", "true"),
+            ("get", "ui.unknown"),
+            ("set", "ui.mode"),
+        ):
+            proc = subprocess.run(
+                [TNY, "settings", *args],
+                env=env,
+                cwd=ws,
+                capture_output=True,
+                timeout=10,
+            )
+            assert proc.returncode != 0, args
+            assert proc.stderr, args
+            with open(path, "rb") as f:
+                assert f.read() == before, args
+        for malformed in (b'{"ui":', b"[]"):
+            with open(path, "wb") as f:
+                f.write(malformed)
+            proc = subprocess.run(
+                [TNY, "settings", "set", "ui.mode", "fullscreen"],
+                env=env,
+                cwd=ws,
+                capture_output=True,
+                timeout=10,
+            )
+            assert proc.returncode != 0 and proc.stderr, malformed
+            with open(path, "rb") as f:
+                assert f.read() == malformed, "malformed settings overwritten"
+    print(
+        "ok  UI settings defaults, JSON roundtrips, unrelated keys and invalid-write rollback"
+    )
+
+
+def test_ui_mode_override_matrix(_home, ws):
+    """Generate every saved-mode/alternate-buffer/CLI-override combination.
+
+    The same configuration must be plain when piped. On a PTY only an
+    effective fullscreen + alternate_screen combination may switch buffers.
+    """
+    sizes = ((8, 30), (14, 56), (24, 100))
+    combinations = itertools.product(
+        ("inline", "fullscreen"),
+        (False, True),
+        (None, "inline", "fullscreen"),
+        (None, False, True),
+    )
+    with tempfile.TemporaryDirectory(prefix="tny-ui-matrix-") as home:
+        os.mkdir(os.path.join(home, ".tny"))
+        path = os.path.join(home, ".tny", "settings.json")
+        for i, (saved_mode, saved_alt, mode, alt) in enumerate(combinations):
+            with open(path, "w") as f:
+                json.dump(
+                    {"ui": {"mode": saved_mode, "alternate_screen": saved_alt}}, f
+                )
+            flags = ([] if mode is None else ["--" + mode]) + (
+                [] if alt is None else ["--alt-screen" if alt else "--no-alt-screen"]
+            )
+            fullscreen = (saved_mode if mode is None else mode) == "fullscreen"
+            alternate = fullscreen and (saved_alt if alt is None else alt)
+            label = (saved_mode, saved_alt, flags)
+            rows, cols = sizes[i % len(sizes)]
+            t = Term(
+                [TNY, *flags],
+                base_env(home),
+                ws,
+                prelude=b"STALE-SHELL-CONTENT\r\n",
+                rows=rows,
+                cols=cols,
+            )
+            try:
+                t.expect("/help for commands", 10.0, absent="no API key")
+                assert ("\x1b[?1049h" in t.buf) == alternate, label
+                if fullscreen:
+                    assert "STALE-SHELL-CONTENT" not in t.screen(), (label, t.screen())
+                    t.expect_composer_at_bottom("> ", rows)
+                t.send("\x04")
+                assert t.wait() == 0, (label, clean(t.buf))
+                assert t.restored(), label
+                assert t.buf.count("\x1b[?1049h") == int(alternate), label
+                assert t.buf.count("\x1b[?1049l") == int(alternate), label
+                if alternate:
+                    assert "STALE-SHELL-CONTENT" in t.screen(), (label, t.screen())
+            finally:
+                t.close()
+            proc = subprocess.run(
+                [TNY, *flags],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                env=base_env(home),
+                cwd=ws,
+                timeout=10,
+            )
+            assert proc.returncode == 0, (label, proc.stderr)
+            assert b"not a terminal: status bar disabled" in proc.stdout, label
+            assert b"\x1b" not in proc.stdout + proc.stderr, label
+        for flags, alternate in (
+            (["--inline", "--fullscreen", "--no-alt-screen", "--alt-screen"], True),
+            (["--fullscreen", "--inline", "--alt-screen"], False),
+            (["--fullscreen", "--alt-screen", "--no-alt-screen"], False),
+        ):
+            t = Term([TNY, *flags], base_env(home), ws)
+            try:
+                t.expect("/help for commands")
+                assert ("\x1b[?1049h" in t.buf) == alternate, flags
+                t.send("\x04")
+                assert t.wait() == 0, clean(t.buf)
+                assert t.buf.count("\x1b[?1049l") == int(alternate), flags
+            finally:
+                t.close()
+    print(
+        "ok  36 UI settings/override combinations, three PTY sizes, plain pipes and last-flag precedence"
+    )
+
+
+def test_fullscreen_resize_transcript_and_cleanup(home, ws, port):
+    env = base_env(
+        home,
+        {
+            "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % port,
+            "OPENAI_API_KEY": "test-key-not-a-secret",
+        },
+    )
+    for alternate in (True, False):
+        flags = ["--fullscreen", "--alt-screen" if alternate else "--no-alt-screen"]
+        t = Term([TNY, *flags], env, ws, rows=12, cols=60)
+        try:
+            t.expect("/help for commands")
+            t.expect_composer_at_bottom("> ", 12)
+            t.send("list the files here\r")
+            t.expect("MOCK-OK", 20.0)
+            t.expect_composer_at_bottom("> ", 12)
+            t.send("!")
+            t.expect_composer_at_bottom("! ", 12)
+            t.send(
+                'i=0; while [ "$i" -lt 80 ]; do printf "FULLSCREEN-ROW-%03d\\n" "$i"; i=$((i+1)); done\r'
+            )
+            t.expect("FULLSCREEN-ROW-079")
+            t.expect("shell exit 0")
+            t.expect_composer_at_bottom("! ", 12)
+            t.send("\r")
+            t.expect_composer_at_bottom("> ", 12)
+            t.send("resize-draft")
+            for rows, cols in ((5, 24), (18, 80), (9, 40), (24, 100)):
+                t.resize(rows, cols)
+                t.expect_composer_at_bottom("> resize-draft", rows)
+                assert t.screen().count("resize-draft") == 1, t.screen()
+            t.send("\x0adraft-tail")
+            t.resize(3, 24)
+            t.expect_composer_at_bottom("draft-tail", 3)
+            t.resize(24, 100)
+            t.expect_composer_at_bottom("draft-tail", 24)
+            t.send("\x03")  # discard the draft
+            t.send("/workspace badverb\r")
+            error = "tny: workspace list|add DIR|remove DIR|clear"
+            t.expect_on_screen(error)
+            t.send("repaint-draft")
+            t.expect_composer_at_bottom("> repaint-draft", 24)
+            assert error in t.screen(), "stderr lost after repaint:\n%s" % t.screen()
+            t.send("\x03")
+            t.send("/help\r")
+            t.expect_on_screen("keys: enter submit")
+            t.send("\x1b")
+            t.expect_gone_from_screen("keys: enter submit")
+            assert error in t.screen(), "stderr lost after overlay:\n%s" % t.screen()
+            t.expect_composer_at_bottom("> ", 24)
+            t.send("/resume fullscreen-missing-session\r")
+            resume_error = "no such session for this workspace"
+            t.expect_on_screen(resume_error)
+            saved = {}
+            for root, _, files in os.walk(os.path.join(home, ".tny", "sessions")):
+                if "session.json" in files:
+                    path = os.path.join(root, "session.json")
+                    with open(path, "rb") as f:
+                        saved[path] = f.read()
+            assert any(b"MOCK-OK" in value for value in saved.values()), saved.keys()
+            t.send("/clear\r")
+            t.expect_gone_from_screen(resume_error)
+            t.send("clear-repaint-draft")
+            t.expect_composer_at_bottom("> clear-repaint-draft", 24)
+            t.resize(18, 80)
+            t.expect_composer_at_bottom("> clear-repaint-draft", 18)
+            for old in (resume_error, error, "MOCK-OK", "FULLSCREEN-ROW-"):
+                assert old not in t.screen(), (
+                    "cleared transcript resurrected:\n%s" % t.screen()
+                )
+            for path, value in saved.items():
+                with open(path, "rb") as f:
+                    assert f.read() == value, "/clear changed a saved session"
+            t.proc.send_signal(signal.SIGTERM)
+            assert t.wait() == 128 + signal.SIGTERM, clean(t.buf)
+            assert t.restored(), "SIGTERM left fullscreen tty raw"
+            assert t.buf.count("\x1b[?1049h") == int(alternate), t.buf
+            assert t.buf.count("\x1b[?1049l") == int(alternate), t.buf
+        finally:
+            t.close()
+    print(
+        "ok  fullscreen turn, shell overflow, resize, errors, overlays, clear persistence and SIGTERM cleanup"
+    )
+
+
+def test_interactive_ui_settings(_home, ws):
+    with tempfile.TemporaryDirectory(prefix="tny-ui-interactive-") as home:
+        path = os.path.join(home, ".tny", "settings.json")
+
+        def expect_saved(mode, alternate):
+            end = time.monotonic() + 5
+            while time.monotonic() < end:
+                if os.path.exists(path):
+                    with open(path) as f:
+                        ui = json.load(f).get("ui", {})
+                    if ui == {"mode": mode, "alternate_screen": alternate}:
+                        return
+                t.pump(0.1)
+            raise AssertionError("settings did not persist %r" % ((mode, alternate),))
+
+        t = Term([TNY], base_env(home), ws)
+        try:
+            t.expect(BANNER)
+            t.send("/settings\r")
+            t.expect_on_screen("ui.mode")
+            t.expect_on_screen("ui.alternate_screen")
+            t.send("\x1b[200~ma\x1b[201~")
+            t.pump(0.2)
+            if os.path.exists(path):
+                with open(path) as f:
+                    assert "ui" not in json.load(f), "pasted shortcuts toggled settings"
+            t.send("ma")
+            expect_saved("fullscreen", False)
+            assert "\x1b[?1049h" not in t.buf, "settings applied before next launch"
+            t.send("\x1b")
+            t.send("/settings ui.mode inline\r")
+            expect_saved("inline", False)
+            t.send("/settings ui.alternate_screen true\r")
+            expect_saved("inline", True)
+            t.send("/quit\r")
+            assert t.wait() == 0, clean(t.buf)
+        finally:
+            t.close()
+    print(
+        "ok  /settings overlay toggles and explicit commands persist next-launch defaults"
+    )
+
+
 def test_dumb_mode_turn_status(home, ws, port):
     """Dumb mode has no status row, so a turn leaves a plain status line in
     the transcript when it ends (docs/adr/0026)."""
@@ -1027,6 +1402,10 @@ def main():
             test_color_never_drops_all_sgr(home, ws)
             test_clicolor_force_beats_no_color(home, ws)
             test_dumb_mode_announces_itself(home, ws)
+            test_ui_settings_cli(home, ws)
+            test_ui_mode_override_matrix(home, ws)
+            test_fullscreen_resize_transcript_and_cleanup(home, ws, port)
+            test_interactive_ui_settings(home, ws)
             test_dumb_mode_turn_status(home, ws, port)
             test_provider_setup_wizard(home, ws, port)
             test_steer_mid_turn(home, ws)
