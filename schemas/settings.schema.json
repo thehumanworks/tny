@@ -282,6 +282,13 @@
         "alternate_screen": {
           "type": "boolean",
           "default": true
+        },
+        "scrollback_lines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000,
+          "default": 50000,
+          "description": "Maximum logical transcript lines retained for fullscreen scrolling. Applies on the next TUI launch."
         }
       },
       "additionalProperties": false

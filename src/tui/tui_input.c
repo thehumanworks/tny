@@ -453,7 +453,29 @@ static void dashboard_filter_append(tui *t, const char *text, size_t len) {
     tui_agents_rebuild(t);
 }
 
+bool tui_scrollback_key(tui *t, tui_key key) {
+    if (!t->fullscreen || t->agents_dashboard) return false;
+    switch (key) {
+    case TUI_K_SCROLL_UP: tui_scrollback_scroll(t, 1); break;
+    case TUI_K_SCROLL_DOWN: tui_scrollback_scroll(t, -1); break;
+    case TUI_K_WHEEL_UP: tui_scrollback_scroll(t, 3); break;
+    case TUI_K_WHEEL_DOWN: tui_scrollback_scroll(t, -3); break;
+    case TUI_K_PAGE_UP: tui_scrollback_scroll(t, tui_scrollback_page_rows(t)); break;
+    case TUI_K_PAGE_DOWN: tui_scrollback_scroll(t, -tui_scrollback_page_rows(t)); break;
+    case TUI_K_SCROLL_HOME: tui_scrollback_home(t); break;
+    case TUI_K_SCROLL_END: tui_scrollback_end(t); break;
+    default: return false;
+    }
+    return true;
+}
+
 static void do_key(tui *t, int k, const char *ch, size_t chlen) {
+    if (tui_scrollback_key(t, (tui_key)k)) return;
+    /* Keep the existing modified-arrow editing behavior outside fullscreen. */
+    if (k == TUI_K_SCROLL_UP) k = TUI_K_UP;
+    else if (k == TUI_K_SCROLL_DOWN) k = TUI_K_DOWN;
+    else if (k == TUI_K_SCROLL_HOME) k = TUI_K_HOME;
+    else if (k == TUI_K_SCROLL_END) k = TUI_K_END;
     bool popover = t->pick != PICK_NONE && t->n_items > 0;
 
     if (t->approval) {
@@ -729,7 +751,8 @@ static void csi_params(const char *p, size_t i, int *a, int *b, int *c) {
     bool any = false;
     for (size_t j = 2; j < i && n < 3; j++) {
         if (p[j] >= '0' && p[j] <= '9') {
-            v = v * 10 + (p[j] - '0');
+            int digit = p[j] - '0';
+            v = v > (INT_MAX - digit) / 10 ? INT_MAX : v * 10 + digit;
             any = true;
         } else if (p[j] == ';') {
             *slots[n++] = any ? v : 0;
@@ -746,6 +769,32 @@ static void set_key(tui_decoded *out, tui_key k) {
         out->ch = NULL;
         out->chlen = 0;
     }
+}
+
+static void mouse_key(tui_decoded *out, unsigned button) {
+    /* Shift/Alt/Ctrl modifiers do not change wheel direction. Clicks, motion,
+     * releases and horizontal wheel events are consumed without editing. */
+    button &= ~28u;
+    if (button == 64) set_key(out, TUI_K_WHEEL_UP);
+    else if (button == 65) set_key(out, TUI_K_WHEEL_DOWN);
+}
+
+static void sgr_mouse_key(const char *p, size_t end, tui_decoded *out) {
+    unsigned values[3] = {0};
+    size_t slot = 0;
+    bool digit = false;
+    for (size_t j = 3; j < end; j++) {
+        if (p[j] >= '0' && p[j] <= '9') {
+            unsigned next = (unsigned)(p[j] - '0');
+            if (values[slot] > ((unsigned)INT_MAX - next) / 10) return;
+            values[slot] = values[slot] * 10 + next;
+            digit = true;
+        } else if (p[j] == ';' && digit && slot < 2) {
+            slot++;
+            digit = false;
+        } else return;
+    }
+    if (slot == 2 && digit && values[1] && values[2] && p[end] == 'M') mouse_key(out, values[0]);
 }
 
 /* Decode one key from p[0..n). Returns bytes consumed, 0 if it needs more. */
@@ -804,21 +853,33 @@ size_t tui_decode_one(const char *p, size_t n, bool final, tui_decoded *out) {
         return 1;
     }
     if (p[1] == '[') {
+        /* Legacy X10 reports carry three raw bytes after CSI M, including
+         * printable bytes which must never leak into the composer. */
+        if (n >= 3 && p[2] == 'M') {
+            if (n < 6) return final ? n : 0;
+            if ((unsigned char)p[3] >= 32 && (unsigned char)p[4] >= 33 && (unsigned char)p[5] >= 33)
+                mouse_key(out, (unsigned char)p[3] - 32u);
+            return 6;
+        }
         size_t i = 2;
         while (i < n && !((unsigned char)p[i] >= 0x40 && (unsigned char)p[i] <= 0x7e)) i++;
         if (i >= n) return final ? n : 0;
+        if (p[2] == '<') {
+            sgr_mouse_key(p, i, out);
+            return i + 1;
+        }
         char fin = p[i];
         int a = 0, b = 0, csi_c = 0;
         csi_params(p, i, &a, &b, &csi_c);
         bool ctrl = (b == 5 || b == 3);
         size_t used = i + 1;
         switch (fin) {
-        case 'A': set_key(out, TUI_K_UP); break;
-        case 'B': set_key(out, TUI_K_DOWN); break;
+        case 'A': set_key(out, b == 2 ? TUI_K_SCROLL_UP : TUI_K_UP); break;
+        case 'B': set_key(out, b == 2 ? TUI_K_SCROLL_DOWN : TUI_K_DOWN); break;
         case 'C': set_key(out, ctrl ? TUI_K_WRIGHT : TUI_K_RIGHT); break;
         case 'D': set_key(out, ctrl ? TUI_K_WLEFT : TUI_K_LEFT); break;
-        case 'H': set_key(out, TUI_K_HOME); break;
-        case 'F': set_key(out, TUI_K_END); break;
+        case 'H': set_key(out, b == 5 ? TUI_K_SCROLL_HOME : TUI_K_HOME); break;
+        case 'F': set_key(out, b == 5 ? TUI_K_SCROLL_END : TUI_K_END); break;
         case 'Z': set_key(out, TUI_K_TAB); break;
         case 'R': /* CPR answer to tui_size_probe. xterm's modified F3 is
                    * ESC[1;mR: a corner report never has row 1 */
@@ -843,8 +904,10 @@ size_t tui_decode_one(const char *p, size_t n, bool final, tui_decoded *out) {
                 else if (csi_c == 118 && b >= 5) set_key(out, TUI_K_PASTE);
                 else if (csi_c == 114 && b == 5) set_key(out, TUI_K_DICTATE);
             } else if (a == 3) set_key(out, TUI_K_DEL);
-            else if (a == 1 || a == 7) set_key(out, TUI_K_HOME);
-            else if (a == 4 || a == 8) set_key(out, TUI_K_END);
+            else if (a == 1 || a == 7) set_key(out, b == 5 ? TUI_K_SCROLL_HOME : TUI_K_HOME);
+            else if (a == 4 || a == 8) set_key(out, b == 5 ? TUI_K_SCROLL_END : TUI_K_END);
+            else if (a == 5) set_key(out, TUI_K_PAGE_UP);
+            else if (a == 6) set_key(out, TUI_K_PAGE_DOWN);
             else if (a == 200) set_key(out, TUI_K_PASTE_BEGIN);
             /* a == 201: stray paste end with no begin — consume, no key */
             break;

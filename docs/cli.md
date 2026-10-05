@@ -65,6 +65,7 @@ tny settings                # show saved TUI display defaults (no provider neede
 tny settings get ui.mode --json
 tny settings set ui.mode fullscreen
 tny settings set ui.alternate_screen false
+tny settings set ui.scrollback_lines 50000 # fullscreen logical lines, next launch
 tny mcp [list]              # list configured MCP servers (source attributed)
 tny mcp tools SERVER        # a server's tools with their argument names
 tny mcp describe SERVER/TOOL # one tool's description and input schema

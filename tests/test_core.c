@@ -5175,6 +5175,7 @@ TEST ui_settings_defaults_and_generated_roundtrips(void) {
         ASSERT(ctx);
         ASSERT_STR_EQ("inline", tny_settings_ui_mode(ctx));
         ASSERT(tny_settings_ui_alternate_screen(ctx));
+        ASSERT_EQ(50000, tny_settings_ui_scrollback_lines(ctx));
         if (i == 1 || i == 2) {
             ASSERT_EQ(-1, tny_settings_set_ui(ctx, "mode", "fullscreen"));
             char *unchanged = file_slurp(ctx->settings_path, NULL);
@@ -5184,11 +5185,23 @@ TEST ui_settings_defaults_and_generated_roundtrips(void) {
         }
         tny_ctx_free(ctx);
     }
+    const char *invalid_saved[] = {"0", "-1", "1000001", "1.5", "true", "\"50000\"", "null"};
+    for (size_t i = 0; i < sizeof invalid_saved / sizeof invalid_saved[0]; i++) {
+        char saved[128];
+        snprintf(saved, sizeof saved, "{\"ui\":{\"scrollback_lines\":%s}}", invalid_saved[i]);
+        write_settings(saved);
+        tny_ctx *ctx = tny_ctx_load(g_ws);
+        ASSERT(ctx);
+        ASSERT_EQ(50000, tny_settings_ui_scrollback_lines(ctx));
+        tny_ctx_free(ctx);
+    }
     unsigned seed = 0x1a2b3c4du;
     for (unsigned i = 0; i < 64; i++) {
         seed = seed * 1664525u + 1013904223u;
         const char *mode = seed & 1u ? "fullscreen" : "inline";
         const char *alternate = seed & 2u ? "true" : "false";
+        char lines[32];
+        snprintf(lines, sizeof lines, "%u", 1u + seed % TNY_UI_SCROLLBACK_LINES_MAX);
         char original[256];
         snprintf(original, sizeof original,
                  "{\"models\":{\"openai\":\"keep-%u\"},\"permission\":{\"edit\":{\"*\":\"deny\"}},"
@@ -5199,6 +5212,8 @@ TEST ui_settings_defaults_and_generated_roundtrips(void) {
         ASSERT(ctx);
         ASSERT_EQ(0, tny_settings_set_ui(ctx, "mode", mode));
         ASSERT_EQ(0, tny_settings_set_ui(ctx, "alternate_screen", alternate));
+        ASSERT_EQ(0, tny_settings_set_ui(ctx, "scrollback_lines", lines));
+        ASSERT_EQ(strtoul(lines, NULL, 10), tny_settings_ui_scrollback_lines(ctx));
         ASSERT_STR_EQ(mode, tny_settings_ui_mode(ctx));
         ASSERT_EQ(strcmp(alternate, "true") == 0, tny_settings_ui_alternate_screen(ctx));
         yyjson_val *root = yyjson_doc_get_root(ctx->settings);
@@ -5209,6 +5224,10 @@ TEST ui_settings_defaults_and_generated_roundtrips(void) {
         ASSERT_EQ(-1, tny_settings_set_ui(ctx, "mode", "fullscreen "));
         ASSERT_EQ(-1, tny_settings_set_ui(ctx, "alternate_screen", "1"));
         ASSERT_EQ(-1, tny_settings_set_ui(ctx, "unknown", "true"));
+        const char *invalid[] = {
+            "", "0", "-1", "+1", "1.5", " 2", "2 ", "1000001", "18446744073709551616"};
+        for (size_t j = 0; j < sizeof invalid / sizeof invalid[0]; j++)
+            ASSERT_EQ(-1, tny_settings_set_ui(ctx, "scrollback_lines", invalid[j]));
         char *after = file_slurp(ctx->settings_path, NULL);
         ASSERT(after);
         ASSERT_STR_EQ(before, after);
@@ -5217,6 +5236,7 @@ TEST ui_settings_defaults_and_generated_roundtrips(void) {
         tny_ctx_free(ctx);
         ctx = tny_ctx_load(g_ws);
         ASSERT(ctx);
+        ASSERT_EQ(strtoul(lines, NULL, 10), tny_settings_ui_scrollback_lines(ctx));
         ASSERT_STR_EQ(mode, tny_settings_ui_mode(ctx));
         ASSERT_EQ(strcmp(alternate, "true") == 0, tny_settings_ui_alternate_screen(ctx));
         tny_ctx_free(ctx);
@@ -5228,6 +5248,8 @@ TEST ui_settings_defaults_and_generated_roundtrips(void) {
     ctx->settings_path = ctx->tny_dir; /* atomic rename cannot replace a directory */
     ASSERT_EQ(-1, tny_settings_set_ui(ctx, "mode", "fullscreen"));
     ASSERT_STR_EQ("inline", tny_settings_ui_mode(ctx));
+    ASSERT_EQ(-1, tny_settings_set_ui(ctx, "scrollback_lines", "100"));
+    ASSERT_EQ(50000, tny_settings_ui_scrollback_lines(ctx));
     ctx->settings_path = settings_path;
     tny_ctx_free(ctx);
     write_settings("{broken manual edit");

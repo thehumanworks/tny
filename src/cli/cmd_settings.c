@@ -23,14 +23,18 @@ int cmd_settings(const cli_globals *g, int argc, char **argv) {
     }
     const char *key = n ? args[1] : NULL;
     bool mode = key && strcmp(key, "ui.mode") == 0;
-    if (key && !mode && strcmp(key, "ui.alternate_screen") != 0) {
-        fputs("tny: settings: key must be ui.mode or ui.alternate_screen\n", stderr);
+    bool scrollback = key && strcmp(key, "ui.scrollback_lines") == 0;
+    if (key && !mode && !scrollback && strcmp(key, "ui.alternate_screen") != 0) {
+        fputs("tny: settings: key must be ui.mode, ui.alternate_screen or ui.scrollback_lines\n",
+              stderr);
         return 1;
     }
-    if (set && (mode ? strcmp(args[2], "inline") != 0 && strcmp(args[2], "fullscreen") != 0
-                     : strcmp(args[2], "true") != 0 && strcmp(args[2], "false") != 0)) {
-        fputs(mode ? "tny: settings: ui.mode must be inline or fullscreen\n"
-                   : "tny: settings: ui.alternate_screen must be true or false\n",
+    if (set && (mode         ? strcmp(args[2], "inline") != 0 && strcmp(args[2], "fullscreen") != 0
+                : scrollback ? !tny_settings_ui_scrollback_lines_valid(args[2])
+                             : strcmp(args[2], "true") != 0 && strcmp(args[2], "false") != 0)) {
+        fputs(mode         ? "tny: settings: ui.mode must be inline or fullscreen\n"
+              : scrollback ? "tny: settings: ui.scrollback_lines must be an integer 1..1000000\n"
+                           : "tny: settings: ui.alternate_screen must be true or false\n",
               stderr);
         return 1;
     }
@@ -46,23 +50,29 @@ int cmd_settings(const cli_globals *g, int argc, char **argv) {
         fputs("tny: settings: settings.json must contain a JSON object\n", stderr);
         goto done;
     }
-    if (set && tny_settings_set_ui(&ctx, mode ? "mode" : "alternate_screen", args[2]) != 0) {
+    if (set && tny_settings_set_ui(&ctx, key + 3, args[2]) != 0) {
         fputs("tny: settings: could not save UI settings\n", stderr);
         goto done;
     }
     const char *ui_mode = tny_settings_ui_mode(&ctx);
     const char *alternate = tny_settings_ui_alternate_screen(&ctx) ? "true" : "false";
+    size_t lines = tny_settings_ui_scrollback_lines(&ctx);
     if (!key) {
         if (json)
-            printf("{\"kind\":\"settings\",\"ui\":{\"mode\":\"%s\",\"alternate_screen\":%s}}\n",
-                   ui_mode, alternate);
-        else printf("ui.mode = %s\nui.alternate_screen = %s\n", ui_mode, alternate);
+            printf("{\"kind\":\"settings\",\"ui\":{\"mode\":\"%s\",\"alternate_screen\":%s,"
+                   "\"scrollback_lines\":%zu}}\n",
+                   ui_mode, alternate, lines);
+        else
+            printf("ui.mode = %s\nui.alternate_screen = %s\nui.scrollback_lines = %zu\n", ui_mode,
+                   alternate, lines);
     } else if (json) {
         printf("{\"kind\":\"setting\",\"key\":\"%s\",\"value\":", key);
         if (mode) printf("\"%s\"", ui_mode);
+        else if (scrollback) printf("%zu", lines);
         else fputs(alternate, stdout);
         fputs("}\n", stdout);
-    } else printf("%s\n", mode ? ui_mode : alternate);
+    } else if (scrollback) printf("%zu\n", lines);
+    else printf("%s\n", mode ? ui_mode : alternate);
     rc = ferror(stdout) ? 1 : 0;
 done:
     yyjson_doc_free(ctx.settings);

@@ -91,6 +91,9 @@ static void free_tui(tui *t) {
     buf_free(&t->out);
     buf_free(&t->partial);
     buf_free(&t->transcript);
+    buf_free(&t->scrollback_visual);
+    buf_free(&t->scrollback_starts);
+    buf_free(&t->scrollback_partial);
     tui_shell_stop(t);
     buf_free(&t->input);
     buf_free(&t->shell_pending);
@@ -677,6 +680,51 @@ TEST decode_arrows_unchanged(void) {
     ASSERT_EQ(TUI_K_UP, dec("\x1b[A", 3));
     ASSERT_EQ(TUI_K_DEL, dec("\x1b[3~", 4));
     ASSERT_EQ(TUI_K_HOME, dec("\x1b[H", 3));
+    PASS();
+}
+
+TEST decode_scroll_controls_survive_every_split_boundary(void) {
+    const struct {
+        const char *bytes;
+        tui_key key;
+    } cases[] = {
+        {"\x1b[5~", TUI_K_PAGE_UP},         {"\x1b[6~", TUI_K_PAGE_DOWN},
+        {"\x1b[1;2A", TUI_K_SCROLL_UP},     {"\x1b[1;2B", TUI_K_SCROLL_DOWN},
+        {"\x1b[1;5H", TUI_K_SCROLL_HOME},   {"\x1b[1;5F", TUI_K_SCROLL_END},
+        {"\x1b[7;5~", TUI_K_SCROLL_HOME},   {"\x1b[8;5~", TUI_K_SCROLL_END},
+        {"\x1b[<64;12;9M", TUI_K_WHEEL_UP}, {"\x1b[<65;12;9M", TUI_K_WHEEL_DOWN},
+        {"\x1b[<92;12;9M", TUI_K_WHEEL_UP}, {"\x1b[M`!!", TUI_K_WHEEL_UP},
+        {"\x1b[Ma!!", TUI_K_WHEEL_DOWN},    {"\x1b[M !!", TUI_K_NONE},
+        {"\x1b[<64;12;9m", TUI_K_NONE},     {"\x1b[<0;12;9M", TUI_K_NONE},
+        {"\x1b[<66;12;9M", TUI_K_NONE},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+        size_t n = strlen(cases[i].bytes);
+        tui_decoded d;
+        for (size_t split = 1; split < n; split++)
+            ASSERT_EQ(0, tui_decode_one(cases[i].bytes, split, false, &d));
+        ASSERT_EQ(n, tui_decode_one(cases[i].bytes, n, false, &d));
+        ASSERT_EQ(cases[i].key, d.key);
+    }
+    PASS();
+}
+
+TEST decode_mouse_ignores_invalid_coordinates_and_parameters(void) {
+    const char *cases[] = {"\x1b[<64;0;1M",
+                           "\x1b[<64;1;0M",
+                           "\x1b[<64;1M",
+                           "\x1b[<64;;1M",
+                           "\x1b[<64;1;1;2M",
+                           "\x1b[<64;1;1A",
+                           "\x1b[<999999999999999999999999;1;1M"};
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+        tui_decoded d;
+        ASSERT_EQ(strlen(cases[i]), tui_decode_one(cases[i], strlen(cases[i]), true, &d));
+        ASSERT_EQ(TUI_K_NONE, d.key);
+    }
+    /* General CSI integer parsing also stays defined for long reports. */
+    const char *large = "\x1b[999999999999999999999999~";
+    ASSERT_EQ(TUI_K_NONE, dec(large, strlen(large)));
     PASS();
 }
 
@@ -1452,6 +1500,125 @@ TEST fullscreen_wraps_wide_and_combining_transcript_cells(void) {
     PASS();
 }
 
+TEST fullscreen_scrollback_retention_anchor_and_follow_tail(void) {
+    tui t;
+    mk_tui(&t, 6);
+    t.fullscreen = true;
+    t.attr = false;
+    t.scrollback_lines = 10;
+    tny_ctx ctx = {0};
+    ctx.cwd = (char *)"/workspace";
+    t.ctx = &ctx;
+    buf_t frame;
+    buf_init(&frame);
+    for (int i = 0; i < 12; i++) tui_linef(&t, "row%02d", i);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT_EQ(10, t.transcript_lines);
+    ASSERT_FALSE(strstr(t.transcript.data, "row01"));
+    tui_scrollback_home(&t);
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT(strstr(frame.data, "\x1b[1;1Hrow02"));
+    tui_scrollback_scroll(&t, -2);
+    tui_linef(&t, "row12");
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT(strstr(frame.data, "\x1b[1;1Hrow04"));
+    t.rows = 8;
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT(strstr(frame.data, "\x1b[1;1Hrow04"));
+    tui_scrollback_end(&t);
+    tui_linef(&t, "row13");
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT_EQ(0, t.scrollback_offset);
+    ASSERT(strstr(frame.data, "row13"));
+    tui_scrollback_home(&t);
+    for (int i = 14; i < 30; i++) tui_linef(&t, "row%02d", i);
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT(strstr(frame.data, "\x1b[1;1Hrow20")); /* evicted anchor clamps */
+    ASSERT_EQ(10, t.transcript_lines);
+    size_t version = t.scrollback_version;
+    char *cached = t.scrollback_visual.data;
+    buf_appends(&t.input, "draft");
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT_EQ(version, t.scrollback_version);
+    ASSERT(cached == t.scrollback_visual.data);
+    tui_clear_screen(&t);
+    tui_scrollback_home(&t);
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT_EQ(0, t.scrollback_total);
+    ASSERT_EQ(0, t.scrollback_offset);
+    buf_free(&frame);
+    free_tui(&t);
+    PASS();
+}
+
+TEST fullscreen_scrollback_keeps_long_lines_and_resize_anchor(void) {
+    tui t;
+    mk_tui(&t, 5);
+    t.fullscreen = true;
+    t.attr = false;
+    t.cols = 20;
+    tny_ctx ctx = {0};
+    ctx.cwd = (char *)"/workspace";
+    t.ctx = &ctx;
+    buf_t frame;
+    buf_init(&frame);
+    for (int i = 0; i < 3000; i++)
+        tui_linef(&t,
+                  "long%04d abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz "
+                  "abcdefghijklmnopqrstuvwxyz",
+                  i);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT(t.transcript.len > 256u * 1024u);
+    tui_scrollback_home(&t);
+    tui_scrollback_scroll(&t, -1);
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT_EQ(19, t.scrollback_anchor);
+    t.cols = 40;
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT(strstr(frame.data, "\x1b[1;1Hlong0000"));
+    ASSERT_EQ(0, t.scrollback_anchor);
+    buf_free(&frame);
+    free_tui(&t);
+    PASS();
+}
+
+TEST fullscreen_scrollback_cached_styles_and_oom_stay_bounded(void) {
+    tui t;
+    mk_tui(&t, 6);
+    t.fullscreen = true;
+    tny_ctx ctx = {0};
+    ctx.cwd = (char *)"/workspace";
+    t.ctx = &ctx;
+    buf_t frame;
+    buf_init(&frame);
+    for (int i = 0; i < 2000; i++)
+        tui_write(&t, "\x1b[2mstyled\x1b[0m\n", sizeof "\x1b[2mstyled\x1b[0m\n" - 1);
+    tui_write(&t, "\x1b[31mcontinued\nlast\n", sizeof "\x1b[31mcontinued\nlast\n" - 1);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT(frame.len < 2048); /* previous rows' SGR never inflate a frame */
+    ASSERT(strstr(frame.data, "\x1b[31m"));
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT(frame.len < 2048);
+    t.scrollback_starts.oom = true;
+    tui_scrollback_home(&t);
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT(frame_positions_bounded(&frame, t.rows, t.cols));
+    buf_free(&frame);
+    free_tui(&t);
+    PASS();
+}
+
 TEST fullscreen_history_is_bounded_and_controls_stay_inert(void) {
     tui t;
     mk_tui(&t, 12);
@@ -1459,12 +1626,13 @@ TEST fullscreen_history_is_bounded_and_controls_stay_inert(void) {
     tny_ctx ctx = {0};
     ctx.cwd = (char *)"/workspace";
     t.ctx = &ctx;
-    for (unsigned i = 0; i < TUI_TRANSCRIPT_BYTES / 4 + 20; i++) buf_appends(&t.out, "old\n");
+    for (unsigned i = 0; i < TNY_UI_SCROLLBACK_LINES_DEFAULT + 20; i++)
+        buf_appends(&t.out, "old\n");
     tui_linef(&t, "\x1b]0;bad title\a\x1b[999;999Hlatest sentinel");
     buf_t frame;
     buf_init(&frame);
     tui_fullscreen_frame(&t, &frame);
-    ASSERT(t.transcript.len <= TUI_TRANSCRIPT_BYTES);
+    ASSERT_EQ(TNY_UI_SCROLLBACK_LINES_DEFAULT, t.transcript_lines);
     ASSERT(strstr(frame.data, "latest sentinel"));
     ASSERT_FALSE(strstr(frame.data, "bad title"));
     ASSERT_FALSE(strstr(frame.data, "999;999H"));
@@ -1531,6 +1699,9 @@ TEST terminal_generated_modes_restore_once_and_non_tty_is_plain(void) {
             ASSERT_EQ(alternate, strstr(out, "\x1b[?1049h") != NULL);
             ASSERT_EQ(alternate, strstr(out, "\x1b[?1049l") != NULL);
             ASSERT_EQ(t.fullscreen, strstr(out, "\x1b[H\x1b[2J") != NULL);
+            ASSERT_EQ(t.fullscreen, strstr(out, "\x1b[?1000h\x1b[?1006h") != NULL);
+            ASSERT_EQ(t.fullscreen, strstr(out, "\x1b[?1000l\x1b[?1006l") != NULL);
+            ASSERT_EQ(t.fullscreen, strstr(out, "\x1b[?1000;1006;1007r") != NULL);
             ASSERT_EQ(t.attr, strstr(out, "\x1b[0m") != NULL);
             const char *begin = strstr(out, "\x1b[?2004h");
             ASSERT_FALSE(strstr(begin + 1, "\x1b[?2004h"));
@@ -1547,6 +1718,9 @@ SUITE(tui_suite) {
     RUN_TEST(fullscreen_redraw_keeps_tail_and_bottom_composer);
     RUN_TEST(fullscreen_wraps_wide_and_combining_transcript_cells);
     RUN_TEST(fullscreen_history_is_bounded_and_controls_stay_inert);
+    RUN_TEST(fullscreen_scrollback_retention_anchor_and_follow_tail);
+    RUN_TEST(fullscreen_scrollback_keeps_long_lines_and_resize_anchor);
+    RUN_TEST(fullscreen_scrollback_cached_styles_and_oom_stay_bounded);
     RUN_TEST(terminal_generated_modes_restore_once_and_non_tty_is_plain);
     RUN_TEST(shell_mode_streams_and_discloses_only_once);
     RUN_TEST(shell_mode_preserves_context_for_builtin_and_blank);
@@ -1594,6 +1768,8 @@ SUITE(tui_suite) {
     RUN_TEST(decode_csi_u_shift_enter_and_ctrl_v);
     RUN_TEST(decode_csi_u_survives_every_split_boundary);
     RUN_TEST(decode_arrows_unchanged);
+    RUN_TEST(decode_scroll_controls_survive_every_split_boundary);
+    RUN_TEST(decode_mouse_ignores_invalid_coordinates_and_parameters);
     RUN_TEST(decode_cpr_reports_terminal_size);
     RUN_TEST(size_report_applies_only_real_changes);
     RUN_TEST(render_narrow_terminal_leaves_one_status_row);

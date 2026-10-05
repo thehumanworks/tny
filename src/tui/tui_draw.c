@@ -402,17 +402,23 @@ static void composer_rows(tui *t, buf_t *b, int *rows, int maxw, int limit, int 
 static void transcript_commit(tui *t) {
     if (!t->out.len) return;
     buf_append(&t->transcript, t->out.data, t->out.len);
+    if (t->transcript.oom) return;
+    t->transcript_version++;
+    for (size_t i = 0; i < t->out.len; i++)
+        if (t->out.data[i] == '\n') t->transcript_lines++;
     buf_clear(&t->out);
-    if (t->transcript.len <= TUI_TRANSCRIPT_BYTES) return;
-    size_t cut = t->transcript.len - TUI_TRANSCRIPT_BYTES;
-    const char *nl = memchr(t->transcript.data + cut, '\n', t->transcript.len - cut);
-    if (nl && nl + 1 < t->transcript.data + t->transcript.len)
+    size_t limit = t->scrollback_lines ? t->scrollback_lines : TNY_UI_SCROLLBACK_LINES_DEFAULT;
+    size_t cut = 0;
+    while (t->transcript_lines > limit) {
+        const char *nl = memchr(t->transcript.data + cut, '\n', t->transcript.len - cut);
+        if (!nl) break;
         cut = (size_t)(nl + 1 - t->transcript.data);
-    else {
-        while (cut < t->transcript.len && ((unsigned char)t->transcript.data[cut] & 0xc0) == 0x80)
-            cut++;
+        t->transcript_lines--;
     }
-    buf_consume(&t->transcript, cut);
+    if (cut) {
+        buf_consume(&t->transcript, cut);
+        t->scrollback_anchor = t->scrollback_anchor > cut ? t->scrollback_anchor - cut : 0;
+    }
 }
 
 /* Convert transcript text to explicit physical rows. Only SGR survives:
@@ -447,7 +453,15 @@ static int transcript_cell_width(const char *s, size_t n) {
     return 1;
 }
 
-static void transcript_wrap(buf_t *b, const char *s, size_t n, int width, bool attr) {
+typedef struct {
+    size_t source, visual, sgr;
+} scrollback_row;
+
+static void transcript_wrap(buf_t *b, const char *s, size_t n, int width, bool attr,
+                            buf_t *starts) {
+    scrollback_row start = {0, 0, SIZE_MAX};
+    size_t sgr = SIZE_MAX;
+    buf_append(starts, &start, sizeof start);
     int col = 0;
     for (size_t i = 0; i < n;) {
         unsigned char ch = (unsigned char)s[i];
@@ -456,7 +470,11 @@ static void transcript_wrap(buf_t *b, const char *s, size_t n, int width, bool a
             if (j < n && s[j] == '[') {
                 j++;
                 while (j < n && !((unsigned char)s[j] >= 0x40 && (unsigned char)s[j] <= 0x7e)) j++;
-                if (j < n && s[j] == 'm' && attr) buf_append(b, s + i, j - i + 1);
+                if (j < n && s[j] == 'm' && attr) {
+                    if ((j - i == 2) || (j - i == 3 && s[i + 2] == '0')) sgr = SIZE_MAX;
+                    else if (sgr == SIZE_MAX) sgr = b->len;
+                    buf_append(b, s + i, j - i + 1);
+                }
                 i = j < n ? j + 1 : n;
             } else if (j < n && s[j] == ']') {
                 j++;
@@ -470,6 +488,8 @@ static void transcript_wrap(buf_t *b, const char *s, size_t n, int width, bool a
             buf_appends(b, "\n");
             col = 0;
             i++;
+            start = (scrollback_row){i, b->len, sgr};
+            buf_append(starts, &start, sizeof start);
             continue;
         }
         if ((ch < 0x20 && ch != '\t') || ch == 0x7f) {
@@ -482,6 +502,8 @@ static void transcript_wrap(buf_t *b, const char *s, size_t n, int width, bool a
         if (cells && col + cells > width) {
             buf_appends(b, "\n");
             col = 0;
+            start = (scrollback_row){i, b->len, sgr};
+            buf_append(starts, &start, sizeof start);
         }
         if (ch == '\t') buf_appends(b, " ");
         else buf_append(b, s + i, j - i);
@@ -490,28 +512,75 @@ static void transcript_wrap(buf_t *b, const char *s, size_t n, int width, bool a
     }
 }
 
+/* Reflow only when display text or terminal width changes. Composer edits,
+ * spinner ticks and scrolling reuse the physical-row index. */
+static bool scrollback_reflow(tui *t, int width) {
+    if (t->scrollback_width != width || t->scrollback_attr != t->attr ||
+        t->scrollback_version != t->transcript_version ||
+        t->scrollback_partial.len != t->partial.len ||
+        (t->partial.len &&
+         memcmp(t->scrollback_partial.data, t->partial.data, t->partial.len) != 0)) {
+        buf_t source;
+        buf_init(&source);
+        buf_append(&source, t->transcript.data, t->transcript.len);
+        buf_append(&source, t->partial.data, t->partial.len);
+        if (source.oom) {
+            buf_free(&source);
+            return false;
+        }
+        buf_clear(&t->scrollback_visual);
+        buf_clear(&t->scrollback_starts);
+        transcript_wrap(&t->scrollback_visual, source.data, source.len, width, t->attr,
+                        &t->scrollback_starts);
+        buf_free(&source);
+        buf_clear(&t->scrollback_partial);
+        buf_append(&t->scrollback_partial, t->partial.data, t->partial.len);
+        if (t->scrollback_starts.oom || t->scrollback_visual.oom || t->scrollback_partial.oom)
+            return false;
+        t->scrollback_version = t->transcript_version;
+        t->scrollback_width = width;
+        t->scrollback_attr = t->attr;
+    }
+    if (t->scrollback_starts.oom || t->scrollback_visual.oom ||
+        t->scrollback_starts.len < sizeof(scrollback_row))
+        return false;
+    size_t total = t->scrollback_starts.len / sizeof(scrollback_row);
+    if (!t->scrollback_visual.len ||
+        t->scrollback_visual.data[t->scrollback_visual.len - 1] == '\n')
+        total--;
+    t->scrollback_total = total;
+    return true;
+}
+
+static size_t scrollback_first(tui *t, size_t maximum) {
+    if (!t->scrollback_offset) return maximum;
+    const scrollback_row *starts = (const scrollback_row *)t->scrollback_starts.data;
+    size_t low = 0, high = maximum;
+    while (low < high) {
+        size_t middle = low + (high - low + 1) / 2;
+        if (starts[middle].source <= t->scrollback_anchor) low = middle;
+        else high = middle - 1;
+    }
+    return low;
+}
+
 static void fullscreen_transcript(tui *t, buf_t *frame, int height, int width) {
     if (height <= 0) return;
-    buf_t source, visual;
-    buf_init(&source);
-    buf_init(&visual);
-    buf_append(&source, t->transcript.data, t->transcript.len);
-    buf_append(&source, t->partial.data, t->partial.len);
-    transcript_wrap(&visual, source.data, source.len, width, t->attr);
-    buf_free(&source);
-    int total = visual.len && visual.data[visual.len - 1] != '\n' ? 1 : 0;
-    for (size_t i = 0; i < visual.len; i++)
-        if (visual.data[i] == '\n') total++;
-    int skip = total > height ? total - height : 0;
-    size_t at = 0;
-    for (int i = 0; i < skip; i++) {
-        const char *nl = memchr(visual.data + at, '\n', visual.len - at);
-        if (!nl) break;
-        at = (size_t)(nl + 1 - visual.data);
-    }
+    if (!scrollback_reflow(t, width)) return;
+    size_t total = t->scrollback_total;
+    buf_t visual = t->scrollback_visual;
+    size_t maximum = total > (size_t)height ? total - (size_t)height : 0;
+    size_t skip = scrollback_first(t, maximum);
+    t->scrollback_offset = maximum - skip;
+    t->scrollback_anchor = ((scrollback_row *)t->scrollback_starts.data)[skip].source;
+    t->scrollback_height = height;
+    size_t at = ((scrollback_row *)t->scrollback_starts.data)[skip].visual;
     /* A wrapped visible row can inherit an attribute from discarded rows.
      * Replay only those zero-width SGR sequences, never their text. */
-    if (at && t->attr) tui_push_ansi(frame, visual.data, at, 0);
+    if (at && t->attr) {
+        size_t sgr = ((scrollback_row *)t->scrollback_starts.data)[skip].sgr;
+        if (sgr != SIZE_MAX) tui_push_ansi(frame, visual.data + sgr, at - sgr, 0);
+    }
     for (int row = 1; row <= height && at < visual.len; row++) {
         const char *nl = memchr(visual.data + at, '\n', visual.len - at);
         size_t end = nl ? (size_t)(nl - visual.data) : visual.len;
@@ -520,8 +589,33 @@ static void fullscreen_transcript(tui *t, buf_t *frame, int height, int width) {
         at = nl ? end + 1 : end;
     }
     buf_appends(frame, tui_attr(t, "\x1b[0m"));
-    buf_free(&visual);
 }
+
+int tui_scrollback_page_rows(const tui *t) {
+    return t->scrollback_height > 1 ? t->scrollback_height - 1 : 1;
+}
+
+void tui_scrollback_scroll(tui *t, int lines) {
+    if (!t->fullscreen || !lines) return;
+    transcript_commit(t);
+    if (!scrollback_reflow(t, t->cols > 3 ? t->cols - 1 : 3)) return;
+    size_t total = t->scrollback_total;
+    size_t height = t->scrollback_height > 0 ? (size_t)t->scrollback_height : 1;
+    size_t maximum = total > height ? total - height : 0;
+    scrollback_row *indices = (scrollback_row *)t->scrollback_starts.data;
+    size_t first = scrollback_first(t, maximum);
+    if (lines > 0) first = (size_t)lines > first ? 0 : first - (size_t)lines;
+    else {
+        size_t down = (size_t)(-(int64_t)lines);
+        first = down > maximum - first ? maximum : first + down;
+    }
+    t->scrollback_offset = maximum - first;
+    t->scrollback_anchor = indices[first].source;
+    t->dirty = true;
+}
+
+void tui_scrollback_home(tui *t) { tui_scrollback_scroll(t, INT32_MAX); }
+void tui_scrollback_end(tui *t) { tui_scrollback_scroll(t, -INT32_MAX); }
 
 void tui_fullscreen_frame(tui *t, buf_t *frame) {
     transcript_commit(t);
@@ -582,6 +676,8 @@ void tui_clear_screen(tui *t) {
     buf_clear(&t->out);
     buf_clear(&t->partial);
     buf_clear(&t->transcript);
+    t->transcript_version++;
+    t->transcript_lines = t->scrollback_offset = t->scrollback_anchor = t->scrollback_total = 0;
     if (!t->fullscreen) buf_appends(&t->out, "\x1b[H\x1b[2J\x1b[3J");
     t->block_rows = t->cur_row = 0;
     t->dirty = true;
@@ -671,6 +767,7 @@ void tui_render(tui *t) {
 }
 
 void tui_raw_begin(tui *t) {
+    tui_terminal_mouse(false);
     if (t->tty && t->fullscreen) {
         tui_bol(t);
         tui_render_force(t);
@@ -699,6 +796,7 @@ void tui_raw_begin(tui *t) {
 }
 
 void tui_raw_end(tui *t) {
+    tui_terminal_mouse(true);
     fflush(stdout);
     t->dirty = true;
 }

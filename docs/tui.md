@@ -26,8 +26,8 @@ also be changed through `tny settings` or `settings.json`; see
 ```
 
 - Inline transcript is append-only with terminal scrollback. Fullscreen shows
-  a bounded recent transcript above the composer; `/transcript` prints the
-  saved session transcript. Markdown-ish: headings, lists, fenced code, diffs
+  a scrollable transcript above the composer (50,000 logical lines by
+  default); `/transcript` prints the saved session transcript. Markdown-ish: headings, lists, fenced code, diffs
   as plain text with `+`/`-` coloring.
 - Composer wraps at the terminal width and supports real newlines
   (`Ctrl-J`, `Option-J` / `Alt-J`, `Alt-Enter`, kitty/CSI-u `Shift-Enter`
@@ -49,6 +49,31 @@ also be changed through `tny settings` or `settings.json`; see
   line) is painted with autowrap off (`CSI ?7 l` … `CSI ?7 h`) so an
   over-wide row is clipped, never soft-wrapped into a second physical row
   the repaint would leave behind ([ADR 0054](adr/0054-terminal-size-probe-and-no-autowrap-block.md)).
+
+## Fullscreen scrollback
+
+Fullscreen retains up to `ui.scrollback_lines` completed newline-delimited
+transcript lines plus the current unfinished streaming line, default 50,000
+completed lines (range 1–1,000,000). Configure the next launch
+with `tny settings set ui.scrollback_lines N` or
+`/settings ui.scrollback_lines N`. Display rows wrap to the terminal width;
+scrolling moves through those wrapped rows. Oldest retained lines are evicted
+when the limit is reached. `/transcript` remains the saved-session history path.
+
+| Fullscreen input | Action |
+| --- | --- |
+| Mouse wheel up/down | scroll three display rows |
+| Shift-Up / Shift-Down | scroll one display row |
+| PageUp / PageDown | scroll one transcript page |
+| Ctrl-Home | go to the oldest retained output |
+| Ctrl-End | go to the live bottom |
+
+While browsing older output, new output keeps the view anchored to the same
+retained text. Reaching the bottom resumes following live output. Plain arrow
+keys continue to edit the composer or navigate prompt history. Fullscreen
+enables mouse reporting for wheel navigation and restores terminal modes on
+exit. Inline uses the terminal's own scrollback; plain mode streams output.
+See [ADR 0183](adr/0183-fullscreen-scrollback.md).
 
 ## Colors and attributes
 
