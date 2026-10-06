@@ -273,6 +273,8 @@ class ExecutionCodeMode(unittest.TestCase):
             self.assertEqual(schema["required"], ["code"])
             self.assertEqual(schema["properties"]["code"]["type"], "string")
             self.assertEqual(schema["properties"]["timeout_ms"]["type"], "integer")
+            self.assertEqual(schema["properties"]["timeout_ms"]["default"], 600000)
+            self.assertEqual(schema["properties"]["timeout_ms"]["maximum"], 600000)
             self.assertFalse(schema.get("additionalProperties", True))
 
     def test_binary_output_and_unicode_error_do_not_break_protocol(self):

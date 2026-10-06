@@ -191,3 +191,4 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0181: Unlisted ACP model IDs are requested, not rejected](0181-acp-unlisted-models.md) — the adapter catalog informs `models` but never gates `--model`; the agent confirms or rejects, with Lean proofs and ast-grep rules.
 - [0182: Inline and fullscreen TUI display](0182-fullscreen-tui.md) — shared ANSI shell with configurable display mode, optional alternate buffer, saved display settings and headless CLI access.
 - [0183: Fullscreen transcript scrollback](0183-fullscreen-scrollback.md) — configurable logical-line retention, wrapped-row navigation and anchored streaming views.
+- [0184: Code-cell deadlines accommodate delegated inference](0184-code-cell-delegation-budget.md) — ten-minute bounded default, explicit shorter budgets, delayed-child and live Codex end-to-end acceptance.

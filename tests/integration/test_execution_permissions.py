@@ -23,10 +23,12 @@ class ExecutionPermissions(unittest.TestCase):
     setUp = code_fixture.ExecutionCodeMode.setUp
     close_server = code_fixture.ExecutionCodeMode.close_server
 
-    def launch(self, *, twice=False):
+    def launch(self, *, twice=False, timeout_ms=None):
         code = 'print(tools.call("write_file", \'{"path":"effect.txt","content":"first"}\'))'
         self.server.call_name = "run_code"
         self.server.arguments = {"code": code}
+        if timeout_ms is not None:
+            self.server.arguments["timeout_ms"] = timeout_ms
         if twice:
             self.server.sequence = [
                 {"code": code},
@@ -141,7 +143,7 @@ class ExecutionPermissions(unittest.TestCase):
         self.assertFalse((self.workspace / "effect.txt").exists())
 
     def test_human_wait_does_not_consume_five_second_code_budget(self):
-        self.launch()
+        self.launch(timeout_ms=5000)
         with self.connect() as owner:
             final, requests = self.finish(owner, "allow", delay=6)
         self.assertEqual(final["exit_code"], 0, final)

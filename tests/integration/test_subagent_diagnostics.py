@@ -472,9 +472,10 @@ def diag_cancel(provider, home, workspace):
     stable CANCELLED result; the child's lifecycle is not success."""
     env = fx.base_env(home, provider)
     s = "cancel"
-    provider.hold("holdcancel")
+    tag = "hold-effect-cancel"
+    provider.hold(tag)
     provider.plan(
-        s, ("subagent", {"action": "create", "prompt": "child-task:holdcancel x"})
+        s, fx.subagent_cell({"action": "create", "prompt": f"child-task:{tag} x"})
     )
     before = set(fx.session_dirs(home))
     proc = subprocess.Popen(
@@ -486,22 +487,24 @@ def diag_cancel(provider, home, workspace):
         text=True,
     )
     try:
-        check(
-            provider.arrived["holdcancel"].wait(60), "child never reached the provider"
-        )
-        pids = [pid for pid, _args in fx.child_processes()]
+        check(provider.arrived[tag].wait(60), "child never reached the provider")
+        pids = owned_processes(home, proc.pid)
         check(pids, "no live child process to cancel")
         proc.send_signal(signal.SIGINT)
         _out, err = proc.communicate(timeout=60)
     finally:
         if proc.poll() is None:
             proc.kill()
-        provider.holds["holdcancel"].set()
+        provider.holds[tag].set()
     check(proc.returncode == 130, f"parent exit {proc.returncode}: {err}")
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline and any(alive(p) for p in pids):
         time.sleep(0.1)
     check(not any(alive(p) for p in pids), f"child processes survived: {pids}")
+    check(
+        not os.path.exists(os.path.join(workspace, tag + ".marker")),
+        "cancelled child performed a late effect",
+    )
     added = set(fx.session_dirs(home)) - before
     parent = parent_session(home, s, added)
     doc = fx.session_doc(home, parent)
@@ -534,14 +537,89 @@ def diag_cancel(provider, home, workspace):
         )
 
 
+def process_rows():
+    out = subprocess.run(
+        ["ps", "-A", "-o", "pid=,ppid=,stat="],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+    return {
+        int(p): (int(parent), state)
+        for p, parent, state in (line.split() for line in out.stdout.splitlines())
+    }
+
+
+def owned_processes(home, parent_pid=None):
+    """Private session pid files include detached runners; then follow children."""
+    roots = {parent_pid} if parent_pid else set()
+    for path in fx.session_dirs(home).values():
+        try:
+            with open(os.path.join(path, "pid"), encoding="utf-8") as f:
+                roots.add(int(f.read()))
+        except FileNotFoundError:
+            pass
+    rows = process_rows()
+    while True:
+        added = {p for p, (parent, _state) in rows.items() if parent in roots} - roots
+        if not added:
+            return roots & rows.keys()
+        roots.update(added)
+
+
 def alive(pid):
+    row = process_rows().get(pid)
+    return row is not None and not row[1].startswith("Z")
+
+
+def diag_short_timeout(provider, home, workspace):
+    """Explicit budgets still cancel the real child and its pending effect."""
+    tag, scenario = "hold-effect-timeout", "short-timeout"
+    provider.hold(tag)
+    provider.plan(
+        scenario,
+        fx.subagent_cell(
+            {"action": "create", "prompt": f"child-task:{tag} x"}, timeout_ms=1500
+        ),
+    )
+    observed = {}
+
+    def observe():
+        if provider.arrived[tag].wait(20):
+            observed["pids"] = owned_processes(home)
+
+    worker = threading.Thread(target=observe, daemon=True)
+    worker.start()
+    before = set(fx.session_dirs(home))
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+        fx.run_parent(fx.base_env(home, provider), workspace, scenario)
+    finally:
+        provider.holds[tag].set()
+        worker.join(25)
+    check(observed.get("pids"), "timeout never exercised a live child tree")
+    result = provider.results[scenario]
+    check(
+        len(result) == 1 and "timeout" in result[0] and "not replayed" in result[0],
+        result,
+    )
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and any(alive(p) for p in observed["pids"]):
+        time.sleep(0.1)
+    check(not any(alive(p) for p in observed["pids"]), "timeout left owned processes")
+    check(
+        not os.path.exists(os.path.join(workspace, tag + ".marker")),
+        "timed out child performed a late effect",
+    )
+    added = set(fx.session_dirs(home)) - before
+    parent = parent_session(home, scenario, added)
+    children = added - {parent}
+    check(len(children) == 1, f"timeout did not create one real child: {children}")
+    for sid in children:
+        doc = fx.session_doc(home, sid)
+        check(
+            doc.get("status") in ("interrupted", "stale") and doc.get("turns") == 0, doc
+        )
 
 
 def run():
@@ -563,6 +641,7 @@ def run():
             diag_busy(provider, home, workspace)
             diag_secret_echo(provider, home, workspace, os.path.join(tmp, "echo.jsonl"))
             diag_cancel(provider, home, workspace)
+            diag_short_timeout(provider, home, workspace)
     finally:
         provider.close()
     print(

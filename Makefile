@@ -1211,6 +1211,15 @@ test-libtny-tsan:
 	@exit 2
 endif
 
+.PHONY: test-subagent-e2e verify-subagents-live
+test-subagent-e2e: release
+	TNY='$(abspath $(BIN))' python3 tests/integration/test_subagent.py
+	TNY='$(abspath $(BIN))' python3 tests/integration/test_subagent_diagnostics.py
+
+# Explicitly opt-in: consumes the configured Codex ChatGPT account allowance.
+verify-subagents-live: release
+	python3 tests/integration/live_subagent_check.py --live --tny '$(abspath $(BIN))' --output '$(BUILD)/subagents-live.json'
+
 test: test-code-mode-language verify-formal dictation-fixture test-unit test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
 	tests/integration/run.sh
 

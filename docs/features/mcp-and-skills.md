@@ -24,11 +24,15 @@ Native loop only, unless noted.
 ## Code-only agent interface
 
 Agents receive exactly `run_code({code, timeout_ms?})`. A Python 3.14 script
-(timeout 5 s by default, up to 600 s) composes the tools below through
+(timeout 600 s by default, up to 600 s) composes the tools below through
 `tools.call(name, arguments_json)`, with discovery via `tools.list()` and
 `tools.describe(name)`. Results are strings; the pre-bound stdlib `json` module
-converts explicitly ([ADR 0179](../adr/0179-python-code-mode-cpython.md)). The
-script is also an ordinary CPython program on the local host
+converts explicitly ([ADR 0179](../adr/0179-python-code-mode-cpython.md)).
+The deadline covers the entire cell, including nested tools and child inference;
+set a smaller `timeout_ms` for a shorter budget. Explicit cancellation still
+interrupts active work. [ADR 0184](../adr/0184-code-cell-delegation-budget.md)
+replaces the former five-second default. The script is also an ordinary CPython
+program on the local host
 ([ADR 0180](../adr/0180-host-authorized-python-code-cells.md)): the bundled
 standard library imports, and `open`, `subprocess`, `socket`/`urllib`/`ssl` act
 with the OS user's authority in the local workspace directory with the host
@@ -415,6 +419,15 @@ it. In the TUI a builtin slash command always wins over a same-named skill.
 ## Subagents
 
 Durable child sessions ([ADR 0087](../adr/0087-explicit-subagent-contract-and-private-launch.md)). Each child is an ordinary workspace session run by a separate `tny ask` process; the parent receives only the child's final answer, never its transcript. The tool is owned by the native parent loop. A child may select any configured native HTTP profile. See [ADR 0139](../adr/0139-subagent-provider-model-and-effort.md).
+
+`create` and `message` wait synchronously for the complete child turn and consume
+the enclosing `run_code` budget. Its default is ten minutes; an explicit shorter
+`timeout_ms` can interrupt the child. Keep sequential child calls within the
+remaining budget, or use separate cells. For work that must outlive a cell, use
+the durable [jobs](../jobs.md) or [team control](../team-control.md) tools.
+
+Inspect `tools.describe("subagent")` before the first invocation. Every action
+requires the `action` field; the tool name alone does not select `create`.
 
 Launch configuration is an owned snapshot, not a set of retained context or
 environment pointers ([ADR 0133](../adr/0133-owned-subagent-launch-snapshots.md)).

@@ -181,7 +181,8 @@ static const char *SCHEMA_JSON =
     "\"required\":[\"path\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"subagent\",\"description\":\"Run a durable "
     "child agent in its own tny session. create: {action, prompt}; omit id, the result returns "
-    "the child id. message: {action, id, prompt} continues that child. inspect and lifecycle: "
+    "the child id. message: {action, id, prompt} continues that child. create/message wait for "
+    "the child's complete turn within the enclosing run_code deadline. inspect and lifecycle: "
     "{action, id} read its stored state.\",\"parameters\":{\"type\":\"object\",\"properties\":{"
     "\"action\":{\"type\":\"string\",\"enum\":[\"create\",\"message\",\"inspect\",\"lifecycle\"]},"
     "\"id\":{\"type\":\"string\",\"description\":\"Child id returned by create; never set on "
@@ -613,6 +614,11 @@ char *tools_catalog_json(tools_env *env) {
                                 env && env->ctx ? env->ctx->custom_tools : NULL);
 }
 
+#define CODE_NUMBER_TEXT_INNER(value) #value
+#define CODE_NUMBER_TEXT(value)       CODE_NUMBER_TEXT_INNER(value)
+#define CODE_MAX_TIMEOUT_TEXT         CODE_NUMBER_TEXT(TNY_CODE_MAX_TIMEOUT_MS)
+#define CODE_DEFAULT_TIMEOUT_TEXT     CODE_NUMBER_TEXT(TNY_CODE_DEFAULT_TIMEOUT_MS)
+
 static const char RUN_CODE_SCHEMA[] =
     "[{\"type\":\"function\",\"function\":{\"name\":\"run_code\","
     "\"description\":\"Run a Python 3.14 script in a fresh CPython process on the local host, "
@@ -622,7 +628,8 @@ static const char RUN_CODE_SCHEMA[] =
     "tools.call(name, arguments_json) with JSON object text such as json.dumps({...}).\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{"
     "\"code\":{\"type\":\"string\",\"minLength\":1},"
-    "\"timeout_ms\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":600000,\"default\":5000}},"
+    "\"timeout_ms\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":" CODE_MAX_TIMEOUT_TEXT
+    ",\"default\":" CODE_DEFAULT_TIMEOUT_TEXT "}},"
     "\"required\":[\"code\"],\"additionalProperties\":false}}}]";
 
 char *tools_schema_json(tools_env *env) {
@@ -634,9 +641,13 @@ const char *tools_code_instructions(void) {
     return "\n# Code execution\n"
            "The only model-facing tool is run_code. Its code is a Python 3.14 script run by a "
            "fresh embedded CPython process per call, in the local workspace directory, with the "
-           "host environment and the OS user's own permissions (timeout_ms defaults to 5000, "
-           "maximum 600000; pass a longer timeout_ms for builds, tests, installs or network "
-           "work). import, open, eval and exec behave as in CPython, and the standard library "
+           "host environment and the OS user's own permissions (timeout_ms defaults "
+           "to " CODE_DEFAULT_TIMEOUT_TEXT ", maximum " CODE_MAX_TIMEOUT_TEXT
+           "; pass a smaller timeout_ms when a shorter deadline is needed). The deadline "
+           "covers the entire cell, including synchronous nested tools and subagent "
+           "create/message inference; explicit cancellation stops active work without waiting "
+           "for that deadline. "
+           "import, open, eval and exec behave as in CPython, and the standard library "
            "is bundled: os, pathlib, shutil, subprocess, socket, urllib.request, http.client, "
            "ssl, hashlib, zlib, zipfile, tarfile, json, re, datetime, asyncio, sqlite3, "
            "ctypes, bz2, lzma and compression.zstd. GUI/interactive optional modules, "
@@ -651,7 +662,9 @@ const char *tools_code_instructions(void) {
            "Direct Python effects are not mediated by tny tool permissions, hooks or workspace "
            "policies; nested tools are. Discover the nested tools with print(tools.list()), "
            "then inspect one with print(tools.describe(\"read_file\")). Both return JSON "
-           "strings; describe returns None for an unknown tool.\n"
+           "strings; describe returns None for an unknown tool. Before the first call to a "
+           "nested tool, inspect its schema with tools.describe(name); never guess argument "
+           "names or omit required fields.\n"
            "tools.call(name, arguments_json) takes two strings, a tool name and JSON object "
            "text, and synchronously returns the tool's text result. For example: "
            "print(tools.call(\"read_file\", json.dumps({\"path\": \"README.md\"}))). Use None "

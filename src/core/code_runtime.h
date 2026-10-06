@@ -19,10 +19,11 @@
 #define TNY_CODE_NAME_BYTES        256u
 #define TNY_CODE_TOOL_CALLS        64u
 /* One nested result must fit a single private cell frame. */
-#define TNY_CODE_TOOL_RESULT_BYTES  (8u * 1024u * 1024u - 16u)
-#define TNY_CODE_DEFAULT_TIMEOUT_MS 5000
-/* The terminal tool's ceiling: cells may run builds, tests and downloads. */
-#define TNY_CODE_MAX_TIMEOUT_MS 600000
+#define TNY_CODE_TOOL_RESULT_BYTES (8u * 1024u * 1024u - 16u)
+/* The terminal tool's ceiling also covers synchronous delegated inference.
+ * Omitted deadlines use this bound; callers can request a shorter budget. */
+#define TNY_CODE_MAX_TIMEOUT_MS     600000
+#define TNY_CODE_DEFAULT_TIMEOUT_MS TNY_CODE_MAX_TIMEOUT_MS
 
 /* Callback retains permission/allowlist/event authority. Return malloc-owned
  * text; the runtime consumes it. NULL signals allocation/execution failure. */

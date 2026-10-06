@@ -17,10 +17,12 @@ reuses this fixture. Stdlib only; explicit dummy secrets; no live keys.
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from code_mode_fixture import code_call
@@ -35,6 +37,7 @@ CHATGPT_TOKEN = "dummy-chatgpt-token-SENTINELCGT"
 CHATGPT_ACCOUNT = "acct-dummy-subagent"
 INJECTION_ID = "x; touch injected-canary; true"
 ID_RE = re.compile(r"subagent ([0-9a-f]{16}) finished")
+CHILD_WORKSPACES = set()
 CREATE_EXAMPLE = '{"action":"create","prompt":"..."}'
 E_CREATE_ID = (
     "error: SUBAGENT_INVALID_ARGUMENT: create allocates the child id; omit id. "
@@ -67,7 +70,12 @@ def child_processes():
         if " ask --json --stdin" in args and args.startswith(
             (TNY, os.path.realpath(TNY))
         ):
-            procs.append((int(pid), args))
+            argv = shlex.split(args)
+            if (
+                "--cwd" in argv
+                and os.path.realpath(argv[argv.index("--cwd") + 1]) in CHILD_WORKSPACES
+            ):
+                procs.append((int(pid), args))
     return procs
 
 
@@ -343,6 +351,17 @@ class Provider:
         if tag.startswith("hold"):
             self.arrived[tag].set()
             self.holds[tag].wait(90)
+        if (
+            tag.startswith(("hold-effect-", "effect-"))
+            and len(self.child_requests(tag)) == 1
+        ):
+            call = (
+                "child_effect",
+                "terminal",
+                json.dumps({"command": f"printf CHILD-EFFECT > {tag}.marker"}),
+            )
+            h._send(200, ctype, frames(call=call))
+            return
         if tag.startswith("stepcap") and len(outputs) < 5:
             call = (
                 f"child_step_{len(outputs)}",
@@ -397,6 +416,7 @@ DEFAULT_FLAGS = ("--provider", "openai", "--wire-api", "chat")
 
 
 def run_parent(env, workspace, scenario, flags=DEFAULT_FLAGS, expect_exit=0):
+    CHILD_WORKSPACES.add(os.path.realpath(workspace))
     run = subprocess.run(
         [TNY, *flags, "ask", "--json", f"scenario:{scenario} go"],
         cwd=workspace,
@@ -594,6 +614,92 @@ def scenario_optional_arguments(provider, home, workspace, wire):
         doc = session_doc(home, sid)
         check(doc["turns"] == 2 and doc["status"] == "done", doc)
     print(f"ok  subagent optional arguments ({wire}): two children, eight tool calls")
+
+
+def subagent_cell(args, timeout_ms=None):
+    """Explicit Python fixture, preserving omitted versus selected budgets."""
+    code = f"print(tools.call('subagent', {json.dumps(json.dumps(args))}))"
+    cell = {"code": code}
+    if timeout_ms is not None:
+        cell["timeout_ms"] = timeout_ms
+    return "run_code", cell
+
+
+def scenario_default_budget(provider, home, workspace, wire):
+    """An omitted cell budget must permit a child taking over five seconds."""
+    s = "default-budget-" + wire
+    create_tag = "hold-effect-" + wire
+    follow_tag = "hold-effect-follow-" + wire
+    provider.hold(create_tag)
+
+    def delayed_release(tag):
+        def release():
+            if provider.arrived[tag].wait(30):
+                time.sleep(6)
+            provider.holds[tag].set()
+
+        worker = threading.Thread(target=release, daemon=True)
+        worker.start()
+        return worker
+
+    worker = delayed_release(create_tag)
+    provider.plan(
+        s,
+        subagent_cell({"action": "create", "prompt": f"child-task:{create_tag} x"}),
+    )
+    try:
+        payload = run_parent(
+            base_env(home, provider),
+            workspace,
+            s,
+            flags=("--provider", "openai", "--wire-api", wire),
+        )
+    finally:
+        provider.holds[create_tag].set()
+        worker.join(35)
+    check(statuses(payload) == [("subagent", "success")], payload)
+    sid = provider.created_id(s)
+    follow = s + "-follow"
+    provider.plan(
+        follow,
+        subagent_cell(
+            {"action": "message", "id": sid, "prompt": f"child-task:{follow_tag} x"}
+        ),
+        subagent_cell({"action": "inspect", "id": sid}),
+        subagent_cell({"action": "lifecycle", "id": sid}),
+    )
+    provider.hold(follow_tag)
+    worker = delayed_release(follow_tag)
+    try:
+        payload = run_parent(
+            base_env(home, provider),
+            workspace,
+            follow,
+            flags=("--provider", "openai", "--wire-api", wire),
+        )
+    finally:
+        provider.holds[follow_tag].set()
+        worker.join(35)
+    check(statuses(payload) == [("subagent", "success")] * 3, payload)
+    results = provider.results[s] + provider.results[follow]
+    for index, tag in enumerate((create_tag, follow_tag)):
+        check(results[index] == success_text(sid, f"CHILD-OK {tag}"), results)
+        with open(os.path.join(workspace, tag + ".marker"), encoding="utf-8") as f:
+            check(f.read() == "CHILD-EFFECT", f"{tag}: child effect missing")
+        check(
+            provider.results["child:" + tag] == ["exit code: 0\n(no output)"],
+            f"{tag}: child terminal did not succeed",
+        )
+        assert_child_argv(provider, tag)
+    doc = session_doc(home, sid)
+    check(doc["turns"] == 2 and doc["status"] == "done", doc)
+    check("\nturns: 2\n" in results[2], results)
+    check(
+        results[3] == f"subagent {sid}\nstatus: done\nexit_code: 0\n"
+        "running: false\nresumable: true",
+        results,
+    )
+    print(f"ok  subagent default budget ({wire}): delayed child, effect, resume")
 
 
 def scenario_rejected_ids(provider, home, workspace, existing):
@@ -1097,6 +1203,8 @@ def run():
             scenario_selectors(provider, home, workspace, "responses")
             scenario_optional_arguments(provider, home, workspace, "chat")
             scenario_optional_arguments(provider, home, workspace, "responses")
+            scenario_default_budget(provider, home, workspace, "chat")
+            scenario_default_budget(provider, home, workspace, "responses")
             scenario_chatgpt_flag(provider, home, workspace)
             scenario_permission_ceiling(provider, home, workspace)
             scenario_step_ceiling(provider, home, workspace)

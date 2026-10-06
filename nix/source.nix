@@ -26,6 +26,8 @@
 # test_leakcheck.py uses the existing tests/scripts filesets and creates fake
 # checkers in private temporary directories; no platform leak tool is needed.
 # Source filters shared by every tny derivation.
+# test-subagent-e2e uses the existing ../tests fileset and native binary.
+# verify-subagents-live is opt-in account inference and never a sandbox gate.
 #
 # Nix hashes the whole source tree, so an unfiltered `src = ../.` would rebuild
 # the binary whenever docs/, site/, or .github/ changed. These filesets name

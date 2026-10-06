@@ -1,0 +1,21 @@
+{
+  "baseline_revision": "b0e13f65d8adbf8ee8eb6d1ad34780eb2c06eb06",
+  "binary_sha256": "0c47510fc7c83a45060dd3594c33c2d64969378856c3dcf2bb5819341910cd24",
+  "provider": "codex",
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "scenario": "omitted-parent-deadline-with-seven-second-child-tool",
+  "parent_timeout_ms_omitted": true,
+  "parent_session_id": "9ba4e190e3dffed5",
+  "parent_cli_exit": 0,
+  "run_code_ok": false,
+  "run_code_result": "error: execution server timeout; outcome unknown, not replayed",
+  "run_code_elapsed_seconds": 6.253,
+  "child": {
+    "session_id": "63be77846ea9991d",
+    "status": "interrupted",
+    "exit_code": 130,
+    "completed_turns": 0,
+    "marker_exists": false
+  }
+}

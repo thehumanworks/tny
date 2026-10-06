@@ -1,3 +1,5 @@
+# test-subagent-e2e uses existing Python/procps/POSIX inputs and loopback mocks;
+# the opt-in verify-subagents-live target is excluded from make test.
 # Host-capability integration uses existing Python/OpenSSL, private workspaces,
 # loopback HTTP/HTTPS and a synthetic trust root. No account/network service
 # or new dependency is required by test_host_code_mode.py.

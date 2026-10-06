@@ -1,0 +1,224 @@
+{
+  "success": true,
+  "provider": "codex",
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "binary_sha256": "e1a577a539c7b9b0ca4ba927fc50ca3a0370d0628a09429ee28fb1a1559017ed",
+  "isolated_probe": {
+    "success": true,
+    "parent_mode": "isolated",
+    "stage": "parent",
+    "elapsed_seconds": 20.913,
+    "sessions": [
+      {
+        "id": "14edc3484a55a20c",
+        "turns": 1,
+        "status": "done",
+        "exit_code": 0,
+        "code_calls": 1
+      },
+      {
+        "id": "442e237fdfabc392",
+        "turns": 1,
+        "status": "done",
+        "exit_code": 0,
+        "code_calls": 2
+      }
+    ],
+    "parent_exit": 0,
+    "subagent_failure_codes": [],
+    "tools": [
+      {
+        "name": "run_code",
+        "status": "success"
+      },
+      {
+        "name": "subagent",
+        "status": "success"
+      },
+      {
+        "name": "run_code",
+        "status": "success"
+      }
+    ],
+    "parent_id": "442e237fdfabc392",
+    "child_id": "14edc3484a55a20c",
+    "omitted_cell_budgets": true,
+    "parent_status": "done",
+    "child_status": "done",
+    "marker": {
+      "nonce_matches": true,
+      "elapsed_seconds": 6.011,
+      "pid": 36113
+    }
+  },
+  "parent_mode": "in-process-events",
+  "stage": "complete",
+  "elapsed_seconds": 37.906,
+  "sessions": [
+    {
+      "id": "2ee843d00e127b9f",
+      "turns": 1,
+      "status": null,
+      "exit_code": null,
+      "code_calls": 5
+    },
+    {
+      "id": "c8ad0d707caa9a48",
+      "turns": 2,
+      "status": "done",
+      "exit_code": 0,
+      "code_calls": 2
+    },
+    {
+      "id": "14edc3484a55a20c",
+      "turns": 1,
+      "status": "done",
+      "exit_code": 0,
+      "code_calls": 1
+    },
+    {
+      "id": "442e237fdfabc392",
+      "turns": 1,
+      "status": "done",
+      "exit_code": 0,
+      "code_calls": 2
+    }
+  ],
+  "parent_exit": 0,
+  "parent_stop_reason": 0,
+  "parent_id": "2ee843d00e127b9f",
+  "subagent_failure_codes": [],
+  "tools": [
+    {
+      "name": "run_code",
+      "status": "success"
+    },
+    {
+      "name": "subagent",
+      "status": "success"
+    },
+    {
+      "name": "run_code",
+      "status": "success"
+    },
+    {
+      "name": "subagent",
+      "status": "success"
+    },
+    {
+      "name": "run_code",
+      "status": "success"
+    },
+    {
+      "name": "subagent",
+      "status": "success"
+    },
+    {
+      "name": "run_code",
+      "status": "success"
+    },
+    {
+      "name": "subagent",
+      "status": "success"
+    },
+    {
+      "name": "run_code",
+      "status": "success"
+    }
+  ],
+  "subagent_durations": [
+    {
+      "action": "create",
+      "duration_ms": 11087
+    },
+    {
+      "action": "message",
+      "duration_ms": 10400
+    },
+    {
+      "action": "inspect",
+      "duration_ms": 0
+    },
+    {
+      "action": "lifecycle",
+      "duration_ms": 0
+    }
+  ],
+  "syntax_error_recoveries": 0,
+  "cell_nested_actions": [
+    {
+      "cell": 0,
+      "nested_count": 0,
+      "actions": []
+    },
+    {
+      "cell": 1,
+      "nested_count": 1,
+      "actions": [
+        "create"
+      ]
+    },
+    {
+      "cell": 2,
+      "nested_count": 1,
+      "actions": [
+        "message"
+      ]
+    },
+    {
+      "cell": 3,
+      "nested_count": 1,
+      "actions": [
+        "inspect"
+      ]
+    },
+    {
+      "cell": 4,
+      "nested_count": 1,
+      "actions": [
+        "lifecycle"
+      ]
+    }
+  ],
+  "schema_discovery": true,
+  "omitted_cell_budgets": true,
+  "child_id": "c8ad0d707caa9a48",
+  "markers": [
+    {
+      "task": "create",
+      "elapsed_seconds": 6.011,
+      "pid": 36381,
+      "nonce_matches": true
+    },
+    {
+      "task": "follow",
+      "elapsed_seconds": 6.001,
+      "pid": 36548,
+      "nonce_matches": true
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "2ee843d00e127b9f",
+      "exit_code": 0
+    },
+    {
+      "id": "c8ad0d707caa9a48",
+      "exit_code": 0
+    },
+    {
+      "id": "14edc3484a55a20c",
+      "exit_code": 0
+    },
+    {
+      "id": "442e237fdfabc392",
+      "exit_code": 0
+    }
+  ],
+  "cleanup_success": true,
+  "source_base_commit": "b0e13f65d8adbf8ee8eb6d1ad34780eb2c06eb06",
+  "live_checker_sha256": "2a5f4176067a1d2c1e90ba79440279ce2b5fbc46f8c32e2e1ec520821396aaff",
+  "source_patch_sha256": "6e7e0112abd84900bf2d16b9d4ae33a9f11b89b006c0fec8b757ae53b4e5a972",
+  "verified_binary_path": "/Users/tomas/.local/bin/tny"
+}

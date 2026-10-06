@@ -183,7 +183,7 @@ jobs:
           if [ "${{ matrix.suite }}" = full ]; then
             make -j"$jobs" test
           else
-            make -j"$jobs" test-unit release
+            make -j"$jobs" test-unit test-subagent-e2e release
             TNY="$PWD/build/tny" python3 tests/integration/test_execution_code_mode.py
           fi
           if [ "$(uname -s)" = Darwin ]; then

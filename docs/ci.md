@@ -65,6 +65,14 @@ same commit before automatic release.
 
 `make test` covers native Responses and Chat streaming and tool calls, env-only named profiles, removed selectors and settings, no vendor executable discovery, and native Codex/Grok OAuth and compatible wires using local mocks. No paid/live inference is required. Library and SDK tests preserve lifecycle, events, cancellation, custom tools, and capability validation.
 
+`make test-subagent-e2e` runs production-process delegation and cancellation
+fixtures on both HTTP wires. It is also required in the native CI lanes that
+run a smaller suite. `make verify-subagents-live` explicitly uses the configured
+Codex ChatGPT account with `gpt-6-luna`, creates private test state, and writes
+sanitized evidence to `build/subagents-live.json`. It is opt-in and excluded
+from ordinary tests and Nix checks. See
+[delegation evidence](verification/subagent-code-mode.md).
+
 Nix is an **optional developer** workflow, not a GitHub Actions job or release
 gate. `nix flake check` remains available locally for `x86_64-linux`,
 `aarch64-linux` and `aarch64-darwin`; it builds `packages.tny`,
