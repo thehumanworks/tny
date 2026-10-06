@@ -45,6 +45,16 @@ class UiSettingsTests(unittest.TestCase):
         self.assertEqual(ui["properties"]["mode"]["default"], "inline")
         self.assertEqual(ui["properties"]["alternate_screen"]["type"], "boolean")
         self.assertTrue(ui["properties"]["alternate_screen"]["default"])
+        self.assertEqual(
+            ui["properties"]["scrollback_lines"],
+            {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000,
+                "default": 50000,
+                "description": "Maximum logical transcript lines retained for fullscreen scrolling. Applies on the next TUI launch.",
+            },
+        )
         self.assertFalse(ui["additionalProperties"])
         self.assertFalse(
             any(re.fullmatch(p, "ui") for p in SCHEMA["patternProperties"])
@@ -62,6 +72,10 @@ class UiSettingsTests(unittest.TestCase):
             {"mode": "full"},
             {"alternate_screen": "false"},
             {"extra": 1},
+            *(
+                ({"scrollback_lines": value})
+                for value in (0, -1, 1000001, 1.5, "50000", True)
+            ),
         ):
             with self.assertRaises(jsonschema.ValidationError):
                 jsonschema.validate({"ui": ui}, SCHEMA)
@@ -95,13 +109,14 @@ class UiSettingsTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 json.loads(result.stdout)["ui"],
-                {"mode": "inline", "alternate_screen": True},
+                {"mode": "inline", "alternate_screen": True, "scrollback_lines": 50000},
             )
             self.assertFalse(settings.exists())
             settings.parent.mkdir()
             for _ in range(32):
                 mode = seed.choice(("inline", "fullscreen"))
                 alternate = seed.choice((False, True))
+                lines = seed.randint(1, 1000000)
                 original = {
                     "provider": "missing-provider",
                     "models": {"openai": f"keep-{seed.getrandbits(32)}"},
@@ -112,6 +127,7 @@ class UiSettingsTests(unittest.TestCase):
                 for key, value in (
                     ("ui.mode", mode),
                     ("ui.alternate_screen", str(alternate).lower()),
+                    ("ui.scrollback_lines", str(lines)),
                 ):
                     result = run("settings", "set", key, value, "--json")
                     self.assertEqual(result.returncode, 0, result.stderr)
@@ -120,12 +136,18 @@ class UiSettingsTests(unittest.TestCase):
                     )
                 saved = json.loads(settings.read_text())
                 self.assertEqual(
-                    saved.pop("ui"), {"mode": mode, "alternate_screen": alternate}
+                    saved.pop("ui"),
+                    {
+                        "mode": mode,
+                        "alternate_screen": alternate,
+                        "scrollback_lines": lines,
+                    },
                 )
                 self.assertEqual(saved, original)
                 for key, expected in (
                     ("ui.mode", mode),
                     ("ui.alternate_screen", alternate),
+                    ("ui.scrollback_lines", lines),
                 ):
                     result = run("--json", "settings", "get", key)
                     self.assertEqual(result.returncode, 0, result.stderr)
@@ -139,6 +161,19 @@ class UiSettingsTests(unittest.TestCase):
                     ("ui.mode", "fullscreen "),
                     ("ui.alternate_screen", "1"),
                     ("ui.alternate_screen", "TRUE"),
+                    *(
+                        ("ui.scrollback_lines", value)
+                        for value in (
+                            "0",
+                            "-1",
+                            "+1",
+                            "1.5",
+                            "1000001",
+                            " 2",
+                            "2 ",
+                            "99999999999999999999",
+                        )
+                    ),
                     ("private_sentinel", "synthetic-secret-do-not-print"),
                 ):
                     result = run("settings", "set", key, bad)

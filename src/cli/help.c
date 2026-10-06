@@ -354,13 +354,15 @@ bool help_for(const char *command) {
     else if (strcmp(command, "settings") == 0)
         text = "Usage: tny settings [get KEY | set KEY VALUE] [--json]\n\n"
                "Read or change UI defaults in ~/.tny/settings.json without provider credentials.\n"
-               "Keys: ui.mode (inline|fullscreen), ui.alternate_screen (true|false).\n"
+               "Keys: ui.mode (inline|fullscreen), ui.alternate_screen (true|false),\n"
+               "      ui.scrollback_lines (integer 1..1000000; default 50000).\n"
                "Defaults: inline, true. Global UI flags override these for one run.\n\n"
                "Examples:\n"
                "  tny settings --json\n"
                "  tny settings get ui.mode\n"
                "  tny settings set ui.mode fullscreen\n"
-               "  tny settings set ui.alternate_screen false\n";
+               "  tny settings set ui.alternate_screen false\n"
+               "  tny settings set ui.scrollback_lines 100000\n";
     else if (strcmp(command, "speak") == 0)
         text = "Usage: printf 'Hello' | tny speak [OPTIONS]\n"
                "       tny speak --check [--json]\n\n"

@@ -1295,15 +1295,36 @@ bool tny_settings_ui_alternate_screen(tny_ctx *ctx) {
     return jget_bool(settings_ui(ctx), "alternate_screen", true);
 }
 
+size_t tny_settings_ui_scrollback_lines(tny_ctx *ctx) {
+    yyjson_val *v = jget(settings_ui(ctx), "scrollback_lines");
+    uint64_t lines = yyjson_is_uint(v) ? yyjson_get_uint(v) : 0;
+    return lines > 0 && lines <= TNY_UI_SCROLLBACK_LINES_MAX ? (size_t)lines
+                                                             : TNY_UI_SCROLLBACK_LINES_DEFAULT;
+}
+
+bool tny_settings_ui_scrollback_lines_valid(const char *value) {
+    if (!value || !*value) return false;
+    unsigned lines = 0;
+    for (const unsigned char *p = (const unsigned char *)value; *p; p++) {
+        if (*p < '0' || *p > '9') return false;
+        unsigned digit = *p - '0';
+        if (lines > (TNY_UI_SCROLLBACK_LINES_MAX - digit) / 10u) return false;
+        lines = lines * 10u + digit;
+    }
+    return lines > 0;
+}
+
 int tny_settings_set_ui(tny_ctx *ctx, const char *key, const char *value) {
     if (!ctx || !ctx->tny_dir || !ctx->settings_path || !key || !value) return -1;
     /* A failed initial parse is not an empty settings file. Preserve it so
      * the settings UI cannot replace a malformed manual edit with defaults. */
     if (!ctx->settings && file_exists(ctx->settings_path)) return -1;
     bool mode = strcmp(key, "mode") == 0;
-    if (mode ? strcmp(value, "inline") != 0 && strcmp(value, "fullscreen") != 0
-             : strcmp(key, "alternate_screen") != 0 ||
-                   (strcmp(value, "true") != 0 && strcmp(value, "false") != 0))
+    bool scrollback = strcmp(key, "scrollback_lines") == 0;
+    if (mode         ? strcmp(value, "inline") != 0 && strcmp(value, "fullscreen") != 0
+        : scrollback ? !tny_settings_ui_scrollback_lines_valid(value)
+                     : strcmp(key, "alternate_screen") != 0 ||
+                           (strcmp(value, "true") != 0 && strcmp(value, "false") != 0))
         return -1;
     if (ctx->settings && !yyjson_is_obj(yyjson_doc_get_root(ctx->settings))) return -1;
     yyjson_mut_doc *doc =
@@ -1321,8 +1342,9 @@ int tny_settings_set_ui(tny_ctx *ctx, const char *key, const char *value) {
         ok = ui && yyjson_mut_obj_add_val(doc, root, "ui", ui);
     }
     yyjson_mut_val *k = yyjson_mut_strcpy(doc, key);
-    yyjson_mut_val *v =
-        mode ? yyjson_mut_strcpy(doc, value) : yyjson_mut_bool(doc, strcmp(value, "true") == 0);
+    yyjson_mut_val *v = mode         ? yyjson_mut_strcpy(doc, value)
+                        : scrollback ? yyjson_mut_uint(doc, strtoul(value, NULL, 10))
+                                     : yyjson_mut_bool(doc, strcmp(value, "true") == 0);
     ok = ok && k && v && yyjson_mut_obj_put(ui, k, v);
     char *out = ok ? jwrite_pretty(doc) : NULL;
     yyjson_mut_doc_free(doc);

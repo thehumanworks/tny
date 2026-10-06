@@ -45,7 +45,7 @@ static const struct {
     {"task", "/task [NAME|clear] — select a session task preset"},
     {"max-steps", "/max-steps [set N|clear] — cap the agent loop per turn"},
     {"status", "provider, auth, workspace, subscription usage"},
-    {"settings", "display defaults: inline/fullscreen and alternate screen"},
+    {"settings", "display defaults: mode, alternate screen and scrollback"},
     {"usage", "token usage for this workspace"},
     {"sessions", "list sessions for this workspace"},
     {"agents", "background agents dashboard; attach or inspect saved text"},
@@ -569,6 +569,9 @@ void tui_settings_show(tui *t) {
     tui_overlay_linef(t, "  [m] ui.mode: %s", tny_settings_ui_mode(t->ctx));
     tui_overlay_linef(t, "  [a] ui.alternate_screen: %s",
                       tny_settings_ui_alternate_screen(t->ctx) ? "true" : "false");
+    tui_overlay_linef(t, "      ui.scrollback_lines: %zu",
+                      tny_settings_ui_scrollback_lines(t->ctx));
+    tui_overlay_linef(t, "  /settings ui.scrollback_lines 1..1000000");
     if (t->tty) tui_overlay_linef(t, "  m / a toggle · Enter / Esc close");
     else {
         tui_overlay_linef(t, "  /settings ui.mode inline|fullscreen");
@@ -590,13 +593,17 @@ void tui_settings_command(tui *t, const char *arg) {
     char *av[3];
     int ac = tokenize(copy, av, 3);
     const char *key = ac == 2 && strncmp(av[0], "ui.", 3) == 0 ? av[0] + 3 : NULL;
-    if (!key || (strcmp(key, "mode") != 0 && strcmp(key, "alternate_screen") != 0) ||
+    if (!key ||
+        (strcmp(key, "mode") != 0 && strcmp(key, "alternate_screen") != 0 &&
+         strcmp(key, "scrollback_lines") != 0) ||
         (strcmp(key, "mode") == 0 && strcmp(av[1], "inline") != 0 &&
          strcmp(av[1], "fullscreen") != 0) ||
         (strcmp(key, "alternate_screen") == 0 && strcmp(av[1], "true") != 0 &&
-         strcmp(av[1], "false") != 0)) {
+         strcmp(av[1], "false") != 0) ||
+        (strcmp(key, "scrollback_lines") == 0 && !tny_settings_ui_scrollback_lines_valid(av[1]))) {
         tui_err(t, "usage: /settings ui.mode inline|fullscreen | "
-                   "/settings ui.alternate_screen true|false");
+                   "/settings ui.alternate_screen true|false | "
+                   "/settings ui.scrollback_lines 1..1000000");
     } else if (tny_settings_set_ui(t->ctx, key, av[1]) != 0) {
         tui_err(t, "could not save display settings");
     } else {

@@ -24,13 +24,29 @@ EM_JS(int, js_tui_page, (void), { return Module.tnyOut ? 1 : 0; });
 
 static struct termios g_saved;
 static bool g_raw, g_restore_sgr, g_terminal_active, g_alternate_screen;
+static bool g_fullscreen_mouse, g_mouse_enabled;
 static volatile sig_atomic_t g_winch, g_sigint, g_exit_signal;
+
+void tui_terminal_mouse(bool enabled) {
+    if (!g_fullscreen_mouse || g_mouse_enabled == enabled) return;
+    fputs(enabled ? "\x1b[?1000h\x1b[?1006h" : "\x1b[?1000l\x1b[?1006l", stdout);
+    g_mouse_enabled = enabled;
+}
+
+static void mouse_restore(void) {
+    if (!g_fullscreen_mouse) return;
+    tui_terminal_mouse(false);
+    /* Explicit resets also work on terminals without private-mode save/restore. */
+    fputs("\x1b[?1000;1006;1007r", stdout);
+    g_fullscreen_mouse = false;
+}
 
 static void term_restore(void) {
     if (!g_raw && !g_terminal_active) return;
     bool raw = g_raw;
     g_raw = false;
     if (g_terminal_active) {
+        mouse_restore();
         fputs("\x1b[?2004l\x1b[?7h\x1b[r", stdout);
         if (g_restore_sgr) fputs("\x1b[0m", stdout);
         fputs("\x1b[?25h", stdout);
@@ -46,6 +62,12 @@ void tui_terminal_begin(tui *t) {
     g_terminal_active = true;
     g_restore_sgr = t->attr;
     g_alternate_screen = t->fullscreen && t->alternate_screen;
+    if (t->fullscreen) {
+        /* Disable alternate-scroll arrow synthesis: the chat owns wheel input. */
+        fputs("\x1b[?1000;1006;1007s\x1b[?1007l", stdout);
+        g_fullscreen_mouse = true;
+        tui_terminal_mouse(true);
+    }
     if (g_alternate_screen) fputs("\x1b[?1049h", stdout);
     /* Fullscreen owns every visible row, including when the user elects to
      * keep the primary screen. Clear before the first UI paint or probe. */
@@ -205,6 +227,7 @@ tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
             tui_decoded key;
             size_t used = tui_decode_one(keys.data, keys.len, final, &key);
             if (!used) break;
+            tui_scrollback_key(t, key.key);
             int value = key.key == TUI_K_CHAR && key.chlen == 1 ? key.ch[0]
                         : key.key == TUI_K_ESC                  ? 27
                         : key.key == TUI_K_CTRLC                ? 3
@@ -302,6 +325,7 @@ char *tui_ask_user(tui *t, const char *question) {
             tui_decoded key;
             size_t used = tui_decode_one(keys.data, keys.len, final, &key);
             if (!used) break;
+            tui_scrollback_key(t, key.key);
             if (key.key == TUI_K_ENTER) done = true;
             else if (key.key == TUI_K_ESC || key.key == TUI_K_CTRLC || key.key == TUI_K_CTRLD) {
                 if (key.key == TUI_K_CTRLD) t->quit = true;
@@ -901,6 +925,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
                   (g->tui_mode == 0 && strcmp(tny_settings_ui_mode(ctx), "fullscreen") == 0));
     t.alternate_screen =
         g->tui_alt_screen ? g->tui_alt_screen == 1 : tny_settings_ui_alternate_screen(ctx);
+    t.scrollback_lines = tny_settings_ui_scrollback_lines(ctx);
     tui_terminal_begin(&t);
     tui_size(&t);
     tui_size_probe(&t);
@@ -1050,6 +1075,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     }
     if (t.turn_active && t.rc && !t.background_view && !tui_runner_stop(&t, false)) t.exit_code = 1;
     tui_raw_begin(&t);
+    mouse_restore();
     /* Worktree exit prompts still use raw keyboard input, but must appear
      * on the original screen, where their final result survives shell exit. */
     if (g_alternate_screen) {
@@ -1094,6 +1120,9 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     buf_free(&t.agent_filter);
     buf_free(&t.partial);
     buf_free(&t.transcript);
+    buf_free(&t.scrollback_visual);
+    buf_free(&t.scrollback_starts);
+    buf_free(&t.scrollback_partial);
     buf_free(&t.input);
     buf_free(&t.overlay);
     buf_free(&t.note);

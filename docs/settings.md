@@ -24,7 +24,7 @@ not replacements for one-off flags.
 
 ```json
 {
-  "ui": { "mode": "inline", "alternate_screen": true }
+  "ui": { "mode": "inline", "alternate_screen": true, "scrollback_lines": 50000 }
 }
 ```
 
@@ -43,12 +43,20 @@ tny settings
 tny settings get ui.mode --json
 tny settings set ui.mode fullscreen
 tny settings set ui.alternate_screen false
+tny settings set ui.scrollback_lines 50000
 ```
 
 In `/settings`, press `m` to toggle the default mode, `a` to toggle the
 alternate buffer, and Enter or Esc to close. Changes apply on the next TUI
 launch. `/settings ui.mode fullscreen` and
 `/settings ui.alternate_screen false` also save explicit values.
+`/settings ui.scrollback_lines 50000` saves the fullscreen transcript limit.
+
+`ui.scrollback_lines` is an integer from 1 to 1,000,000, default 50,000.
+It limits retained completed newline-delimited transcript lines; the current
+unfinished streaming line is additional. Wrapping a long line into several
+display rows does not consume additional lines. It applies
+on the next launch and affects fullscreen only. See [fullscreen scrollback](tui.md#fullscreen-scrollback).
 
 Leading flags `--fullscreen` / `--inline` and `--alt-screen` /
 `--no-alt-screen` override saved defaults for one launch, without saving.
