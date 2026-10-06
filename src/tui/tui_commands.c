@@ -275,6 +275,13 @@ static int tokenize(char *s, char **av, int max) {
     return n;
 }
 
+/* GCC treats dup2's standard-stream targets as newly owned descriptors.
+ * stdout/stderr intentionally remain open after restoration; only the saved
+ * duplicates and capture stream are owned here, and all are closed below. */
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 13
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wanalyzer-fd-leak"
+#endif
 static int run_cli(tui *t, int (*fn)(tny_ctx *, const cli_globals *, int, char **), int argc,
                    char **argv) {
     tui_raw_begin(t);
@@ -336,6 +343,9 @@ static int run_cli(tui *t, int (*fn)(tny_ctx *, const cli_globals *, int, char *
     if (rc != 0) tui_note(t, "command failed (exit %d)", rc);
     return rc;
 }
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 13
+#pragma GCC diagnostic pop
+#endif
 
 static int resolve_provider(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     (void)g;
