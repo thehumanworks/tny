@@ -155,7 +155,7 @@ class Screen:
                     if n == 1:
                         start, end = 0, self.c + 1
                     self.grid[self.r][start:end] = [" "] * (end - start)
-                elif fin == "r":
+                elif fin == "r" and not args.startswith("?"):
                     parts = args.split(";") if args else []
                     self.scroll_top = max(0, int(parts[0]) - 1) if parts else 0
                     self.scroll_bottom = (
@@ -850,7 +850,11 @@ def test_ui_settings_cli(_home, ws):
             assert proc.returncode == 0, (args, proc.stderr)
             return json.loads(proc.stdout)
 
-        assert settings()["ui"] == {"mode": "inline", "alternate_screen": True}
+        assert settings()["ui"] == {
+            "mode": "inline",
+            "alternate_screen": True,
+            "scrollback_lines": 50000,
+        }
         assert settings("get", "ui.mode")["value"] == "inline"
         assert settings("get", "ui.alternate_screen")["value"] is True
         proc = subprocess.run(
@@ -876,7 +880,11 @@ def test_ui_settings_cli(_home, ws):
                 settings("set", "ui.alternate_screen", str(alternate).lower())["value"]
                 is alternate
             )
-            assert settings()["ui"] == {"mode": mode, "alternate_screen": alternate}
+            assert settings()["ui"] == {
+                "mode": mode,
+                "alternate_screen": alternate,
+                "scrollback_lines": 50000,
+            }
             with open(path) as f:
                 saved = json.load(f)
             assert saved["ui"] == {"mode": mode, "alternate_screen": alternate}, saved
@@ -958,6 +966,8 @@ def test_ui_mode_override_matrix(_home, ws):
             try:
                 t.expect("/help for commands", 10.0, absent="no API key")
                 assert ("\x1b[?1049h" in t.buf) == alternate, label
+                for mouse_mode in (1000, 1006):
+                    assert (f"\x1b[?{mouse_mode}h" in t.buf) == fullscreen, label
                 if fullscreen:
                     assert "STALE-SHELL-CONTENT" not in t.screen(), (label, t.screen())
                     t.expect_composer_at_bottom("> ", rows)
@@ -1077,12 +1087,137 @@ def test_fullscreen_resize_transcript_and_cleanup(home, ws, port):
             t.proc.send_signal(signal.SIGTERM)
             assert t.wait() == 128 + signal.SIGTERM, clean(t.buf)
             assert t.restored(), "SIGTERM left fullscreen tty raw"
+            for mouse_mode in (1000, 1006):
+                assert f"\x1b[?{mouse_mode}l" in t.buf, t.buf
+            assert "\x1b[?1000;1006;1007r" in t.buf, t.buf
             assert t.buf.count("\x1b[?1049h") == int(alternate), t.buf
             assert t.buf.count("\x1b[?1049l") == int(alternate), t.buf
         finally:
             t.close()
     print(
         "ok  fullscreen turn, shell overflow, resize, errors, overlays, clear persistence and SIGTERM cleanup"
+    )
+
+
+def test_fullscreen_scrollback(_home, ws):
+    """Wheel and navigation keys move retained output without editing a draft."""
+    for alternate, limit in ((True, None), (False, None), (True, 20)):
+        with tempfile.TemporaryDirectory(prefix="tny-scrollback-") as home:
+            if limit is not None:
+                path = os.path.join(home, ".tny", "settings.json")
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w") as f:
+                    json.dump({"ui": {"scrollback_lines": limit}}, f)
+            flags = ["--fullscreen", "--alt-screen" if alternate else "--no-alt-screen"]
+            t = Term([TNY, *flags], base_env(home), ws, rows=12, cols=100)
+            try:
+                t.expect("/help for commands")
+                for mode in (1000, 1006):
+                    assert f"\x1b[?{mode}h" in t.buf, (mode, t.buf)
+                assert "\x1b[?1007l" in t.buf, t.buf
+                t.send("/clear\r")  # Seed composer history before shell output.
+                t.expect_composer_at_bottom("> ", 12)
+                t.send("!")
+                t.expect_composer_at_bottom("! ", 12)
+                count = 3500 if limit is None else 80
+                # The default must retain early rows beyond the previous 256 KiB
+                # byte cap, even when every individual line fits the viewport.
+                t.send(
+                    'i=0; while [ "$i" -lt %d ]; do '
+                    'printf "SCROLL-ROW-%%04d-%%080d\\n" "$i" 0; '
+                    "i=$((i+1)); done\r" % count
+                )
+                t.expect("shell exit 0", 20.0)
+                t.expect_on_screen("SCROLL-ROW-%04d-" % (count - 1))
+                t.send("\r")
+                t.expect_composer_at_bottom("> ", 12)
+                t.send("scroll-draft")
+                t.expect_composer_at_bottom("> scroll-draft", 12)
+                tail = t.screen()
+                t.send("\x1b[A")  # Plain arrows retain composer history behavior.
+                t.expect_gone_from_screen("> scroll-draft")
+                t.send("\x1b[B")
+                t.expect_composer_at_bottom("> scroll-draft", 12)
+                assert t.screen() == tail, t.screen()
+                for up, down in (
+                    ("\x1b[<64;1;1M", "\x1b[<65;1;1M"),
+                    ("\x1b[M`!!", "\x1b[Ma!!"),
+                    ("\x1b[1;2A", "\x1b[1;2B"),
+                    ("\x1b[5~", "\x1b[6~"),
+                ):
+                    t.send(up)
+                    t.pump(0.15)
+                    t.expect_composer_at_bottom("> scroll-draft", 12)
+                    assert t.screen() != tail, (repr(up), t.screen())
+                    t.send(down)
+                    t.expect_on_screen("shell exit 0")
+                    t.expect_composer_at_bottom("> scroll-draft", 12)
+                    assert t.screen() == tail, (repr(down), t.screen(), tail)
+                t.send("\x1b[1;5H")  # Ctrl-Home: oldest retained output
+                t.pump(0.2)
+                if limit is None:
+                    t.expect_on_screen("SCROLL-ROW-0000-")
+                else:
+                    assert "SCROLL-ROW-0000-" not in t.screen(), t.screen()
+                    assert "SCROLL-ROW-00" in t.screen(), t.screen()
+                t.resize(15, 110)
+                t.expect_composer_at_bottom("> scroll-draft", 15)
+                if limit is None:
+                    t.expect_on_screen("SCROLL-ROW-0000-")
+                t.send("\x1b[1;5F")  # Ctrl-End: resume following output
+                t.expect_on_screen("SCROLL-ROW-%04d-" % (count - 1))
+                t.send("\x03/clear\r")
+                t.expect_gone_from_screen("SCROLL-ROW-")
+                t.send("\x1b[5~\x1b[1;5H")
+                t.pump(0.15)
+                assert "SCROLL-ROW-" not in t.screen(), t.screen()
+                t.send("\x04")
+                assert t.wait() == 0, clean(t.buf)
+                assert t.restored(), "retention test left tty raw"
+                t.close()
+                # A fresh shell avoids the pending disclosure limit after the
+                # large retention fixture, and starts a new output stream.
+                t = Term([TNY, *flags], base_env(home), ws, rows=15, cols=110)
+                t.expect("/help for commands")
+                t.send("!")
+                t.expect_composer_at_bottom("! ", 15)
+                shell_done = os.path.join(home, "shell-done")
+                t.send(
+                    'i=0; while [ "$i" -lt 40 ]; do '
+                    'printf "PIN-ROW-%02d\\n" "$i"; i=$((i+1)); done; '
+                    'sleep 2; printf "PIN-NEW-OUTPUT\\n"; : > "' + shell_done + '"\r'
+                )
+                t.expect_on_screen("PIN-ROW-39")
+                t.send("\x1b[<64;1;1M")
+                t.pump(0.15)
+                pinned = t.screen().split("\n")[:-2]
+                deadline = time.monotonic() + 10.0
+                while not os.path.isfile(shell_done) and time.monotonic() < deadline:
+                    t.pump(0.1)
+                assert os.path.isfile(shell_done), "delayed shell never completed"
+                t.pump(0.2)
+                assert t.screen().split("\n")[:-2] == pinned, t.screen()
+                t.send("\x1b[1;5F")
+                t.expect_on_screen("PIN-NEW-OUTPUT")
+                t.send("\r/clear\r")
+                t.expect_gone_from_screen("PIN-ROW-")
+                t.expect_gone_from_screen("PIN-NEW-OUTPUT")
+                t.expect_gone_from_screen("SCROLL-ROW-")
+                t.send("\x1b[5~\x1b[1;5H")
+                t.pump(0.15)
+                assert "SCROLL-ROW-" not in t.screen(), t.screen()
+                assert "PIN-" not in t.screen(), t.screen()
+                t.send("\x04")
+                assert t.wait() == 0, clean(t.buf)
+                assert t.restored(), "scrollback exit left tty raw"
+                for mode in (1000, 1006):
+                    assert f"\x1b[?{mode}l" in t.buf, (mode, t.buf)
+                assert "\x1b[?1000;1006;1007r" in t.buf, t.buf
+                assert t.buf.count("\x1b[?1049l") == int(alternate), t.buf
+            finally:
+                t.close()
+    print(
+        "ok  fullscreen wheel/keys preserve draft, retain configurable lines, resize and clear"
     )
 
 
@@ -1405,6 +1540,7 @@ def main():
             test_ui_settings_cli(home, ws)
             test_ui_mode_override_matrix(home, ws)
             test_fullscreen_resize_transcript_and_cleanup(home, ws, port)
+            test_fullscreen_scrollback(home, ws)
             test_interactive_ui_settings(home, ws)
             test_dumb_mode_turn_status(home, ws, port)
             test_provider_setup_wizard(home, ws, port)

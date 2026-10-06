@@ -354,10 +354,15 @@ const char *tny_settings_provider_model(tny_ctx *ctx, const char *provider);
 /* Persist a top-level string into ~/.tny/settings.json (e.g. last backend,
  * model). Creates the file if missing. Returns 0 on success. */
 int tny_settings_set_str(tny_ctx *ctx, const char *key, const char *value);
-/* UI defaults; malformed or absent values fall back to inline/true. */
+/* UI defaults; malformed or absent values fall back to inline/true/50000. */
+#define TNY_UI_SCROLLBACK_LINES_DEFAULT 50000u
+#define TNY_UI_SCROLLBACK_LINES_MAX     1000000u
 const char *tny_settings_ui_mode(tny_ctx *ctx);
 bool tny_settings_ui_alternate_screen(tny_ctx *ctx);
-/* Strict mode=inline|fullscreen, alternate_screen=true|false. Atomic save. */
+size_t tny_settings_ui_scrollback_lines(tny_ctx *ctx);
+/* Digit-only positive integer, at most TNY_UI_SCROLLBACK_LINES_MAX. */
+bool tny_settings_ui_scrollback_lines_valid(const char *value);
+/* Strict mode, alternate_screen and scrollback_lines values. Atomic save. */
 int tny_settings_set_ui(tny_ctx *ctx, const char *key, const char *value);
 
 /* `provider setup` fields; NULL members keep the profile's current value

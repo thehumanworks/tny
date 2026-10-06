@@ -20,12 +20,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TUI_POP_ROWS         8
-#define TUI_COMP_ROWS        8
-#define TUI_MAX_IMAGES       8
-#define TUI_MAX_FILES        6000
-#define TUI_MAX_HIST         500
-#define TUI_TRANSCRIPT_BYTES (256u * 1024u)
+#define TUI_POP_ROWS   8
+#define TUI_COMP_ROWS  8
+#define TUI_MAX_IMAGES 8
+#define TUI_MAX_FILES  6000
+#define TUI_MAX_HIST   500
 
 typedef enum { PICK_NONE = 0, PICK_CMD, PICK_FILE, PICK_SKILL } pick_kind;
 
@@ -56,6 +55,14 @@ typedef struct tui {
     buf_t out;        /* committed transcript bytes not yet written */
     buf_t partial;    /* transcript line still being streamed */
     buf_t transcript; /* bounded fullscreen display tail; session is authoritative */
+    buf_t scrollback_visual, scrollback_starts, scrollback_partial;
+    size_t transcript_version, scrollback_version;
+    int scrollback_width;
+    bool scrollback_attr;
+    size_t scrollback_lines, transcript_lines;
+    size_t scrollback_offset, scrollback_anchor;
+    size_t scrollback_total;
+    int scrollback_height;
     bool dirty;
 
     bool shell_mode; /* ! at the start of an empty composer */
@@ -163,6 +170,14 @@ typedef enum {
     TUI_K_RIGHT,
     TUI_K_UP,
     TUI_K_DOWN,
+    TUI_K_SCROLL_UP,
+    TUI_K_SCROLL_DOWN,
+    TUI_K_PAGE_UP,
+    TUI_K_PAGE_DOWN,
+    TUI_K_SCROLL_HOME,
+    TUI_K_SCROLL_END,
+    TUI_K_WHEEL_UP,
+    TUI_K_WHEEL_DOWN,
     TUI_K_HOME,
     TUI_K_END,
     TUI_K_WLEFT,
@@ -192,6 +207,8 @@ typedef struct {
 
 /* Consume one key from p[0..n). 0 if more bytes are needed. */
 size_t tui_decode_one(const char *p, size_t n, bool final, tui_decoded *out);
+/* Scroll the fullscreen chat without changing a focused draft or decision. */
+bool tui_scrollback_key(tui *t, tui_key key);
 
 /* Bracketed paste body: append literal bytes from p[0..n) to out, normalizing
  * \r and \r\n to \n, until the ESC[201~ terminator. Returns bytes consumed;
@@ -221,7 +238,8 @@ bool tui_runner_attach(tui *t, tny_session_state *session);
 
 /* tui.c */
 void tui_terminal_begin(tui *t);
-void tui_terminal_end(void); /* restore modes and alternate screen, idempotently */
+void tui_terminal_end(void);           /* restore modes and alternate screen, idempotently */
+void tui_terminal_mouse(bool enabled); /* suspend during direct terminal prompts */
 void tui_submit(tui *t, const char *text);
 bool tui_shell_start(tui *t, const char *command);
 void tui_shell_drain(tui *t);
@@ -278,6 +296,10 @@ void tui_render_force(tui *t);
 /* Build a bounded, absolute-positioned fullscreen frame without writing stdout.
  * Consumes pending transcript output; exposed for generated layout tests. */
 void tui_fullscreen_frame(tui *t, buf_t *frame);
+void tui_scrollback_scroll(tui *t, int lines); /* positive browses upward */
+void tui_scrollback_home(tui *t);
+void tui_scrollback_end(tui *t);
+int tui_scrollback_page_rows(const tui *t);
 /* Next tty paint starts at home on a cleared screen/scrollback, without
  * pending transcript text. Non-tty output and saved sessions are unchanged. */
 void tui_clear_screen(tui *t);
