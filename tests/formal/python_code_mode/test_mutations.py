@@ -145,7 +145,7 @@ C_MUTANTS = [
     (
         "timeout ceiling raised",
         "core/code_runtime.h",
-        r"TNY_CODE_MAX_TIMEOUT_MS 600000",
+        r"TNY_CODE_MAX_TIMEOUT_MS\s+600000",
         "TNY_CODE_MAX_TIMEOUT_MS 600001",
         "lean",
     ),
