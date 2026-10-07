@@ -264,7 +264,7 @@ bool tny_grok_auth_present(void);
  * release; TNY_GROK_CLIENT_VERSION overrides without a rebuild. */
 #define TNY_GROK_PROXY_BASE_URL "https://cli-chat-proxy.grok.com/v1"
 #define TNY_GROK_PROXY_HEADER   "X-XAI-Token-Auth: xai-grok-cli"
-#define TNY_GROK_PROXY_VERSION  "0.1.202"
+#define TNY_GROK_PROXY_VERSION  "1.0.45"
 #define TNY_GROK_API_BASE_URL   "https://api.x.ai/v1"
 /* Session token from ~/.grok/auth.json (tny's own login or the grok
  * CLI's). malloc'd. */

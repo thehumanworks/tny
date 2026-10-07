@@ -460,7 +460,18 @@ static void classify_error(oa_impl *o, yyjson_val *err, int http_status, oa_erro
 static void error_text(oa_impl *o, const oa_error_info *info, bool final, char *out, size_t cap) {
     char cat[48];
     snprintf(cat, sizeof cat, "%s%s", info->token[0] ? ", " : "", info->token);
-    if (info->status == 401)
+    bool grok_version_gate = false;
+    if (info->status == 426 && o->ctx->provider_name &&
+        strcmp(o->ctx->provider_name, "grok") == 0) {
+        for (char **h = o->ctx->extra_headers; h && *h; h++)
+            if (strcmp(*h, TNY_GROK_PROXY_HEADER) == 0) grok_version_gate = true;
+    }
+    if (grok_version_gate)
+        snprintf(out, cap,
+                 "Grok requires a newer client version (HTTP 426%s): update tny or set "
+                 "TNY_GROK_CLIENT_VERSION to a supported Grok Build version",
+                 cat);
+    else if (info->status == 401)
         snprintf(out, cap, "authentication failed (HTTP 401%s): check the API key", cat);
     else if (info->status == 403)
         snprintf(out, cap,

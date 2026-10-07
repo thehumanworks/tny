@@ -98,6 +98,7 @@ static void ensure_env(void) {
     unsetenv("ANTHROPIC_API_KEY");
     unsetenv("CLAUDE_CONFIG_DIR");
     unsetenv("XAI_API_KEY");
+    unsetenv("TNY_GROK_CLIENT_VERSION");
     clear_env_providers();
     snprintf(g_ws, sizeof g_ws, "%s/ws", g_home);
     mkdir_p(g_ws);
@@ -1804,12 +1805,20 @@ TEST builtin_grok_profile(void) {
     ASSERT(ctx->api_key);
     ASSERT_STR_EQ("sess-tok-1", ctx->api_key);
     ASSERT(has_extra_header(ctx, "X-XAI-Token-Auth: xai-grok-cli"));
-    /* the proxy 426s requests without a client-version claim */
-    ASSERT(has_extra_header(ctx, "x-grok-client-version: "));
+    /* The proxy rejects old client versions even on valid HTTP/1.1 requests. */
+    ASSERT(has_extra_header(ctx, "x-grok-client-version: 1.0.45"));
     ASSERT(ctx->model);
     ASSERT_STR_EQ("grok-4.6", ctx->model);
     ASSERT(has_extra_header(ctx, "x-grok-model-override: grok-4.6"));
     tny_ctx_free(ctx);
+
+    /* The rolling proxy minimum can be accommodated without a rebuild. */
+    setenv("TNY_GROK_CLIENT_VERSION", "1.0.46", 1);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "grok"));
+    ASSERT(has_extra_header(ctx, "x-grok-client-version: 1.0.46"));
+    tny_ctx_free(ctx);
+    unsetenv("TNY_GROK_CLIENT_VERSION");
 
     /* no session: XAI_API_KEY against api.x.ai, no proxy headers */
     grok_auth_write(NULL);
@@ -1823,6 +1832,7 @@ TEST builtin_grok_profile(void) {
     ASSERT_STR_EQ("sk-xai-test", ctx->api_key);
     ASSERT_FALSE(has_extra_header(ctx, "X-XAI-Token-Auth:"));
     ASSERT_FALSE(has_extra_header(ctx, "x-grok-model-override:"));
+    ASSERT_FALSE(has_extra_header(ctx, "x-grok-client-version:"));
     tny_ctx_free(ctx);
     unsetenv("XAI_API_KEY");
     PASS();

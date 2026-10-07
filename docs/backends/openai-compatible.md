@@ -289,8 +289,13 @@ backend; none launches an agent executable (ADR 0151).
    `x-grok-model-override: <model>` (the proxy routes on the header, not
    the body; default model `grok-4.6`), and
    `x-grok-client-version` (the proxy version-gates and answers HTTP 426
-   below its rolling minimum; tny pins a known-accepted grok-build
-   version, `TNY_GROK_CLIENT_VERSION` overrides it without a rebuild).
+   below its rolling minimum; tny pins Grok Build `1.0.45`,
+   `TNY_GROK_CLIENT_VERSION` overrides it without a rebuild).
+   This 426 is an application client-version check: HTTP/1.1 with SSE
+   works and no WebSocket upgrade is required. As checked on 2026-10-07,
+   the proxy requires `1.0.13` or later; the previous `0.1.202` pin fails.
+   A subscription 426 explains how to update tny or override the version;
+   it is not retried. See [ADR 0185](../adr/0185-grok-proxy-client-version.md).
    OIDC entries carry `refresh_token` / `expires_at`; at provider resolve
    tny runs the `refresh_token` grant when the entry is at/near expiry and
    writes the rotated tokens back into the store, so a device-code login

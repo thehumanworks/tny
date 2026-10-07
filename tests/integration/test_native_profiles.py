@@ -182,7 +182,14 @@ def main():
             ).stderr
         )
 
-        def wire(provider, shape, subscription=False, configured=False):
+        def wire(
+            provider,
+            shape,
+            subscription=False,
+            configured=False,
+            client_version=None,
+            rejected=False,
+        ):
             headers = (
                 "Authorization=Bearer fixture-session"
                 if subscription
@@ -192,12 +199,22 @@ def main():
                 headers += (
                     ";X-XAI-Token-Auth=xai-grok-cli;x-grok-model-override=mock-model"
                 )
+                if client_version is not None:
+                    headers += f";x-grok-client-version={client_version}"
             mock_env = {
                 "PATH": os.defpath,
                 "HOME": str(home),
                 "MOCK_EXPECT_WIRE": shape,
                 "MOCK_EXPECT_HEADERS": headers,
             }
+            request_log = root / "requests.log"
+            request_log.unlink(missing_ok=True)
+            if subscription:
+                mock_env.update(
+                    MOCK_MIN_GROK_CLIENT_VERSION="1.0.13",
+                    MOCK_HEADER_LOG=str(request_log),
+                    MOCK_LOG_HEADERS="x-grok-client-version",
+                )
             mock_env["MOCK_REJECT_HEADERS"] = (
                 "chatgpt-account-id;OpenAI-Beta"
                 if subscription
@@ -218,6 +235,10 @@ def main():
                 extra = {}
                 if provider == "grok":
                     extra = {"TNY_GROK_BASE_URL": url, "XAI_API_KEY": "fixture-env"}
+                    if client_version is not None:
+                        extra["TNY_GROK_CLIENT_VERSION"] = client_version
+                    if rejected:
+                        extra["TNY_PROVIDER_RETRIES"] = "3"
                 elif configured:
                     settings.write_text(
                         json.dumps(
@@ -248,8 +269,19 @@ def main():
                     "--json",
                     "list files",
                     extra=extra,
+                    ok=not rejected,
                 )
-                assert "MOCK-OK" in result.stdout
+                if rejected:
+                    assert "HTTP 426" in result.stderr, result.stderr
+                    assert "newer client version" in result.stderr, result.stderr
+                    assert "TNY_GROK_CLIENT_VERSION" in result.stderr, result.stderr
+                    assert "retrying" not in result.stderr, result.stderr
+                    assert "Your Grok CLI version" not in result.stderr, result.stderr
+                    assert request_log.read_text().splitlines() == [
+                        f"x-grok-client-version={client_version}"
+                    ]
+                else:
+                    assert "MOCK-OK" in result.stdout
                 assert "fixture-env" not in result.stdout + result.stderr
                 assert "fixture-session" not in result.stdout + result.stderr
             finally:
@@ -291,6 +323,14 @@ def main():
                 in run("--provider", "codex", "status", ok=False).stderr
             )
             wire("grok", "chat", subscription=True)
+            wire("grok", "chat", subscription=True, client_version="1.0.46")
+            wire(
+                "grok",
+                "chat",
+                subscription=True,
+                client_version="0.1.202",
+                rejected=True,
+            )
             assert "refresh_token" in Issuer.grants
             assert "urn:ietf:params:oauth:grant-type:device_code" in Issuer.grants
         finally:

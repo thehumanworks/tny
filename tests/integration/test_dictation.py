@@ -1171,7 +1171,7 @@ class XaiDictationTests(unittest.TestCase):
         if login:
             self.assertEqual(headers["x-xai-token-auth"], "xai-grok-cli")
             self.assertEqual(headers["x-grok-model-override"], "grok-4.7")
-            self.assertIn("x-grok-client-version", headers)
+            self.assertEqual(headers["x-grok-client-version"], "1.0.45")
             self.assertNotIn("response_format", body)
             self.assertIn(
                 "Respond with only the JSON object", body["messages"][0]["content"]

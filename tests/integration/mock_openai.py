@@ -66,6 +66,8 @@ Env knobs:
                       must carry exactly (case-insensitive names) — the codex
                       profile's chatgpt-account-id / OpenAI-Beta / bearer
   MOCK_REJECT_HEADERS semicolon-separated header names that must be absent
+  MOCK_MIN_GROK_CLIENT_VERSION
+                      subscription proxy: HTTP 426 below this version
   MOCK_FAIL_TOOL_POST_ONCE=STATUS
                       the first POST carrying tool results answers STATUS
                       with a JSON error body (Retry-After: 1 on 429), then
@@ -153,6 +155,7 @@ CHAT_ERROR = os.environ.get("MOCK_CHAT_ERROR")
 PARALLEL = os.environ.get("MOCK_PARALLEL") == "1"
 SENSITIVE = os.environ.get("MOCK_SENSITIVE") == "1"
 HTTP_STATUS = int(os.environ.get("MOCK_HTTP_STATUS", "0"))
+MIN_GROK_CLIENT_VERSION = os.environ.get("MOCK_MIN_GROK_CLIENT_VERSION")
 ERROR_SECRET = os.environ.get("MOCK_ERROR_SECRET", "mock status failure")
 TRUNCATED_TERMINAL = os.environ.get("MOCK_TRUNCATED_TERMINAL") == "1"
 DROP_REUSED_ONCE = os.environ.get("MOCK_DROP_REUSED_ONCE") == "1"
@@ -581,6 +584,18 @@ class Handler(BaseHTTPRequestHandler):
             with open(HEADER_LOG, "a") as log:
                 for name in LOG_HEADERS:
                     log.write(f"{name}={self.headers.get(name, '')}\n")
+        if MIN_GROK_CLIENT_VERSION:
+            version = self.headers.get("x-grok-client-version", "")
+            parsed = catalog_version(version)
+            if parsed is None or parsed < catalog_version(MIN_GROK_CLIENT_VERSION):
+                self._json(
+                    426,
+                    {
+                        "error": f"Your Grok CLI version ({version}) is outdated. "
+                        f"Please update to version {MIN_GROK_CLIENT_VERSION} or later."
+                    },
+                )
+                return
         if os.environ.get("MOCK_NO_TOOLS") == "1":
             chat = self.path.endswith("/chat/completions")
             validate_instructions(
