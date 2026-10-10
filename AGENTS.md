@@ -95,7 +95,7 @@ docs/          # this contract; update when behavior changes
 
 - `make wasm` / `make wasm-web` build the same `SRC_SHARED` sources as the native release plus `src/net/net_wasm.c`. Platform code lives only at the three seams (net.h transport, `tny_poll`, host OS); never `#ifdef` a fourth place without an ADR.
 - Blocking waits go through `tny_poll` (`src/util/tny_poll.h`), never raw `poll(2)`: raw poll returns instantly for wasm pseudo-fds and spins the event loop into a livelock.
-- **Every new backend or tool states its wasm behavior** — works / remote-only / clean error — in its docs page, and the wasm CI job (`test_openai.py`, `test_codex_chatgpt.py` with `TNY=build/wasm/tny`, plus the browser smoke `test_site_wasm.py`) enforces it. Parity is a red X, not a review comment.
+- **Every new backend or tool states its wasm behavior** — works / remote-only / clean error — in its docs page, and the wasm CI job (the `ci.yml` wasm step, e.g. `test_execution_code_mode.py` and `test_openai_signin.py` with `TNY=build/wasm/tny`, plus the browser smoke `test_site_wasm.py`) enforces it. Parity is a red X, not a review comment.
 - In `net_wasm.c`, JS never calls into C: handlers queue bytes and wake `tny_poll`; C pulls when awake (the Asyncify re-entry contract). Ready flags must clear when consumed.
 
 ## Landing site (GitHub Pages)

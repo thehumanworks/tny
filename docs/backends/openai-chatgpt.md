@@ -75,8 +75,10 @@ next `login` asks again with `prompt=consent`.
 record: issuer, issued client id, subject, email, host id, tokens, scopes,
 `plan_usage`, `expires_at`. Tokens never print.
 
-- **Refresh** — access tokens last about an hour. Before each provider request
-  tny refreshes when the token is within 180 s of expiry
+- **Refresh** — access tokens last about an hour. When it resolves the openai
+  provider (any command that selects it, including `status`, `doctor` and
+  `models`) and before each provider request, tny refreshes a token within
+  180 s of expiry
   (`grant_type=refresh_token`, `client_id`, `refresh_token`, `resource`; no
   scope). Refresh tokens rotate and are single-use, so the refresh holds an
   flock on `~/.tny/openai-auth.lock` and re-reads the store under it. Terminal

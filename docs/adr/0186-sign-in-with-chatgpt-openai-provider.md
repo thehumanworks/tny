@@ -61,7 +61,10 @@ sign-in over a Codex login.
 
 `~/.tny/openai-auth.json` (`0600`, atomic) follows the SIWC credential record.
 Refresh runs before a request within 180 s of expiry, under an flock with a
-re-read, because refresh tokens rotate and a reused one is revoked. The form
+re-read, because refresh tokens rotate and a reused one is revoked. Resolving
+the openai provider (any command that selects it, including `status`, `doctor`
+and `models`) runs the same near-expiry refresh, as `apply_codex` does for
+codex; this is auth traffic to the issuer, not provider I/O. The form
 carries `grant_type`, `client_id`, `refresh_token` and `resource`, no scope.
 Terminal grant errors clear the tokens and keep the registration. Logout
 revokes the refresh token (RFC 7009) and keeps the registration; `--forget`
