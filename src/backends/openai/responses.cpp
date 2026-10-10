@@ -161,8 +161,8 @@ static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *sum
 }
 
 char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary, const char *summary) {
-    return translate_input(msgs, boundary > 0 ? (size_t)boundary : 0,
-                           boundary > 0 ? summary : NULL, false);
+    return translate_input(msgs, boundary > 0 ? (size_t)boundary : 0, boundary > 0 ? summary : NULL,
+                           false);
 }
 
 char *tny_openai_responses_input_with_summary(yyjson_mut_val *msgs, const char *summary) {

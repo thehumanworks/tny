@@ -6229,9 +6229,9 @@ TEST semantic_search_fanout_matches_serial_scan(void) {
 
 /* ---- Sign in with ChatGPT for the openai provider (docs/adr/0186) ---- */
 
-#define UNIT_PLAN_STORE(extra)                                                                    \
-    "{\"version\":1,\"issuer\":\"https://auth.openai.com\",\"client_id\":\"oaiapp_unit\","        \
-    "\"subject\":\"sub-1\",\"email\":\"u@example.test\",\"refresh_token\":\"r1\","                \
+#define UNIT_PLAN_STORE(extra)                                                             \
+    "{\"version\":1,\"issuer\":\"https://auth.openai.com\",\"client_id\":\"oaiapp_unit\"," \
+    "\"subject\":\"sub-1\",\"email\":\"u@example.test\",\"refresh_token\":\"r1\","         \
     "\"expires_at\":\"2099-01-01T00:00:00Z\"" extra "}"
 
 static void openai_store_write(const char *json) {
@@ -6403,8 +6403,8 @@ static int id_check(const char *fmt, int64_t exp, const char **why) {
     snprintf(payload, sizeof payload, fmt, (long long)exp);
     char *t = unit_jwt(payload);
     char *sub = NULL, *email = NULL;
-    int rc = tny_openai_id_token_check(t, "https://auth.openai.com", "oaiapp_c", "n1", &sub,
-                                       &email, why);
+    int rc = tny_openai_id_token_check(t, "https://auth.openai.com", "oaiapp_c", "n1", &sub, &email,
+                                       why);
     if (rc == 0 && (!sub || strcmp(sub, "s1") != 0)) rc = 99;
     free(sub);
     free(email);
@@ -6415,38 +6415,38 @@ static int id_check(const char *fmt, int64_t exp, const char **why) {
 TEST openai_id_token_checks(void) {
     int64_t now = now_ms() / 1000;
     const char *why = NULL;
-#define CLAIMS(iss, aud, nonce, sub)                                                               \
+#define CLAIMS(iss, aud, nonce, sub) \
     "{\"iss\":\"" iss "\",\"aud\":" aud ",\"nonce\":\"" nonce "\"" sub ",\"exp\":%lld}"
     ASSERT_EQ(0, id_check(CLAIMS("https://auth.openai.com", "[\"x\",\"oaiapp_c\"]", "n1",
                                  ",\"sub\":\"s1\""),
                           now + 600, &why));
-    ASSERT_EQ(0, id_check(CLAIMS("https://auth.openai.com/", "\"oaiapp_c\"", "n1",
-                                 ",\"sub\":\"s1\""),
-                          now - 100, &why)); /* trailing slash; inside the skew */
+    ASSERT_EQ(0,
+              id_check(CLAIMS("https://auth.openai.com/", "\"oaiapp_c\"", "n1", ",\"sub\":\"s1\""),
+                       now - 100, &why)); /* trailing slash; inside the skew */
     ASSERT_EQ(-1, id_check(CLAIMS("https://evil.test", "\"oaiapp_c\"", "n1", ",\"sub\":\"s1\""),
                            now + 600, &why));
     ASSERT(strstr(why, "issuer"));
-    ASSERT_EQ(-1, id_check(CLAIMS("https://auth.openai.com", "[\"other\"]", "n1",
-                                  ",\"sub\":\"s1\""),
-                           now + 600, &why));
+    ASSERT_EQ(-1,
+              id_check(CLAIMS("https://auth.openai.com", "[\"other\"]", "n1", ",\"sub\":\"s1\""),
+                       now + 600, &why));
     ASSERT(strstr(why, "audience"));
-    ASSERT_EQ(-1, id_check(CLAIMS("https://auth.openai.com", "\"oaiapp_c\"", "n1",
-                                  ",\"sub\":\"s1\""),
-                           now - 1000, &why));
+    ASSERT_EQ(-1,
+              id_check(CLAIMS("https://auth.openai.com", "\"oaiapp_c\"", "n1", ",\"sub\":\"s1\""),
+                       now - 1000, &why));
     ASSERT(strstr(why, "expired"));
-    ASSERT_EQ(-1, id_check(CLAIMS("https://auth.openai.com", "\"oaiapp_c\"", "n2",
-                                  ",\"sub\":\"s1\""),
-                           now + 600, &why));
+    ASSERT_EQ(-1,
+              id_check(CLAIMS("https://auth.openai.com", "\"oaiapp_c\"", "n2", ",\"sub\":\"s1\""),
+                       now + 600, &why));
     ASSERT(strstr(why, "nonce"));
-    ASSERT_EQ(-1, id_check(CLAIMS("https://auth.openai.com", "\"oaiapp_c\"", "n1", ""),
-                           now + 600, &why));
+    ASSERT_EQ(
+        -1, id_check(CLAIMS("https://auth.openai.com", "\"oaiapp_c\"", "n1", ""), now + 600, &why));
     ASSERT(strstr(why, "subject"));
 #undef CLAIMS
     char *sub = NULL, *email = NULL;
     ASSERT_EQ(-1, tny_openai_id_token_check("not-a-jwt", "https://auth.openai.com", "oaiapp_c",
                                             "n1", &sub, &email, &why));
-    ASSERT_EQ(-1, tny_openai_id_token_check(NULL, "https://auth.openai.com", "oaiapp_c", "n1",
-                                            &sub, &email, &why));
+    ASSERT_EQ(-1, tny_openai_id_token_check(NULL, "https://auth.openai.com", "oaiapp_c", "n1", &sub,
+                                            &email, &why));
     ASSERT_EQ(NULL, sub);
     PASS();
 }
@@ -6476,8 +6476,8 @@ TEST oauth_callback_rules(void) {
     oauth_callback cb;
     const char *why = NULL;
     oauth_callback_expect reg = {"/auth/callback", "S1", true, NULL};
-    ASSERT_EQ(OAUTH_CALLBACK_CODE, cb_parse("code=c%2B1&state=S1&client_id=oaiapp_x", &reg,
-                                            &cb, &why));
+    ASSERT_EQ(OAUTH_CALLBACK_CODE,
+              cb_parse("code=c%2B1&state=S1&client_id=oaiapp_x", &reg, &cb, &why));
     ASSERT_STR_EQ("c+1", cb.code);
     ASSERT_STR_EQ("oaiapp_x", cb.client_id);
     oauth_callback_free(&cb);
@@ -6489,8 +6489,7 @@ TEST oauth_callback_rules(void) {
     ASSERT_EQ(OAUTH_CALLBACK_NONE,
               cb_parse("code=c&state=S1&state=S1&client_id=x", &reg, &cb, &why));
     ASSERT(strstr(why, "duplicate"));
-    ASSERT_EQ(OAUTH_CALLBACK_NONE,
-              cb_parse("code=a&code=b&state=S1&client_id=x", &reg, &cb, &why));
+    ASSERT_EQ(OAUTH_CALLBACK_NONE, cb_parse("code=a&code=b&state=S1&client_id=x", &reg, &cb, &why));
     /* this attempt refused: stop, exchange nothing */
     ASSERT_EQ(OAUTH_CALLBACK_ERROR, cb_parse("error=access_denied&state=S1", &reg, &cb, &why));
     ASSERT_STR_EQ("access_denied", cb.error);

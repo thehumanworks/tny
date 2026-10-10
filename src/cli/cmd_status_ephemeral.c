@@ -70,9 +70,9 @@ int cmd_status_ephemeral(tny_ctx *ctx, const cli_globals *g, int argc, char **ar
         printf("model:      %s\n", model);
         if (ctx->reasoning_effort) printf("effort:     %s\n", ctx->reasoning_effort);
         printf("auth:       %s\n", ctx->openai_signin && ctx->api_key ? "ok (ChatGPT plan)"
-                                    : auth ? "ok"
-                                           : "missing (set OPENAI_API_KEY, run `tny --provider "
-                                             "openai login`, or run tny setup)");
+                                   : auth ? "ok"
+                                          : "missing (set OPENAI_API_KEY, run `tny --provider "
+                                            "openai login`, or run tny setup)");
         printf("permission: %s\n", tny_perm_mode_name(ctx->perm_mode));
         printf("tools:      %s\n", tny_tool_profile_name(ctx->tool_profile));
         tny_sandbox_kind sandbox = tny_sandbox_effective(ctx);

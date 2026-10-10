@@ -315,8 +315,9 @@ static int login_browser(void) {
             break;
         }
         if (lfd < 0 && !tty) {
-            fprintf(stderr, "tny: no callback listener and no terminal to paste the redirect "
-                            "URL into; free port %d or run the login in a terminal\n",
+            fprintf(stderr,
+                    "tny: no callback listener and no terminal to paste the redirect "
+                    "URL into; free port %d or run the login in a terminal\n",
                     port);
             break;
         }

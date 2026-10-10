@@ -2445,7 +2445,8 @@ TEST request_construction_oom_after_usage_skips_finalization(void) {
 TEST plan_error_codes_classify(void) {
     ASSERT_EQ(OA_PLAN_ERROR_USAGE_LIMIT,
               oa_plan_error_of("subscription_sharing_usage_limit_exceeded"));
-    ASSERT_EQ(OA_PLAN_ERROR_UNAVAILABLE, oa_plan_error_of("subscription_sharing_usage_unavailable"));
+    ASSERT_EQ(OA_PLAN_ERROR_UNAVAILABLE,
+              oa_plan_error_of("subscription_sharing_usage_unavailable"));
     ASSERT_EQ(OA_PLAN_ERROR_UNAVAILABLE, oa_plan_error_of("subscription_sharing_user_unavailable"));
     ASSERT_EQ(OA_PLAN_ERROR_NOT_ELIGIBLE,
               oa_plan_error_of("subscription_sharing_user_not_eligible"));

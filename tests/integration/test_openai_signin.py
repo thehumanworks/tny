@@ -240,8 +240,16 @@ class Mock(BaseHTTPRequestHandler):
                 200,
                 {
                     "models": [
-                        {"slug": "gpt-6.1-sol", "display_name": "GPT-6.1", "visibility": "list"},
-                        {"slug": "gpt-hidden", "display_name": "x", "visibility": "hide"},
+                        {
+                            "slug": "gpt-6.1-sol",
+                            "display_name": "GPT-6.1",
+                            "visibility": "list",
+                        },
+                        {
+                            "slug": "gpt-hidden",
+                            "display_name": "x",
+                            "visibility": "hide",
+                        },
                     ]
                 },
             )
@@ -415,7 +423,10 @@ def case_register(env, ws, home, issuer):
         assert absent not in q, (absent, q)
     # a registration callback must carry the issued client id
     assert callback(port, code="auth-code-1", state=q["state"]) == 400
-    assert callback(port, code="auth-code-1", state="WRONG", client_id=ISSUED_CLIENT) == 400
+    assert (
+        callback(port, code="auth-code-1", state="WRONG", client_id=ISSUED_CLIENT)
+        == 400
+    )
     time.sleep(0.3)
     assert p.poll() is None, "login exited on a rejected callback"
     assert (
@@ -430,17 +441,24 @@ def case_register(env, ws, home, issuer):
         assert secret not in out + err, f"{secret!r} printed"
     ctype, form = Mock.st["token_calls"][-1]
     assert ctype == "application/x-www-form-urlencoded", ctype
-    assert form["grant_type"] == "authorization_code" and form["client_id"] == ISSUED_CLIENT
+    assert (
+        form["grant_type"] == "authorization_code"
+        and form["client_id"] == ISSUED_CLIENT
+    )
     assert form["redirect_uri"] == q["redirect_uri"], form
     st = os.stat(store_path(home))
     assert stat.S_IMODE(st.st_mode) == 0o600, oct(st.st_mode)
     rec = load_store(home)
     assert rec["client_id"] == ISSUED_CLIENT and rec["subject"] == SUBJECT, rec
-    assert rec["plan_usage"] is True and rec["ext_agent_host_id"] == q["ext_agent_host_id"]
+    assert (
+        rec["plan_usage"] is True and rec["ext_agent_host_id"] == q["ext_agent_host_id"]
+    )
     assert rec["access_token"] == "plan-access-1", "store holds the access token"
     host_id = open(os.path.join(home, ".tny", "openai-host-id")).read().strip()
     assert host_id == q["ext_agent_host_id"]
-    print("ok  register: dynamic client, host id, 127.0.0.1 redirect, PKCE, nonce, 0600 store")
+    print(
+        "ok  register: dynamic client, host id, 127.0.0.1 redirect, PKCE, nonce, 0600 store"
+    )
     return q
 
 
@@ -482,7 +500,9 @@ def case_status_models(env, ws):
 def case_guards(env, ws):
     # an API key for the endpoint wins over the stored sign-in
     Mock.reset(issuer=Mock.st["issuer"])
-    keyed = dict(env, OPENAI_API_KEY="sk-test-key", OPENAI_BASE_URL=Mock.st["issuer"] + "/key/v1")
+    keyed = dict(
+        env, OPENAI_API_KEY="sk-test-key", OPENAI_BASE_URL=Mock.st["issuer"] + "/key/v1"
+    )
     r = ask(keyed, ws, "--provider", "openai")
     path, auth, req = Mock.st["api_calls"][-1]
     assert path == "/key/v1/responses" and auth == "Bearer sk-test-key", (path, auth)
@@ -502,7 +522,9 @@ def case_guards(env, ws):
     calls = Mock.st["api_calls"]
     assert all(c[0].endswith("/chat/completions") for c in calls), calls
     assert not any(c[1] for c in calls), "plan token sent on the chat wire"
-    print("ok  guards: API key wins; moved base URL / chat wire never carry the plan token")
+    print(
+        "ok  guards: API key wins; moved base URL / chat wire never carry the plan token"
+    )
 
 
 def case_refresh(env, ws, home, issuer):
@@ -544,7 +566,10 @@ def case_reauth(env, ws, home, issuer):
     assert q["client_id"] == ISSUED_CLIENT and "agent_name_hint" not in q, q
     assert q["login_hint"] == EMAIL and "prompt" not in q, q
     # this attempt's callback naming another client id ends the attempt
-    assert callback(port, code="auth-code-1", state=q["state"], client_id="oaiapp_other") == 400
+    assert (
+        callback(port, code="auth-code-1", state=q["state"], client_id="oaiapp_other")
+        == 400
+    )
     rc, out, err = finish(p)
     assert rc != 0 and "client_id_mismatch" in err, err
     assert not Mock.st["token_calls"], "a mismatched client id must not be exchanged"
@@ -567,7 +592,9 @@ def case_reauth(env, ws, home, issuer):
 def case_access_denied(env, ws):
     Mock.reset(issuer=Mock.st["issuer"])
     p, port, q = start_login(env, ws)
-    assert callback(port, error="access_denied", state=q["state"]) == 400  # refusal page
+    assert (
+        callback(port, error="access_denied", state=q["state"]) == 400
+    )  # refusal page
     rc, out, err = finish(p)
     assert rc != 0 and "access_denied" in err, err
     assert not Mock.st["token_calls"], "nothing may be exchanged after access_denied"
@@ -575,7 +602,9 @@ def case_access_denied(env, ws):
 
 
 def case_consent(env, ws, home, issuer):
-    Mock.reset(issuer=issuer, scope="openid profile email offline_access resource.invoke")
+    Mock.reset(
+        issuer=issuer, scope="openid profile email offline_access resource.invoke"
+    )
     p, port, q = start_login(env, ws)
     assert callback(port, code="auth-code-1", state=q["state"]) == 200
     rc, out, err = finish(p)
@@ -592,7 +621,9 @@ def case_consent(env, ws, home, issuer):
     assert callback(port, code="auth-code-1", state=q["state"]) == 200
     rc, out, err = finish(p)
     assert rc == 0 and load_store(home)["plan_usage"] is True, err
-    print("ok  consent: declined plan scope kept as declined; next login asks prompt=consent")
+    print(
+        "ok  consent: declined plan scope kept as declined; next login asks prompt=consent"
+    )
 
 
 def case_errors(env, ws, home, issuer):
@@ -601,7 +632,12 @@ def case_errors(env, ws, home, issuer):
         issuer=issuer,
         api_error=(
             429,
-            {"error": {"code": "subscription_sharing_usage_limit_exceeded", "message": "m"}},
+            {
+                "error": {
+                    "code": "subscription_sharing_usage_limit_exceeded",
+                    "message": "m",
+                }
+            },
         ),
     )
     r = ask(env, ws, "--provider", "openai")
@@ -627,8 +663,12 @@ def case_errors(env, ws, home, issuer):
     Mock.reset(issuer=issuer, api_error=(401, {"detail": "identity not accepted"}))
     r = ask(env, ws, "--provider", "openai")
     err = r.stderr.decode() + r.stdout.decode()
-    assert "tny --provider openai login" in err and "identity not accepted" not in err, err
-    print("ok  errors: usage limit (no retry, usage link), unsupported param, detail body")
+    assert (
+        "tny --provider openai login" in err and "identity not accepted" not in err
+    ), err
+    print(
+        "ok  errors: usage limit (no retry, usage link), unsupported param, detail body"
+    )
 
 
 def case_logout(env, ws, home, issuer):

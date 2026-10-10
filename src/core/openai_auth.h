@@ -14,12 +14,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TNY_OPENAI_API_BASE_URL     "https://api.openai.com/v1"
-#define TNY_OPENAI_SIGNIN_ISSUER    "https://auth.openai.com"
-#define TNY_OPENAI_SIGNIN_SCOPE     "chatgpt.tokens.use.direct"
-#define TNY_OPENAI_SIGNIN_MODEL     "gpt-6.1-sol"
-#define TNY_CHATGPT_USAGE_URL       "https://chatgpt.com/settings/usage"
-#define TNY_OPENAI_REFRESH_EARLY_S  180 /* refresh this long before expiry */
+#define TNY_OPENAI_API_BASE_URL    "https://api.openai.com/v1"
+#define TNY_OPENAI_SIGNIN_ISSUER   "https://auth.openai.com"
+#define TNY_OPENAI_SIGNIN_SCOPE    "chatgpt.tokens.use.direct"
+#define TNY_OPENAI_SIGNIN_MODEL    "gpt-6.1-sol"
+#define TNY_CHATGPT_USAGE_URL      "https://chatgpt.com/settings/usage"
+#define TNY_OPENAI_REFRESH_EARLY_S 180 /* refresh this long before expiry */
 
 char *tny_openai_store_path(void);   /* ~/.tny/openai-auth.json, malloc'd */
 char *tny_openai_host_id_path(void); /* ~/.tny/openai-host-id, malloc'd */

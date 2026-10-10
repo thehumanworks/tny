@@ -552,8 +552,8 @@ static void plan_error_text(const oa_error_info *info, const char *st, char *out
             snprintf(out, cap, "the ChatGPT plan does not support `%s` in this request (%s%s)",
                      info->param, st, code);
         else
-            snprintf(out, cap, "the ChatGPT plan does not support part of this request (%s%s)",
-                     st, code);
+            snprintf(out, cap, "the ChatGPT plan does not support part of this request (%s%s)", st,
+                     code);
         break;
     case OA_PLAN_ERROR_NONE: out[0] = 0; break;
     }
@@ -1068,10 +1068,10 @@ static char *build_request_rsp(oa_impl *o, oa_request_owner *request) {
     if (provider_oom()) { return NULL; }
     yyjson_mut_val *msgs = yyjson_mut_doc_get_root(view);
     const char *summary_in = boundary > 0 ? summary : NULL;
-    const char *input = oa_request_take_string(
-        request, OA_BUILD_INPUT,
-        plan ? tny_openai_responses_input_developer(msgs, summary_in)
-             : tny_openai_responses_input_with_summary(msgs, summary_in));
+    const char *input =
+        oa_request_take_string(request, OA_BUILD_INPUT,
+                               plan ? tny_openai_responses_input_developer(msgs, summary_in)
+                                    : tny_openai_responses_input_with_summary(msgs, summary_in));
     oa_request_take_view(request, NULL);
     if (provider_oom()) {
         oa_request_take_string(request, OA_BUILD_INPUT, NULL);
@@ -2631,7 +2631,8 @@ static int oa_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
         return 0;
     }
     if (tny_openai_signin_present()) {
-        snprintf(line, linelen, "openai: signed in with ChatGPT (used for %s when no API key is set)",
+        snprintf(line, linelen,
+                 "openai: signed in with ChatGPT (used for %s when no API key is set)",
                  TNY_OPENAI_API_BASE_URL);
         return 0;
     }

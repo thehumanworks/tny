@@ -304,8 +304,8 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             printf("usage:      manage at %s\n", TNY_CHATGPT_USAGE_URL);
         } else
             printf("auth:       %s\n", auth ? "ok"
-                                           : "missing (set OPENAI_API_KEY, run `tny --provider "
-                                             "openai login`, or run tny setup)");
+                                            : "missing (set OPENAI_API_KEY, run `tny --provider "
+                                              "openai login`, or run tny setup)");
         if (subscription) {
             if (usage.available) {
                 time_t reset = (time_t)usage.reset;

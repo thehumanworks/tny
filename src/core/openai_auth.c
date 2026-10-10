@@ -38,10 +38,10 @@
 #include <sys/file.h>
 #endif
 
-#define OPENAI_LOCK_WAIT_MS     35000 /* outlasts one 30 s token request */
-#define OPENAI_REVOKE_ATTEMPTS  3
-#define OPENAI_STORE_VERSION    1
-#define OPENAI_ID_TOKEN_SKEW_S  300
+#define OPENAI_LOCK_WAIT_MS    35000 /* outlasts one 30 s token request */
+#define OPENAI_REVOKE_ATTEMPTS 3
+#define OPENAI_STORE_VERSION   1
+#define OPENAI_ID_TOKEN_SKEW_S 300
 
 /* ---------- paths, host id, issuer ---------- */
 
@@ -80,8 +80,7 @@ char *tny_openai_host_id(void) {
             return raw;
         }
         free(raw);
-        fprintf(stderr, "tny: %s is not a urn:uuid host id; delete it to create a new one\n",
-                path);
+        fprintf(stderr, "tny: %s is not a urn:uuid host id; delete it to create a new one\n", path);
         free(path);
         return NULL;
     }
@@ -95,9 +94,9 @@ char *tny_openai_host_id(void) {
     b[8] = (uint8_t)((b[8] & 0x3f) | 0x80); /* variant 10 */
     char id[64];
     snprintf(id, sizeof id,
-             "urn:uuid:%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12],
-             b[13], b[14], b[15]);
+             "urn:uuid:%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x", b[0],
+             b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13],
+             b[14], b[15]);
     char *dir = path_tny_dir();
     if (dir) mkdir_p(dir);
     free(dir);
@@ -491,7 +490,8 @@ void tny_openai_refresh_if_stale(void) {
     const char *ref = mut_str(root, "refresh_token");
     const char *access = mut_str(root, "access_token");
     int64_t exp = root ? record_expiry(root) : 0;
-    bool stale = access && *access && exp > 0 && now_ms() / 1000 >= exp - TNY_OPENAI_REFRESH_EARLY_S;
+    bool stale =
+        access && *access && exp > 0 && now_ms() / 1000 >= exp - TNY_OPENAI_REFRESH_EARLY_S;
     bool ours = tny_openai_issuer() && (!iss || same_issuer(iss, tny_openai_issuer()));
     if (!root || !ours || !stale || !client || !*client || !ref || !*ref) {
         yyjson_mut_doc_free(m);
