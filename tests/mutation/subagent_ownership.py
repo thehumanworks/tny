@@ -69,7 +69,8 @@ MUTANTS = (
     (
         "missing-key",
         SOURCE,
-        "const bool key = parent && ctx.backend == TNY_BK_OPENAI && ctx.api_key && *ctx.api_key;",
+        "const bool key = parent && ctx.backend == TNY_BK_OPENAI && ctx.api_key && *ctx.api_key &&\n"
+        "                         !ctx.openai_signin;",
         "const bool key = false;",
     ),
     (

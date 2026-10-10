@@ -264,6 +264,10 @@ are green), and "Run workflow" on `auto-release` cuts a release from
 the newest commit with green gates, optionally forcing the bump kind. If a
 tag exists without a release, dispatch it on the tag ref:
 `gh workflow run release.yml --ref v<version>`.
+Running `release.yml` on `main` instead dispatches `auto-release.yml` on
+`main`, preserving the same CI/SDK gates and version selection. Other branch
+refs are rejected. Only tag refs enter the binary/SDK build jobs, and the tag
+grammar is validated before compiling.
 
 ## Darwin is Metal / Apple Silicon, not Intel
 

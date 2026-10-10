@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -260,6 +262,72 @@ class AutoReleaseWorkflowContractTests(unittest.TestCase):
         self.assertIn('gh workflow run release.yml --ref "$tag"', self.workflow)
         self.assertIn("scripts/next_release_version.py", self.workflow)
         self.assertIn("concurrency:\n  group: auto-release", self.workflow)
+
+
+class ReleaseDispatchTests(unittest.TestCase):
+    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    def test_only_tags_build_and_validate_before_compiling(self) -> None:
+        route, version = self.workflow.split("  version:\n", 1)
+        self.assertIn("if: github.ref_type != 'tag'", route)
+        self.assertIn("if: github.ref_type == 'tag'", version)
+        self.assertLess(
+            version.index("Validate canonical SDK versions"),
+            version.index("Build and compare tny --version"),
+        )
+        self.assertIn("needs: version", version)
+        self.assertIn("if: always() && github.ref_type == 'tag'", version)
+
+    def run_dispatch(self, ref: str, *, fail: bool = False) -> tuple[int, str, str]:
+        route = self.workflow.split("  version:\n", 1)[0]
+        script = textwrap.dedent(route.split("        run: |\n", 1)[1])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            gh = root / "gh"
+            gh.write_text(
+                '#!/bin/sh\nprintf "%s\\n" "$*" > "$CALLS"\n'
+                + ("exit 1\n" if fail else ""),
+                encoding="utf-8",
+            )
+            gh.chmod(0o755)
+            calls = root / "calls"
+            result = subprocess.run(
+                ["sh", "-c", script],
+                env={
+                    **os.environ,
+                    "PATH": f"{root}{os.pathsep}{os.environ['PATH']}",
+                    "GITHUB_EVENT_NAME": "workflow_dispatch",
+                    "GITHUB_REF": ref,
+                    "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                    "CALLS": str(calls),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return (
+                result.returncode,
+                result.stderr,
+                calls.read_text(encoding="utf-8") if calls.exists() else "",
+            )
+
+    def test_main_dispatch_uses_gated_auto_release(self) -> None:
+        code, stderr, calls = self.run_dispatch("refs/heads/main")
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(calls, "workflow run auto-release.yml --ref main\n")
+
+    def test_other_branches_cannot_publish(self) -> None:
+        for ref in ("refs/heads/feature", "refs/heads/v1.2.3"):
+            with self.subTest(ref=ref):
+                code, stderr, calls = self.run_dispatch(ref)
+                self.assertNotEqual(code, 0)
+                self.assertIn("select main", stderr)
+                self.assertEqual(calls, "")
+
+    def test_failed_dispatch_is_not_success(self) -> None:
+        code, _, calls = self.run_dispatch("refs/heads/main", fail=True)
+        self.assertNotEqual(code, 0)
+        self.assertTrue(calls)
 
 
 if __name__ == "__main__":

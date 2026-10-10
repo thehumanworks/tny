@@ -23,17 +23,39 @@ name: release
 on:
   push:
     tags: ["v*"]
-  # Fallback when a tag push does not start Actions (automation tokens
-  # and retags of the same SHA are silent). Run against the tag ref so
-  # GITHUB_REF_NAME stays v<version>: gh workflow run release.yml --ref v<version>
+  # Main dispatches use the gated auto-release path. Tag dispatches retry
+  # publication when a tag push did not start Actions:
+  # gh workflow run release.yml --ref v<version>
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  dispatch-main:
+    name: route main through gated auto-release
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch auto-release for main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] || [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "error: select main to create a gated release, or an existing v<version> tag to retry publication" >&2
+            exit 1
+          fi
+          gh workflow run auto-release.yml --ref main
+          echo "Dispatched auto-release on main; it creates a tag only after ci and sdk pass." >> "$GITHUB_STEP_SUMMARY"
+
   version:
     name: binary version matches tag
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -44,6 +66,12 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24.8.0"
+      - name: Validate canonical SDK versions from the tag
+        run: |
+          set -eu
+          node sdk/typescript/scripts/release-version.mjs "$GITHUB_REF_NAME" > /tmp/tny-sdk-versions.json
+          TNY_RELEASE_TAG="$GITHUB_REF_NAME" TNY_REQUIRE_RELEASE_TAG=1 \
+            python -c 'import json,sys; sys.path.insert(0,"sdk/python"); from release_version import build_version; value=json.load(open("/tmp/tny-sdk-versions.json")); assert build_version() == value["python"]'
       - name: Build and compare tny --version to the tag
         run: |
           set -eu
@@ -56,12 +84,6 @@ jobs:
             echo "error: binary reports $got, tag is v$tag" >&2
             exit 1
           fi
-      - name: Validate canonical SDK versions from the tag
-        run: |
-          set -eu
-          node sdk/typescript/scripts/release-version.mjs "$GITHUB_REF_NAME" > /tmp/tny-sdk-versions.json
-          TNY_RELEASE_TAG="$GITHUB_REF_NAME" TNY_REQUIRE_RELEASE_TAG=1 \
-            python -c 'import json,sys; sys.path.insert(0,"sdk/python"); from release_version import build_version; value=json.load(open("/tmp/tny-sdk-versions.json")); assert build_version() == value["python"]'
 
   build:
     name: ${{ matrix.name }}
@@ -541,7 +563,7 @@ jobs:
 
   registry-publication-status:
     name: coordinate SDK registry publication status
-    if: always() && vars.TNY_REGISTRY_PUBLICATION_ENABLED == 'true'
+    if: always() && github.ref_type == 'tag' && vars.TNY_REGISTRY_PUBLICATION_ENABLED == 'true'
     needs: [publish-npm, publish-pypi]
     runs-on: ubuntu-24.04
     timeout-minutes: 5

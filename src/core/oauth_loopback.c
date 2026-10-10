@@ -162,7 +162,7 @@ int oauth_loopback_listen(int port) {
 }
 
 int oauth_loopback_port(int lfd) {
-    struct sockaddr_in sa;
+    struct sockaddr_in sa = {0};
     socklen_t len = sizeof sa;
     if (lfd < 0 || getsockname(lfd, (struct sockaddr *)&sa, &len) != 0) return -1;
     return ntohs(sa.sin_port);
