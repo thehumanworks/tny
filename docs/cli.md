@@ -118,6 +118,9 @@ never claims `os` unless Seatbelt or bubblewrap is launchable, and the default
 `tny status` uses the same effective-mode resolution.
 For Codex ChatGPT subscription logins, `tny status` and `/status` also show the
 weekly allowance left and its reset time. API-key logins are excluded.
+With the openai Sign in with ChatGPT login, `tny status` prints
+`auth: ok (ChatGPT plan, signed in as EMAIL)` and the usage page
+(`--json`: `"chatgpt_plan": {"account", "manage_usage_url"}`).
 See [subscription usage](backends/codex.md#subscription-usage-status-tny-status)
 for the endpoint, JSON fields, and unavailable-data behavior.
 
@@ -281,7 +284,8 @@ No vendor agent binary is required.
 
 Precedence: explicit flag, settings `provider`, remembered `last_provider`
 (`last_backend` compatibility alias), OpenAI env, exactly one complete named
-env pair, native Codex OAuth credentials, Grok OAuth credentials, then openai.
+env pair, an openai Sign in with ChatGPT login, native Codex OAuth
+credentials, Grok OAuth credentials, then openai.
 An explicit or remembered unknown/removed selector fails rather than falling
 back. Installed binaries and Claude auth artifacts do not affect selection.
 
@@ -321,12 +325,16 @@ Native OAuth logins persist refreshable tokens; BYOK API keys remain in env:
 
 | Provider | What login does |
 | --- | --- |
-| codex | Native ChatGPT sign-in, no Codex CLI ([ADR 0066](adr/0066-native-chatgpt-login-and-credential-sources.md)): the browser PKCE flow with a `localhost:1455` callback (the redirect URL can also be pasted into the terminal), or `--device` for a verification URL + one-time code on headless machines. The login lands in `~/.tny/codex-auth.json` (`0600`), which tny reads for the ChatGPT Responses backend and refreshes itself. `$CODEX_HOME/auth.json` from `codex login` keeps working as a fallback. |
+| openai | Sign in with ChatGPT ([ADR 0186](adr/0186-sign-in-with-chatgpt-openai-provider.md), [backends/openai-chatgpt.md](backends/openai-chatgpt.md)): prints a "Continue with ChatGPT" link and opens the browser (PKCE with dynamic client registration, callback on `127.0.0.1:1455`; the redirect URL can also be pasted). The login lands in `~/.tny/openai-auth.json` (`0600`) and refreshes itself; with no API key set, `tny --provider openai` sends requests to `https://api.openai.com/v1` on the ChatGPT plan. No `--device` flow exists for this client (exit 2). `OPENAI_API_KEY` still wins when set. |
+| codex (legacy) | Native ChatGPT sign-in, no Codex CLI ([ADR 0066](adr/0066-native-chatgpt-login-and-credential-sources.md)): the browser PKCE flow with a `localhost:1455` callback (the redirect URL can also be pasted into the terminal), or `--device` for a verification URL + one-time code on headless machines. The login lands in `~/.tny/codex-auth.json` (`0600`), which tny reads for the ChatGPT Responses backend and refreshes itself. `$CODEX_HOME/auth.json` from `codex login` keeps working as a fallback. |
 | grok | Native RFC 8628 device-code sign-in against `auth.x.ai` — no grok CLI needed, works over SSH/containers ([ADR 0021](adr/0021-native-grok-device-login.md)). tny prints the verification URL + code, polls the token endpoint, and writes the session to `~/.grok/auth.json` in the grok CLI's own store format (both tools share the entry). `GROK_OAUTH2_ISSUER` / `GROK_OAUTH2_CLIENT_ID` override the endpoint (enterprise IdPs, tests). |
-| openai / named | Reports whether an API key resolved (`tny setup` configures one). |
+| named | Reports whether an API key resolved (`tny setup` configures one). |
 
-`tny logout` mirrors this: native deletion of `~/.tny/codex-auth.json` for
-codex (the Codex CLI's own file is left to `codex logout`), native removal of the xAI entries from `~/.grok/auth.json` for
+`tny logout` mirrors this: for openai it revokes the ChatGPT sign-in and
+clears its tokens, keeping the app registration for the next login
+(`logout --forget` deletes `~/.tny/openai-auth.json`); native deletion of
+`~/.tny/codex-auth.json` for codex (the Codex CLI's own file is left to
+`codex logout`), native removal of the xAI entries from `~/.grok/auth.json` for
 grok (foreign-issuer entries are kept), an env-var hint otherwise.
 
 ## System prompt
@@ -1066,7 +1074,7 @@ any backend work.
 | Provider | Flags / env |
 | --- | --- |
 | codex (builtin profile) | credential precedence `--chatgpt-token` (+ `--chatgpt-account-id`) > `CHATGPT_ACCESS_TOKEN` (+ `CHATGPT_ACCOUNT_ID`) > `~/.tny/codex-auth.json` (`tny --provider codex login`) > `$CODEX_HOME/auth.json` (`codex login`); the winning file auto-refreshes in place, flag/env tokens need no filesystem; account id explicit or from the JWT claim → `https://chatgpt.com/backend-api/codex` on the Responses wire with `chatgpt-account-id` + `OpenAI-Beta: responses=v1`; an `OPENAI_API_KEY` auth.json → `api.openai.com`; default model `gpt-5.6-sol`; `TNY_CODEX_BASE_URL` redirects the ChatGPT-mode URL (mocks/gateways) without shadowing the profile ([backends/codex.md](backends/codex.md)) |
-| openai | `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0016](adr/0016-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API`. `--base-url-env NAME` reads the base URL from environment variable `NAME` with `--base-url` precedence, keeping a secret-bearing gateway URL off argv (native subagent children use it, [ADR 0087](adr/0087-explicit-subagent-contract-and-private-launch.md)); an empty `NAME` or combining it with `--base-url` is a startup error (exit 1) |
+| openai | with no key, a Sign in with ChatGPT login (`tny --provider openai login`) authorizes the default `https://api.openai.com/v1` Responses endpoint only; any `--base-url`, `OPENAI_BASE_URL`, `--wire-api chat` or custom auth header turns it off ([backends/openai-chatgpt.md](backends/openai-chatgpt.md)). `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0016](adr/0016-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API`. `--base-url-env NAME` reads the base URL from environment variable `NAME` with `--base-url` precedence, keeping a secret-bearing gateway URL off argv (native subagent children use it, [ADR 0087](adr/0087-explicit-subagent-contract-and-private-launch.md)); an empty `NAME` or combining it with `--base-url` is a startup error (exit 1) |
 | named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY`; `NAME_WIRE_API` / profile `wire_api` |
 | grok (builtin profile) | session token from `~/.grok/auth.json` (minted by tny's native device login or the grok CLI; expired OIDC tokens auto-refresh at resolve) → CLI chat proxy (chat wire, `X-XAI-Token-Auth` + `x-grok-model-override` + `x-grok-client-version: 1.0.45` headers — HTTP 426 means the client version is too old, `TNY_GROK_CLIENT_VERSION` overrides the pin — default model `grok-4.6`); else `XAI_API_KEY` → `api.x.ai` (responses wire, same default model); `GROK_OAUTH2_ISSUER` / `GROK_OAUTH2_CLIENT_ID` override the login endpoint |
 

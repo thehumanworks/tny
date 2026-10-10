@@ -9,6 +9,15 @@ tny owns tools, permissions, MCP, skills, sessions, steer, `--ssh`, and
 extensions there — no `codex app-server` process, no WebSocket, no host
 registry, and no Codex CLI at all: tny signs in itself.
 
+> **Legacy.** To use a ChatGPT plan for agent turns, prefer
+> [`tny --provider openai login`](openai-chatgpt.md) (Sign in with ChatGPT,
+> [ADR 0186](../adr/0186-sign-in-with-chatgpt-openai-provider.md)): it uses
+> the public Responses API with tny's own registered client. `codex` stays
+> for existing logins and for the features that only exist on
+> `chatgpt.com/backend-api` — speech, images, web search, dictation and the
+> weekly allowance in `tny status` — which a Sign in with ChatGPT token must
+> never reach.
+
 Canonical sources: the OpenAI Responses API reference
 (`developers.openai.com/api/reference/resources/responses`), the Codex
 CLI's own client and login (`codex-rs/core/src/client.rs`,

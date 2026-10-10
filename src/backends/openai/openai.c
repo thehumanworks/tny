@@ -537,8 +537,8 @@ static void plan_error_text(const oa_error_info *info, const char *st, char *out
         break;
     case OA_PLAN_ERROR_GRANT:
         snprintf(out, cap,
-                 "the ChatGPT sign-in does not authorize this request (%s%s): check the "
-                 "granted scopes with `tny --provider openai status`",
+                 "the ChatGPT sign-in does not authorize this request (%s%s): sign in again "
+                 "with `tny --provider openai login` and allow ChatGPT plan use",
                  st, code);
         break;
     case OA_PLAN_ERROR_INVALID_USER:

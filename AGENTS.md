@@ -19,8 +19,8 @@ their own Makefile, sources, tests, and docs contract:
   sibling `*.c`/`*.h` too, and `make tnytty` / `make tnytty-test` delegate.
 
 tny is a **C11 + private C++20 ownership** TUI + CLI coding-agent harness (ADR 0114): **a harness for agents, built by agents, focused on the agent**. User constraints and tasks are the goal. Keep it fast, portable and small without a fixed binary-size ceiling or competitor target. It uses one native OpenAI-compatible HTTP backend with Responses and Chat
-Completions, named environment-key profiles, Codex ChatGPT OAuth and Grok
-public/subscription HTTP. Optional stdio ACP clients use the owning-runtime MCP
+Completions, named environment-key profiles, Sign in with ChatGPT on the openai profile
+(ADR 0186), legacy Codex ChatGPT OAuth and Grok public/subscription HTTP. Optional stdio ACP clients use the owning-runtime MCP
 bridge (ADR 0164); native HTTP needs no vendor executable (ADR 0152).
 
 The product source is live under `src/` with unit, integration, mutation, and latency-benchmark suites under `tests/`. [docs/](docs/README.md) is the contract; read it before writing C, and update it when behavior changes.

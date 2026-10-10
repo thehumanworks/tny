@@ -59,7 +59,8 @@ reproducible offline evidence from unmeasured live-model improvement.
 | Doc | Why |
 | --- | --- |
 | [backends/README.md](backends/README.md) | Which loop owns tools and auth |
-| [backends/codex.md](backends/codex.md) | Codex subscriptions on the ChatGPT Responses backend (native loop) |
+| [backends/openai-chatgpt.md](backends/openai-chatgpt.md) | Sign in with ChatGPT: the openai provider on a ChatGPT plan (api.openai.com/v1) |
+| [backends/codex.md](backends/codex.md) | Legacy Codex subscriptions on the ChatGPT Responses backend (native loop) |
 | [backends/openai-compatible.md](backends/openai-compatible.md) | Chat Completions (+ optional Responses) |
 
 ## Feature parity with fx

@@ -104,6 +104,19 @@ release claims.
 - https://fx.sh/docs/getting-started/authentication.md
 
 
+## Sign in with ChatGPT (openai provider, ADR 0186)
+
+- Index for agents: https://developers.openai.com/siwc/llms.txt
+- Overview, client vs agent host: https://developers.openai.com/siwc/token-sharing-open-source
+- Sign-in (authorize parameters, dynamic registration, ID-token and plan checks, credential record): https://developers.openai.com/siwc/token-sharing-open-source/sign-in
+- Refresh, logout/revocation, account switching: https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions
+- Plan-route request contract and models: https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference
+- Error codes and recovery: https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery
+- Token lifetimes: https://developers.openai.com/siwc/token-sharing-open-source/token-reference
+- Preview limitations: https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations
+- UI wording ("Continue with ChatGPT"): https://developers.openai.com/siwc/ui-ux-guidelines
+- Independent implementation (Pi's `openai` provider), commit `9ad083102a` (2026-10-06): https://github.com/earendil-works/pi/blob/9ad083102a/packages/ai/src/auth/oauth/openai-chatgpt.ts and `packages/ai/test/openai-chatgpt-oauth.test.ts`
+
 ## Codex (ChatGPT Responses backend, docs/adr/0065)
 
 - Responses API reference (`input` is a string **or** an item array; `store`, `stream`, `instructions`): https://developers.openai.com/api/reference/resources/responses/methods/create
