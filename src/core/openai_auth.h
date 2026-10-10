@@ -65,9 +65,12 @@ char *tny_openai_signin_email(void);
 void tny_openai_refresh_if_stale(void);
 /* Before each provider request on a ctx that carries tny's sign-in: refresh
  * near expiry and swap the rotated access token into ctx->api_key (access
- * tokens last an hour; sessions outlive that). Clears the key when the
- * session is gone. Network only when the token is stale. */
-void tny_openai_signin_sync(tny_ctx *ctx);
+ * tokens last an hour; sessions outlive that). Network only when the token
+ * is stale. Returns -1 when the sign-in this ctx carried has ended (signed
+ * out, refresh refused, plan use withdrawn): the key is cleared and the
+ * caller should ask for a new login. A replaced key or moved endpoint also
+ * drops the sign-in, deliberately, and returns 0. */
+int tny_openai_signin_sync(tny_ctx *ctx);
 
 /* Validate an ID token's claims from a direct TLS token-endpoint response
  * (OIDC Core 3.1.3.7): iss, aud ∋ client_id, unexpired, nonce. On success

@@ -247,7 +247,7 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     if (g->api_key_env) {
         const char *k = getenv(g->api_key_env);
         if (k && *k) {
-            free(ctx->api_key);
+            secure_free(ctx->api_key);
             ctx->api_key = xstrdup(k);
         } else {
             fprintf(stderr, "tny: --api-key-env %s: variable is empty\n", g->api_key_env);

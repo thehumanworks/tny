@@ -1156,8 +1156,16 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     }
     /* A ChatGPT sign-in token lives about an hour: refresh it under the
      * store lock when it is near expiry, or drop it when the endpoint moved
-     * (docs/adr/0186). A no-op for every other credential. */
-    tny_openai_signin_sync(o->ctx);
+     * (docs/adr/0186). A no-op for every other credential. A sign-in that
+     * ended ends the turn: no retry can bring it back. */
+    if (tny_openai_signin_sync(o->ctx) < 0) {
+        static const char ended[] =
+            "the ChatGPT sign-in ended (signed out, expired, or plan use withdrawn): run "
+            "`tny --provider openai login`";
+        emit_error(o, TNY_EVENT_ERROR_AUTH, ended, sizeof ended - 1);
+        emit_turn_end(o, TNY_STOP_ERROR);
+        return 0;
+    }
     if (retry) o->provider_attempt++;
     else {
         o->provider_request_sequence++;

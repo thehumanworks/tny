@@ -551,8 +551,8 @@ static void signin_drop(tny_ctx *ctx, bool ours) {
     ctx->openai_signin_key = 0;
 }
 
-void tny_openai_signin_sync(tny_ctx *ctx) {
-    if (!ctx || !ctx->openai_signin) return;
+int tny_openai_signin_sync(tny_ctx *ctx) {
+    if (!ctx || !ctx->openai_signin) return 0;
     /* Flags applied after resolution (--api-key-env, --base-url, --wire-api)
      * or an embedder may have replaced the key or moved the endpoint. */
     bool ours = ctx->api_key && fnv1a(ctx->api_key, strlen(ctx->api_key)) == ctx->openai_signin_key;
@@ -562,15 +562,16 @@ void tny_openai_signin_sync(tny_ctx *ctx) {
                     strcasecmp(ctx->auth_header_name, "Authorization") == 0;
     if (!ours || !endpoint) {
         signin_drop(ctx, ours);
-        return;
+        return 0;
     }
     int64_t now = now_ms() / 1000;
     if (ctx->openai_signin_expires_at > 0 &&
         now < ctx->openai_signin_expires_at - TNY_OPENAI_REFRESH_EARLY_S)
-        return;
+        return 0;
     tny_openai_refresh_if_stale();
     tny_openai_signin s;
     int rc = tny_openai_signin_read(&s);
+    int ended = 0;
     if (rc == 0) {
         if (strcmp(ctx->api_key, s.access_token) != 0) {
             secure_free(ctx->api_key);
@@ -582,8 +583,10 @@ void tny_openai_signin_sync(tny_ctx *ctx) {
     } else if (rc != -3) {
         /* signed out or session cleared: the request must not carry it */
         signin_drop(ctx, true);
+        ended = -1;
     }
     tny_openai_signin_free(&s);
+    return ended;
 }
 
 /* ---------- logout ---------- */
@@ -651,8 +654,7 @@ int tny_openai_logout(bool forget) {
     }
     if (!revoked)
         printf("Remote revocation was not confirmed. To cut off this session now, disconnect "
-               "tny under ChatGPT Settings → Apps (%s).\n",
-               TNY_CHATGPT_USAGE_URL);
+               "tny in ChatGPT Settings.\n");
     yyjson_mut_doc_free(m);
     store_unlock(lock);
     free(path);
