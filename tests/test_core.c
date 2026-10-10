@@ -6385,6 +6385,12 @@ TEST openai_signin_mode_heuristic(void) {
     free(ctx->auth_header_name);
     ctx->auth_header_name = xstrdup("api-key");
     ASSERT_FALSE(tny_openai_signin_mode(ctx));
+    free(ctx->auth_header_name);
+    ctx->auth_header_name = NULL;
+    free(ctx->base_url);
+    ctx->base_url = NULL;
+    ASSERT_FALSE(tny_openai_signin_mode(ctx));
+    ASSERT_FALSE(tny_openai_signin_mode(NULL));
     tny_ctx_free(ctx);
     PASS();
 }
@@ -6451,14 +6457,18 @@ TEST openai_id_token_checks(void) {
     PASS();
 }
 
-TEST loopback_override_urls(void) {
+TEST openai_loopback_override_urls(void) {
     ASSERT(tny_loopback_url_valid(NULL));
     ASSERT(tny_loopback_url_valid(""));
     ASSERT(tny_loopback_url_valid("http://127.0.0.1"));
     ASSERT(tny_loopback_url_valid("http://127.0.0.1:8080/v1"));
     ASSERT(tny_loopback_url_valid("https://127.0.0.1:1/x"));
+    ASSERT(tny_loopback_url_valid("http://127.0.0.1:9090"));
+    ASSERT(tny_loopback_url_valid("http://127.0.0.1:65535/"));
     ASSERT_FALSE(tny_loopback_url_valid("http://localhost:80"));
     ASSERT_FALSE(tny_loopback_url_valid("http://127.0.0.1.evil.test"));
+    ASSERT_FALSE(tny_loopback_url_valid("http://127.0.0.1:"));
+    ASSERT_FALSE(tny_loopback_url_valid("http://127.0.0.1:x1"));
     ASSERT_FALSE(tny_loopback_url_valid("http://127.0.0.1:0"));
     ASSERT_FALSE(tny_loopback_url_valid("http://127.0.0.1:65536"));
     ASSERT_FALSE(tny_loopback_url_valid("http://127.0.0.1:80@evil.test"));
@@ -6535,7 +6545,7 @@ SUITE(core_suite) {
     RUN_TEST(openai_signin_resolution_and_precedence);
     RUN_TEST(openai_signin_mode_heuristic);
     RUN_TEST(openai_id_token_checks);
-    RUN_TEST(loopback_override_urls);
+    RUN_TEST(openai_loopback_override_urls);
     RUN_TEST(oauth_callback_rules);
     RUN_TEST(builtin_codex_profile);
     RUN_TEST(failed_provider_switch_is_atomic);

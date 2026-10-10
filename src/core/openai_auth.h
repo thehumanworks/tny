@@ -43,7 +43,6 @@ typedef struct {
     char *email;        /* from the validated ID token; login_hint on reauth */
     char *subject;      /* ID-token `sub`; reauth must return the same */
     char *access_token; /* bearer for api.openai.com/v1; NULL after logout */
-    bool has_refresh;   /* a refresh token is stored */
     bool plan_usage;    /* the grant includes chatgpt.tokens.use.direct */
     int64_t expires_at; /* access-token expiry (epoch seconds), 0 unknown */
 } tny_openai_signin;

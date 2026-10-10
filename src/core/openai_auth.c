@@ -335,8 +335,6 @@ int tny_openai_signin_read(tny_openai_signin *out) {
         !dup_into(&out->subject, mut_str(root, "subject")) ||
         !dup_into(&out->access_token, mut_str(root, "access_token")))
         rc = -3;
-    const char *ref = mut_str(root, "refresh_token");
-    out->has_refresh = ref && *ref;
     out->plan_usage = yyjson_mut_get_bool(yyjson_mut_obj_get(root, "plan_usage"));
     out->expires_at = record_expiry(root);
     yyjson_mut_doc_free(m);
