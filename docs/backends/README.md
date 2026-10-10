@@ -7,18 +7,22 @@ defines the current scope.
 
 | Profile | Wire | Credentials |
 | --- | --- | --- |
-| `openai` / named gateways | Responses (default) or Chat Completions | Environment key, optional custom auth header |
-| `codex` | ChatGPT Responses | Native OAuth browser/device login, token env/flags, refresh stores |
+| `openai` / named gateways | Responses (default) or Chat Completions | Environment key, optional custom auth header; `openai` also Sign in with ChatGPT (plan use on api.openai.com) |
+| `codex` (legacy) | ChatGPT backend Responses | Native OAuth browser/device login, token env/flags, refresh stores |
 | `grok` public | xAI Responses | `XAI_API_KEY` |
 | `grok` subscription | Compatible chat proxy | Native device login and refresh |
 
 [HTTP configuration](openai-compatible.md) includes OpenRouter and AIProxy.
-[Codex](codex.md) documents subscription authentication. Claude models may be
+[Sign in with ChatGPT](openai-chatgpt.md) is the way to use a ChatGPT plan
+([ADR 0186](../adr/0186-sign-in-with-chatgpt-openai-provider.md)).
+[Codex](codex.md) documents the legacy subscription login, still used for
+speech, images, web search and the weekly allowance. Claude models may be
 selected through a configured gateway; no built-in Claude login is supported.
 
 Both HTTP wires work on wasm through fetch subject to endpoint CORS. Codex's
-browser callback listener is native-only; device login and explicit token
-intake support wasm. Local process tools/MCP require native builds; remote MCP
+and the openai sign-in's browser callback listeners are native-only; Codex
+device login, a pasted openai redirect URL and explicit token intake support
+wasm. Local process tools/MCP require native builds; remote MCP
 uses HTTP on wasm. SDKs inject credentials in memory through the C ABI.
 
 Optional [ACP clients](acp.md) restore external Claude/pi-compatible agents through

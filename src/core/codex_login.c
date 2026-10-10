@@ -31,23 +31,17 @@
  * TNY_CODEX_OAUTH_ISSUER and TNY_CODEX_CALLBACK_PORT redirect the flow at
  * a mock for tests. Never print tokens (CLAUDE.md). */
 #include "core/config.h"
+#include "core/oauth_loopback.h"
 #include "json/json.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
 
-#include <errno.h>
-#include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#ifndef __EMSCRIPTEN__
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#endif
 
 #define CODEX_OAUTH_CLIENT_ID "app_EMoamEEZ73f0CkXaXp7hrann"
 #define CODEX_OAUTH_ISSUER    "https://auth.openai.com"
@@ -74,21 +68,7 @@ static const char *issuer(void) {
 /* Best-effort browser launch; the URL is on stdout either way. */
 static void open_browser(const char *url) {
     if (getenv("TNY_CODEX_OAUTH_ISSUER")) return; /* tests: never pop a browser */
-    pid_t pid = fork();
-    if (pid != 0) return;
-    int devnull = open("/dev/null", O_RDWR);
-    if (devnull >= 0) {
-        dup2(devnull, 0);
-        dup2(devnull, 1);
-        dup2(devnull, 2);
-        if (devnull > 2) close(devnull);
-    }
-#ifdef __APPLE__
-    execlp("open", "open", url, (char *)NULL);
-#else
-    execlp("xdg-open", "xdg-open", url, (char *)NULL);
-#endif
-    _exit(127);
+    oauth_open_browser(url);
 }
 
 static void print_oauth_error(const char *what, int status, const buf_t *body) {
@@ -294,44 +274,6 @@ static int login_device(void) {
 
 /* ---------- browser (PKCE) flow ---------- */
 
-/* Percent-decode into a malloc'd string ('+' stays: OAuth codes never
- * carry it, and query values are percent-encoded). */
-static char *url_decode(const char *s, size_t n) {
-    char *out = malloc(n + 1);
-    if (!out) return NULL;
-    size_t o = 0;
-    for (size_t i = 0; i < n; i++) {
-        if (s[i] == '%' && i + 2 < n) {
-            char h[3] = {s[i + 1], s[i + 2], 0};
-            char *end;
-            long v = strtol(h, &end, 16);
-            if (*end == 0 && h[0] && h[1]) {
-                out[o++] = (char)v;
-                i += 2;
-                continue;
-            }
-        }
-        out[o++] = s[i];
-    }
-    out[o] = 0;
-    return out;
-}
-
-/* Value of `key` in a query string (`a=1&b=2`), malloc'd, or NULL. */
-static char *query_get(const char *query, size_t qlen, const char *key) {
-    size_t klen = strlen(key);
-    const char *p = query, *end = query + qlen;
-    while (p < end) {
-        const char *amp = memchr(p, '&', (size_t)(end - p));
-        const char *stop = amp ? amp : end;
-        const char *eq = memchr(p, '=', (size_t)(stop - p));
-        if (eq && (size_t)(eq - p) == klen && memcmp(p, key, klen) == 0)
-            return url_decode(eq + 1, (size_t)(stop - eq - 1));
-        p = stop + 1;
-    }
-    return NULL;
-}
-
 /* Pull code/state out of what the user pasted: the whole redirect URL, a
  * `code=…&state=…` query, `code#state`, or the bare code. */
 static void parse_pasted(const char *line, char **code, char **state) {
@@ -342,13 +284,13 @@ static void parse_pasted(const char *line, char **code, char **state) {
     const char *q = memchr(line, '?', n);
     if (q) {
         q++;
-        *code = query_get(q, (size_t)(line + n - q), "code");
-        *state = query_get(q, (size_t)(line + n - q), "state");
+        *code = oauth_query_get(q, (size_t)(line + n - q), "code");
+        *state = oauth_query_get(q, (size_t)(line + n - q), "state");
         return;
     }
     if (memchr(line, '=', n)) {
-        *code = query_get(line, n, "code");
-        *state = query_get(line, n, "state");
+        *code = oauth_query_get(line, n, "code");
+        *state = oauth_query_get(line, n, "state");
         return;
     }
     const char *hash = memchr(line, '#', n);
@@ -360,102 +302,22 @@ static void parse_pasted(const char *line, char **code, char **state) {
     *code = xstrndup(line, n);
 }
 
-#ifndef __EMSCRIPTEN__
-static int listen_loopback(int port) {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return -1;
-    int one = 1;
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
-    struct sockaddr_in sa;
-    memset(&sa, 0, sizeof sa);
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons((uint16_t)port);
-    sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    if (bind(fd, (struct sockaddr *)&sa, sizeof sa) != 0 || listen(fd, 4) != 0) {
-        close(fd);
-        return -1;
-    }
-    return fd;
-}
-
-static void http_reply(int fd, int status, const char *html) {
-    buf_t b;
-    buf_init(&b);
-    buf_appendf(&b,
-                "HTTP/1.1 %d %s\r\nContent-Type: text/html; charset=utf-8\r\n"
-                "Content-Length: %zu\r\nConnection: close\r\n\r\n%s",
-                status, status == 200 ? "OK" : (status == 404 ? "Not Found" : "Bad Request"),
-                strlen(html), html);
-    size_t off = 0;
-    while (off < b.len) {
-        ssize_t w = write(fd, b.data + off, b.len - off);
-        if (w <= 0) break;
-        off += (size_t)w;
-    }
-    buf_free(&b);
-}
-
 /* Serve one connection: a GET /auth/callback?code&state with the expected
  * state hands back the code (malloc'd); anything else is answered and
  * ignored. The browser gets a tiny page either way. */
 static char *serve_callback(int lfd, const char *expect_state) {
-    if (lfd < 0) return NULL;
-    int fd = accept(lfd, NULL, NULL);
-    if (fd < 0) return NULL;
-    char req[8192];
-    memset(req, 0, sizeof req);
-    size_t got = 0;
-    int64_t deadline = now_ms() + 5000;
-    while (got < sizeof req - 1) {
-        struct pollfd pf = {fd, POLLIN, 0};
-        if (tny_poll(&pf, 1, 500) <= 0) {
-            if (now_ms() > deadline) break;
-            continue;
-        }
-        ssize_t n = read(fd, req + got, sizeof req - 1 - got);
-        if (n <= 0) break;
-        got += (size_t)n;
-        req[got] = 0;
-        if (strstr(req, "\r\n\r\n")) break;
-    }
-    req[got] = 0;
+    oauth_callback_expect e = {.path = CODEX_CALLBACK_PATH, .state = expect_state};
+    oauth_callback cb;
+    oauth_callback_kind kind = oauth_loopback_serve(lfd, &e, &cb);
+    if (kind == OAUTH_CALLBACK_ERROR) fprintf(stderr, "tny: sign-in refused: %s\n", cb.error);
     char *code = NULL;
-    const char *path = str_starts(req, "GET ") ? req + 4 : NULL;
-    const char *sp = path ? strchr(path, ' ') : NULL;
-    if (path && sp && str_starts(path, CODEX_CALLBACK_PATH) &&
-        (path[strlen(CODEX_CALLBACK_PATH)] == '?' || path + strlen(CODEX_CALLBACK_PATH) == sp)) {
-        const char *q = memchr(path, '?', (size_t)(sp - path));
-        size_t qlen = q ? (size_t)(sp - q - 1) : 0;
-        char *state = q ? query_get(q + 1, qlen, "state") : NULL;
-        char *err = q ? query_get(q + 1, qlen, "error") : NULL;
-        code = q ? query_get(q + 1, qlen, "code") : NULL;
-        if (!state || strcmp(state, expect_state) != 0) {
-            http_reply(fd, 400, "<h1>State mismatch</h1><p>Start the login again in tny.</p>");
-            free(code);
-            code = NULL;
-        } else if (err) {
-            fprintf(stderr, "tny: sign-in refused: %s\n", err);
-            http_reply(fd, 400, "<h1>Sign-in refused</h1><p>See the terminal.</p>");
-            free(code);
-            code = NULL;
-        } else if (!code || !*code) {
-            http_reply(fd, 400, "<h1>Missing authorization code</h1>");
-            free(code);
-            code = NULL;
-        } else {
-            http_reply(fd, 200,
-                       "<h1>Signed in to tny</h1><p>You can close this tab and return to "
-                       "the terminal.</p>");
-        }
-        free(state);
-        free(err);
-    } else {
-        http_reply(fd, 404, "<h1>Not found</h1>");
+    if (kind == OAUTH_CALLBACK_CODE) {
+        code = cb.code;
+        cb.code = NULL;
     }
-    close(fd);
+    oauth_callback_free(&cb);
     return code;
 }
-#endif
 
 static int login_browser(void) {
     uint8_t rnd[32];
@@ -482,14 +344,11 @@ static int login_browser(void) {
     int port = CODEX_CALLBACK_PORT;
     const char *pe = getenv("TNY_CODEX_CALLBACK_PORT");
     if (pe && atoi(pe) > 0) port = atoi(pe);
-    int lfd = -1;
-#ifndef __EMSCRIPTEN__
-    lfd = listen_loopback(port);
+    int lfd = oauth_loopback_listen(port);
     if (lfd < 0 && !pe) {
         port = CODEX_CALLBACK_PORT2;
-        lfd = listen_loopback(port);
+        lfd = oauth_loopback_listen(port);
     }
-#endif
     buf_t redirect, url, form;
     buf_init(&redirect);
     buf_init(&url);
@@ -540,12 +399,10 @@ static int login_browser(void) {
         if (tny_poll(pf, n, 500) <= 0) continue;
         for (int i = 0; i < n && !code; i++) {
             if (!(pf[i].revents & (POLLIN | POLLHUP))) continue;
-#ifndef __EMSCRIPTEN__
             if (pf[i].fd == lfd) {
                 code = serve_callback(lfd, state.data);
                 continue;
             }
-#endif
             char line[4096];
             if (!fgets(line, sizeof line, stdin)) {
                 tty = false; /* stdin closed: keep waiting on the listener */

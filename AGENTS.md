@@ -19,8 +19,8 @@ their own Makefile, sources, tests, and docs contract:
   sibling `*.c`/`*.h` too, and `make tnytty` / `make tnytty-test` delegate.
 
 tny is a **C11 + private C++20 ownership** TUI + CLI coding-agent harness (ADR 0114): **a harness for agents, built by agents, focused on the agent**. User constraints and tasks are the goal. Keep it fast, portable and small without a fixed binary-size ceiling or competitor target. It uses one native OpenAI-compatible HTTP backend with Responses and Chat
-Completions, named environment-key profiles, Codex ChatGPT OAuth and Grok
-public/subscription HTTP. Optional stdio ACP clients use the owning-runtime MCP
+Completions, named environment-key profiles, Sign in with ChatGPT on the openai profile
+(ADR 0186), legacy Codex ChatGPT OAuth and Grok public/subscription HTTP. Optional stdio ACP clients use the owning-runtime MCP
 bridge (ADR 0164); native HTTP needs no vendor executable (ADR 0152).
 
 The product source is live under `src/` with unit, integration, mutation, and latency-benchmark suites under `tests/`. [docs/](docs/README.md) is the contract; read it before writing C, and update it when behavior changes.
@@ -95,7 +95,7 @@ docs/          # this contract; update when behavior changes
 
 - `make wasm` / `make wasm-web` build the same `SRC_SHARED` sources as the native release plus `src/net/net_wasm.c`. Platform code lives only at the three seams (net.h transport, `tny_poll`, host OS); never `#ifdef` a fourth place without an ADR.
 - Blocking waits go through `tny_poll` (`src/util/tny_poll.h`), never raw `poll(2)`: raw poll returns instantly for wasm pseudo-fds and spins the event loop into a livelock.
-- **Every new backend or tool states its wasm behavior** — works / remote-only / clean error — in its docs page, and the wasm CI job (`test_openai.py`, `test_codex_chatgpt.py` with `TNY=build/wasm/tny`, plus the browser smoke `test_site_wasm.py`) enforces it. Parity is a red X, not a review comment.
+- **Every new backend or tool states its wasm behavior** — works / remote-only / clean error — in its docs page, and the wasm CI job (the `ci.yml` wasm step, e.g. `test_execution_code_mode.py` and `test_openai_signin.py` with `TNY=build/wasm/tny`, plus the browser smoke `test_site_wasm.py`) enforces it. Parity is a red X, not a review comment.
 - In `net_wasm.c`, JS never calls into C: handlers queue bytes and wake `tny_poll`; C pulls when awake (the Asyncify re-entry contract). Ready flags must clear when consumed.
 
 ## Landing site (GitHub Pages)

@@ -743,6 +743,27 @@ TARGETS = [
         None,
         "tests/integration/test_codex_chatgpt.py",
     ),
+    # Sign in with ChatGPT for the openai provider (docs/adr/0186): the
+    # checks that decide whether a callback, ID token, store record or
+    # endpoint may carry the plan token.
+    (
+        "src/core/openai_auth.c",
+        [
+            "tny_loopback_url_valid",
+            "tny_openai_signin_read",
+            "tny_openai_signin_sync",
+            "tny_openai_id_token_check",
+            "tny_openai_signin_mode",
+        ],
+        None,
+        "tests/integration/test_openai_signin.py",
+    ),
+    (
+        "src/core/oauth_loopback.c",
+        ["oauth_callback_parse"],
+        None,
+        "tests/integration/test_openai_signin.py",
+    ),
     # --fast capability (TNY_CAP_FAST): new functions whole, only the
     # tier/fast lines inside the pre-existing ones.
     ("src/core/backend.c", ["tny_backend_caps"], None),

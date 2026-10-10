@@ -271,8 +271,13 @@ Also implement `GET {base_url}/models` for `/models` when the provider has it; o
 
 ## Builtin subscription profiles
 
-`codex` uses native ChatGPT OAuth login and the Responses backend; see
-[codex.md](codex.md). `grok` uses native OAuth or an environment API key.
+The builtin `openai` profile also signs in with ChatGPT
+(`tny --provider openai login`): with no API key set, requests to
+`https://api.openai.com/v1` use the ChatGPT plan; see
+[openai-chatgpt.md](openai-chatgpt.md).
+
+`codex` (legacy) uses native ChatGPT OAuth login and the ChatGPT backend
+Responses route; see [codex.md](codex.md). `grok` uses native OAuth or an environment API key.
 There is no Claude subscription profile or token discovery. Claude models work
 through configured OpenAI-compatible gateways. All profiles use the same HTTP
 backend; none launches an agent executable (ADR 0151).

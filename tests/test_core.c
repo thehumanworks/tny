@@ -9,6 +9,8 @@
 #include "core/tasks.h"
 #include "core/tools.h"
 #include "core/subagent.h"
+#include "core/oauth_loopback.h"
+#include "core/openai_auth.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -6225,6 +6227,302 @@ TEST semantic_search_fanout_matches_serial_scan(void) {
     PASS();
 }
 
+/* ---- Sign in with ChatGPT for the openai provider (docs/adr/0186) ---- */
+
+#define UNIT_PLAN_STORE(extra)                                                             \
+    "{\"version\":1,\"issuer\":\"https://auth.openai.com\",\"client_id\":\"oaiapp_unit\"," \
+    "\"subject\":\"sub-1\",\"email\":\"u@example.test\",\"refresh_token\":\"r1\","         \
+    "\"expires_at\":\"2099-01-01T00:00:00Z\"" extra "}"
+
+static void openai_store_write(const char *json) {
+    char path[600];
+    snprintf(path, sizeof path, "%s/.tny", g_home);
+    mkdir_p(path);
+    snprintf(path, sizeof path, "%s/.tny/openai-auth.json", g_home);
+    if (json) file_write_atomic(path, json, strlen(json));
+    else unlink(path);
+}
+
+static tny_ctx *openai_resolved(const char *flag) {
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    if (ctx) tny_resolve_backend(ctx, flag);
+    return ctx;
+}
+
+TEST openai_signin_resolution_and_precedence(void) {
+    ensure_env();
+    unsetenv("CODEX_HOME");
+    unsetenv("TNY_OPENAI_OAUTH_ISSUER");
+    unsetenv("TNY_OPENAI_SIGNIN_BASE_URL");
+    write_settings("{}");
+    openai_store_write(
+        UNIT_PLAN_STORE(",\"access_token\":\"plan-unit-token\",\"plan_usage\":true"));
+
+    /* no key: the stored sign-in authorizes the default endpoint, and wins
+     * auto-detection over a codex login */
+    codex_auth_write(true);
+    tny_ctx *ctx = openai_resolved(NULL);
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
+    ASSERT(ctx->openai_signin);
+    ASSERT_STR_EQ("plan-unit-token", ctx->api_key);
+    ASSERT_STR_EQ(TNY_OPENAI_API_BASE_URL, ctx->base_url);
+    ASSERT_EQ(NULL, ctx->max_tokens_field);
+    ASSERT(tny_openai_signin_mode(ctx));
+    tny_ctx_free(ctx);
+    codex_auth_write(false);
+
+    /* an API key wins */
+    setenv("OPENAI_API_KEY", "sk-unit", 1);
+    ctx = openai_resolved("openai");
+    ASSERT_FALSE(ctx->openai_signin);
+    ASSERT_STR_EQ("sk-unit", ctx->api_key);
+    ASSERT_FALSE(tny_openai_signin_mode(ctx));
+    tny_ctx_free(ctx);
+    unsetenv("OPENAI_API_KEY");
+
+    /* another endpoint never receives the plan token */
+    setenv("OPENAI_BASE_URL", "https://gateway.example/v1", 1);
+    ctx = openai_resolved("openai");
+    ASSERT_FALSE(ctx->openai_signin);
+    ASSERT_EQ(NULL, ctx->api_key);
+    tny_ctx_free(ctx);
+    unsetenv("OPENAI_BASE_URL");
+
+    /* flags applied after resolution: a moved endpoint drops the token, a
+     * replaced key keeps the replacement */
+    ctx = openai_resolved("openai");
+    ASSERT(ctx->openai_signin);
+    free(ctx->base_url);
+    ctx->base_url = xstrdup("https://gateway.example/v1");
+    ASSERT_EQ(0, tny_openai_signin_sync(ctx));
+    ASSERT_FALSE(ctx->openai_signin);
+    ASSERT_EQ(NULL, ctx->api_key);
+    tny_ctx_free(ctx);
+    ctx = openai_resolved("openai");
+    secure_free(ctx->api_key);
+    ctx->api_key = xstrdup("sk-flag");
+    ASSERT_EQ(0, tny_openai_signin_sync(ctx));
+    ASSERT_FALSE(ctx->openai_signin);
+    ASSERT_STR_EQ("sk-flag", ctx->api_key);
+    tny_ctx_free(ctx);
+    ctx = openai_resolved("openai");
+    free(ctx->wire_api);
+    ctx->wire_api = xstrdup("chat");
+    ASSERT_EQ(0, tny_openai_signin_sync(ctx));
+    ASSERT_EQ(NULL, ctx->api_key);
+    tny_ctx_free(ctx);
+
+    /* signed out in another process mid-session: the token goes, and the
+     * caller hears the sign-in ended */
+    ctx = openai_resolved("openai");
+    ctx->openai_signin_expires_at = 1; /* force the store re-read */
+    openai_store_write(UNIT_PLAN_STORE(",\"plan_usage\":true"));
+    ASSERT_EQ(-1, tny_openai_signin_sync(ctx));
+    ASSERT_FALSE(ctx->openai_signin);
+    ASSERT_EQ(NULL, ctx->api_key);
+    tny_ctx_free(ctx);
+
+    /* the registration outlives the tokens; a declined plan grant is -2 */
+    tny_openai_signin s;
+    ASSERT_EQ(-1, tny_openai_signin_read(&s));
+    ASSERT_STR_EQ("oaiapp_unit", s.client_id);
+    ASSERT_STR_EQ("sub-1", s.subject);
+    tny_openai_signin_free(&s);
+    openai_store_write(
+        UNIT_PLAN_STORE(",\"access_token\":\"plan-unit-token\",\"plan_usage\":false"));
+    ASSERT_EQ(-2, tny_openai_signin_read(&s));
+    ASSERT_STR_EQ("u@example.test", s.email);
+    tny_openai_signin_free(&s);
+    ASSERT_FALSE(tny_openai_signin_present());
+    ctx = openai_resolved("openai");
+    ASSERT_EQ(NULL, ctx->api_key);
+    tny_ctx_free(ctx);
+
+    /* a record from another issuer never authorizes this one */
+    setenv("TNY_OPENAI_OAUTH_ISSUER", "http://127.0.0.1:9", 1);
+    openai_store_write(
+        UNIT_PLAN_STORE(",\"access_token\":\"plan-unit-token\",\"plan_usage\":true"));
+    ASSERT_EQ(-1, tny_openai_signin_read(&s));
+    tny_openai_signin_free(&s);
+    /* overrides must be numeric loopback */
+    setenv("TNY_OPENAI_OAUTH_ISSUER", "https://auth.example", 1);
+    ASSERT_EQ(NULL, tny_openai_issuer());
+    setenv("TNY_OPENAI_SIGNIN_BASE_URL", "http://localhost:1/v1", 1);
+    ASSERT_EQ(NULL, tny_openai_signin_base_url());
+    unsetenv("TNY_OPENAI_OAUTH_ISSUER");
+    unsetenv("TNY_OPENAI_SIGNIN_BASE_URL");
+
+    openai_store_write(NULL);
+    write_settings("{}");
+    PASS();
+}
+
+TEST openai_signin_mode_heuristic(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    free(ctx->base_url);
+    ctx->base_url = xstrdup("https://api.openai.com/v1");
+    ctx->api_key = xstrdup("eyJhbGciOi.plan.token"); /* not an sk- key */
+    ASSERT(tny_openai_signin_mode(ctx));
+    free(ctx->base_url);
+    ctx->base_url = xstrdup("https://API.OPENAI.COM/v1");
+    ASSERT(tny_openai_signin_mode(ctx));
+    secure_free(ctx->api_key);
+    ctx->api_key = xstrdup("sk-proj-abc");
+    ASSERT_FALSE(tny_openai_signin_mode(ctx));
+    secure_free(ctx->api_key);
+    ctx->api_key = xstrdup("eyJhbGciOi.plan.token");
+    free(ctx->base_url);
+    ctx->base_url = xstrdup("https://api.openai.com.evil.test/v1");
+    ASSERT_FALSE(tny_openai_signin_mode(ctx));
+    free(ctx->base_url);
+    ctx->base_url = xstrdup("http://api.openai.com/v1");
+    ASSERT_FALSE(tny_openai_signin_mode(ctx));
+    free(ctx->base_url);
+    ctx->base_url = xstrdup("https://api.openai.com/v1");
+    free(ctx->auth_header_name);
+    ctx->auth_header_name = xstrdup("api-key");
+    ASSERT_FALSE(tny_openai_signin_mode(ctx));
+    free(ctx->auth_header_name);
+    ctx->auth_header_name = NULL;
+    free(ctx->base_url);
+    ctx->base_url = NULL;
+    ASSERT_FALSE(tny_openai_signin_mode(ctx));
+    ASSERT_FALSE(tny_openai_signin_mode(NULL));
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+static char *unit_jwt(const char *payload) {
+    buf_t b;
+    buf_init(&b);
+    buf_appends(&b, "eyJhbGciOiJSUzI1NiJ9.");
+    b64url_encode((const uint8_t *)payload, strlen(payload), &b);
+    buf_appends(&b, ".sig");
+    return buf_detach(&b);
+}
+
+static int id_check(const char *fmt, int64_t exp, const char **why) {
+    char payload[512];
+    snprintf(payload, sizeof payload, fmt, (long long)exp);
+    char *t = unit_jwt(payload);
+    char *sub = NULL, *email = NULL;
+    int rc = tny_openai_id_token_check(t, "https://auth.openai.com", "oaiapp_c", "n1", &sub, &email,
+                                       why);
+    if (rc == 0 && (!sub || strcmp(sub, "s1") != 0)) rc = 99;
+    free(sub);
+    free(email);
+    free(t);
+    return rc;
+}
+
+TEST openai_id_token_checks(void) {
+    int64_t now = now_ms() / 1000;
+    const char *why = NULL;
+#define CLAIMS(iss, aud, nonce, sub) \
+    "{\"iss\":\"" iss "\",\"aud\":" aud ",\"nonce\":\"" nonce "\"" sub ",\"exp\":%lld}"
+    ASSERT_EQ(0, id_check(CLAIMS("https://auth.openai.com", "[\"x\",\"oaiapp_c\"]", "n1",
+                                 ",\"sub\":\"s1\""),
+                          now + 600, &why));
+    ASSERT_EQ(0,
+              id_check(CLAIMS("https://auth.openai.com/", "\"oaiapp_c\"", "n1", ",\"sub\":\"s1\""),
+                       now - 100, &why)); /* trailing slash; inside the skew */
+    ASSERT_EQ(-1, id_check(CLAIMS("https://evil.test", "\"oaiapp_c\"", "n1", ",\"sub\":\"s1\""),
+                           now + 600, &why));
+    ASSERT(strstr(why, "issuer"));
+    ASSERT_EQ(-1,
+              id_check(CLAIMS("https://auth.openai.com", "[\"other\"]", "n1", ",\"sub\":\"s1\""),
+                       now + 600, &why));
+    ASSERT(strstr(why, "audience"));
+    ASSERT_EQ(-1,
+              id_check(CLAIMS("https://auth.openai.com", "\"oaiapp_c\"", "n1", ",\"sub\":\"s1\""),
+                       now - 1000, &why));
+    ASSERT(strstr(why, "expired"));
+    ASSERT_EQ(-1,
+              id_check(CLAIMS("https://auth.openai.com", "\"oaiapp_c\"", "n2", ",\"sub\":\"s1\""),
+                       now + 600, &why));
+    ASSERT(strstr(why, "nonce"));
+    ASSERT_EQ(
+        -1, id_check(CLAIMS("https://auth.openai.com", "\"oaiapp_c\"", "n1", ""), now + 600, &why));
+    ASSERT(strstr(why, "subject"));
+#undef CLAIMS
+    char *sub = NULL, *email = NULL;
+    ASSERT_EQ(-1, tny_openai_id_token_check("not-a-jwt", "https://auth.openai.com", "oaiapp_c",
+                                            "n1", &sub, &email, &why));
+    ASSERT_EQ(-1, tny_openai_id_token_check(NULL, "https://auth.openai.com", "oaiapp_c", "n1", &sub,
+                                            &email, &why));
+    ASSERT_EQ(NULL, sub);
+    PASS();
+}
+
+TEST openai_loopback_override_urls(void) {
+    ASSERT(tny_loopback_url_valid(NULL));
+    ASSERT(tny_loopback_url_valid(""));
+    ASSERT(tny_loopback_url_valid("http://127.0.0.1"));
+    ASSERT(tny_loopback_url_valid("http://127.0.0.1:8080/v1"));
+    ASSERT(tny_loopback_url_valid("https://127.0.0.1:1/x"));
+    ASSERT(tny_loopback_url_valid("http://127.0.0.1:9090"));
+    ASSERT(tny_loopback_url_valid("http://127.0.0.1:65535/"));
+    ASSERT_FALSE(tny_loopback_url_valid("http://localhost:80"));
+    ASSERT_FALSE(tny_loopback_url_valid("http://127.0.0.1.evil.test"));
+    ASSERT_FALSE(tny_loopback_url_valid("http://127.0.0.1:"));
+    ASSERT_FALSE(tny_loopback_url_valid("http://127.0.0.1:x1"));
+    ASSERT_FALSE(tny_loopback_url_valid("http://127.0.0.1:0"));
+    ASSERT_FALSE(tny_loopback_url_valid("http://127.0.0.1:65536"));
+    ASSERT_FALSE(tny_loopback_url_valid("http://127.0.0.1:80@evil.test"));
+    ASSERT_FALSE(tny_loopback_url_valid("http://127.0.0.1/a b"));
+    ASSERT_FALSE(tny_loopback_url_valid("ftp://127.0.0.1"));
+    PASS();
+}
+
+static oauth_callback_kind cb_parse(const char *q, const oauth_callback_expect *e,
+                                    oauth_callback *cb, const char **why) {
+    return oauth_callback_parse(q, strlen(q), e, cb, why);
+}
+
+TEST oauth_callback_rules(void) {
+    oauth_callback cb;
+    const char *why = NULL;
+    oauth_callback_expect reg = {"/auth/callback", "S1", true, NULL};
+    ASSERT_EQ(OAUTH_CALLBACK_CODE,
+              cb_parse("code=c%2B1&state=S1&client_id=oaiapp_x", &reg, &cb, &why));
+    ASSERT_STR_EQ("c+1", cb.code);
+    ASSERT_STR_EQ("oaiapp_x", cb.client_id);
+    oauth_callback_free(&cb);
+    /* registration needs the issued id; a wrong state is not this attempt */
+    ASSERT_EQ(OAUTH_CALLBACK_NONE, cb_parse("code=c&state=S1", &reg, &cb, &why));
+    ASSERT(strstr(why, "client_id"));
+    ASSERT_EQ(OAUTH_CALLBACK_NONE, cb_parse("code=c&state=S2&client_id=x", &reg, &cb, &why));
+    ASSERT_STR_EQ("state mismatch", why);
+    /* this attempt, but no code to exchange: keep waiting */
+    ASSERT_EQ(OAUTH_CALLBACK_NONE, cb_parse("state=S1&client_id=x", &reg, &cb, &why));
+    ASSERT_STR_EQ("missing authorization code", why);
+    ASSERT_EQ(OAUTH_CALLBACK_NONE, cb_parse("code=&state=S1&client_id=x", &reg, &cb, &why));
+    ASSERT_STR_EQ("missing authorization code", why);
+    ASSERT_EQ(OAUTH_CALLBACK_NONE,
+              cb_parse("code=c&state=S1&state=S1&client_id=x", &reg, &cb, &why));
+    ASSERT(strstr(why, "duplicate"));
+    ASSERT_EQ(OAUTH_CALLBACK_NONE, cb_parse("code=a&code=b&state=S1&client_id=x", &reg, &cb, &why));
+    /* this attempt refused: stop, exchange nothing */
+    ASSERT_EQ(OAUTH_CALLBACK_ERROR, cb_parse("error=access_denied&state=S1", &reg, &cb, &why));
+    ASSERT_STR_EQ("access_denied", cb.error);
+    ASSERT_EQ(NULL, cb.code);
+    oauth_callback_free(&cb);
+    /* reauthorization: the id may be omitted, never swapped */
+    oauth_callback_expect re = {"/auth/callback", "S1", false, "oaiapp_saved"};
+    ASSERT_EQ(OAUTH_CALLBACK_CODE, cb_parse("code=c&state=S1", &re, &cb, &why));
+    ASSERT_EQ(NULL, cb.client_id);
+    oauth_callback_free(&cb);
+    ASSERT_EQ(OAUTH_CALLBACK_ERROR,
+              cb_parse("code=c&state=S1&client_id=oaiapp_other", &re, &cb, &why));
+    ASSERT_STR_EQ("client_id_mismatch", cb.error);
+    ASSERT_EQ(NULL, cb.code);
+    oauth_callback_free(&cb);
+    PASS();
+}
+
 SUITE(core_suite) {
     RUN_TEST(edit_feedback_dispatch_preserves_failure_and_undo);
     RUN_TEST(edit_feedback_dispatch_bounds_utf8_snippet);
@@ -6244,6 +6542,11 @@ SUITE(core_suite) {
     RUN_TEST(codex_models_normalize_keeps_listed_slugs);
     RUN_TEST(codex_client_version_env_override);
     RUN_TEST(backend_default_prefers_codex_login);
+    RUN_TEST(openai_signin_resolution_and_precedence);
+    RUN_TEST(openai_signin_mode_heuristic);
+    RUN_TEST(openai_id_token_checks);
+    RUN_TEST(openai_loopback_override_urls);
+    RUN_TEST(oauth_callback_rules);
     RUN_TEST(builtin_codex_profile);
     RUN_TEST(failed_provider_switch_is_atomic);
     RUN_TEST(codex_credential_precedence);

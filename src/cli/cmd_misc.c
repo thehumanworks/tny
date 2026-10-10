@@ -2,6 +2,7 @@
  * login/logout/setup. All support --json where docs/cli.md requires it. */
 #include "cli/cli.h"
 #include "core/backend.h"
+#include "core/openai_auth.h"
 #include "core/sandbox.h"
 #include "core/tasks.h"
 #include "core/session.h"
@@ -236,6 +237,10 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool auth = ctx->api_key != NULL || str_starts(ctx->base_url, "http://");
     bool subscription = tny_codex_chatgpt_mode(ctx);
     codex_weekly_usage usage = subscription ? status_codex_usage(ctx) : (codex_weekly_usage){0};
+    /* ChatGPT-plan usage has no readable allowance on this route; status
+     * links to the user's own usage page instead (docs/adr/0186). */
+    bool plan = ctx->openai_signin && ctx->api_key;
+    char *plan_email = plan ? tny_openai_signin_email() : NULL;
     if (json) {
         buf_t b;
         buf_init(&b);
@@ -265,6 +270,14 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             jescape(&b, ctx->task_digest);
             buf_appends(&b, "}");
         } else buf_appends(&b, "null");
+        if (plan) {
+            buf_appends(&b, ",\"chatgpt_plan\":{\"account\":");
+            if (plan_email) jescape(&b, plan_email);
+            else buf_appends(&b, "null");
+            buf_appends(&b, ",\"manage_usage_url\":");
+            jescape(&b, TNY_CHATGPT_USAGE_URL);
+            buf_appends(&b, "}");
+        }
         if (subscription) {
             buf_appends(&b, ",\"codex_usage\":");
             if (usage.available)
@@ -285,7 +298,14 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         printf("provider:   %s\n", bk);
         printf("model:      %s\n", model);
         if (ctx->reasoning_effort) printf("effort:     %s\n", ctx->reasoning_effort);
-        printf("auth:       %s\n", auth ? "ok" : "missing (set OPENAI_API_KEY or run tny setup)");
+        if (plan) {
+            printf("auth:       ok (ChatGPT plan%s%s)\n", plan_email ? ", signed in as " : "",
+                   plan_email ? plan_email : "");
+            printf("usage:      manage at %s\n", TNY_CHATGPT_USAGE_URL);
+        } else
+            printf("auth:       %s\n", auth ? "ok"
+                                            : "missing (set OPENAI_API_KEY, run `tny --provider "
+                                              "openai login`, or run tny setup)");
         if (subscription) {
             if (usage.available) {
                 time_t reset = (time_t)usage.reset;
@@ -320,6 +340,7 @@ int cmd_status(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (ctx->max_extension_iterations > 0) printf("max %d)\n", ctx->max_extension_iterations);
         else printf("unlimited)\n");
     }
+    free(plan_email);
     return 0;
 }
 
@@ -448,6 +469,9 @@ int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
      * filter and answers {"models":[…]} instead of
      * {"data":[…]} (docs/backends/codex.md) */
     bool codex_catalog = tny_codex_chatgpt_mode(ctx);
+    /* The ChatGPT-plan route answers the same {"models":[…]} shape on the
+     * public /v1/models, without a client_version (docs/adr/0186). */
+    bool plan_catalog = !codex_catalog && tny_openai_signin_mode(ctx);
     buf_t path;
     buf_init(&path);
     buf_appendf(&path, "%s/models", http_prefix(c));
@@ -477,7 +501,12 @@ int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     http_close(c);
 
     if (status != 200) {
-        if (status == 401 || status == 403)
+        if ((status == 401 || status == 403) && plan_catalog)
+            fprintf(stderr,
+                    "tny: /models refused the ChatGPT sign-in (HTTP %d): run `tny --provider "
+                    "openai login`; showing configured\n",
+                    status);
+        else if (status == 401 || status == 403)
             fprintf(stderr,
                     "tny: /models refused the credentials (HTTP %d): %s; "
                     "showing configured\n",
@@ -490,14 +519,17 @@ int cmd_models(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_free(&body);
         return models_fallback(ctx, json);
     }
-    if (codex_catalog) {
+    if (codex_catalog || plan_catalog) {
         char *arr = tny_codex_models_normalize(body.data, body.len);
         buf_free(&body);
         if (!arr) {
-            fprintf(stderr, "tny: codex catalog: unexpected response shape; showing configured\n");
+            fprintf(stderr, "tny: %s catalog: unexpected response shape; showing configured\n",
+                    codex_catalog ? "codex" : "ChatGPT plan");
             return models_fallback(ctx, json);
         }
-        if (strcmp(arr, "[]") == 0)
+        if (strcmp(arr, "[]") == 0 && plan_catalog)
+            fprintf(stderr, "tny: ChatGPT plan catalog lists no models for this account\n");
+        else if (strcmp(arr, "[]") == 0)
             fprintf(stderr,
                     "tny: codex catalog has no listed models for client_version %s; "
                     "check account access or TNY_CODEX_CLIENT_VERSION\n",
@@ -883,7 +915,8 @@ int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (strcmp(argv[i], "--device") == 0 || strcmp(argv[i], "--device-code") == 0)
             device = true;
     const char *pn = tny_provider_name(ctx);
-    if (strcmp(pn, "codex") == 0) return tny_codex_login(ctx, device); /* docs/adr/0066 */
+    if (strcmp(pn, "openai") == 0) return tny_openai_login(ctx, device); /* docs/adr/0186 */
+    if (strcmp(pn, "codex") == 0) return tny_codex_login(ctx, device);   /* docs/adr/0066 */
     if (strcmp(pn, "grok") == 0) return login_grok(ctx);
     printf(ctx->api_key ? "Provider key found.\n"
                         : "Export the provider key and configure api_key_env.\n");
@@ -892,9 +925,11 @@ int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
 
 int cmd_logout(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     (void)g;
-    (void)argc;
-    (void)argv;
+    bool forget = false;
+    for (int i = 0; i < argc; i++)
+        if (strcmp(argv[i], "--forget") == 0) forget = true;
     const char *pn = tny_provider_name(ctx);
+    if (strcmp(pn, "openai") == 0) return tny_openai_logout(forget);
     if (strcmp(pn, "grok") == 0) return tny_grok_logout();
     if (strcmp(pn, "codex") == 0) return tny_codex_logout();
     printf("tny stores no provider secrets; unset the environment variable to log out.\n");

@@ -98,6 +98,7 @@ constexpr bool_field bools[] = {
     {"instructions_snapshot_ready", &tny_ctx::instructions_snapshot_ready},
     {"mcp_disabled", &tny_ctx::mcp_disabled},
     {"mcp_import_warned", &tny_ctx::mcp_import_warned},
+    {"openai_signin", &tny_ctx::openai_signin},
 };
 
 bool absent(yyjson_val *v) { return !v || yyjson_is_null(v); }
@@ -220,6 +221,9 @@ yyjson_mut_val *encode(yyjson_mut_doc *d, const tny_ctx *c, bool public_only) {
     encode_array(d, r, "extra_dirs", c->extra_dirs, c->n_extra_dirs);
     encode_array(d, r, "instruction_paths", c->instruction_paths, c->n_instruction_paths);
     if (!public_only) {
+        // The installed sign-in token's fingerprint (ADR 0186); expiry is
+        // re-read from the store on the restored runner's next request.
+        check(yyjson_mut_obj_add_uint(d, r, "openai_signin_key", c->openai_signin_key));
         encode_array(d, r, "extra_headers", c->extra_headers, header_count(c));
         int argc = 0;
         while (c->agent_argv && c->agent_argv[argc]) ++argc;
@@ -304,6 +308,8 @@ context restore(yyjson_val *r) {
                  TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED);
     restore_number(c->max_tool_result_bytes, jget(r, "max_tool_result_bytes"), size_t{32768});
     restore_number(c->mcp_import_mask, jget(r, "mcp_import_mask"));
+    restore_number(c->openai_signin_key, jget(r, "openai_signin_key"));
+    c->openai_signin_expires_at = 0;
     restore_array(c->extra_dirs, c->n_extra_dirs, jget(r, "extra_dirs"));
     restore_array(c->instruction_paths, c->n_instruction_paths, jget(r, "instruction_paths"));
     int argc = 0;
