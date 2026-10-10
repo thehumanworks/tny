@@ -148,6 +148,30 @@ URL. `tny_poll` governs all waits.
   no `OPENAI_API_KEY` returned exactly the requested text: exit 0, about 3 s,
   no stderr. `tny status` reported the plan and the usage page. Refresh,
   revocation and the plan error codes were not exercised live.
-- Mutation (`tests/mutation/mutate.py`): `oauth_callback_parse` had no
-  survivors (3 killed by unit tests, 3 uncompilable); 7 mutants timed out,
-  which the harness reports as incomplete verification rather than kills.
+- Mutation (`tests/mutation/mutate.py --only FILE --test FILTER`, no
+  timeouts):
+  - `oauth_callback_parse` (`--test oauth_callback`): all 10 valid mutants
+    killed by unit tests (3 uncompilable). The first run's one survivor
+    accepted an empty `code` (`!code || !*code` to `&&`); a missing-code and
+    an empty-code case now kill it.
+  - `openai_auth.c` (`--test openai`): 79 valid mutants, 69 killed by unit
+    tests and 2 by the sign-in suite (13 uncompilable). The first run closed
+    real gaps: loopback ports that start with 9, port 65535, an empty or
+    non-numeric port, a NULL context or base URL in the Pi heuristic, and the
+    never-read `has_refresh` field, which was removed.
+  - The 8 survivors are accepted:
+    - equivalent: ID-token `exp <= 0` to `< 0` (an `exp` of 0 still fails the
+      skew check); sync `expires_at > 0` to `>= 0` (0 still re-reads the
+      store); sync `!ctx || !signin` to `&&` (no caller passes NULL); port
+      digit test `||` to `&&` (a non-digit port parses as 0 and is refused);
+    - one-second boundaries: ID-token expiry `<` to `<=` and the refresh
+      window `<` to `<=`;
+    - a leading-zero port such as `:080` (`< '0'` to `<= '0'`), safe either
+      way;
+    - a store path that cannot resolve (no home directory).
+  - `--test` is needed because the harness gives each mutant's unit run 60 s,
+    while the full unit binary takes about 70 s on the authoring host (most of
+    it waits, not CPU). Without the filter, 67 of the 93 `openai_auth.c`
+    mutants and 7 of the 13 `oauth_callback_parse` mutants timed out. One of
+    those timeouts (`state` `!=` to `==`) was reproduced by hand and
+    `oauth_callback_rules` fails it.
