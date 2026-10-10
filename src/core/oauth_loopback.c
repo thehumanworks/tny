@@ -78,11 +78,34 @@ void oauth_callback_free(oauth_callback *cb) {
     memset(cb, 0, sizeof *cb);
 }
 
+/* How many times `key` appears in a query string. */
+static int query_count(const char *query, size_t qlen, const char *key) {
+    size_t klen = strlen(key);
+    int n = 0;
+    const char *p = query, *end = query + qlen;
+    while (p < end) {
+        const char *amp = memchr(p, '&', (size_t)(end - p));
+        const char *stop = amp ? amp : end;
+        const char *eq = memchr(p, '=', (size_t)(stop - p));
+        const char *kend = eq ? eq : stop;
+        if ((size_t)(kend - p) == klen && memcmp(p, key, klen) == 0) n++;
+        p = stop + 1;
+    }
+    return n;
+}
+
 oauth_callback_kind oauth_callback_parse(const char *query, size_t qlen,
                                          const oauth_callback_expect *e, oauth_callback *out,
                                          const char **why) {
     memset(out, 0, sizeof *out);
     *why = NULL;
+    /* a repeated parameter makes "the" value ambiguous: refuse the request */
+    static const char *const single[] = {"state", "code", "client_id", "error"};
+    for (size_t i = 0; i < sizeof single / sizeof single[0]; i++)
+        if (query_count(query, qlen, single[i]) > 1) {
+            *why = "duplicate callback parameter";
+            return OAUTH_CALLBACK_NONE;
+        }
     char *state = oauth_query_get(query, qlen, "state");
     char *error = oauth_query_get(query, qlen, "error");
     char *code = oauth_query_get(query, qlen, "code");

@@ -2440,6 +2440,89 @@ TEST request_construction_oom_after_usage_skips_finalization(void) {
 }
 #endif
 
+/* ---- ChatGPT-plan route (docs/adr/0186) ---- */
+
+TEST plan_error_codes_classify(void) {
+    ASSERT_EQ(OA_PLAN_ERROR_USAGE_LIMIT,
+              oa_plan_error_of("subscription_sharing_usage_limit_exceeded"));
+    ASSERT_EQ(OA_PLAN_ERROR_UNAVAILABLE, oa_plan_error_of("subscription_sharing_usage_unavailable"));
+    ASSERT_EQ(OA_PLAN_ERROR_UNAVAILABLE, oa_plan_error_of("subscription_sharing_user_unavailable"));
+    ASSERT_EQ(OA_PLAN_ERROR_NOT_ELIGIBLE,
+              oa_plan_error_of("subscription_sharing_user_not_eligible"));
+    ASSERT_EQ(OA_PLAN_ERROR_ROUTE, oa_plan_error_of("subscription_sharing_route_not_supported"));
+    ASSERT_EQ(OA_PLAN_ERROR_GRANT, oa_plan_error_of("chatpass_v2_scope_not_authorized"));
+    ASSERT_EQ(OA_PLAN_ERROR_GRANT, oa_plan_error_of("chatpass_v2_invalid_authorization_context"));
+    ASSERT_EQ(OA_PLAN_ERROR_INVALID_USER, oa_plan_error_of("subscription_sharing_invalid_user"));
+    ASSERT_EQ(OA_PLAN_ERROR_UNSUPPORTED,
+              oa_plan_error_of("subscription_sharing_unsupported_capability"));
+    /* exact codes only: no prefixes, no case folding */
+    ASSERT_EQ(OA_PLAN_ERROR_NONE, oa_plan_error_of("subscription_sharing_usage_limit"));
+    ASSERT_EQ(OA_PLAN_ERROR_NONE, oa_plan_error_of("SUBSCRIPTION_SHARING_INVALID_USER"));
+    ASSERT_EQ(OA_PLAN_ERROR_NONE, oa_plan_error_of("rate_limit_exceeded"));
+    ASSERT_EQ(OA_PLAN_ERROR_NONE, oa_plan_error_of(NULL));
+    /* only a temporary unavailability is worth retrying; a usage limit
+     * waits for the user, not a backoff */
+    ASSERT(oa_plan_error_retryable(OA_PLAN_ERROR_UNAVAILABLE));
+    ASSERT_FALSE(oa_plan_error_retryable(OA_PLAN_ERROR_USAGE_LIMIT));
+    ASSERT_FALSE(oa_plan_error_retryable(OA_PLAN_ERROR_INVALID_USER));
+    ASSERT_FALSE(oa_plan_error_retryable(OA_PLAN_ERROR_NONE));
+    PASS();
+}
+
+TEST plan_error_param_is_sanitized(void) {
+    char p[16];
+    oa_error_param(p, sizeof p, "tools[0].type");
+    ASSERT_STR_EQ("tools[0].type", p);
+    oa_error_param(p, sizeof p, "max-output_1");
+    ASSERT_STR_EQ("max-output_1", p);
+    oa_error_param(p, sizeof p, "a\x1b[2Jb"); /* terminal escapes never print */
+    ASSERT_STR_EQ("", p);
+    oa_error_param(p, sizeof p, "a b");
+    ASSERT_STR_EQ("", p);
+    oa_error_param(p, sizeof p, "`rm`");
+    ASSERT_STR_EQ("", p);
+    oa_error_param(p, sizeof p, "0123456789abcdef"); /* does not fit: dropped, not cut */
+    ASSERT_STR_EQ("", p);
+    oa_error_param(p, sizeof p, NULL);
+    ASSERT_STR_EQ("", p);
+    PASS();
+}
+
+TEST plan_input_uses_developer_role(void) {
+    yyjson_mut_doc *view = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *msgs = yyjson_mut_arr(view);
+    yyjson_mut_doc_set_root(view, msgs);
+    const char *roles[] = {"system", "user"}, *texts[] = {"be brief", "hi"};
+    for (int i = 0; i < 2; i++) {
+        yyjson_mut_val *m = yyjson_mut_obj(view);
+        yyjson_mut_obj_add_str(view, m, "role", roles[i]);
+        yyjson_mut_obj_add_str(view, m, "content", texts[i]);
+        yyjson_mut_arr_add_val(msgs, m);
+    }
+    char *plan = tny_openai_responses_input_developer(msgs, "earlier: x");
+    char *key = tny_openai_responses_input_with_summary(msgs, "earlier: x");
+    ASSERT(plan && key);
+    yyjson_doc *pd = jparse(plan, strlen(plan)), *kd = jparse(key, strlen(key));
+    yyjson_val *pi = yyjson_doc_get_root(pd), *ki = yyjson_doc_get_root(kd);
+    ASSERT_EQ(3, (int)yyjson_arr_size(pi));
+    ASSERT_EQ(3, (int)yyjson_arr_size(ki));
+    /* the plan route rejects role:system items; the key route keeps them */
+    ASSERT_STR_EQ("developer", jget_str(yyjson_arr_get(pi, 0), "role"));
+    ASSERT_STR_EQ("developer", jget_str(yyjson_arr_get(pi, 1), "role"));
+    ASSERT_STR_EQ("be brief", jget_str(yyjson_arr_get(pi, 1), "content"));
+    ASSERT_STR_EQ("user", jget_str(yyjson_arr_get(pi, 2), "role"));
+    ASSERT_STR_EQ("system", jget_str(yyjson_arr_get(ki, 0), "role"));
+    ASSERT_STR_EQ("system", jget_str(yyjson_arr_get(ki, 1), "role"));
+    ASSERT(strstr(jget_str(yyjson_arr_get(pi, 0), "content"), "earlier: x"));
+    ASSERT_FALSE(strstr(plan, "\"system\""));
+    yyjson_doc_free(pd);
+    yyjson_doc_free(kd);
+    free(plan);
+    free(key);
+    yyjson_mut_doc_free(view);
+    PASS();
+}
+
 SUITE(openai_suite) {
 #ifdef TNY_ALLOC_TESTING
     RUN_TEST(session_argument_rewrite_oom_preserves_original);
@@ -2486,4 +2569,7 @@ SUITE(openai_suite) {
     RUN_TEST(stream_complete_needs_a_terminal_event);
     RUN_TEST(stall_window_parses_and_clamps);
     RUN_TEST(continuation_trails_partial_then_user_turn);
+    RUN_TEST(plan_error_codes_classify);
+    RUN_TEST(plan_error_param_is_sanitized);
+    RUN_TEST(plan_input_uses_developer_role);
 }
