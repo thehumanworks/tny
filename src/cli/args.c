@@ -3,6 +3,7 @@
 #include "core/backend.h"
 #include "core/extensions.h"
 #include "core/jobs.h"
+#include "core/openai_auth.h"
 #include "core/ssh.h"
 #include "core/tasks.h"
 #include "core/swarm.h"
@@ -254,6 +255,9 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
             return NULL;
         }
     }
+    /* A ChatGPT sign-in token never follows --base-url/--wire-api elsewhere,
+     * and a flag-supplied key replaces it for good (docs/adr/0186). */
+    tny_openai_signin_sync(ctx);
     /* --fast needs the resolved provider: it is a capability, not a knob
      * every backend has. Capable providers map it to their own wire field. */
     if (g->fast) {

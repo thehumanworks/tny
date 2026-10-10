@@ -89,13 +89,15 @@ static void add_function_calls(yyjson_mut_doc *d, yyjson_mut_val *arr, yyjson_mu
     }
 }
 
-static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *summary) {
+static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *summary,
+                             bool developer) {
     tny::mutable_document mutable_owner(yyjson_mut_doc_new(jallocator()));
     yyjson_mut_doc *d = mutable_owner.get();
     if (!d) return NULL;
     yyjson_mut_val *arr = yyjson_mut_arr(d);
     yyjson_mut_doc_set_root(d, arr);
-    if (summary) add_text_message(d, arr, "system", summary);
+    const char *system_role = developer ? "developer" : "system";
+    if (summary) add_text_message(d, arr, system_role, summary);
 
     size_t total = msgs ? yyjson_mut_arr_size(msgs) : 0;
     for (size_t i = start; i < total; i++) {
@@ -146,6 +148,7 @@ static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *sum
             continue;
         }
         /* user / system / developer */
+        if (strcmp(role, "system") == 0) role = system_role;
         if (yyjson_mut_is_arr(content)) {
             add_parts_message(d, arr, role, content);
         } else {
@@ -159,11 +162,15 @@ static char *translate_input(yyjson_mut_val *msgs, size_t start, const char *sum
 
 char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary, const char *summary) {
     return translate_input(msgs, boundary > 0 ? (size_t)boundary : 0,
-                           boundary > 0 ? summary : NULL);
+                           boundary > 0 ? summary : NULL, false);
 }
 
 char *tny_openai_responses_input_with_summary(yyjson_mut_val *msgs, const char *summary) {
-    return translate_input(msgs, 0, summary);
+    return translate_input(msgs, 0, summary, false);
+}
+
+char *tny_openai_responses_input_developer(yyjson_mut_val *msgs, const char *summary) {
+    return translate_input(msgs, 0, summary, true);
 }
 
 char *tny_openai_responses_tools(const char *chat_tools_json) {

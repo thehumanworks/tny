@@ -105,7 +105,9 @@ void help_root(void) {
           "          CHATGPT_ACCOUNT_ID) for file-less hosts; else ~/.tny/codex-auth.json from\n"
           "          `tny --provider codex login`, else $CODEX_HOME/auth.json from `codex login`.\n"
           "          Runs chatgpt.com/backend-api/codex on tny's native loop\n"
-          "  openai: --base-url URL --api-key-env NAME (env OPENAI_BASE_URL, OPENAI_API_KEY)\n"
+          "  openai: --base-url URL --api-key-env NAME (env OPENAI_BASE_URL, OPENAI_API_KEY);\n"
+          "          with no key, the Sign in with ChatGPT login from\n"
+          "          `tny --provider openai login` uses your ChatGPT plan on api.openai.com\n"
           "          --base-url-env NAME  Read the base URL from env NAME (keeps a\n"
           "                         secret-bearing gateway URL off argv)\n"
           "          --wire-api responses|chat  Wire protocol (default responses;\n"
@@ -126,8 +128,8 @@ void help_root(void) {
           "  tny ask \"explain src/main.c\"  One request, Markdown on stdout\n"
           "  tny --task review ask \"inspect the current diff\"\n"
           "  tny ask --json \"list the public CLI\"\n"
-          "  tny --provider codex login   ChatGPT sign-in (browser, or a device code)\n"
-          "  tny --provider codex ask \"run the tests\"\n"
+          "  tny --provider openai login  Sign in with ChatGPT (use your plan via the API)\n"
+          "  tny --provider openai ask \"run the tests\"\n"
           "  tny --effort xhigh ask \"prove this lock-free queue is correct\"\n"
           "  tny --provider codex --fast ask \"quick: run the tests\"\n"
           "  tny --provider openrouter ask \"run tests\"\n",
@@ -701,7 +703,14 @@ bool help_for(const char *command) {
                "\n"
                "Sign in to the active provider. Tokens live in each provider's own store.\n"
                "\n"
-               "  codex   Native ChatGPT sign-in, no Codex CLI needed: opens the browser\n"
+               "  openai  Sign in with ChatGPT: opens the browser (PKCE, 127.0.0.1\n"
+               "          callback; the redirect URL can also be pasted) and asks to use\n"
+               "          your ChatGPT plan with tny. The login lands in\n"
+               "          ~/.tny/openai-auth.json (0600) and refreshes itself; requests go\n"
+               "          to https://api.openai.com/v1/responses. OPENAI_API_KEY, when set,\n"
+               "          wins. Manage usage at https://chatgpt.com/settings/usage.\n"
+               "          --device is not available for this sign-in.\n"
+               "  codex   Legacy ChatGPT sign-in, no Codex CLI needed: opens the browser\n"
                "          (PKCE, localhost callback; the redirect URL can also be pasted),\n"
                "          or with --device prints a URL plus one-time code for headless\n"
                "          machines. The login lands in ~/.tny/codex-auth.json, which tny\n"
@@ -711,16 +720,18 @@ bool help_for(const char *command) {
                "          CLI needed): open the printed URL on any device, confirm the\n"
                "          code; the session lands in ~/.grok/auth.json (grok CLI format)\n"
                "          and auto-refreshes.\n"
-               "  openai  Reports whether an API key resolved (tny setup configures one).\n"
+               "  other   Reports whether an API key resolved (tny setup configures one).\n"
                "\n"
                "Examples:\n"
+               "  tny --provider openai login\n"
                "  tny --provider codex login --device\n"
                "  tny --provider grok login\n";
     else if (strcmp(command, "logout") == 0)
-        text = "Usage: tny [--provider NAME] logout\n\nProvider-specific logout (removes "
-               "~/.tny/codex-auth.json for codex, "
-               "native removal of the xAI entries in ~/.grok/auth.json for grok, env-var hints "
-               "otherwise).\n";
+        text = "Usage: tny [--provider NAME] logout [--forget]\n\nProvider-specific logout. "
+               "openai revokes the ChatGPT sign-in and clears its tokens, keeping the app\n"
+               "registration for the next login; --forget also deletes ~/.tny/openai-auth.json.\n"
+               "codex removes ~/.tny/codex-auth.json; grok natively removes the xAI entries in\n"
+               "~/.grok/auth.json; other providers print env-var hints.\n";
     if (!text) {
         help_root();
         return true;

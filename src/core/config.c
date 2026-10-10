@@ -3,6 +3,7 @@
 #include "core/backend.h"
 #include "core/extensions.h"
 #include "core/instructions.h"
+#include "core/openai_auth.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -526,6 +527,36 @@ static char *provider_strdup(tny_ctx *ctx, const char *value) {
     return copy;
 }
 
+/* Sign in with ChatGPT (docs/adr/0186): with no API key for the default
+ * endpoint, tny's own ChatGPT login authorizes the openai provider. An API
+ * key, another base_url, custom auth headers or the chat wire keep the
+ * plan token out. File read only — the refresh runs at resolve time. */
+static void apply_openai_signin(tny_ctx *ctx, bool default_endpoint) {
+    ctx->openai_signin = false;
+    ctx->openai_signin_expires_at = 0;
+    ctx->openai_signin_key = 0;
+    const char *base = tny_openai_signin_base_url();
+    if (ctx->api_key || !default_endpoint || !base || tny_wire_is_chat(ctx->wire_api) ||
+        !ctx->auth_header_name || strcmp(ctx->auth_header_name, "Authorization") != 0 ||
+        !ctx->auth_header_prefix || strcmp(ctx->auth_header_prefix, "Bearer ") != 0)
+        return;
+    tny_openai_signin s;
+    int rc = tny_openai_signin_read(&s);
+    if (rc == -3) ctx->provider_resolution_failed = true;
+    if (rc == 0) {
+        free(ctx->base_url);
+        ctx->base_url = provider_strdup(ctx, base);
+        ctx->api_key = s.access_token;
+        s.access_token = NULL;
+        free(ctx->max_tokens_field); /* the plan route rejects max_output_tokens */
+        ctx->max_tokens_field = NULL;
+        ctx->openai_signin = true;
+        ctx->openai_signin_expires_at = s.expires_at;
+        ctx->openai_signin_key = fnv1a(ctx->api_key, strlen(ctx->api_key));
+    }
+    tny_openai_signin_free(&s);
+}
+
 static void load_openai_profile(tny_ctx *ctx) {
     yyjson_val *sroot = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
     yyjson_val *oa = jget(sroot, "openai");
@@ -552,6 +583,7 @@ static void load_openai_profile(tny_ctx *ctx) {
     free(ctx->wire_api);
     ctx->wire_api = wa && *wa ? provider_strdup(ctx, wa) : NULL; /* NULL = responses */
     tny_ctx_clear_extra_headers(ctx); /* builtin-profile headers must not leak */
+    apply_openai_signin(ctx, !bu || !*bu || strcmp(bu, TNY_OPENAI_API_BASE_URL) == 0);
 }
 
 /* Point ctx at a named provider: settings profile, env vars, or both
@@ -1059,6 +1091,7 @@ static int resolve_provider(tny_ctx *ctx, const char *flag_value) {
         const char *url = getenv("OPENAI_BASE_URL"), *key = getenv("OPENAI_API_KEY");
         if ((url && *url) || (key && *key)) flag_value = "openai";
         else if ((env_pick = env_sole_detected_provider()) != NULL) flag_value = env_pick;
+        else if (tny_openai_signin_present()) flag_value = "openai"; /* docs/adr/0186 */
         else if (ctx->chatgpt_token || tny_codex_auth_present()) flag_value = "codex";
         else if (tny_grok_auth_present()) flag_value = "grok";
         else flag_value = "openai";
@@ -1109,6 +1142,11 @@ static int resolve_provider(tny_ctx *ctx, const char *flag_value) {
     } else {
         clear_profile_agent(ctx);
     }
+    if (acp || custom || builtin) { /* only the openai provider carries the plan token */
+        ctx->openai_signin = false;
+        ctx->openai_signin_expires_at = 0;
+        ctx->openai_signin_key = 0;
+    }
     if (acp) { /* External agent credentials remain owned by its executable. */
     } else if (custom) apply_custom_provider(ctx, selected);
     else if (builtin) {
@@ -1117,10 +1155,21 @@ static int resolve_provider(tny_ctx *ctx, const char *flag_value) {
             free(env_pick);
             return -1;
         }
-    } else if (ctx->provider_name) {
-        free(ctx->provider_name);
-        ctx->provider_name = NULL;
-        load_openai_profile(ctx);
+    } else {
+        if (!tny_openai_signin_base_url()) {
+            fputs("tny: TNY_OPENAI_SIGNIN_BASE_URL must be an HTTP(S) numeric loopback URL "
+                  "(127.0.0.1)\n",
+                  stderr);
+            free(selected);
+            free(env_pick);
+            return -1;
+        }
+        if (ctx->provider_name) {
+            free(ctx->provider_name);
+            ctx->provider_name = NULL;
+            load_openai_profile(ctx);
+        }
+        tny_openai_signin_sync(ctx); /* hour-long access tokens: refresh near expiry */
     }
     free(selected);
     apply_provider_model(ctx, id);
@@ -1223,6 +1272,9 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
     ctx->reasoning_effort = stage.reasoning_effort;
     ctx->service_tier = stage.service_tier;
     ctx->extra_headers = stage.extra_headers;
+    ctx->openai_signin = stage.openai_signin;
+    ctx->openai_signin_expires_at = stage.openai_signin_expires_at;
+    ctx->openai_signin_key = stage.openai_signin_key;
     ctx->backend = stage.backend;
     ctx->effort_from_settings = stage.effort_from_settings;
     ctx->service_tier_from_settings = stage.service_tier_from_settings;

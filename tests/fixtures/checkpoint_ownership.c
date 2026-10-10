@@ -110,6 +110,8 @@ static tny_ctx *fixture(bool full) {
     c->instructions_snapshot_ready = true;
     c->mcp_disabled = true;
     c->mcp_import_warned = true;
+    c->openai_signin = true;
+    c->openai_signin_key = UINT64_C(0xfedcba9876543210);
     c->backend = TNY_BK_OPENAI;
     c->max_extension_iterations = 17;
     c->extension_timeout_ms = 3210;
@@ -158,7 +160,7 @@ static void complete_schema(tny_ctx *c) {
     yyjson_val *r = yyjson_doc_get_root(d);
     /* Legacy contexts omit the two nullable definition strings but retain the
      * explicit empty digest and zero participant count. */
-    REQUIRE(yyjson_obj_size(r) == 72);
+    REQUIRE(yyjson_obj_size(r) == 74);
     REQUIRE(yyjson_is_arr(jget(r, "agent_argv")) && yyjson_arr_size(jget(r, "agent_argv")) == 0);
     REQUIRE(yyjson_is_bool(jget(r, "agent_from_profile")) &&
             yyjson_get_bool(jget(r, "agent_from_profile")) == c->agent_from_profile);
@@ -260,6 +262,10 @@ static void complete_schema(tny_ctx *c) {
             yyjson_get_bool(jget(r, "mcp_disabled")) == c->mcp_disabled);
     REQUIRE(yyjson_is_bool(jget(r, "mcp_import_warned")) &&
             yyjson_get_bool(jget(r, "mcp_import_warned")) == c->mcp_import_warned);
+    REQUIRE(yyjson_is_bool(jget(r, "openai_signin")) &&
+            yyjson_get_bool(jget(r, "openai_signin")) == c->openai_signin);
+    REQUIRE(yyjson_is_int(jget(r, "openai_signin_key")) &&
+            yyjson_get_uint(jget(r, "openai_signin_key")) == c->openai_signin_key);
     REQUIRE(yyjson_is_int(jget(r, "backend")) &&
             yyjson_get_uint(jget(r, "backend")) == (uint64_t)c->backend);
     REQUIRE(yyjson_is_int(jget(r, "max_extension_iterations")) &&
@@ -300,8 +306,9 @@ static void complete_schema(tny_ctx *c) {
                 c->mcp_import_order[i]);
     yyjson_doc_free(d);
     d = snapshot(c, true);
-    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 63);
+    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 64);
     REQUIRE(!jget(yyjson_doc_get_root(d), "acp_cleanup_file"));
+    REQUIRE(!jget(yyjson_doc_get_root(d), "openai_signin_key"));
     REQUIRE(yyjson_is_null(jget(yyjson_doc_get_root(d), "swarm_definition")));
     REQUIRE(yyjson_is_null(jget(yyjson_doc_get_root(d), "swarm_source")));
     yyjson_doc_free(d);
@@ -765,7 +772,7 @@ static void swarm_metadata_ownership(void) {
     for (int public_only = 0; public_only <= 1; public_only++) {
         yyjson_doc *d = snapshot(c, public_only != 0);
         yyjson_val *r = yyjson_doc_get_root(d);
-        REQUIRE(yyjson_obj_size(r) == (public_only ? 63u : 74u));
+        REQUIRE(yyjson_obj_size(r) == (public_only ? 64u : 76u));
         REQUIRE(jget_str(r, "swarm_definition") &&
                 !strcmp(jget_str(r, "swarm_definition"), c->swarm_definition));
         REQUIRE(jget_str(r, "swarm_source") &&

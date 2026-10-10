@@ -6,6 +6,7 @@
 #include "core/tools.h"
 #include "core/team_runtime.h"
 #include "core/speech.h"
+#include "core/openai_auth.h"
 #include "core/image_service.h"
 #include "backends/openai/request_owner.h"
 #include "backends/openai/turn_owner.h"
@@ -68,6 +69,9 @@ typedef struct {
     char token[33];
     bool retryable;
     int retry_after_ms;
+    oa_plan_error plan;    /* a ChatGPT-plan code (docs/adr/0186) */
+    const char *plan_code; /* its static spelling, or NULL */
+    char param[64];        /* error.param, when it is a field path */
 } oa_error_info;
 
 typedef struct {
@@ -388,6 +392,53 @@ bool oa_status_is_retryable(int status) {
     return status == 408 || status == 409 || status == 425 || status == 429 || status >= 500;
 }
 
+static const struct {
+    const char *code;
+    oa_plan_error error;
+} oa_plan_codes[] = {
+    {"subscription_sharing_usage_limit_exceeded", OA_PLAN_ERROR_USAGE_LIMIT},
+    {"subscription_sharing_usage_unavailable", OA_PLAN_ERROR_UNAVAILABLE},
+    {"subscription_sharing_user_unavailable", OA_PLAN_ERROR_UNAVAILABLE},
+    {"subscription_sharing_user_not_eligible", OA_PLAN_ERROR_NOT_ELIGIBLE},
+    {"subscription_sharing_route_not_supported", OA_PLAN_ERROR_ROUTE},
+    {"chatpass_v2_scope_not_authorized", OA_PLAN_ERROR_GRANT},
+    {"chatpass_v2_invalid_authorization_context", OA_PLAN_ERROR_GRANT},
+    {"subscription_sharing_invalid_user", OA_PLAN_ERROR_INVALID_USER},
+    {"subscription_sharing_unsupported_capability", OA_PLAN_ERROR_UNSUPPORTED},
+};
+
+oa_plan_error oa_plan_error_of(const char *code) {
+    if (!code) return OA_PLAN_ERROR_NONE;
+    for (size_t i = 0; i < sizeof oa_plan_codes / sizeof oa_plan_codes[0]; i++)
+        if (strcmp(code, oa_plan_codes[i].code) == 0) return oa_plan_codes[i].error;
+    return OA_PLAN_ERROR_NONE;
+}
+
+/* The table's own copy of a plan code, so a diagnostic never carries
+ * provider bytes; NULL for anything else. */
+static const char *plan_code_static(const char *code) {
+    if (!code) return NULL;
+    for (size_t i = 0; i < sizeof oa_plan_codes / sizeof oa_plan_codes[0]; i++)
+        if (strcmp(code, oa_plan_codes[i].code) == 0) return oa_plan_codes[i].code;
+    return NULL;
+}
+
+bool oa_plan_error_retryable(oa_plan_error e) { return e == OA_PLAN_ERROR_UNAVAILABLE; }
+
+void oa_error_param(char *out, size_t cap, const char *raw) {
+    if (!out || cap == 0) return;
+    out[0] = 0;
+    size_t n = raw ? strlen(raw) : 0;
+    if (n == 0 || n >= cap) return;
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)raw[i];
+        bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                  c == '_' || c == '.' || c == '[' || c == ']' || c == '-';
+        if (!ok) return;
+    }
+    memcpy(out, raw, n + 1);
+}
+
 /* ---------- stream completion contract (docs/adr/0087) ---------- */
 
 /* A response is complete only once its terminal event arrived: on the
@@ -447,13 +498,65 @@ static void classify_error(oa_impl *o, yyjson_val *err, int http_status, oa_erro
         yyjson_val *cv = jget(err, "code");
         if (cv && yyjson_is_int(cv)) info->code = (int)yyjson_get_int(cv);
         if (!info->code) info->code = (int)jget_int(err, "status", 0);
+        info->plan_code = plan_code_static(code ? code : type);
+        info->plan = oa_plan_error_of(info->plan_code);
+        if (info->plan == OA_PLAN_ERROR_UNSUPPORTED)
+            oa_error_param(info->param, sizeof info->param, jget_str(err, "param"));
         set_error_detail(o, jget_str(err, "message"));
     } else if (err && yyjson_is_str(err)) {
         set_error_detail(o, yyjson_get_str(err));
     }
-    if (info->status >= 400) info->retryable = oa_status_is_retryable(info->status);
+    if (info->plan) info->retryable = oa_plan_error_retryable(info->plan);
+    else if (info->status >= 400) info->retryable = oa_status_is_retryable(info->status);
     else if (info->code >= 400) info->retryable = oa_status_is_retryable(info->code);
     else info->retryable = !oa_error_token_is_permanent(info->token);
+}
+
+/* The recovery line for a ChatGPT-plan code (docs/adr/0186), which can
+ * arrive behind any status or in-stream; `st` is the status annotation. */
+static void plan_error_text(const oa_error_info *info, const char *st, char *out, size_t cap) {
+    const char *code = info->plan_code ? info->plan_code : "";
+    switch (info->plan) {
+    case OA_PLAN_ERROR_USAGE_LIMIT:
+        snprintf(out, cap,
+                 "ChatGPT plan usage limit reached (%s%s): tny paused requests on your plan; "
+                 "check usage at %s",
+                 st, code, TNY_CHATGPT_USAGE_URL);
+        break;
+    case OA_PLAN_ERROR_UNAVAILABLE:
+        snprintf(out, cap, "ChatGPT plan usage is temporarily unavailable (%s%s)", st, code);
+        break;
+    case OA_PLAN_ERROR_NOT_ELIGIBLE:
+        snprintf(out, cap,
+                 "ChatGPT plan usage is not available for this account, workspace or policy "
+                 "(%s%s); signing in again will not change it — use an OpenAI API key instead",
+                 st, code);
+        break;
+    case OA_PLAN_ERROR_ROUTE:
+        snprintf(out, cap, "the ChatGPT plan does not serve this endpoint (%s%s)", st, code);
+        break;
+    case OA_PLAN_ERROR_GRANT:
+        snprintf(out, cap,
+                 "the ChatGPT sign-in does not authorize this request (%s%s): check the "
+                 "granted scopes with `tny --provider openai status`",
+                 st, code);
+        break;
+    case OA_PLAN_ERROR_INVALID_USER:
+        snprintf(out, cap,
+                 "ChatGPT could not validate the signed-in user (%s%s): sign in again with "
+                 "`tny --provider openai login`",
+                 st, code);
+        break;
+    case OA_PLAN_ERROR_UNSUPPORTED:
+        if (info->param[0])
+            snprintf(out, cap, "the ChatGPT plan does not support `%s` in this request (%s%s)",
+                     info->param, st, code);
+        else
+            snprintf(out, cap, "the ChatGPT plan does not support part of this request (%s%s)",
+                     st, code);
+        break;
+    case OA_PLAN_ERROR_NONE: out[0] = 0; break;
+    }
 }
 
 /* The user-facing line for a failure; `final` appends the opt-in detail. */
@@ -466,13 +569,27 @@ static void error_text(oa_impl *o, const oa_error_info *info, bool final, char *
         for (char **h = o->ctx->extra_headers; h && *h; h++)
             if (strcmp(*h, TNY_GROK_PROXY_HEADER) == 0) grok_version_gate = true;
     }
-    if (grok_version_gate)
+    bool plan_route = o->ctx->openai_signin;
+    char st[24] = "";
+    if (info->status) snprintf(st, sizeof st, "HTTP %d, ", info->status);
+    if (info->plan) plan_error_text(info, st, out, cap);
+    else if (grok_version_gate)
         snprintf(out, cap,
                  "Grok requires a newer client version (HTTP 426%s): update tny or set "
                  "TNY_GROK_CLIENT_VERSION to a supported Grok Build version",
                  cat);
+    else if (info->status == 401 && plan_route)
+        snprintf(out, cap,
+                 "ChatGPT sign-in was not accepted (HTTP 401%s): sign in again with "
+                 "`tny --provider openai login`",
+                 cat);
     else if (info->status == 401)
         snprintf(out, cap, "authentication failed (HTTP 401%s): check the API key", cat);
+    else if (info->status == 403 && plan_route)
+        snprintf(out, cap,
+                 "ChatGPT plan request refused (HTTP 403%s): a policy or permission check, "
+                 "such as the serving region, blocked it",
+                 cat);
     else if (info->status == 403)
         snprintf(out, cap,
                  "provider refused the request (HTTP 403%s): the key may lack access to "
@@ -557,6 +674,8 @@ static int finish_error_response(oa_impl *o) {
     yyjson_val *err = jget(root, "error");
     if (!err && root && yyjson_is_obj(root) && (jget(root, "message") || jget(root, "type")))
         err = root; /* {"message":…,"type":…} without the wrapper */
+    if (!err && root && yyjson_is_obj(root) && yyjson_is_str(jget(root, "detail")))
+        err = jget(root, "detail"); /* ChatGPT-plan admission: diagnostic text only */
     oa_error_info info;
     classify_error(o, err, status, &info);
     info.retry_after_ms = retry_after;
@@ -622,7 +741,8 @@ static void note_repairs(oa_impl *o, int repairs) {
 }
 
 static const char *model_of(oa_impl *o) {
-    return o->ctx->model ? o->ctx->model : OPENAI_DEFAULT_MODEL;
+    if (o->ctx->model) return o->ctx->model;
+    return o->ctx->openai_signin ? TNY_OPENAI_SIGNIN_MODEL : OPENAI_DEFAULT_MODEL;
 }
 
 /* The shared system preamble follows the runtime composition contract:
@@ -912,6 +1032,9 @@ static const char *cache_routing_key(const oa_impl *o, char key[64]) {
 
 static char *build_request_rsp(oa_impl *o, oa_request_owner *request) {
     tny_session_state *s = o->env.session;
+    /* The ChatGPT-plan route (docs/adr/0186) rejects system input items and
+     * the completion cap; everything else rides the API-key request. */
+    bool plan = tny_openai_signin_mode(o->ctx);
     buf_t *b = oa_request_buffer(request, OA_BUILD_BODY);
     buf_appends(b, "{\"model\":");
     jescape(b, model_of(o));
@@ -943,10 +1066,12 @@ static char *build_request_rsp(oa_impl *o, oa_request_owner *request) {
     if (!provider_oom() && o->continuing && o->turn->text.len)
         oa_view_append_continuation(view, o->turn->text.data);
     if (provider_oom()) { return NULL; }
-    const char *input =
-        oa_request_take_string(request, OA_BUILD_INPUT,
-                               tny_openai_responses_input_with_summary(
-                                   yyjson_mut_doc_get_root(view), boundary > 0 ? summary : NULL));
+    yyjson_mut_val *msgs = yyjson_mut_doc_get_root(view);
+    const char *summary_in = boundary > 0 ? summary : NULL;
+    const char *input = oa_request_take_string(
+        request, OA_BUILD_INPUT,
+        plan ? tny_openai_responses_input_developer(msgs, summary_in)
+             : tny_openai_responses_input_with_summary(msgs, summary_in));
     oa_request_take_view(request, NULL);
     if (provider_oom()) {
         oa_request_take_string(request, OA_BUILD_INPUT, NULL);
@@ -988,7 +1113,7 @@ static char *build_request_rsp(oa_impl *o, oa_request_owner *request) {
     if (provider_oom()) { return NULL; }
     /* max_tokens_field set means the user wants a completion cap; the
      * Responses wire spells it max_output_tokens whatever the chat quirk */
-    if (o->ctx->max_tokens_field) buf_appends(b, ",\"max_output_tokens\":8192");
+    if (o->ctx->max_tokens_field && !plan) buf_appends(b, ",\"max_output_tokens\":8192");
     if (o->ctx->reasoning_effort && *o->ctx->reasoning_effort) {
         buf_appends(b, ",\"reasoning\":{\"effort\":");
         jescape(b, tny_effort_wire(TNY_BK_OPENAI, o->ctx->reasoning_effort));
@@ -1029,6 +1154,10 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
         tny_alloc_provider_failed();
         return -2;
     }
+    /* A ChatGPT sign-in token lives about an hour: refresh it under the
+     * store lock when it is near expiry, or drop it when the endpoint moved
+     * (docs/adr/0186). A no-op for every other credential. */
+    tny_openai_signin_sync(o->ctx);
     if (retry) o->provider_attempt++;
     else {
         o->provider_request_sequence++;
@@ -1985,13 +2114,28 @@ static int oa_connect(tny_backend *b, char *errbuf, size_t errlen) {
             snprintf(errbuf, errlen,
                      "no grok credential: run `tny --provider grok login` "
                      "(device auth), or set XAI_API_KEY");
-        else
+        else if (!pn || strcmp(pn, "openai") == 0) {
+            tny_openai_signin s;
+            int rc = tny_openai_signin_read(&s);
+            tny_openai_signin_free(&s);
+            if (rc == -2)
+                snprintf(errbuf, errlen,
+                         "signed in with ChatGPT, but plan usage was not allowed: run `tny "
+                         "--provider openai login` and allow it, or set OPENAI_API_KEY");
+            else if (rc == 0)
+                snprintf(errbuf, errlen,
+                         "no API key for this endpoint: the ChatGPT sign-in applies only to "
+                         "%s on the Responses wire; set OPENAI_API_KEY (or --api-key-env NAME)",
+                         TNY_OPENAI_API_BASE_URL);
+            else
+                snprintf(errbuf, errlen,
+                         "no OpenAI credential: run `tny --provider openai login` to sign in "
+                         "with ChatGPT, or set OPENAI_API_KEY (or --api-key-env NAME; local "
+                         "http:// providers may omit it)");
+        } else
             snprintf(errbuf, errlen,
                      "no API key: set OPENAI_API_KEY (or --api-key-env NAME; "
-                     "local http:// providers may omit it)%s",
-                     tny_codex_auth_present()
-                         ? ". A codex login exists — `tny --provider codex` uses it"
-                         : "");
+                     "local http:// providers may omit it)");
         return -1;
     }
     return 0;
@@ -2462,6 +2606,14 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
 
 static int oa_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
     const char *wire = tny_wire_is_chat(ctx->wire_api) ? ", wire chat" : "";
+    if (ctx->openai_signin && ctx->api_key) {
+        tny_openai_signin s;
+        (void)tny_openai_signin_read(&s);
+        snprintf(line, linelen, "openai: Using ChatGPT plan (signed in%s%s), manage usage: %s",
+                 s.email ? " as " : "", s.email ? s.email : "", TNY_CHATGPT_USAGE_URL);
+        tny_openai_signin_free(&s);
+        return 0;
+    }
     if (ctx->api_key) {
         snprintf(line, linelen, "openai: key present, base_url %s%s", ctx->base_url, wire);
         return 0;
@@ -2470,7 +2622,14 @@ static int oa_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
         snprintf(line, linelen, "openai: local provider %s (no key needed)", ctx->base_url);
         return 0;
     }
-    snprintf(line, linelen, "openai: no API key (set OPENAI_API_KEY or run tny setup)");
+    if (tny_openai_signin_present()) {
+        snprintf(line, linelen, "openai: signed in with ChatGPT (used for %s when no API key is set)",
+                 TNY_OPENAI_API_BASE_URL);
+        return 0;
+    }
+    snprintf(line, linelen,
+             "openai: no API key (set OPENAI_API_KEY, run `tny --provider openai login`, or "
+             "run tny setup)");
     return 1;
 }
 

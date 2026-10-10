@@ -2,6 +2,7 @@
  * OAuth login and refresh use HTTP directly. Explicit settings/env profiles
  * of the same name shadow the builtin. BYOK uses environment keys only. */
 #include "core/config.h"
+#include "core/openai_auth.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -165,32 +166,8 @@ static int apply_codex(tny_ctx *ctx) {
     return 0;
 }
 
-/* Fixture redirect: a numeric loopback authority only, with a strict port.
- * Never allow userinfo, DNS aliases, URL controls or arbitrary bearer hosts. */
-static bool grok_override_valid(const char *url) {
-    if (!url || !*url) return true;
-    const char *p;
-    if (strncmp(url, "http://127.0.0.1", 16) == 0) p = url + 16;
-    else if (strncmp(url, "https://127.0.0.1", 17) == 0) p = url + 17;
-    else return false;
-    if (*p == ':') {
-        p++;
-        unsigned port = 0;
-        if (*p < '0' || *p > '9') return false;
-        while (*p >= '0' && *p <= '9') {
-            port = port * 10 + (unsigned)(*p++ - '0');
-            if (port > 65535) return false;
-        }
-        if (!port) return false;
-    }
-    if (*p && *p != '/') return false;
-    for (; *p; p++)
-        if ((unsigned char)*p <= 32 || *p == 127 || *p == '\\' || *p == '#') return false;
-    return true;
-}
-
 static int apply_grok(tny_ctx *ctx) {
-    if (!grok_override_valid(getenv("TNY_GROK_BASE_URL"))) {
+    if (!tny_loopback_url_valid(getenv("TNY_GROK_BASE_URL"))) {
         fputs("tny: TNY_GROK_BASE_URL must be an HTTP(S) numeric loopback URL (127.0.0.1)\n",
               stderr);
         return -1;

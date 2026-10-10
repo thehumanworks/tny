@@ -134,6 +134,27 @@ bool oa_error_token_is_permanent(const char *token);
 /* HTTP statuses worth a bounded retry: 408, 409, 425, 429, and 5xx. */
 bool oa_status_is_retryable(int status);
 
+/* ChatGPT-plan error codes with their own recovery (Sign in with ChatGPT,
+ * docs/adr/0186). They arrive as `error.code` on an HTTP error body or a
+ * response.failed event, whatever the status. */
+typedef enum {
+    OA_PLAN_ERROR_NONE = 0,
+    OA_PLAN_ERROR_USAGE_LIMIT,  /* pause; link to ChatGPT usage settings */
+    OA_PLAN_ERROR_UNAVAILABLE,  /* usage/user check unavailable: retry */
+    OA_PLAN_ERROR_NOT_ELIGIBLE, /* user, workspace or policy excluded */
+    OA_PLAN_ERROR_ROUTE,        /* method/endpoint not on the plan route */
+    OA_PLAN_ERROR_GRANT,        /* signed permission context refused */
+    OA_PLAN_ERROR_INVALID_USER, /* subscriber context invalid: sign in again */
+    OA_PLAN_ERROR_UNSUPPORTED   /* an input named by error.param */
+} oa_plan_error;
+/* The plan error for an exact provider code; NONE for anything else. */
+oa_plan_error oa_plan_error_of(const char *code);
+/* Only the "temporarily unavailable" plan errors are worth a retry. */
+bool oa_plan_error_retryable(oa_plan_error e);
+/* `error.param` as a bounded field path ([A-Za-z0-9_.[]-], at most cap-1
+ * bytes); anything else yields "". */
+void oa_error_param(char *out, size_t cap, const char *raw);
+
 /* Stream completion contract (docs/adr/0087): a response is complete only
  * once its terminal event arrived — on the chat wire a finish_reason also
  * counts, for gateways that never send [DONE]. */
@@ -171,6 +192,10 @@ char *tny_openai_responses_input(yyjson_mut_val *msgs, int boundary, const char 
 /* The whole array, with the summary (when non-NULL) as the leading system
  * item — for a provider view that already starts at the boundary. */
 char *tny_openai_responses_input_with_summary(yyjson_mut_val *msgs, const char *summary);
+/* Same, for the ChatGPT-plan route (docs/adr/0186), which rejects
+ * role:"system" input items: the summary and any system message ride as
+ * developer messages. */
+char *tny_openai_responses_input_developer(yyjson_mut_val *msgs, const char *summary);
 /* Nested chat tools ({"type":"function","function":{…}}) → the flat
  * Responses shape ({"type":"function","name":…,"parameters":…}).
  * Absent/null strict becomes false; explicit booleans and schemas are preserved. */

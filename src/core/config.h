@@ -103,6 +103,14 @@ typedef struct tny_ctx {
     char *chatgpt_token;
     char *chatgpt_account_id;
     char *codex_base_url; /* explicit standalone SDK gateway; never a chat-provider URL */
+    /* openai provider authorized by tny's Sign in with ChatGPT login
+     * (openai_auth.c, docs/adr/0186): api_key holds the hour-long access
+     * token, refreshed before requests once it nears expiry */
+    bool openai_signin;
+    int64_t openai_signin_expires_at; /* epoch seconds, 0 unknown */
+    uint64_t openai_signin_key;       /* fnv1a of the token tny installed: a key
+                                       * replaced by a flag is never swapped back,
+                                       * and a moved base_url drops the token */
     /* remote tool runtime (core/ssh.c, docs/adr/0022): when ssh_host is set
      * every workspace tool runs on that host over one ControlMaster */
     char *ssh_host;    /* user@host or [v6], NULL = local tools */

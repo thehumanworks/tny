@@ -93,7 +93,10 @@ struct tny_subagent_plan_owner {
         // A different selector is resolved by the child CLI, including named
         // profiles and hosts. Never apply the parent's resolved connection or
         // subscription credentials to it. Ambient user auth remains available.
-        const bool key = parent && ctx.backend == TNY_BK_OPENAI && ctx.api_key && *ctx.api_key;
+        // A ChatGPT sign-in token lives about an hour: the child re-reads
+        // and refreshes it from the shared store instead (ADR 0186).
+        const bool key = parent && ctx.backend == TNY_BK_OPENAI && ctx.api_key && *ctx.api_key &&
+                         !ctx.openai_signin;
         const bool url = parent && ctx.backend == TNY_BK_OPENAI && ctx.base_url && *ctx.base_url;
         const bool token =
             parent && ctx.backend == TNY_BK_OPENAI && ctx.chatgpt_token && *ctx.chatgpt_token;
