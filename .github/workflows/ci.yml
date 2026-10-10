@@ -312,6 +312,8 @@ jobs:
           make -j"$(getconf _NPROCESSORS_ONLN)" wasm wasm-web wasm-dictation-fixture
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 python3 tests/integration/test_acp_client.py
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 python3 tests/integration/test_execution_code_mode.py
+          # Sign in with ChatGPT: seeded store, plan requests, refresh, logout (ADR 0186).
+          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_openai_signin.py
           # Standalone services and explicit unsupported process seams remain
           # testable without admitting provider-driven native tool execution.
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_dictation.py

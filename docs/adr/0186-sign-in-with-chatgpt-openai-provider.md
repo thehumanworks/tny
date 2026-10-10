@@ -137,7 +137,9 @@ URL. `tny_poll` governs all waits.
   refresh (including a terminal `invalid_grant` that ends the turn),
   reauthorization (mismatched id, omitted id, different account),
   `access_denied`, consent after a declined grant, plan errors, logout and
-  `--forget`. The wasm build seeds the store and skips the browser parts.
+  `--forget`. The wasm CI job runs it against `build/wasm/tny`, which seeds
+  the store and skips the browser parts; that path was not run locally (no
+  emsdk on the authoring host).
 - Live, explicitly authorized (2026-10-10, native macOS release build of the
   branch): `tny --provider openai login` against `auth.openai.com` completed
   dynamic registration (an `oaiapp_…` client id), granted
