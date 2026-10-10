@@ -6486,6 +6486,11 @@ TEST oauth_callback_rules(void) {
     ASSERT(strstr(why, "client_id"));
     ASSERT_EQ(OAUTH_CALLBACK_NONE, cb_parse("code=c&state=S2&client_id=x", &reg, &cb, &why));
     ASSERT_STR_EQ("state mismatch", why);
+    /* this attempt, but no code to exchange: keep waiting */
+    ASSERT_EQ(OAUTH_CALLBACK_NONE, cb_parse("state=S1&client_id=x", &reg, &cb, &why));
+    ASSERT_STR_EQ("missing authorization code", why);
+    ASSERT_EQ(OAUTH_CALLBACK_NONE, cb_parse("code=&state=S1&client_id=x", &reg, &cb, &why));
+    ASSERT_STR_EQ("missing authorization code", why);
     ASSERT_EQ(OAUTH_CALLBACK_NONE,
               cb_parse("code=c&state=S1&state=S1&client_id=x", &reg, &cb, &why));
     ASSERT(strstr(why, "duplicate"));
