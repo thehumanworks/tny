@@ -503,7 +503,7 @@ def case_guards(env, ws):
     keyed = dict(
         env, OPENAI_API_KEY="sk-test-key", OPENAI_BASE_URL=Mock.st["issuer"] + "/key/v1"
     )
-    r = ask(keyed, ws, "--provider", "openai")
+    ask(keyed, ws, "--provider", "openai")
     path, auth, req = Mock.st["api_calls"][-1]
     assert path == "/key/v1/responses" and auth == "Bearer sk-test-key", (path, auth)
     # a moved endpoint never sees the plan token, flag or env
@@ -518,7 +518,7 @@ def case_guards(env, ws):
         assert all(c[1] is None for c in calls), "plan token sent to a moved endpoint"
     # the chat wire is not the plan route either
     Mock.reset(issuer=Mock.st["issuer"])
-    r = ask(env, ws, "--provider", "openai", "--wire-api", "chat")
+    ask(env, ws, "--provider", "openai", "--wire-api", "chat")
     calls = Mock.st["api_calls"]
     assert all(c[0].endswith("/chat/completions") for c in calls), calls
     assert not any(c[1] for c in calls), "plan token sent on the chat wire"
