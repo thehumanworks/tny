@@ -240,6 +240,8 @@ class AutoReleaseWorkflowContractTests(unittest.TestCase):
 
     workflow = (ROOT / ".github/workflows/auto-release.yml").read_text(encoding="utf-8")
 
+    shared = (ROOT / ".github/workflows/tag-release.yml").read_text(encoding="utf-8")
+
     def test_triggers_on_every_main_gate(self) -> None:
         self.assertIn("workflows: [ci, sdk]", self.workflow)
         self.assertIn("types: [completed]", self.workflow)
@@ -251,7 +253,7 @@ class AutoReleaseWorkflowContractTests(unittest.TestCase):
             ".github/workflows/ci.yml",
             ".github/workflows/sdk.yml",
         ):
-            self.assertIn(path, self.workflow)
+            self.assertIn(path, self.shared)
         self.assertIn(
             "github.event.workflow_run.conclusion == 'success'", self.workflow
         )
@@ -259,9 +261,11 @@ class AutoReleaseWorkflowContractTests(unittest.TestCase):
     def test_dispatches_the_release_workflow_on_the_tag(self) -> None:
         # Tags pushed with GITHUB_TOKEN never start `on: push: tags`; the
         # documented fallback is a dispatch on the tag ref.
-        self.assertIn('gh workflow run release.yml --ref "$tag"', self.workflow)
-        self.assertIn("scripts/next_release_version.py", self.workflow)
-        self.assertIn("concurrency:\n  group: auto-release", self.workflow)
+        self.assertIn('gh workflow run release.yml --ref "$tag"', self.shared)
+        self.assertIn("scripts/next_release_version.py", self.shared)
+        self.assertIn("concurrency:\n  group: auto-release", self.shared)
+        self.assertNotIn("concurrency:", self.workflow)
+        self.assertIn("uses: ./.github/workflows/tag-release.yml", self.workflow)
 
 
 class ReleaseDispatchTests(unittest.TestCase):
@@ -278,28 +282,58 @@ class ReleaseDispatchTests(unittest.TestCase):
         self.assertIn("needs: version", version)
         self.assertIn("if: always() && github.ref_type == 'tag'", version)
 
-    def run_dispatch(self, ref: str, *, fail: bool = False) -> tuple[int, str, str]:
-        route = self.workflow.split("  version:\n", 1)[0]
-        script = textwrap.dedent(route.split("        run: |\n", 1)[1])
+    def test_main_uses_same_gates_even_when_auto_release_is_disabled(self) -> None:
+        main = self.workflow.split("  dispatch-main:\n", 1)[1].split(
+            "  reject-branch:\n", 1
+        )[0]
+        self.assertIn("github.event_name == 'workflow_dispatch'", main)
+        self.assertIn("github.ref == 'refs/heads/main'", main)
+        self.assertIn("uses: ./.github/workflows/tag-release.yml", main)
+        self.assertIn("target_sha: ${{ github.sha }}", main)
+        self.assertIn("contents: write", main)
+        self.assertIn("actions: write", main)
+        self.assertNotIn("gh workflow run auto-release.yml", self.workflow)
+
+    def test_other_branches_are_rejected(self) -> None:
+        reject = self.workflow.split("  reject-branch:\n", 1)[1].split(
+            "  version:\n", 1
+        )[0]
+        self.assertIn("github.ref_type != 'tag'", reject)
+        self.assertIn("github.ref != 'refs/heads/main'", reject)
+        script = textwrap.dedent(reject.split("        run: |\n", 1)[1])
+        result = subprocess.run(
+            ["sh", "-c", script], capture_output=True, text=True, check=False
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("select main", result.stderr)
+
+    def run_gates(self, runs: str, *, fail: bool = False) -> tuple[int, str]:
+        shared = (ROOT / ".github/workflows/tag-release.yml").read_text(
+            encoding="utf-8"
+        )
+        step = shared.split("      - name: Require every main-branch gate", 1)[1]
+        step = step.split("      - name: Compute the next version", 1)[0]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             gh = root / "gh"
             gh.write_text(
-                '#!/bin/sh\nprintf "%s\\n" "$*" > "$CALLS"\n'
-                + ("exit 1\n" if fail else ""),
+                '#!/bin/sh\ncat "$RUNS"\n' + ("exit 1\n" if fail else ""),
                 encoding="utf-8",
             )
             gh.chmod(0o755)
-            calls = root / "calls"
+            fixture = root / "runs"
+            fixture.write_text(runs, encoding="utf-8")
+            output = root / "output"
             result = subprocess.run(
                 ["sh", "-c", script],
                 env={
                     **os.environ,
                     "PATH": f"{root}{os.pathsep}{os.environ['PATH']}",
-                    "GITHUB_EVENT_NAME": "workflow_dispatch",
-                    "GITHUB_REF": ref,
-                    "GITHUB_STEP_SUMMARY": str(root / "summary"),
-                    "CALLS": str(calls),
+                    "SHA": "a" * 40,
+                    "GITHUB_REPOSITORY": "example/tny",
+                    "GITHUB_OUTPUT": str(output),
+                    "RUNS": str(fixture),
                 },
                 capture_output=True,
                 text=True,
@@ -307,27 +341,31 @@ class ReleaseDispatchTests(unittest.TestCase):
             )
             return (
                 result.returncode,
-                result.stderr,
-                calls.read_text(encoding="utf-8") if calls.exists() else "",
+                output.read_text(encoding="utf-8") if output.exists() else "",
             )
 
-    def test_main_dispatch_uses_gated_auto_release(self) -> None:
-        code, stderr, calls = self.run_dispatch("refs/heads/main")
-        self.assertEqual(code, 0, stderr)
-        self.assertEqual(calls, "workflow run auto-release.yml --ref main\n")
+    def test_both_gates_must_succeed(self) -> None:
+        ci = ".github/workflows/ci.yml\tcompleted\tsuccess\t1\n"
+        sdk = ".github/workflows/sdk.yml\tcompleted\tsuccess\t2\n"
+        code, output = self.run_gates(ci + sdk)
+        self.assertEqual(code, 0)
+        self.assertEqual(output, "ready=true\n")
+        for runs in (
+            "",
+            ci,
+            ci + sdk.replace("success", "failure"),
+            ci + sdk.replace("completed", "in_progress"),
+            ci.replace("success", "failure") + ci + sdk,
+        ):
+            with self.subTest(runs=runs):
+                code, output = self.run_gates(runs)
+                self.assertEqual(code, 0)
+                self.assertEqual(output, "ready=false\n")
 
-    def test_other_branches_cannot_publish(self) -> None:
-        for ref in ("refs/heads/feature", "refs/heads/v1.2.3"):
-            with self.subTest(ref=ref):
-                code, stderr, calls = self.run_dispatch(ref)
-                self.assertNotEqual(code, 0)
-                self.assertIn("select main", stderr)
-                self.assertEqual(calls, "")
-
-    def test_failed_dispatch_is_not_success(self) -> None:
-        code, _, calls = self.run_dispatch("refs/heads/main", fail=True)
+    def test_failed_gate_lookup_cannot_release(self) -> None:
+        code, output = self.run_gates("", fail=True)
         self.assertNotEqual(code, 0)
-        self.assertTrue(calls)
+        self.assertEqual(output, "")
 
 
 if __name__ == "__main__":

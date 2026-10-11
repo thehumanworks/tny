@@ -60,6 +60,14 @@ passes every main-branch gate.
 
 ## Consequences
 
+Operational update (2026-10-11): `tag-release.yml` owns the shared gate,
+version, tag and dispatch job and serializes all tagging callers.
+`auto-release.yml` retains the automatic triggers; an explicit `release.yml`
+dispatch on `main` calls the same job even when automatic releases are
+disabled in GitHub. Branch names never enter the binary or SDK version path.
+The manual path returns without tagging while gates are incomplete; dispatch
+it again once both pass. Tag dispatches validate the version before compiling.
+
 - Releasing is zero steps. Every merge to `main` that is green everywhere
   becomes a GitHub release, with mise-resolvable assets, within one release
   workflow run of the last gate finishing.

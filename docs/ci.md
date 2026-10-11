@@ -226,7 +226,7 @@ asset from the os/arch/libc words in its name, so keep the triple naming.
 While the repo is private, mise needs `GITHUB_TOKEN` (or
 `MISE_GITHUB_TOKEN`) set to list and download releases.
 
-Release flow: merge to `main`. Nothing else — the `auto-release` workflow
+With automatic releases enabled, the flow is to merge to `main`. The `auto-release` workflow
 (`.github/workflows/auto-release.yml`, docs/adr/0085) tags and publishes
 every merge once the `ci` and `sdk` workflows are both green on that
 commit. Whichever of the two completes last does the work: it checks the
@@ -264,8 +264,10 @@ are green), and "Run workflow" on `auto-release` cuts a release from
 the newest commit with green gates, optionally forcing the bump kind. If a
 tag exists without a release, dispatch it on the tag ref:
 `gh workflow run release.yml --ref v<version>`.
-Running `release.yml` on `main` instead dispatches `auto-release.yml` on
-`main`, preserving the same CI/SDK gates and version selection. Other branch
+Running `release.yml` on `main` calls the shared `tag-release.yml` workflow,
+preserving the same CI/SDK gates and version selection as `auto-release.yml`.
+This explicit path also works when automatic releases are disabled in GitHub.
+If the gates are still running, dispatch it again after both pass. Other branch
 refs are rejected. Only tag refs enter the binary/SDK build jobs, and the tag
 grammar is validated before compiling.
 

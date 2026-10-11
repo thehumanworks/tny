@@ -23,7 +23,7 @@ name: release
 on:
   push:
     tags: ["v*"]
-  # Main dispatches use the gated auto-release path. Tag dispatches retry
+  # Main dispatches call the shared gated tagging workflow. Tag dispatches retry
   # publication when a tag push did not start Actions:
   # gh workflow run release.yml --ref v<version>
   workflow_dispatch:
@@ -33,25 +33,25 @@ permissions:
 
 jobs:
   dispatch-main:
-    name: route main through gated auto-release
-    if: github.ref_type != 'tag'
+    name: gated main release
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/tag-release.yml
+    permissions:
+      contents: write
+      actions: write
+    with:
+      target_sha: ${{ github.sha }}
+
+  reject-branch:
+    name: reject unsupported release branch
+    if: github.ref_type != 'tag' && github.ref != 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    permissions:
-      actions: write
     steps:
-      - name: Dispatch auto-release for main
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+      - name: Require main or a release tag
         run: |
-          set -eu
-          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] || [ "$GITHUB_REF" != refs/heads/main ]; then
-            echo "error: select main to create a gated release, or an existing v<version> tag to retry publication" >&2
-            exit 1
-          fi
-          gh workflow run auto-release.yml --ref main
-          echo "Dispatched auto-release on main; it creates a tag only after ci and sdk pass." >> "$GITHUB_STEP_SUMMARY"
+          echo "error: select main to create a gated release, or an existing v<version> tag to retry publication" >&2
+          exit 1
 
   version:
     name: binary version matches tag

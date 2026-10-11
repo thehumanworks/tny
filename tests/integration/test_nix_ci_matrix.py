@@ -33,6 +33,7 @@ def main() -> int:
     ci = read(".github/workflows/ci.yml")
     release = read(".github/workflows/release.yml")
     auto = read(".github/workflows/auto-release.yml")
+    tagging = read(".github/workflows/tag-release.yml")
     for text in (ci, release):
         for runner in ("ubuntu-24.04", "ubuntu-24.04-arm", "macos-15"):
             assert runner in text, runner
@@ -43,7 +44,7 @@ def main() -> int:
     assert "needs: [build, musl, validate-registries]" in release
     assert "workflows: [ci, sdk]" in auto
     assert ".github/workflows/nix.yml" not in auto
-    assert "nix" not in re.search(r"for path in (.*?); do", auto).group(1)
+    assert "nix" not in re.search(r"for path in (.*?); do", tagging).group(1)
     assert "nix flake check" not in auto
     # Removing Nix must not drop the only actual ImageMagick 7 conversion run.
     assert "magick -version" in ci
