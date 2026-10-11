@@ -119,6 +119,17 @@ Chat request (minimum, `wire_api: "chat"`):
 }
 ```
 
+`--ultrafast` sends `"service_tier":"ultrafast"` on Responses requests for
+`gpt-6-astra` and `gpt-6.1-sol`, only under the `openai` provider. The CLI,
+`/fast ultrafast`, and settings `"fast": {"openai": "ultrafast"}` share the
+same selector. Invalid provider/model/wire combinations fail instead of
+silently downgrading. Existing fast/priority behavior is unchanged. This uses
+OpenAI's documented HTTP alternative, not WebSockets; no measured latency gain
+is claimed. Wasm sends the same field through its fetch transport (subject to
+existing browser auth/CORS and local execution limits). See
+[Ultrafast mode](https://developers.openai.com/api/docs/guides/ultrafast-mode)
+and [ADR 0187](../adr/0187-openai-ultrafast-tier.md).
+
 `--fast` (`TNY_CAP_FAST`) adds `"service_tier":"priority"` on both wires —
 OpenAI's paid fast tier ("priority processing" pre-rename; the API also
 accepts `"fast"`, tny sends `"priority"` because older models and

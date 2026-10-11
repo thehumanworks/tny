@@ -82,6 +82,21 @@ bool tny_tier_is_fast(const char *tier) {
     return tier && (strcmp(tier, "fast") == 0 || strcmp(tier, "priority") == 0);
 }
 
+bool tny_tier_is_ultrafast(const char *tier) { return tier && strcmp(tier, "ultrafast") == 0; }
+
+const char *tny_service_tier_error(const tny_ctx *ctx, const char *tier) {
+    if (!tny_tier_is_ultrafast(tier)) return NULL;
+    if (ctx->backend != TNY_BK_OPENAI || strcmp(tny_provider_name(ctx), "openai") != 0)
+        return "ultrafast requires the openai provider (not codex or compatible profiles)";
+    if (tny_wire_is_chat(ctx->wire_api))
+        return "ultrafast requires --wire-api responses (Chat Completions is unsupported)";
+    const char *model =
+        ctx->model ? ctx->model : (ctx->openai_signin ? TNY_OPENAI_SIGNIN_MODEL : NULL);
+    if (!model || (strcmp(model, "gpt-6-astra") != 0 && strcmp(model, "gpt-6.1-sol") != 0))
+        return "ultrafast requires model gpt-6-astra or gpt-6.1-sol";
+    return NULL;
+}
+
 bool tny_wire_is_chat(const char *wire_api) { return wire_api && strcmp(wire_api, "chat") == 0; }
 
 static const char *bk_names[TNY_BK_COUNT] = {"openai", "acp"};
@@ -1025,7 +1040,7 @@ static int apply_provider_image_input(tny_ctx *ctx) {
 }
 
 /* settings `fast`: boolean true selects the paid tier, false selects the
- * standard tier; string fast|priority|default is also accepted. It is applied
+ * standard tier; string fast|priority|ultrafast|default is also accepted. It is applied
  * after provider resolution so unsupported providers can fail clearly. */
 static int apply_provider_fast(tny_ctx *ctx) {
     if (ctx->service_tier_explicit) return 0;
@@ -1042,9 +1057,10 @@ static int apply_provider_fast(tny_ctx *ctx) {
     else if (yyjson_is_str(v)) tier = yyjson_get_str(v);
     if (!tier || !*tier) return 0;
     if (strcmp(tier, "fast") != 0 && strcmp(tier, "priority") != 0 &&
-        strcmp(tier, "default") != 0 && strcmp(tier, "off") != 0) {
+        strcmp(tier, "ultrafast") != 0 && strcmp(tier, "default") != 0 &&
+        strcmp(tier, "off") != 0) {
         fprintf(stderr, "tny: settings.json fast must be true, false, fast, "
-                        "priority, or default\n");
+                        "priority, ultrafast, or default\n");
         return -1;
     }
     if (!(tny_backend_caps((tny_backend_id)ctx->backend) & TNY_CAP_FAST)) {
@@ -1055,7 +1071,9 @@ static int apply_provider_fast(tny_ctx *ctx) {
         return -1;
     }
     free(ctx->service_tier);
-    ctx->service_tier = provider_strdup(ctx, tny_tier_is_fast(tier) ? "fast" : "default");
+    ctx->service_tier = provider_strdup(ctx, tny_tier_is_ultrafast(tier)
+                                                 ? "ultrafast"
+                                                 : (tny_tier_is_fast(tier) ? "fast" : "default"));
     ctx->service_tier_from_settings = true;
     return 0;
 }
@@ -1081,7 +1099,7 @@ static void apply_provider_effort(tny_ctx *ctx) {
     }
 }
 
-static int resolve_provider(tny_ctx *ctx, const char *flag_value) {
+static int resolve_provider(tny_ctx *ctx, const char *flag_value, const char *wire_override) {
     if (validate_provider_settings(ctx) != 0) return -1;
     if (!flag_value) flag_value = tny_settings_get_str(ctx, "provider");
     if (!flag_value) flag_value = tny_settings_get_str(ctx, "last_provider");
@@ -1185,6 +1203,17 @@ static int resolve_provider(tny_ctx *ctx, const char *flag_value) {
         return -1;
     }
     if (id == TNY_BK_OPENAI) tny_finish_builtin_profile(ctx);
+    /* CLI wire flags must beat the profile before tier validation. */
+    if (wire_override) {
+        free(ctx->wire_api);
+        ctx->wire_api = provider_strdup(ctx, wire_override);
+    }
+    const char *tier_error = tny_service_tier_error(ctx, ctx->service_tier);
+    if (tier_error) {
+        fprintf(stderr, "tny: %s\n", tier_error);
+        free(env_pick);
+        return -1;
+    }
     free(env_pick);
     return ctx->backend;
 }
@@ -1208,6 +1237,10 @@ static void provider_fields_free(tny_ctx *ctx) {
 }
 
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
+    return tny_resolve_backend_wire(ctx, flag_value, NULL);
+}
+
+int tny_resolve_backend_wire(tny_ctx *ctx, const char *flag_value, const char *wire_override) {
     tny_ctx stage = *ctx;
     stage.provider_resolution_failed = false;
     stage.agent_argv = NULL;
@@ -1256,7 +1289,7 @@ int tny_resolve_backend(tny_ctx *ctx, const char *flag_value) {
             if (!stage.extra_headers[i]) goto fail;
         }
     }
-    int rc = resolve_provider(&stage, flag_value);
+    int rc = resolve_provider(&stage, flag_value, wire_override);
     if (rc < 0 || stage.provider_resolution_failed) goto fail;
     provider_fields_free(ctx);
     ctx->agent_argv = stage.agent_argv;

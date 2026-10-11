@@ -145,7 +145,12 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
     }
     /* Mark an explicit speed choice before provider resolution so a settings
      * default cannot run first. Capability validation stays after resolve. */
-    if (g->fast) ctx->service_tier_explicit = true;
+    if (g->fast && g->ultrafast) {
+        fputs("tny: --fast and --ultrafast are alternatives; pass one\n", stderr);
+        tny_ctx_free(ctx);
+        return NULL;
+    }
+    if (g->fast || g->ultrafast) ctx->service_tier_explicit = true;
     if (g->agent_argv) {
         int n = 0;
         while (g->agent_argv[n]) n++;
@@ -196,7 +201,14 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         return ctx;
     }
 
-    if (tny_resolve_backend(ctx, g->backend ? g->backend : (g->agent_argv ? "acp" : NULL)) < 0) {
+    if (g->wire_api && strcmp(g->wire_api, "responses") != 0 && strcmp(g->wire_api, "chat") != 0) {
+        fprintf(stderr, "tny: --wire-api must be responses|chat\n"
+                        "Example: tny --wire-api chat ask \"hi\"\n");
+        tny_ctx_free(ctx);
+        return NULL;
+    }
+    if (tny_resolve_backend_wire(ctx, g->backend ? g->backend : (g->agent_argv ? "acp" : NULL),
+                                 g->wire_api) < 0) {
         tny_ctx_free(ctx);
         return NULL;
     }
@@ -234,16 +246,6 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         free(ctx->base_url);
         ctx->base_url = xstrdup(u);
     }
-    if (g->wire_api) {
-        if (strcmp(g->wire_api, "responses") != 0 && strcmp(g->wire_api, "chat") != 0) {
-            fprintf(stderr, "tny: --wire-api must be responses|chat\n"
-                            "Example: tny --wire-api chat ask \"hi\"\n");
-            tny_ctx_free(ctx);
-            return NULL;
-        }
-        free(ctx->wire_api);
-        ctx->wire_api = xstrdup(g->wire_api);
-    }
     if (g->api_key_env) {
         const char *k = getenv(g->api_key_env);
         if (k && *k) {
@@ -276,6 +278,21 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         free(ctx->service_tier);
         ctx->service_tier = xstrdup("fast");
         ctx->service_tier_from_settings = false;
+    }
+    if (g->ultrafast) {
+        free(ctx->service_tier);
+        ctx->service_tier = xstrdup("ultrafast");
+        if (!ctx->service_tier) {
+            tny_ctx_free(ctx);
+            return NULL;
+        }
+        ctx->service_tier_from_settings = false;
+    }
+    const char *tier_error = tny_service_tier_error(ctx, ctx->service_tier);
+    if (tier_error) {
+        fprintf(stderr, "tny: %s\n", tier_error);
+        tny_ctx_free(ctx);
+        return NULL;
     }
     return ctx;
 }

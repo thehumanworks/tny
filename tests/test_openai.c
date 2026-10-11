@@ -665,6 +665,56 @@ static int pv_turn(pv_fixture *f, const char *prompt) {
     return f->ended ? 0 : -1;
 }
 
+TEST ultrafast_request_serialization_and_rejection(void) {
+    const char *models[] = {"gpt-6-astra", "gpt-6.1-sol"};
+    for (size_t i = 0; i < sizeof models / sizeof models[0]; i++) {
+        pv_fixture f;
+        pv_open(&f);
+        free(f.ctx->wire_api);
+        f.ctx->wire_api = xstrdup("responses");
+        free(f.ctx->model);
+        f.ctx->model = xstrdup(models[i]);
+        f.ctx->service_tier = xstrdup("ultrafast");
+        char error[256];
+        ASSERT_EQ(0, f.backend->send(f.backend, "tier wire check", NULL, pv_event, &f, error,
+                                     sizeof error));
+        int64_t deadline = monotonic_ms() + 2000;
+        while (!f.requests && monotonic_ms() < deadline) {
+            struct pollfd fds[HTTP_SERVER_POLLFD_CAPACITY];
+            int n = http_server_pollfds(f.server, fds, HTTP_SERVER_POLLFD_CAPACITY);
+            tny_poll(fds, (nfds_t)n, 10);
+            http_server_dispatch(f.server, fds, n);
+        }
+        ASSERT_EQ(1, f.requests);
+        yyjson_doc *doc = jparse(f.bodies[0].data, f.bodies[0].len);
+        ASSERT(doc);
+        yyjson_val *root = yyjson_doc_get_root(doc);
+        ASSERT_STR_EQ(models[i], jget_str(root, "model"));
+        ASSERT_STR_EQ("ultrafast", jget_str(root, "service_tier"));
+        ASSERT(jget_bool(root, "stream", false));
+        ASSERT_FALSE(jget_bool(root, "store", true));
+        yyjson_doc_free(doc);
+        f.backend->cancel(f.backend);
+        /* A changed wire or model must be rejected before saving the prompt
+         * or opening another connection, not downgraded to priority. */
+        free(f.ctx->wire_api);
+        f.ctx->wire_api = xstrdup("chat");
+        ASSERT_EQ(-1,
+                  f.backend->send(f.backend, "not sent", NULL, pv_event, &f, error, sizeof error));
+        ASSERT(strstr(error, "responses"));
+        free(f.ctx->wire_api);
+        f.ctx->wire_api = xstrdup("responses");
+        free(f.ctx->model);
+        f.ctx->model = xstrdup("unsupported");
+        ASSERT_EQ(-1,
+                  f.backend->send(f.backend, "not sent", NULL, pv_event, &f, error, sizeof error));
+        ASSERT(strstr(error, "model"));
+        ASSERT_EQ(1, f.requests);
+        pv_close(&f);
+    }
+    PASS();
+}
+
 /* Every image_url payload in one recorded request body, decoded. */
 static int pv_request_images(const buf_t *body, uint8_t out[4][64], size_t len_out[4]) {
     int found = 0;
@@ -2547,6 +2597,7 @@ SUITE(openai_suite) {
     RUN_TEST(provider_decoder_rejects_hosted_search);
     RUN_TEST(provider_decoder_rejects_nul_tool_names);
     RUN_TEST(responses_reasoning_owns_unknown_fields);
+    RUN_TEST(ultrafast_request_serialization_and_rejection);
     RUN_TEST(single_call_assembles_from_fragments);
     RUN_TEST(parallel_calls_keyed_by_index);
     RUN_TEST(parallel_calls_in_one_delta_array);

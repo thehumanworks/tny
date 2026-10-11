@@ -39,7 +39,7 @@ static const struct {
     {"permissions", "/permissions [ask|auto|yolo]"},
     {"sandbox", "show the sandbox mode"},
     {"provider", "/provider [NAME]"}, /* hint built from cmd_hint() */
-    {"fast", "/fast [fast|priority|default] — provider speed tier"},
+    {"fast", "/fast [fast|priority|ultrafast|default] — provider speed tier"},
     {"effort", "/effort [" TNY_EFFORT_LEVELS "|default]"},
     {"swarm", "/swarm [N] — collective mode; optional collaborator cap 1..16"},
     {"task", "/task [NAME|clear] — select a session task preset"},
@@ -853,20 +853,23 @@ void tui_command(tui *t, const char *line) {
                   t->ctx->model ? t->ctx->model : "default");
         t->dirty = true;
     } else if (strcmp(c, "fast") == 0) {
-        /* TNY_CAP_FAST speed tier: fast|priority select the paid fast tier,
-         * default turns it off. No argument toggles. Each capable backend
-         * maps the tier to its own wire field (openai service_tier — the
-         * codex profile included — cursor model param). */
+        /* No argument toggles any paid tier off. Ultrafast is restricted
+         * by provider, model and wire rather than the generic capability. */
         if (!(tny_backend_caps((tny_backend_id)t->ctx->backend) & TNY_CAP_FAST)) {
             tui_err(t, "/fast: no fast tier on this provider — try /provider openai");
         } else {
             const char *cur = t->ctx->service_tier;
             const char *next = NULL;
-            if (!arg || !*arg) next = tny_tier_is_fast(cur) ? "default" : "fast";
+            if (!arg || !*arg)
+                next = (tny_tier_is_fast(cur) || tny_tier_is_ultrafast(cur)) ? "default" : "fast";
             else if (strcmp(arg, "fast") == 0 || strcmp(arg, "priority") == 0) next = "fast";
+            else if (strcmp(arg, "ultrafast") == 0) next = "ultrafast";
             else if (strcmp(arg, "default") == 0 || strcmp(arg, "off") == 0) next = "default";
+            const char *tier_error = tny_service_tier_error(t->ctx, next);
             if (!next) {
-                tui_err(t, "usage: /fast [fast|priority|default]");
+                tui_err(t, "usage: /fast [fast|priority|ultrafast|default]");
+            } else if (tier_error) {
+                tui_err(t, tier_error);
             } else {
                 tui_prewarm_drop(t); /* the warm-up thread reads the tier */
                 free(t->ctx->service_tier);
@@ -874,8 +877,11 @@ void tui_command(tui *t, const char *line) {
                 t->ctx->service_tier_explicit = true;
                 t->ctx->service_tier_from_settings = false;
                 drop_backend(t); /* the tier rides on session creation */
-                tui_linef(t, "  service tier: %s%s", next,
-                          tny_tier_is_fast(next) ? " (fast: higher speed, increased usage)" : "");
+                tui_linef(
+                    t, "  service tier: %s%s", next,
+                    tny_tier_is_ultrafast(next)
+                        ? " (ultrafast: highest speed, higher cost)"
+                        : (tny_tier_is_fast(next) ? " (fast: higher speed, increased usage)" : ""));
             }
         }
         t->dirty = true;

@@ -481,6 +481,42 @@ TEST fast_command_is_capability_gated(void) {
     PASS();
 }
 
+TEST ultrafast_command_validates_and_preserves_tier(void) {
+    tny_ctx ctx = {0};
+    tui t = {0};
+    t.ctx = &ctx;
+    ctx.backend = TNY_BK_OPENAI;
+    ctx.model = "gpt-6-astra";
+    tui_command(&t, "/fast ultrafast");
+    ASSERT_STR_EQ("ultrafast", ctx.service_tier);
+    ASSERT(ctx.service_tier_explicit);
+    ctx.model = "gpt-6.1-sol";
+    tui_command(&t, "/fast ultrafast");
+    ASSERT_STR_EQ("ultrafast", ctx.service_tier);
+    const char *providers[] = {"codex", "grok", "gateway"};
+    for (size_t i = 0; i < sizeof providers / sizeof providers[0]; i++) {
+        ctx.provider_name = (char *)providers[i];
+        tui_command(&t, "/fast ultrafast");
+        ASSERT_STR_EQ("ultrafast", ctx.service_tier);
+    }
+    ctx.provider_name = "openai";
+    ctx.wire_api = "chat";
+    tui_command(&t, "/fast ultrafast");
+    ASSERT_STR_EQ("ultrafast", ctx.service_tier);
+    ctx.wire_api = "responses";
+    ctx.model = "unsupported";
+    tui_command(&t, "/fast ultrafast");
+    ASSERT_STR_EQ("ultrafast", ctx.service_tier);
+    tui_command(&t, "/fast"); /* can turn an invalidated paid choice off */
+    ASSERT_STR_EQ("default", ctx.service_tier);
+    tui_command(&t, "/fast ultrafast");
+    ASSERT_STR_EQ("default", ctx.service_tier);
+    free(ctx.service_tier);
+    buf_free(&t.out);
+    buf_free(&t.partial);
+    PASS();
+}
+
 TEST ssh_command_rejects_local_custom_task(void) {
     tui t;
     struct tny_ctx ctx;
@@ -1753,6 +1789,7 @@ SUITE(tui_suite) {
     RUN_TEST(status_row_fallback_truncates_to_width);
     RUN_TEST(status_row_keeps_session_identity_ahead_of_task);
     RUN_TEST(status_row_shows_one_sided_token_counts);
+    RUN_TEST(ultrafast_command_validates_and_preserves_tier);
     RUN_TEST(fast_command_is_capability_gated);
     RUN_TEST(ssh_command_rejects_local_custom_task);
     RUN_TEST(wrap_empty_is_one_row);

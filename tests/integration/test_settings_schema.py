@@ -243,6 +243,19 @@ class DictationSchemaTests(unittest.TestCase):
                 jsonschema.validate(doc, DICTIONARY)
 
 
+class SpeedTierSchemaTests(unittest.TestCase):
+    def test_ultrafast_is_a_tier_not_a_boolean_alias(self):
+        tiers = SCHEMA["$defs"]["fastValue"]["oneOf"][1]["enum"]
+        self.assertIn("ultrafast", tiers)
+        self.assertIn("fast", tiers)
+        self.assertIn("priority", tiers)
+        if jsonschema is not None:
+            for value in ("ultrafast", {"openai": "ultrafast"}):
+                jsonschema.validate({"fast": value}, SCHEMA)
+            with self.assertRaises(jsonschema.ValidationError):
+                jsonschema.validate({"fast": "ULTRAFAST"}, SCHEMA)
+
+
 class SettingsSchemaTests(unittest.TestCase):
     def setUp(self):
         self.image_input = SCHEMA["properties"]["image_input"]

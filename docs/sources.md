@@ -203,3 +203,18 @@ release claims.
 - Grok Build version `1.0.45`: https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-version/Cargo.toml
 - Authenticated HTTP/1.1 empty-body probes checked 2026-10-07: `POST /v1/chat/completions` returns 426 with client version `0.1.202` (requires >= `1.0.13`) and 400 for empty messages with `1.0.45`. No inference was requested. [ADR 0185](adr/0185-grok-proxy-client-version.md).
 - Runtime scope: [ADR 0151](adr/0152-native-http-only-providers.md). Historical protocol sources remain in their original ADRs and verification evidence.
+
+## OpenAI Ultrafast tier (ADR 0187)
+
+Official docs read before implementation:
+
+- https://developers.openai.com/api/docs/guides/ultrafast-mode.md — exact
+  `service_tier: "ultrafast"`, supported models, HTTP Responses alternative,
+  WebSocket recommendation, separate rate limits and residency restrictions.
+- https://developers.openai.com/api/docs/models/gpt-6-astra.md — Astra model ID
+  and capabilities.
+- https://developers.openai.com/api/docs/models/gpt-6.1-sol.md — Sol model ID,
+  Responses Ultrafast example, 6x Standard pricing for Sol.
+- https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference.md
+  — plan usage stays on public streaming Responses, `store:false`; this page
+  does not guarantee a ChatGPT plan's Ultrafast entitlement.

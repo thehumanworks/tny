@@ -2253,6 +2253,120 @@ TEST fast_tier_spellings(void) {
 
 /* `tny --provider X --fast …` parses as a leading global and lands on
  * ctx->service_tier for capable providers. */
+TEST ultrafast_tier_validation(void) {
+    tny_ctx ctx = {0};
+    ctx.backend = TNY_BK_OPENAI;
+    ctx.model = "gpt-6-astra";
+    ASSERT(tny_tier_is_ultrafast("ultrafast"));
+    ASSERT_FALSE(tny_tier_is_ultrafast("fast"));
+    ASSERT_FALSE(tny_tier_is_ultrafast("ULTRAFAST"));
+    ASSERT_FALSE(tny_tier_is_ultrafast(NULL));
+    ASSERT_FALSE(tny_tier_is_fast("ultrafast"));
+    ASSERT_EQ(NULL, tny_service_tier_error(&ctx, "ultrafast"));
+    ctx.model = "gpt-6.1-sol";
+    ASSERT_EQ(NULL, tny_service_tier_error(&ctx, "ultrafast"));
+    ctx.wire_api = "chat";
+    ASSERT(strstr(tny_service_tier_error(&ctx, "ultrafast"), "responses"));
+    ctx.wire_api = "responses";
+    const char *providers[] = {"codex", "grok", "openrouter", "gateway"};
+    for (size_t i = 0; i < sizeof providers / sizeof providers[0]; i++) {
+        ctx.provider_name = (char *)providers[i];
+        ASSERT(strstr(tny_service_tier_error(&ctx, "ultrafast"), "openai provider"));
+    }
+    ctx.provider_name = "openai";
+    ctx.backend = TNY_BK_ACP;
+    ASSERT(tny_service_tier_error(&ctx, "ultrafast"));
+    ctx.backend = TNY_BK_OPENAI;
+    const char *models[] = {NULL, "gpt-6-sol", "gpt-6-luna", "gpt-6-astra-other",
+                            "gpt-6.1-sol-other"};
+    for (size_t i = 0; i < sizeof models / sizeof models[0]; i++) {
+        ctx.model = (char *)models[i];
+        ASSERT(strstr(tny_service_tier_error(&ctx, "ultrafast"), "model"));
+    }
+    ctx.model = NULL;
+    ctx.openai_signin = true; /* the plan default is gpt-6.1-sol */
+    ASSERT_EQ(NULL, tny_service_tier_error(&ctx, "ultrafast"));
+    ASSERT_EQ(NULL, tny_service_tier_error(&ctx, "fast"));
+    ASSERT_EQ(NULL, tny_service_tier_error(&ctx, NULL));
+    PASS();
+}
+
+TEST ultrafast_flag_and_settings(void) {
+    ensure_env();
+    write_settings("{}");
+    char *argv[] = {"tny",         "--provider", "openai", "--model", "gpt-6-astra",
+                    "--ultrafast", "ask",        "hi",     NULL};
+    cli_globals g = {0};
+    ASSERT_EQ(6, cli_parse_globals(8, argv, &g));
+    ASSERT_EQ(6, cli_command_index(8, argv));
+    ASSERT(g.ultrafast);
+    g.cwd = g_ws;
+    tny_ctx *ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT_STR_EQ("ultrafast", ctx->service_tier);
+    ASSERT(ctx->service_tier_explicit);
+    ASSERT_FALSE(ctx->service_tier_from_settings);
+    /* An explicit paid choice cannot leak across a provider switch. */
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, "codex"));
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
+    ASSERT_STR_EQ("ultrafast", ctx->service_tier);
+    tny_ctx_free(ctx);
+    g.model = "gpt-6.1-sol";
+    ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    tny_ctx_free(ctx);
+    g.wire_api = "chat";
+    ASSERT_EQ(NULL, cli_make_ctx(&g));
+    g.wire_api = NULL;
+    g.backend = "codex";
+    ASSERT_EQ(NULL, cli_make_ctx(&g));
+    g.backend = "openai";
+    g.model = "unsupported";
+    ASSERT_EQ(NULL, cli_make_ctx(&g));
+    g.model = "gpt-6-astra";
+    g.fast = true;
+    ASSERT_EQ(NULL, cli_make_ctx(&g));
+    g.fast = false;
+
+    write_settings("{\"model\":{\"openai\":\"gpt-6.1-sol\"},\"fast\":{\"openai\":\"ultrafast\"}}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_STR_EQ("ultrafast", ctx->service_tier);
+    ASSERT(ctx->service_tier_from_settings);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
+    ASSERT_EQ(NULL, ctx->service_tier);
+    tny_ctx_free(ctx);
+    write_settings("{\"model\":\"gpt-6-astra\",\"fast\":\"ultrafast\"}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_STR_EQ("ultrafast", ctx->service_tier);
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, "codex"));
+    tny_ctx_free(ctx);
+    /* Explicit --fast overrides even an unsupported settings tier/model. */
+    write_settings("{\"fast\":\"ultrafast\",\"model\":\"unsupported\"}");
+    g.ultrafast = false;
+    g.fast = true;
+    ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT_STR_EQ("fast", ctx->service_tier);
+    tny_ctx_free(ctx);
+    g.fast = false;
+    g.model = NULL;
+    ASSERT_EQ(NULL, cli_make_ctx(&g));
+    write_settings(
+        "{\"openai\":{\"wire_api\":\"chat\"},\"model\":\"gpt-6-astra\",\"fast\":\"ultrafast\"}");
+    g.wire_api = "responses";
+    ctx = cli_make_ctx(&g);
+    ASSERT(ctx);
+    ASSERT_STR_EQ("ultrafast", ctx->service_tier);
+    ASSERT_STR_EQ("responses", ctx->wire_api);
+    tny_ctx_free(ctx);
+    g.wire_api = "chat";
+    ASSERT_EQ(NULL, cli_make_ctx(&g));
+    write_settings("{}");
+    PASS();
+}
+
 TEST fast_flag_sets_service_tier(void) {
     ensure_env();
     write_settings("{}");
@@ -6579,6 +6693,8 @@ SUITE(core_suite) {
     RUN_TEST(provider_names_joined_lists_detected);
     RUN_TEST(fast_capability_per_provider);
     RUN_TEST(fast_tier_spellings);
+    RUN_TEST(ultrafast_tier_validation);
+    RUN_TEST(ultrafast_flag_and_settings);
     RUN_TEST(fast_flag_sets_service_tier);
     RUN_TEST(fast_flag_rejected_without_capability);
     RUN_TEST(perm_defaults_to_yolo);

@@ -115,6 +115,8 @@ static int parse_globals(int argc, char **argv, cli_globals *g, bool diagnostics
             g->no_extensions = true;
         } else if (strcmp(a, "--fast") == 0) {
             g->fast = true;
+        } else if (strcmp(a, "--ultrafast") == 0) {
+            g->ultrafast = true;
         } else if (strcmp(a, "--yolo") == 0) {
             g->perm_mode = "yolo";
         } else if (strcmp(a, "--auto") == 0) {

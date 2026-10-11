@@ -145,7 +145,7 @@ permission/cost escalation.
 | `provider` | provider string | `--provider NAME` |
 | `model` | string, or `{ "PROVIDER": "MODEL" }` | `--model ID` |
 | `effort` | string, or per-provider object | `--effort LEVEL` |
-| `fast` | boolean/string, or per-provider object | `--fast` when true/`fast`/`priority`; standard tier when false/`default` |
+| `fast` | boolean/string, or per-provider object | `--fast` when true/`fast`/`priority`; `--ultrafast` when `ultrafast` (openai Responses, gpt-6-astra or gpt-6.1-sol only); standard tier when false/`default` |
 | `permission_mode` | `ask`, `auto`, or `yolo` | `--permission-mode` |
 | `self_improve` | boolean, default `true` | Default automatic recovery learning; `TNY_SELF_IMPROVE=0` or `--no-self-improve` disables it ([ADR 0154](adr/0154-default-automatic-workflow-learning.md)) |
 | `tools` | `all`, `terminal+edit`, or `terminal` | Native-loop tool profile; `TNY_TOOLS` wins; default `all` ([ADR 0062](adr/0062-native-tool-profiles-advertise-and-enforce.md)) |
@@ -186,6 +186,14 @@ Most provider-specific defaults can be scoped by provider. This prevents a
 Codex model or paid tier from leaking into another HTTP profile.
 Providers that do not implement the fast capability reject an enabled `fast`
 default instead of silently ignoring it.
+
+For OpenAI Ultrafast, use `"fast": {"openai": "ultrafast"}` with
+`"model": {"openai": "gpt-6-astra"}` (or `gpt-6.1-sol`). The string is retained
+as a distinct tier, not converted to the existing fast/priority tier. A scalar
+`"fast": "ultrafast"` is also accepted but will reject other providers.
+`--fast` or `--ultrafast` overrides the settings choice. Ultrafast requires the
+Responses wire; unsupported provider/model/wire combinations fail clearly.
+See [ADR 0187](adr/0187-openai-ultrafast-tier.md).
 
 ## Named OpenAI-compatible providers
 

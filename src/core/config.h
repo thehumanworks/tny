@@ -118,10 +118,11 @@ typedef struct tny_ctx {
     char *ssh_cwd;     /* remote working dir (absolute after connect) */
     char *ssh_control; /* "ControlPath=…" option string */
     /* Speed tier for providers with TNY_CAP_FAST: NULL = provider default,
-     * "fast"/"priority" = the paid fast tier, "default" = standard. Each
+     * "fast"/"priority" = the paid fast tier, "ultrafast" = OpenAI Responses
+     * on gpt-6-astra/gpt-6.1-sol, "default" = standard. Each
      * backend maps this to its own wire field. */
     char *service_tier;
-    bool service_tier_explicit;      /* --fast / TUI /fast was used; settings
+    bool service_tier_explicit;      /* --fast / --ultrafast / TUI /fast was used; settings
                                       * defaults must not replace it */
     bool service_tier_from_settings; /* recompute on provider switches */
     /* Private image-input capability for the resolved provider, recomputed
@@ -211,6 +212,9 @@ void tny_ctx_free(tny_ctx *ctx);
 
 /* Resolve backend per docs/cli.md when no --backend flag was given. */
 int tny_resolve_backend(tny_ctx *ctx, const char *flag_value);
+/* Same failure-atomic resolution, with an optional already-validated CLI wire
+ * override applied before service-tier validation. */
+int tny_resolve_backend_wire(tny_ctx *ctx, const char *flag_value, const char *wire_override);
 
 /* ---- builtin subscription profiles (profiles.c, docs/adr/0019, 0065) ----
  * "codex" (ChatGPT subscription against chatgpt.com/backend-api/codex),
@@ -427,6 +431,9 @@ const char *tny_effort_wire(int backend, const char *v);
 /* True when the tier string names the paid fast tier. OpenAI renamed
  * "priority" processing to "fast" mode; both spellings select it. */
 bool tny_tier_is_fast(const char *tier);
+bool tny_tier_is_ultrafast(const char *tier);
+/* NULL when supported; otherwise a static actionable error. No provider I/O. */
+const char *tny_service_tier_error(const tny_ctx *ctx, const char *tier);
 
 /* True when ctx->wire_api selects the legacy Chat Completions wire. The
  * default (NULL or anything else) is the Responses API (docs/adr/0016). */

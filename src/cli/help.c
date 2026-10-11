@@ -87,6 +87,7 @@ void help_root(void) {
           "  --no-self-improve      Disable default automatic workflow learning\n"
           "  --agent CMD            ACP executable; optional -- arg... -- before ask\n"
           "  --fast                 Paid fast tier where the provider has one\n"
+          "  --ultrafast            OpenAI Responses: gpt-6-astra / gpt-6.1-sol (higher cost)\n"
           "                         (compatible HTTP providers; higher speed and cost)\n"
           "  --json                 Machine-readable output where listed\n"
           "  --color MODE           auto | always | never (--no-color = never).\n"

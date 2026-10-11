@@ -98,6 +98,7 @@ tny --max-steps N|unlimited # cap native-loop model calls per turn
 tny --max-extension-iterations N|unlimited # cap Python-hook follow-up turns
 tny --no-extensions         # skip ~/.tny/extensions for this process
 tny --fast                  # paid fast tier (TNY_CAP_FAST providers only)
+tny --provider openai --model gpt-6-astra --ultrafast ask "hi" # highest-speed tier
 tny --json                  # where listed
 tny --color auto|always|never   # SGR styling; --no-color is never
 tny --fullscreen | --inline # override the saved TUI display mode
@@ -1134,7 +1135,31 @@ own wire field:
 | openai | `"service_tier":"priority"` on the chat-completions request (`fast` alias server-side) |
 | codex | same as openai — the builtin profile rides the Responses request's `service_tier` |
 
-The interactive TUI exposes the same capability as `/fast [fast|priority|default]`.
+The interactive TUI exposes the same capability as `/fast [fast|priority|ultrafast|default]`.
+
+### `--ultrafast` (OpenAI Responses tier)
+
+`--ultrafast` selects `"service_tier":"ultrafast"`, distinct from fast/priority:
+
+```sh
+tny --provider openai --model gpt-6-astra --ultrafast ask "Review this change"
+tny --provider openai --model gpt-6.1-sol --ultrafast ask "Explain this function"
+```
+
+Only the `openai` provider, the Responses wire, and these exact two model IDs
+are supported. Codex, other compatible profiles, unsupported models and
+`--wire-api chat` fail with an actionable error. `--fast` and `--ultrafast`
+are alternatives, not composable flags. Neither flag changes reasoning effort.
+In the TUI use `/fast ultrafast`; bare `/fast` turns any active paid tier off.
+Settings accept `"fast": {"openai": "ultrafast"}`.
+
+[OpenAI's official guide](https://developers.openai.com/api/docs/guides/ultrafast-mode)
+warns of higher cost and separate rate limits. tny uses the documented HTTP
+Responses alternative; this change does not add WebSockets or promise a measured
+speedup. Account eligibility and usage limits remain server-owned, including
+when signing in with ChatGPT. Wasm uses the same request field through fetch;
+existing browser auth/CORS and unsupported local tool execution limits remain.
+See [ADR 0187](adr/0187-openai-ultrafast-tier.md).
 
 
 

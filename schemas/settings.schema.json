@@ -136,7 +136,7 @@
     },
     "fast": {
       "$ref": "#/$defs/providerFastDefault",
-      "description": "Paid fast tier globally or by provider. Unsupported providers fail clearly."
+      "description": "Paid speed tier globally or by provider. Ultrafast requires openai, Responses, and gpt-6-astra or gpt-6.1-sol. Unsupported selections fail clearly."
     },
     "image_input": {
       "type": "object",
@@ -337,6 +337,7 @@
           "enum": [
             "fast",
             "priority",
+            "ultrafast",
             "default",
             "off"
           ]

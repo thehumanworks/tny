@@ -289,6 +289,13 @@ Mirror fx names where they still make sense. Backend-specific commands degrade t
 
 Sessions: `/help` `/clear` `/new` `/reset` `/resume` `/continue` `/rename` `/compact` `/quit`
 
+`/fast ultrafast` selects the highest-speed OpenAI tier for `gpt-6-astra` or
+`gpt-6.1-sol` on the Responses wire. Unsupported selections leave the previous
+tier unchanged and show an error. Bare `/fast` turns an active paid tier off;
+`/fast default` explicitly restores standard behavior. Ultrafast has higher
+cost and separate provider rate limits; it does not change reasoning effort.
+See [speed tiers](cli.md#--ultrafast-openai-responses-tier).
+
 Runtime: `/models` `/model` `/effort` `/max-steps` `/permissions` `/sandbox` `/provider` (`/backend`) `/fast` `/status` `/usage`
 
 `/status` includes the [Codex subscription weekly allowance](backends/codex.md#subscription-usage-status-tny-status)

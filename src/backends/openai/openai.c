@@ -1039,6 +1039,8 @@ static char *build_request_rsp(oa_impl *o, oa_request_owner *request) {
     buf_appends(b, "{\"model\":");
     jescape(b, model_of(o));
     if (tny_tier_is_fast(o->ctx->service_tier)) buf_appends(b, ",\"service_tier\":\"priority\"");
+    else if (tny_tier_is_ultrafast(o->ctx->service_tier))
+        buf_appends(b, ",\"service_tier\":\"ultrafast\"");
     buf_appends(b, ",\"stream\":true,\"store\":false");
     /* Compatible providers keep their existing wire. */
     if (cache_routing_enabled(o) && s && s->id) {
@@ -1165,6 +1167,11 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
         emit_error(o, TNY_EVENT_ERROR_AUTH, ended, sizeof ended - 1);
         emit_turn_end(o, TNY_STOP_ERROR);
         return 0;
+    }
+    const char *tier_error = tny_service_tier_error(o->ctx, o->ctx->service_tier);
+    if (tier_error) {
+        snprintf(errbuf, errlen, "%s", tier_error);
+        return -1;
     }
     if (retry) o->provider_attempt++;
     else {
@@ -2182,6 +2189,11 @@ static char *oa_session_pointer(tny_backend *b) {
 static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_backend_event_cb cb,
                    void *ud, char *errbuf, size_t errlen) {
     oa_impl *o = b->impl;
+    const char *tier_error = tny_service_tier_error(o->ctx, o->ctx->service_tier);
+    if (tier_error) {
+        snprintf(errbuf, errlen, "%s", tier_error);
+        return -1;
+    }
     if (!o->env.session || !o->env.perm) {
         snprintf(errbuf, errlen, "native backend not bound to a session");
         return -1;
