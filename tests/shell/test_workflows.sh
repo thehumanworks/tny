@@ -441,6 +441,74 @@ assert_eq "$(tny_status consumer)" failed
 [ ! -f "$TNY_FAKE_LOG.prompt.consumer" ] || fail "oversized consumer reached tny"
 assert_file_contains "$TNY_WORKFLOW_DIR/run/consumer/stderr" 'exceeds 5 bytes'
 
+# Complete a real worker after the reaper checks its result marker but before
+# the liveness probe returns. Committed success and failure results must survive;
+# an exit without a result must still be reported as a crashed worker.
+for reap_case in success limit crash; do
+    (
+        trap - EXIT HUP INT TERM
+        reset_log "$temporary/scenario-reap-$reap_case"
+        tny_workflow_begin "$temporary/flow-reap-$reap_case" > /dev/null
+        tny_task producer -- "TASK producer"
+        tny_task consumer --after producer -- "TASK consumer"
+        mkdir -p "$TNY_WORKFLOW_DIR/run/producer" "$TNY_WORKFLOW_DIR/run/consumer"
+        printf 'result:producer\n' > "$TNY_WORKFLOW_DIR/run/producer/stdout"
+        printf 'success\n' > "$TNY_WORKFLOW_DIR/run/producer/status"
+        printf 'running\n' > "$TNY_WORKFLOW_DIR/run/consumer/status"
+        if [ "$reap_case" = limit ]; then
+            TNY_WORKFLOW_MAX_DEPENDENCY_BYTES=5
+            export TNY_WORKFLOW_MAX_DEPENDENCY_BYTES
+        fi
+        reap_gate="$TNY_WORKFLOW_DIR/release"
+        mkfifo "$reap_gate"
+        (
+            IFS= read -r reap_signal < "$reap_gate"
+            [ "$reap_signal" = release ] || exit 2
+            [ "$reap_case" != crash ] || exit 42
+            _tny_workflow_execute_task consumer
+        ) &
+        reap_worker=$!
+        trap 'if [ -n "$reap_worker" ]; then command kill -KILL "$reap_worker" 2> /dev/null || true; wait "$reap_worker" 2> /dev/null || true; fi' EXIT
+        printf '%s\n' "$reap_worker" > "$TNY_WORKFLOW_DIR/run/consumer/pid"
+        kill() {
+            if [ "$#" -eq 2 ] && [ "$1" = -0 ] && [ "$2" = "$reap_worker" ]; then
+                printf 'release\n' > "$reap_gate"
+                wait "$reap_worker" 2> /dev/null || true
+                reap_worker=
+                return 1
+            fi
+            command kill "$@"
+        }
+        _tny_workflow_reap_workers 1
+        assert_eq "$_TNY_WORKFLOW_REAPED" 1 "reap $reap_case count"
+        _tny_workflow_reap_workers 1
+        assert_eq "$_TNY_WORKFLOW_REAPED" 0 "reap $reap_case repeated count"
+        [ -z "$reap_worker" ] || fail "reap $reap_case did not probe the worker"
+        [ ! -f "$TNY_WORKFLOW_DIR/run/consumer/pid" ] || fail "reap $reap_case retained the worker pid"
+        [ ! -f "$TNY_WORKFLOW_DIR/run/consumer/child_pid" ] || fail "reap $reap_case retained the child pid"
+        [ -f "$TNY_WORKFLOW_DIR/run/consumer/done" ] || fail "reap $reap_case lost the result marker"
+        case $reap_case in
+            success)
+                assert_eq "$(tny_status consumer)" success
+                assert_eq "$(tny_result consumer)" result:consumer
+                assert_eq "$(cat "$TNY_WORKFLOW_DIR/run/consumer/exit_code")" 0
+                [ ! -s "$TNY_WORKFLOW_DIR/run/consumer/stderr" ] || fail "reap success acquired an error"
+                ;;
+            limit | crash)
+                assert_eq "$(tny_status consumer)" failed
+                assert_eq "$(cat "$TNY_WORKFLOW_DIR/run/consumer/exit_code")" 1
+                [ ! -s "$TNY_WORKFLOW_DIR/run/consumer/stdout" ] || fail "reap $reap_case acquired output"
+                [ ! -f "$TNY_FAKE_LOG.prompt.consumer" ] || fail "reap $reap_case launched tny"
+                if [ "$reap_case" = limit ]; then
+                    assert_file_contains "$TNY_WORKFLOW_DIR/run/consumer/stderr" 'exceeds 5 bytes'
+                else
+                    assert_file_contains "$TNY_WORKFLOW_DIR/run/consumer/stderr" 'workflow worker exited before recording a result'
+                fi
+                ;;
+        esac
+    )
+done
+
 # The complete input limit includes UTF-8 task text and dependency framing.
 reset_log "$temporary/scenario-input"
 tny_workflow_begin "$temporary/flow-input" > /dev/null

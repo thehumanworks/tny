@@ -783,21 +783,21 @@ _tny_workflow_reap_workers() {
         [ -n "$task" ] || continue
         [ -f "$TNY_WORKFLOW_DIR/run/$task/pid" ] || continue
         pid=$(cat "$TNY_WORKFLOW_DIR/run/$task/pid")
-        if [ -f "$TNY_WORKFLOW_DIR/run/$task/done" ]; then
+        if [ -f "$TNY_WORKFLOW_DIR/run/$task/done" ] ||
+            ! _tny_workflow_valid_pid "$pid" || ! kill -0 "$pid" 2> /dev/null; then
             wait "$pid" 2> /dev/null || true
+            # A worker can commit its result between the first marker check
+            # and the liveness probe. Only synthesize a crash after waiting.
+            if [ ! -f "$TNY_WORKFLOW_DIR/run/$task/done" ]; then
+                printf '%s\n' 'workflow worker exited before recording a result' > "$TNY_WORKFLOW_DIR/run/$task/stderr"
+                : > "$TNY_WORKFLOW_DIR/run/$task/stdout"
+                printf '%s\n' 1 > "$TNY_WORKFLOW_DIR/run/$task/exit_code"
+                _tny_workflow_write_atomic "$TNY_WORKFLOW_DIR/run/$task/status" failed
+                : > "$TNY_WORKFLOW_DIR/run/$task/done"
+            fi
             rm -f "$TNY_WORKFLOW_DIR/run/$task/pid" "$TNY_WORKFLOW_DIR/run/$task/child_pid"
             task_status=$(_tny_workflow_read_status "$task")
             [ "$quiet" -eq 1 ] || printf 'tny workflow: %s %s\n' "$task_status" "$task" >&2
-            reaped=$((reaped + 1))
-        elif ! _tny_workflow_valid_pid "$pid" || ! kill -0 "$pid" 2> /dev/null; then
-            wait "$pid" 2> /dev/null || true
-            printf '%s\n' 'workflow worker exited before recording a result' > "$TNY_WORKFLOW_DIR/run/$task/stderr"
-            : > "$TNY_WORKFLOW_DIR/run/$task/stdout"
-            printf '%s\n' 1 > "$TNY_WORKFLOW_DIR/run/$task/exit_code"
-            _tny_workflow_write_atomic "$TNY_WORKFLOW_DIR/run/$task/status" failed
-            : > "$TNY_WORKFLOW_DIR/run/$task/done"
-            rm -f "$TNY_WORKFLOW_DIR/run/$task/pid" "$TNY_WORKFLOW_DIR/run/$task/child_pid"
-            [ "$quiet" -eq 1 ] || printf 'tny workflow: failed %s\n' "$task" >&2
             reaped=$((reaped + 1))
         fi
     done < "$TNY_WORKFLOW_DIR/tasks.list"
