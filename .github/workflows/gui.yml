@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - 'gui/**'
+      - 'tests/formal/check_lean_golden.py'
+      - 'tests/formal/test_lean_golden.py'
       - 'docs/gui.md'
       - 'docs/adr/0166-slint-desktop-companion.md'
       - 'docs/adr/0169-desktop-effort-folder-markdown-and-verified-turn-status.md'
@@ -11,6 +13,8 @@ on:
   pull_request:
     paths:
       - 'gui/**'
+      - 'tests/formal/check_lean_golden.py'
+      - 'tests/formal/test_lean_golden.py'
       - 'docs/gui.md'
       - 'docs/adr/0166-slint-desktop-companion.md'
       - 'docs/adr/0169-desktop-effort-folder-markdown-and-verified-turn-status.md'
@@ -48,7 +52,4 @@ jobs:
           auto-config: false
           build: true
       - name: Golden tables match the proven definitions
-        working-directory: gui/proofs
-        run: |
-          lake exe export golden
-          git diff --exit-code -- golden
+        run: python3 tests/formal/check_lean_golden.py gui/proofs

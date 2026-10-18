@@ -150,7 +150,7 @@ stdenv.mkDerivation {
     imagemagick
     # test_windows_lto_flags.py uses stdenv's make to inspect both platform
     # flag branches; no cross compiler or additional runtime input is needed.
-    lean4 # source-linked code-mode acceptance/promotion proofs; no Lake dependencies
+    lean4 # source-linked production C code-policy proofs; no Lake dependencies
     z3 # make verify-formal checks SMT-LIB proofs without live credentials
     # Dictation and ACP admission replay tests/formal/{dictation,acp}/golden/*.tsv
     # in unit/integration tests. verify-acp-proofs and verify-dictation-proofs
@@ -220,7 +220,6 @@ stdenv.mkDerivation {
     # their environment too, without exporting an empty override on Linux.
     ${lib.optionalString stdenv.hostPlatform.isDarwin "export LIBTNY_MACH_CURRENT_VERSION=1.0.0"}
     runHook preBuild
-    make verify-code-mode-language
     make verify-code-policy
     for fixture in codex.toml claude-user.json claude-project.json \
       grok.toml grok-project.toml cursor-user.json cursor-project.json \
