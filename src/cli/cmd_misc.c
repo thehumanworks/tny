@@ -901,13 +901,6 @@ int cmd_setup(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     return 0;
 }
 
-/* Grok: native RFC 8628 device-code sign-in against auth.x.ai
- * (grok_login.c, docs/adr/0021) — no grok CLI needed. */
-static int login_grok(tny_ctx *ctx) {
-    (void)ctx;
-    return tny_grok_login();
-}
-
 int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     (void)g;
     bool device = false;
@@ -917,7 +910,7 @@ int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     const char *pn = tny_provider_name(ctx);
     if (strcmp(pn, "openai") == 0) return tny_openai_login(ctx, device); /* docs/adr/0186 */
     if (strcmp(pn, "codex") == 0) return tny_codex_login(ctx, device);   /* docs/adr/0066 */
-    if (strcmp(pn, "grok") == 0) return login_grok(ctx);
+    if (strcmp(pn, "grok") == 0) return tny_grok_login();
     printf(ctx->api_key ? "Provider key found.\n"
                         : "Export the provider key and configure api_key_env.\n");
     return ctx->api_key ? 0 : 1;

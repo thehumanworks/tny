@@ -1,7 +1,7 @@
 /* cmd_provider.c — `tny provider setup NAME`: write an OpenAI-compatible
  * provider profile to settings.json (docs/adr/0018). Flags carry every
- * field; on a tty, missing fields are prompted for interactively (the key
- * with echo off). Noninteractive-first: piped/CI runs need the flags. */
+ * field; on a tty, missing fields are prompted for interactively. Keys
+ * stay in the environment. Piped/CI runs need the flags. */
 #include "cli/cli.h"
 #include "core/config.h"
 #include "net/net.h"
@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <termios.h>
 #include <unistd.h>
 
 static void trim(char *s) {
@@ -22,25 +21,12 @@ static void trim(char *s) {
     if (i) memmove(s, s + i, n - i + 1);
 }
 
-/* Read one line from the tty; echo off for secrets. NULL on EOF. */
-static char *prompt_line(const char *label, bool secret) {
+/* Read one configuration value from the tty. NULL on EOF. */
+static char *prompt_line(const char *label) {
     fprintf(stderr, "%s", label);
     fflush(stderr);
-    struct termios old, raw;
-    bool masked = false;
-    /* TCSADRAIN, never TCSAFLUSH: FLUSH discards queued input, eating an
-     * answer pasted before the echo-off lands (docs/adr/0018) */
-    if (secret && tcgetattr(0, &old) == 0) {
-        raw = old;
-        raw.c_lflag &= (tcflag_t)~ECHO;
-        masked = tcsetattr(0, TCSADRAIN, &raw) == 0;
-    }
     char buf[1024];
     char *got = fgets(buf, sizeof buf, stdin);
-    if (masked) {
-        tcsetattr(0, TCSADRAIN, &old);
-        fputs("\n", stderr);
-    }
     if (!got) return NULL;
     trim(buf);
     return xstrdup(buf);
@@ -53,7 +39,7 @@ static bool base_url_ok(const char *url) {
 }
 
 static int provider_setup(tny_ctx *ctx, int argc, char **argv) {
-    const char *name = NULL, *base_url = NULL, *api_key = NULL;
+    const char *name = NULL, *base_url = NULL;
     const char *api_key_env = NULL, *model = NULL, *wire_api = NULL;
     for (int i = 0; i < argc; i++) {
         const char *a = argv[i];
@@ -79,11 +65,6 @@ static int provider_setup(tny_ctx *ctx, int argc, char **argv) {
             return 1;
         }
     }
-    if (api_key && api_key_env) {
-        fprintf(stderr, "tny: --api-key and --api-key-env are alternatives; "
-                        "pick one\n");
-        return 1;
-    }
     if (wire_api && strcmp(wire_api, "responses") != 0 && strcmp(wire_api, "chat") != 0) {
         fprintf(stderr, "tny: --wire-api must be responses|chat\n");
         return 1;
@@ -92,7 +73,7 @@ static int provider_setup(tny_ctx *ctx, int argc, char **argv) {
     bool tty = isatty(0) && isatty(2);
     char *p_name = NULL, *p_base = NULL, *p_key = NULL, *p_model = NULL;
     if (tty && !name) {
-        p_name = prompt_line("provider name (e.g. openrouter): ", false);
+        p_name = prompt_line("provider name (e.g. openrouter): ");
         if (!p_name || !*p_name) {
             free(p_name);
             fprintf(stderr, "tny: cancelled\n");
@@ -109,7 +90,7 @@ static int provider_setup(tny_ctx *ctx, int argc, char **argv) {
     }
     bool exists = tny_custom_provider_exists(ctx, name) || strcmp(name, "openai") == 0;
     if (tty && !base_url && !exists) {
-        p_base = prompt_line("base url (OpenAI-compatible /v1 endpoint): ", false);
+        p_base = prompt_line("base url (OpenAI-compatible /v1 endpoint): ");
         if (p_base && *p_base) base_url = p_base;
     }
     if (base_url && !base_url_ok(base_url)) {
@@ -121,16 +102,16 @@ static int provider_setup(tny_ctx *ctx, int argc, char **argv) {
         free(p_base);
         return 1;
     }
-    if (tty && !api_key && !api_key_env) {
-        p_key = prompt_line("API key environment variable name: ", false);
+    if (tty && !api_key_env) {
+        p_key = prompt_line("API key environment variable name: ");
         if (p_key && *p_key) api_key_env = p_key;
     }
     if (tty && !model) {
-        p_model = prompt_line("default model (empty to skip): ", false);
+        p_model = prompt_line("default model (empty to skip): ");
         if (p_model && *p_model) model = p_model;
     }
 
-    tny_provider_fields f = {base_url, api_key, api_key_env, model, wire_api};
+    tny_provider_fields f = {base_url, NULL, api_key_env, model, wire_api};
     char err[256];
     int rc = tny_provider_write_profile(ctx, name, &f, err, sizeof err);
     if (rc != 0) {
