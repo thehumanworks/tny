@@ -33,4 +33,7 @@ void tt_rand_hex(char *out, size_t n);
 /* Constant-time equality for secrets. */
 bool tt_const_eq(const char *a, const char *b);
 
+/* Shared run/serve/gui HOST:PORT grammar; returns 0 or -1 for invalid input. */
+int tt_parse_listen(const char *spec, char *host, size_t hostlen, int *port);
+
 #endif

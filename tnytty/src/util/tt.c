@@ -17,9 +17,20 @@ void tt_buf_free(tt_buf *b) {
 
 static bool buf_reserve(tt_buf *b, size_t extra) {
     if (b->oom) return false;
-    if (b->len + extra + 1 <= b->cap) return true;
+    if (extra == SIZE_MAX || b->len > SIZE_MAX - extra - 1) {
+        b->oom = true;
+        return false;
+    }
+    size_t need = b->len + extra + 1;
+    if (need <= b->cap) return true;
     size_t cap = b->cap ? b->cap : 256;
-    while (cap < b->len + extra + 1) cap *= 2;
+    while (cap < need) {
+        if (cap > SIZE_MAX / 2) {
+            cap = need;
+            break;
+        }
+        cap *= 2;
+    }
     char *nd = realloc(b->data, cap);
     if (!nd) {
         b->oom = true;
@@ -32,7 +43,7 @@ static bool buf_reserve(tt_buf *b, size_t extra) {
 
 bool tt_buf_append(tt_buf *b, const void *bytes, size_t len) {
     if (!buf_reserve(b, len)) return false;
-    memcpy(b->data + b->len, bytes, len);
+    if (len) memcpy(b->data + b->len, bytes, len);
     b->len += len;
     b->data[b->len] = '\0';
     return true;
@@ -118,4 +129,18 @@ bool tt_const_eq(const char *a, const char *b) {
         diff |= (unsigned char)(ca ^ cb);
     }
     return diff == 0;
+}
+
+int tt_parse_listen(const char *spec, char *host, size_t hostlen, int *port) {
+    const char *colon = strrchr(spec, ':');
+    if (!colon || colon == spec) return -1;
+    size_t len = (size_t)(colon - spec);
+    if (len >= hostlen) return -1;
+    memcpy(host, spec, len);
+    host[len] = '\0';
+    char *end = NULL;
+    long value = strtol(colon + 1, &end, 10);
+    if (!end || *end || value < 1 || value > 65535) return -1;
+    *port = (int)value;
+    return 0;
 }

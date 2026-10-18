@@ -59,20 +59,6 @@ typedef struct {
     char *const *cmd; /* NULL = $SHELL */
 } opts;
 
-static int parse_listen(const char *spec, char *host, size_t hostlen, int *port) {
-    const char *colon = strrchr(spec, ':');
-    if (!colon || colon == spec) return -1;
-    size_t hl = (size_t)(colon - spec);
-    if (hl >= hostlen) return -1;
-    memcpy(host, spec, hl);
-    host[hl] = '\0';
-    char *end = NULL;
-    long p = strtol(colon + 1, &end, 10);
-    if (!end || *end || p < 1 || p > 65535) return -1;
-    *port = (int)p;
-    return 0;
-}
-
 static int parse_opts(int argc, char **argv, opts *o) {
     o->listen = NULL;
     o->token = getenv("TNYTTY_TOKEN");
@@ -102,7 +88,7 @@ static tt_http *maybe_listen(tt_api *api, const opts *o, char *token_buf, size_t
     if (!spec) return NULL;
     char host[128];
     int port = 0;
-    if (parse_listen(spec, host, sizeof host, &port) != 0) {
+    if (tt_parse_listen(spec, host, sizeof host, &port) != 0) {
         fprintf(stderr, "tnytty: bad --listen %s (want HOST:PORT)\n", spec);
         exit(2);
     }

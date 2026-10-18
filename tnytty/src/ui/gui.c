@@ -163,20 +163,6 @@ static int parse_flags(int argc, char **argv, gui_opts *o) {
     return 0;
 }
 
-static int parse_listen(const char *spec, char *host, size_t hostlen, int *port) {
-    const char *colon = strrchr(spec, ':');
-    if (!colon || colon == spec) return -1;
-    size_t len = (size_t)(colon - spec);
-    if (len >= hostlen) return -1;
-    memcpy(host, spec, len);
-    host[len] = '\0';
-    char *end = NULL;
-    long value = strtol(colon + 1, &end, 10);
-    if (!end || *end || value < 1 || value > 65535) return -1;
-    *port = (int)value;
-    return 0;
-}
-
 /* ---- panes ------------------------------------------------------------ */
 
 /* One leaf of the split tree: a session, the rasterizer that paints it
@@ -898,7 +884,7 @@ int tt_gui_main(int argc, char **argv) {
     if (o.listen) {
         char host[128];
         int port = 0;
-        if (parse_listen(o.listen, host, sizeof host, &port) != 0) {
+        if (tt_parse_listen(o.listen, host, sizeof host, &port) != 0) {
             fprintf(stderr, "tnytty: bad --listen %s (want HOST:PORT)\n", o.listen);
             tt_broker_client_close(&g.broker);
             return 2;
