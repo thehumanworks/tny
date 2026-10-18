@@ -18,7 +18,7 @@ from pathlib import Path
 
 
 def request(port, token, method, path, body=None):
-    connection = http.client.HTTPConnection("127.0.0.2", port, timeout=3)
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
     try:
         connection.request(
             method,
@@ -34,12 +34,12 @@ def request(port, token, method, path, body=None):
 
 @contextlib.contextmanager
 def server(binary, env, token=None):
-    # A local 127/8 address outside the server's explicit anonymous allowlist
-    # exercises its generated-token path without exposing a public listener.
+    # A wildcard bind exercises the generated-token path on every platform;
+    # fixture requests connect over loopback and always require authentication.
     with socket.socket() as probe:
-        probe.bind(("127.0.0.2", 0))
+        probe.bind(("0.0.0.0", 0))
         port = probe.getsockname()[1]
-    command = [str(binary), "serve", "--listen", f"127.0.0.2:{port}"]
+    command = [str(binary), "serve", "--listen", f"0.0.0.0:{port}"]
     if token:
         command += ["--token", token]
     with tempfile.TemporaryFile() as output:
@@ -76,7 +76,7 @@ def main():
         for mode in ("open", "read", "eof", "partial"):
             env["TNYTTY_FIXTURE_RANDOM"] = mode
             result = subprocess.run(
-                [str(binary), "serve", "--listen", "127.0.0.2:1"],
+                [str(binary), "serve", "--listen", "0.0.0.0:1"],
                 env=env,
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
@@ -121,7 +121,7 @@ def main():
         for mode in ("after-session", "bind"):
             env["TNYTTY_FIXTURE_RANDOM"] = mode
             with socket.socket() as occupied:
-                occupied.bind(("127.0.0.2", 0))
+                occupied.bind(("0.0.0.0", 0))
                 occupied.listen()
                 port = occupied.getsockname()[1]
                 try:
@@ -130,7 +130,7 @@ def main():
                             str(binary),
                             "run",
                             "--listen",
-                            f"127.0.0.2:{port}",
+                            f"0.0.0.0:{port}",
                             "--",
                             "/bin/sh",
                             "-c",
