@@ -1,10 +1,9 @@
 # tnytty — implementation plan
 
-Ordered phases; each has an acceptance gate. Do not skip ahead. Phase 1
-ships in the monorepo-creation change; later phases are the contract for
-follow-ups.
+Roadmap phases with acceptance gates. Shipped phases are marked below;
+the remaining phases describe planned work.
 
-## Phase 1 — headless core + POSIX terminal + API (this change)
+## Phase 1 — headless core + POSIX terminal + API (shipped)
 
 - VT engine (`src/vt/`): incremental parser (C0, ESC, CSI, OSC, APC),
   cell grid, SGR 16/256/truecolor, UTF-8 with width tables, wrap,
@@ -78,9 +77,9 @@ button, reattaches the same process, and verifies Cmd-W removes it.
 
 ## Phase 4 — platforms
 
-- Windows: `pty_win.c` on ConPTY; CI job on MSYS2/native as the root
-  harness does; `window_win.c` (DirectWrite glyph masks) behind the same
-  seam as the macOS window.
+- Windows: `pty_win.c` on ConPTY with its own MSYS2/native CI coverage;
+  `window_win.c` (DirectWrite glyph masks) behind the same seam as the
+  macOS window.
 - iOS: no fork/pty on-device — tnytty ships as the renderer + HTTP
   client attaching to remote sessions ([platforms.md](platforms.md)).
 - wasm: evaluate reusing the harness's `tny_poll`/net seams (root ADR

@@ -6,9 +6,7 @@
 #
 # Keep these versions in lockstep with .github/workflows/ci.yml — the
 # tests/integration/test_toolchain_pins.py check fails the build otherwise.
-# Without mise, the uvx fallback documented in docs/ci.md still works:
-#   make quality CLANG_FORMAT='uvx clang-format@21.1.2' \
-#                CLANG_TIDY='uvx clang-tidy@22.1.8' RUFF='uvx ruff@0.14.0'
+# Without mise, use the pinned uvx fallback documented in docs/ci.md.
 
 # Native cc/c++ come from the host toolchain (Xcode or GCC/Clang packages).
 # Set CC and CXX together for cross compilers; wasm uses emcc/em++.

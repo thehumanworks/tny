@@ -1,0 +1,15 @@
+---
+description: Use tny's canonical repository and component engineering contracts
+alwaysApply: true
+---
+
+# Repository contract
+
+Read `AGENTS.md` at the repository root before changing code. It is the canonical
+source for language boundaries, supported providers, runtime invariants, and
+required verification; keep those decisions there instead of duplicating them
+in editor-specific rules.
+
+Read `docs/README.md` and the relevant component documentation. The `tnytty/`
+sibling has its own contract under `tnytty/docs/`. Update the applicable docs
+when behavior changes.
