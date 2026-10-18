@@ -9,6 +9,7 @@ import http.client
 import json
 import os
 import re
+import signal
 import socket
 import subprocess
 import tempfile
@@ -111,6 +112,67 @@ def main():
                 assert status == 200 and health["sessions"] == 0, health
                 assert not marker.exists(), "random failure launched a child"
             print(f"ok  {mode}: no generated token, session, or child")
+
+        # The run adapter already owns a PTY when it configures its listener.
+        # Make its child ignore HUP before either token generation or bind
+        # fails: returning status2 must also force-kill and reap that child.
+        pid_file = Path(root) / "owner.pid"
+        env["TNYTTY_FIXTURE_CHILD_PID_FILE"] = str(pid_file)
+        for mode in ("after-session", "bind"):
+            env["TNYTTY_FIXTURE_RANDOM"] = mode
+            with socket.socket() as occupied:
+                occupied.bind(("127.0.0.2", 0))
+                occupied.listen()
+                port = occupied.getsockname()[1]
+                try:
+                    result = subprocess.run(
+                        [
+                            str(binary),
+                            "run",
+                            "--listen",
+                            f"127.0.0.2:{port}",
+                            "--",
+                            "/bin/sh",
+                            "-c",
+                            'trap "" HUP; printf "%s\\n" "$$" > "$1"; exec /bin/sleep 30',
+                            "fixture",
+                            str(pid_file),
+                        ],
+                        env=env,
+                        stdin=subprocess.DEVNULL,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    assert result.returncode == 2, result
+                    assert pid_file.exists(), (
+                        "child never reached the owner-failure fixture"
+                    )
+                    pid = int(pid_file.read_text())
+                    try:
+                        os.kill(pid, 0)
+                    except ProcessLookupError:
+                        pass
+                    else:
+                        raise AssertionError(
+                            f"listener failure left child {pid} alive or unreaped"
+                        )
+                    expected = (
+                        "cannot generate API token"
+                        if mode == "after-session"
+                        else "bind "
+                    )
+                    assert expected in result.stderr, result
+                    assert "HTTP API on" not in result.stderr, result
+                finally:
+                    # A regressed implementation must not strand the fixture.
+                    if pid_file.exists():
+                        pid = int(pid_file.read_text())
+                        with contextlib.suppress(ProcessLookupError):
+                            os.killpg(pid, signal.SIGKILL)
+                        pid_file.unlink()
+            print(f"ok  {mode}: failed listener kills and reaps the owned child")
+        env.pop("TNYTTY_FIXTURE_CHILD_PID_FILE")
 
         env["TNYTTY_FIXTURE_RANDOM"] = "interrupted"
         with server(binary, env) as (port, log):

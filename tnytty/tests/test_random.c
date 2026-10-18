@@ -15,6 +15,7 @@ static void reset_fault(void *ud) {
     unsetenv("TNYTTY_FIXTURE_RANDOM");
     open_interrupted = read_interrupted = false;
     bytes_read = 0;
+    random_opens = 0;
 }
 
 TEST random_hex_covers_empty_odd_and_multiple_chunk_lengths(void) {
