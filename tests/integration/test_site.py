@@ -195,12 +195,11 @@ def main() -> None:
     node = subprocess.run(["node", "-v"], capture_output=True, text=True)
     if node.returncode != 0:
         fail("node is required to unit-test term-core.js")
-    js = subprocess.run(
-        ["node", str(ROOT / "tests" / "site" / "test_term.js")],
-        cwd=ROOT,
-    )
-    if js.returncode != 0:
-        sys.exit(js.returncode)
+    for args in (
+        ["node", "tests/site/test_term.js"],
+        ["node", "--experimental-vm-modules", "tests/site/test_term_wasm.js"],
+    ):
+        subprocess.check_call(args, cwd=ROOT)
     print("ok site landing terminal")
 
 

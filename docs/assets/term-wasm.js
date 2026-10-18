@@ -197,26 +197,22 @@
     term.write("\r\n");
   }
 
-  /* Named-provider pairs from the hash (docs/adr/0018): keys sanitized at
-   * intake, base urls scheme-checked; a bad value is reported and dropped
-   * rather than shipped to fetch() where it would throw later. */
+  /* Validate the complete URL configuration before starting the binary.
+   * Rejecting a bad base URL must not send its key to a default provider. */
   function namedEnv() {
     var env = {};
     var pairs = boot.env || {};
     for (var k in pairs) {
       var v = pairs[k];
-      if (/_API_KEY$/.test(k)) {
-        v = C.sanitizeApiKey(v);
-        if (!v) {
-          term.write("ignoring " + k + ": empty after removing non-ISO-8859-1 junk\r\n");
-          continue;
+      try {
+        if (/_API_KEY$/.test(k)) {
+          v = C.sanitizeApiKey(v);
+          if (!v) throw new Error("API key is empty after removing pasted whitespace");
+        } else if (/_BASE_URL$/.test(k)) {
+          v = C.sanitizeBaseUrl(v);
         }
-      } else if (/_BASE_URL$/.test(k)) {
-        v = C.sanitizeBaseUrl(v);
-        if (!v) {
-          term.write("ignoring " + k + ": not an http(s) URL\r\n");
-          continue;
-        }
+      } catch (err) {
+        throw new Error(k + ": " + err.message);
       }
       env[k] = v;
     }
@@ -225,7 +221,7 @@
 
   function askCreds() {
     var key = C.sanitizeApiKey(boot.apiKey || "");
-    var base = (boot.baseUrl || "").trim();
+    var base = boot.baseUrl ? C.sanitizeBaseUrl(boot.baseUrl) : "";
     var env = namedEnv();
     if (key || Object.keys(env).length)
       return Promise.resolve({ key: key, base: base, env: env });
@@ -237,19 +233,31 @@
       term.write(hint);
       return readLine(true).then(function (raw) {
         if (!raw.trim()) return "";
-        var k = C.sanitizeApiKey(raw);
-        if (!k) {
-          term.write("that key is empty after removing non-ISO-8859-1 junk (smart quotes, NBSP); paste it again\r\n");
-          return askKey();
+        try {
+          var k = C.sanitizeApiKey(raw);
+          if (k) return k;
+          writeln("API key is empty after removing pasted whitespace; paste it again.");
+        } catch (err) {
+          writeln(err.message);
         }
-        return k;
+        return askKey();
+      });
+    }
+    function askBase() {
+      term.write("base url [" + (base || C.DEFAULT_BASE) + "]> ");
+      return readLine(false).then(function (b) {
+        try {
+          return C.sanitizeBaseUrl(b.trim() || base);
+        } catch (err) {
+          writeln(err.message);
+          return askBase();
+        }
       });
     }
     return askKey().then(function (k) {
-      if (!k) return { key: "", base: "", env: env };
-      term.write("base url [" + C.DEFAULT_BASE + "]> ");
-      return readLine(false).then(function (b) {
-        return { key: k, base: b.trim(), env: env };
+      if (!k) return { key: "", base: base, env: env };
+      return askBase().then(function (b) {
+        return { key: k, base: b, env: env };
       });
     });
   }
@@ -257,7 +265,7 @@
   function start(creds) {
     started = true;
     term.write("loading tny.wasm…\r\n");
-    import("./wasm/tny-web.mjs")
+    return import("./wasm/tny-web.mjs")
       .then(function (mod) {
         var env = {
           HOME: "/home/web_user",
@@ -266,6 +274,7 @@
         for (var k in (creds.env || {})) env[k] = creds.env[k];
         if (creds.key) env.OPENAI_API_KEY = creds.key;
         if (creds.base) env.OPENAI_BASE_URL = creds.base;
+        if (boot.model) env.OPENAI_MODEL = boot.model.trim();
         return mod.default({
           tnyEnv: env,
           __tnyStdin: stdinQ,
@@ -289,12 +298,12 @@
         });
         term.focus();
         Module.callMain([]);
-      })
-      .catch(function (err) {
-        started = false;
-        term.write("\r\nfailed to start tny.wasm: " + String(err) + "\r\n");
       });
   }
 
-  askCreds().then(start);
+  Promise.resolve().then(askCreds).then(start).catch(function (err) {
+    started = false;
+    writeln("failed to start tny.wasm: " + err.message);
+    writeln("Reload the page to enter settings again.");
+  });
 })();
