@@ -32,7 +32,7 @@ void tui_worktree_enter(tui *t, const char *name) {
      * grants at the new root. Keep the user's current provider selections. */
     bool had_runner = t->rc != NULL;
     pid_t runner_pid = t->rc_pid;
-    tui_prewarm_drop(t);
+    tui_runner_invalidate(t);
     if (!tui_worktree_wait_runner(runner_pid)) {
         tui_err(t, "previous session runner is still stopping; worktree kept, retry entry later");
         if (owned) worktree_close(w);
@@ -57,7 +57,7 @@ void tui_worktree_enter(tui *t, const char *name) {
     if (!ctx) {
         tui_err(t, "cannot load worktree settings; previous workspace retained, worktree kept");
         if (owned) worktree_close(w);
-        tui_prewarm_start(t);
+        tui_runner_defer_rebind(t);
         return;
     }
     ctx->model_from_flag = t->ctx->model_from_flag;
@@ -72,7 +72,7 @@ void tui_worktree_enter(tui *t, const char *name) {
     if (t->engine) tny_engine_end_session(t->engine, "worktree");
     tui_drop_backend(t);
     if (t->session) {
-        /* prewarm_drop already ended the sole runner writer, if any. The
+        /* Invalidation already ended the sole runner writer, if any. The
          * replica must never be saved over its final session snapshot. */
         if (!had_runner) session_save(t->session);
         session_close(t->session);
@@ -98,10 +98,9 @@ void tui_worktree_enter(tui *t, const char *name) {
     t->n_images = 0;
     t->in_tok = t->out_tok = 0;
     buf_clear(&t->last_reply);
-    buf_clear(&t->prompt_text);
     tui_sysf(t, "%s worktree %s (%s); new session", owned && w->created ? "created" : "entered",
              w->path, w->branch);
-    tui_prewarm_start(t);
+    tui_runner_defer_rebind(t);
     t->dirty = true;
 }
 
