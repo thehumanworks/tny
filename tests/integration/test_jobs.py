@@ -321,6 +321,11 @@ class Handler(BaseHTTPRequestHandler):
             ) not in accepted:
                 self.reply(401, "application/json", b"{}")
                 return
+            if "IMAGE_BARRIER" in prompt:
+                state["image_entered"].set()
+                if not state["image_release"].wait(timeout=60):
+                    self.reply(500, "application/json", b"{}")
+                    return
             if "HOLD" in prompt:
                 time.sleep(state["hold"])
             if "FAIL" in prompt and state["fail_image"]:
@@ -596,6 +601,22 @@ class JobsFixture(unittest.TestCase):
         return self.await_state(
             job_id, lambda r: r["state"] in TERMINAL, timeout, "a terminal state"
         )
+
+    def wait_owner(self, directory, *, held):
+        with (directory / "owner.lock").open("r+b") as probe:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                try:
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    if held:
+                        return
+                else:
+                    fcntl.flock(probe, fcntl.LOCK_UN)
+                    if not held:
+                        return
+                time.sleep(0.01)
+        self.fail("owner did not reach the required barrier state")
 
     def jobs_root(self):
         return self.home / ".tny" / "jobs"
@@ -2847,6 +2868,8 @@ class JobsRetry(JobsFixture):
         keeper = first["items"][0]
         before = len([r for r in self.ask_requests() if "keeper" in r])
         self.state["fail_ask"] = False
+        # Terminal projection precedes owner close; retry requires both.
+        self.wait_owner(Path(first["metadata_path"]).parent, held=False)
         run = self.run_tny("jobs", "retry", job_id, "--failed", "--json")
         self.assertEqual(run.returncode, 0, run.stderr)
         record = self.await_terminal(job_id)
@@ -3343,16 +3366,28 @@ class JobsCredentialIsolation(JobsFixture):
 
     def test_no_credential_reaches_argv_or_the_job_directory(self):
         output = self.workspace / "quiet.png"
-        _run, payload = self.submit(
-            "image", "--prompt", "HOLD a plain square", "--output-file", str(output)
-        )
-        job_id = payload["id"]
-        self.await_state(job_id, lambda r: r["items"][0]["state"] == "running")
-        argv = " ".join(pids_argv(self.home.name))
-        self.assertNotIn(TOKEN, argv, "a credential reached a command line")
-        self.assertNotIn(ACCOUNT, argv)
-        self.assertNotIn(API_KEY, argv)
+        self.state["image_entered"] = threading.Event()
+        self.state["image_release"] = threading.Event()
+        try:
+            _run, payload = self.submit(
+                "image",
+                "--prompt",
+                "IMAGE_BARRIER a plain square",
+                "--output-file",
+                str(output),
+            )
+            job_id = payload["id"]
+            self.assertTrue(self.state["image_entered"].wait(30))
+            self.await_state(job_id, lambda r: r["items"][0]["state"] == "running")
+            argv = " ".join(pids_argv(self.home.name))
+            self.assertTrue(argv, "the held job has no inspectable process")
+            self.assertNotIn(TOKEN, argv, "a credential reached a command line")
+            self.assertNotIn(ACCOUNT, argv)
+            self.assertNotIn(API_KEY, argv)
+        finally:
+            self.state["image_release"].set()
         record = self.await_terminal(job_id)
+        self.assertEqual(record["state"], "succeeded", record)
         directory = Path(record["metadata_path"]).parent
         blob = "\n".join(
             path.read_text(errors="replace")
@@ -3889,22 +3924,6 @@ class JobsReviewedRaces(JobsFixture):
         self.wait_owner(directory, held=False)
         self.prior_requests = len(self.ask_requests())
         return submitted["id"], directory
-
-    def wait_owner(self, directory, *, held):
-        with (directory / "owner.lock").open("r+b") as probe:
-            deadline = time.monotonic() + 10
-            while time.monotonic() < deadline:
-                try:
-                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    if held:
-                        return
-                else:
-                    fcntl.flock(probe, fcntl.LOCK_UN)
-                    if not held:
-                        return
-                time.sleep(0.01)
-        self.fail("owner did not reach the required barrier state")
 
     def private_worker(self, job_id, owner, *, env=None, stdout=subprocess.PIPE):
         # Map the actual test-owned description in a fresh helper process.
