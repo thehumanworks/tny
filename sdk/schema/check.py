@@ -3,6 +3,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -20,17 +21,29 @@ for e in schema["events"]:
         errors.append(f"missing public constant {e['c']}")
     elif int(m.group(1)) != e["id"]:
         errors.append(f"{e['c']}={m.group(1)} schema={e['id']}")
-# Generated files must be reproducible.
+# Generate in isolation: checking drift must never repair or modify the input.
 paths = [
-    ROOT / "sdk/schema/generated/events.ts",
-    ROOT / "sdk/schema/generated/events.py",
-    ROOT / "sdk/schema/fixtures/events.json",
+    Path("generated/events.ts"),
+    Path("generated/events.py"),
+    Path("fixtures/events.json"),
 ]
-before = [p.read_bytes() for p in paths]
-subprocess.run([sys.executable, str(ROOT / "sdk/schema/generate.py")], check=True)
-after = [p.read_bytes() for p in paths]
-if before != after:
-    errors.append("generated schema artifacts were stale")
+with tempfile.TemporaryDirectory(prefix="tny-event-schema-") as directory:
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "sdk/schema/generate.py"),
+            "--output-dir",
+            directory,
+        ],
+        check=True,
+    )
+    for path in paths:
+        committed = ROOT / "sdk/schema" / path
+        if (
+            not committed.is_file()
+            or committed.read_bytes() != (Path(directory) / path).read_bytes()
+        ):
+            errors.append(f"generated schema artifact is missing or stale: {path}")
 if errors:
     print("event schema check failed:", file=sys.stderr)
     for e in errors:
