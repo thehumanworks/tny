@@ -303,7 +303,7 @@
 
   Promise.resolve().then(askCreds).then(start).catch(function (err) {
     started = false;
-    writeln("failed to start tny.wasm: " + err.message);
+    writeln("failed to start tny.wasm: " + (err && err.message ? err.message : String(err)));
     writeln("Reload the page to enter settings again.");
   });
 })();

@@ -14,7 +14,7 @@ const source = fs.readFileSync(
 );
 const settle = () => new Promise(setImmediate);
 
-async function launch(boot = {}) {
+async function launch(boot = {}, failure) {
   let onData;
   let output = "";
   let config;
@@ -43,6 +43,7 @@ async function launch(boot = {}) {
   const module = new vm.SyntheticModule(["default"], function () {
     this.setExport("default", async (options) => {
       config = options;
+      if (failure !== undefined) throw failure;
       return { callMain() { starts++; } };
     });
   }, { context });
@@ -150,3 +151,12 @@ test("blank base input uses the validated URL setting", async () => {
   assert.strictEqual(app.starts, 1);
   assert.strictEqual(app.env.OPENAI_BASE_URL, "https://gateway.example/v1");
 });
+
+for (const failure of ["module initialization failed", null]) {
+  test("module rejection is reported even without an Error object: " + failure, async () => {
+    const app = await launch({ apiKey: "sk-valid" }, failure);
+    assert.strictEqual(app.starts, 0);
+    assert.ok(app.output.includes("failed to start tny.wasm: " + String(failure)));
+    assert.match(app.output, /Reload the page/);
+  });
+}
