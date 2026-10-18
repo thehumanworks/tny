@@ -71,7 +71,7 @@ test("URL credentials and model reach the real module boundary", async () => {
   assert.strictEqual(app.starts, 1);
   assert.strictEqual(app.env.OPENAI_API_KEY, "sk-test");
   assert.strictEqual(app.env.OPENAI_BASE_URL, "https://gateway.example/v1");
-  assert.strictEqual(app.env.OPENAI_MODEL, "model-x");
+  assert.strictEqual(app.env.OPENAI_DEFAULT_MODEL, "model-x");
   assert.ok(!app.output.includes("sk-test"));
 });
 
@@ -139,7 +139,7 @@ test("empty key keeps keyless startup and the selected model", async () => {
   await app.type("\r");
   assert.strictEqual(app.starts, 1);
   assert.strictEqual(app.env.OPENAI_API_KEY, undefined);
-  assert.strictEqual(app.env.OPENAI_MODEL, "local-model");
+  assert.strictEqual(app.env.OPENAI_DEFAULT_MODEL, "local-model");
   assert.strictEqual(app.env.OPENAI_BASE_URL, "http://127.0.0.1:8080/v1");
 });
 

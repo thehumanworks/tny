@@ -274,7 +274,7 @@
         for (var k in (creds.env || {})) env[k] = creds.env[k];
         if (creds.key) env.OPENAI_API_KEY = creds.key;
         if (creds.base) env.OPENAI_BASE_URL = creds.base;
-        if (boot.model) env.OPENAI_MODEL = boot.model.trim();
+        if (boot.model) env.OPENAI_DEFAULT_MODEL = boot.model.trim();
         return mod.default({
           tnyEnv: env,
           __tnyStdin: stdinQ,
