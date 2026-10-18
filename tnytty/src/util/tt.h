@@ -26,9 +26,9 @@ bool tt_buf_appendf(tt_buf *b, const char *fmt, ...)
  * written. */
 size_t tt_base64_encode(char *dst, const unsigned char *src, size_t len);
 
-/* Fill out with n random lowercase hex chars + NUL (OS RNG; aborts to
- * a degraded time/pid mix only if the OS source is unreadable). */
-void tt_rand_hex(char *out, size_t n);
+/* Fill out with n OS-random lowercase hex chars + NUL. On failure return
+ * false, clear out[0], and preserve the source error in errno. */
+bool tt_rand_hex(char *out, size_t n);
 
 /* Constant-time equality for secrets. */
 bool tt_const_eq(const char *a, const char *b);

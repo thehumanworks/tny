@@ -64,6 +64,8 @@ OBJ_DBG = $(BUILD)/dbg
 BIN     = $(BUILD)/tnytty
 TEST_BIN = $(BUILD)/tnytty-test
 BENCH_BROKER = $(BUILD)/tnytty-bench-broker
+RANDOM_FAULT_BIN = $(BUILD)/tnytty-random-fault
+RANDOM_FAULT_OBJ = $(BUILD)/fault/tests/fixtures/random_faults.o
 
 SRC = $(wildcard src/*.c src/vt/*.c src/term/*.c src/session/*.c src/api/*.c src/broker/*.c \
       src/icat/*.c src/util/*.c) $(UI_SRC)
@@ -81,6 +83,7 @@ TEST_OBJS = $(DBG_DEPS:%.c=$(OBJ_DBG)/%.o) $(TP:$(TP_DIR)/%.c=$(OBJ_DBG)/tp/%.o)
 BENCH_BROKER_OBJS = $(OBJ_REL)/src/broker/broker.o $(OBJ_REL)/src/api/http.o \
                     $(OBJ_REL)/src/session/session.o $(OBJ_REL)/src/term/pty_posix.o \
                     $(OBJ_REL)/src/vt/vt.o $(OBJ_REL)/src/util/tt.o \
+                    $(OBJ_REL)/src/util/random.o \
                     $(OBJ_REL)/tp/yyjson/yyjson.o $(OBJ_REL)/tp/picohttpparser/picohttpparser.o
 
 all: release
@@ -113,8 +116,20 @@ $(TEST_BIN): $(TEST_OBJS)
 
 debug: $(TEST_BIN)
 
-test: $(TEST_BIN)
+test: $(TEST_BIN) test-random
 	./$(TEST_BIN)
+
+$(RANDOM_FAULT_OBJ): tests/fixtures/random_faults.c src/util/random.c src/util/tt.h
+	@mkdir -p $(dir $@)
+	$(CC) $(REL_CFLAGS) -c -o $@ $<
+
+# Replace only the OS-read boundary; every caller and the random helper's
+# control flow remain production code. No runtime fault switch is shipped.
+$(RANDOM_FAULT_BIN): $(filter-out $(OBJ_REL)/src/util/random.o,$(REL_OBJS)) $(RANDOM_FAULT_OBJ)
+	$(CC) $(REL_CFLAGS) -o $@ $^ $(REL_LDFLAGS)
+
+test-random: $(RANDOM_FAULT_BIN)
+	python3 tests/test_random.py --binary ./$(RANDOM_FAULT_BIN)
 
 $(BENCH_BROKER): tests/bench/bench_broker.c $(BENCH_BROKER_OBJS)
 	@mkdir -p $(dir $@)
@@ -143,4 +158,4 @@ clean:
 
 -include $(REL_OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: all release debug test benchmark size warn-strict clean
+.PHONY: all release debug test test-random benchmark size warn-strict clean

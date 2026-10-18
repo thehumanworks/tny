@@ -1,12 +1,9 @@
 #include "util/tt.h"
 
-#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-#include <unistd.h>
 
 void tt_buf_init(tt_buf *b) { memset(b, 0, sizeof *b); }
 
@@ -93,30 +90,6 @@ size_t tt_base64_encode(char *dst, const unsigned char *src, size_t len) {
         dst[o++] = '=';
     }
     return o;
-}
-
-void tt_rand_hex(char *out, size_t n) {
-    static const char hex[] = "0123456789abcdef";
-    unsigned char raw[64];
-    size_t need = (n + 1) / 2;
-    if (need > sizeof raw) need = sizeof raw;
-    size_t got = 0;
-    int fd = open("/dev/urandom", O_RDONLY);
-    if (fd >= 0) {
-        while (got < need && got < sizeof raw) {
-            size_t want = need - got;
-            if (want > sizeof raw - got) want = sizeof raw - got;
-            ssize_t r = read(fd, raw + got, want);
-            if (r <= 0) break;
-            got += (size_t)r;
-        }
-        close(fd);
-    }
-    for (size_t i = got; i < need; i++)
-        raw[i] =
-            (unsigned char)((unsigned)time(NULL) ^ ((unsigned)getpid() << 3) ^ (i * 2654435761u));
-    for (size_t i = 0; i < n; i++) out[i] = hex[(raw[(i / 2) % need] >> ((i % 2) * 4)) & 0xf];
-    out[n] = '\0';
 }
 
 bool tt_const_eq(const char *a, const char *b) {

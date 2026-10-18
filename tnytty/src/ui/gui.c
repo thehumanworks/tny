@@ -900,7 +900,14 @@ int tt_gui_main(int argc, char **argv) {
         if (listen_rc != 0 && !loopback && (!token || !token[0])) {
             /* An already-configured broker accepts an omitted token without
              * rotating it. A new non-loopback listener needs a generated one. */
-            tt_rand_hex(generated, sizeof generated - 1);
+            if (!tt_rand_hex(generated, sizeof generated - 1)) {
+                fprintf(stderr,
+                        "tnytty: cannot generate API token: %s; supply --token or "
+                        "restore access to OS randomness\n",
+                        strerror(errno));
+                tt_broker_client_close(&g.broker);
+                return 2;
+            }
             token = generated;
             fprintf(stderr, "tnytty: generated API token (docs/adr/0002): %s\n", token);
             err[0] = '\0';

@@ -95,7 +95,13 @@ static tt_http *maybe_listen(tt_api *api, const opts *o, char *token_buf, size_t
     bool loopback = strcmp(host, "127.0.0.1") == 0 || strcmp(host, "::1") == 0 ||
                     strcmp(host, "localhost") == 0;
     if (!loopback && (!api->token || !api->token[0])) {
-        tt_rand_hex(token_buf, token_cap - 1);
+        if (!tt_rand_hex(token_buf, token_cap - 1)) {
+            fprintf(stderr,
+                    "tnytty: cannot generate API token: %s; supply --token or "
+                    "restore access to OS randomness\n",
+                    strerror(errno));
+            exit(2);
+        }
         api->token = token_buf;
         fprintf(stderr, "tnytty: generated API token (docs/adr/0002): %s\n", token_buf);
     }
