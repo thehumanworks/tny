@@ -102,9 +102,9 @@ def main() -> None:
             fail(f"site.css missing {needle}")
 
     for needle in (
-        "aesGcmSeal",
-        "obfuscateUrl",
-        "SseParser",
+        "takeSecretsFromLocation",
+        "sanitizeApiKey",
+        "sanitizeBaseUrl",
         "OPENAI_BASE_URL",
         "OPENAI_API_KEY",
         "wrapToCols",
@@ -123,7 +123,14 @@ def main() -> None:
     # only thing on this page that speaks a provider wire.
     for js in sorted((SITE / "assets").glob("*.js")):
         blob = js.read_text(encoding="utf-8")
-        for needle in ("chat/completions", '"/responses"', "'/responses'"):
+        for needle in (
+            "chat/completions",
+            '"/responses"',
+            "'/responses'",
+            "response.output_item.",
+            "response.function_call_arguments.",
+            "response.output_text.",
+        ):
             if needle in blob:
                 fail(
                     f"{js.name} contains provider-wire code ({needle!r}); "
