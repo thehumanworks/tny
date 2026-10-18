@@ -96,7 +96,15 @@ def main():
                     "fixture-token",
                     "POST",
                     "/v1/sessions",
-                    {"cmd": ["/bin/sh", "-c", 'printf spawned > "$1"', "fixture", str(marker)]},
+                    {
+                        "cmd": [
+                            "/bin/sh",
+                            "-c",
+                            'printf spawned > "$1"',
+                            "fixture",
+                            str(marker),
+                        ]
+                    },
                 )
                 assert status == 500, status
                 status, health = request(port, "fixture-token", "GET", "/v1/health")
@@ -112,7 +120,9 @@ def main():
             assert status == 200 and health["sessions"] == 0, health
             status, _ = request(port, "wrong-token", "GET", "/v1/health")
             assert status == 401, status
-        print("ok  interrupted open and fragmented reads yield a working authenticated listener")
+        print(
+            "ok  interrupted open and fragmented reads yield a working authenticated listener"
+        )
 
 
 if __name__ == "__main__":
