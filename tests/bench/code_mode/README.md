@@ -8,14 +8,13 @@ The original preregistration is commit `47972c0`; the live harness snapshot is
 
 ```sh
 make test-code-mode-language
-make verify-code-mode-language LEAN=/path/to/lean-4.12.0/bin/lean
 ```
 
-Lean is pinned in `tests/formal/code_mode_language/lean-toolchain`. With a normal
-Elan installation, enter that directory to resolve the toolchain. The dedicated
-CI job runs the offline tests, actual source-linked proofs and four negative
-mutations. The default `make test` includes the Python oracle checks; the separate
-Lean target is also run by the Nix test derivation.
+The dedicated CI job, `make test`, and the Nix test derivation run the offline
+tests against the actual Python functions. They enumerate the complete acceptance
+truth table, promotion Boolean/count boundaries, adjacent large integers, and
+negative mutations. No Lean toolchain is needed for the benchmark checks.
+The runtime's separate source-linked C proofs still require pinned Lean.
 
 ## Rebuild and check native probes
 
@@ -73,11 +72,16 @@ generation archive contains synthetic prompts, code, CLI events and usage, not
 user workspace contents. A replay independently checks effects and reconciles
 raw code/usage; it is not a second independent author of the task oracle.
 
-## Formal boundary
+## Verification boundary
 
 `policy.py` contains the actual acceptance/promotion predicates used by scoring
-and analysis. `tests/formal/check_code_mode_language.py` translates their real
-AST to Lean, rejecting every unsupported construct. `Proofs.lean` proves the
-necessary conditions and non-vacuity. Mutation tests weaken output, completeness,
-parity or success ordering and require Lean failures. This formalizes deterministic
-gates, not stochastic inference, C interpreters or OS isolation.
+and analysis. `test_benchmark.py` calls those functions directly, replays the
+recorded retention decisions, and checks that guard removal, comparison reversal,
+strictness changes and floating-point rounding are detected. These are finite
+regression checks; they do not establish an all-integer theorem, stochastic
+inference quality, interpreter correctness or OS isolation.
+
+[ADR 0188](../../../docs/adr/0188-focused-verification-maintenance.md) replaces
+the benchmark-only Lean translators and proofs with these checks. The original
+preregistered policies and evidence are unchanged; historical proof source and
+results remain in Git history.

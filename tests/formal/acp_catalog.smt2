@@ -1,4 +1,5 @@
 ; ACP catalog boundary (abstracts parsed JSON into indexed ID/name arrays).
+; Discovery listings only; requested IDs need not be listed (ADR 0181).
 ; Solver answers must be UNSAT: each block negates an invariant.
 (set-logic AUFLIA)
 (declare-const primary Bool) ; valid select config wins over legacy models
@@ -27,13 +28,6 @@
 (assert (exists ((i Int)) (and (<= 0 i) (< i count)
   (or (not (= (id i) (select config-id i)))
       (not (= (name i) (select config-name i)))))))
-(check-sat)
-(pop 1)
-; A model absent from the chosen adapter catalog cannot be made selectable.
-(push 1)
-(declare-const requested Int)
-(assert (forall ((i Int)) (=> (and (<= 0 i) (< i count)) (not (= (id i) requested)))))
-(assert (exists ((i Int)) (and (<= 0 i) (< i count) (= (id i) requested))))
 (check-sat)
 (pop 1)
 ; A fresh adapter can change a label without changing the selectable alias.

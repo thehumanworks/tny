@@ -15,8 +15,14 @@ python3 tests/bench/python_runtime/audit_evidence.py
 
 The actual code_policy.c is translated through Clang AST; the proof target
 requires Clang/GCC with UBSan and the pinned Lean. It verifies the C predicates,
-Python selection rule and negative mutations. Offline evidence gates never call
-a provider or install a candidate interpreter.
+including overflow-sensitive accounting, plus negative C mutations. The
+benchmark's Python selection rule is exercised directly by `test_policy.py`
+through `make test-code-mode-language`: finite decision partitions, exact
+`Fraction` comparisons, strict size/equality boundaries, large integers, scaling,
+archived decisions and negative mutations. Those Python checks need no Lean.
+See [ADR 0188](../../../docs/adr/0188-focused-verification-maintenance.md) for
+the scope and proof tradeoff. Offline evidence gates never call a provider or
+install a candidate interpreter.
 
 ## Reproduce production behavior on the saved programs
 
