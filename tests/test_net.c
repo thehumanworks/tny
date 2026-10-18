@@ -1,5 +1,6 @@
-/* test_net.c — SSE parser, Connect framing, URL parsing, TLS stream. */
+/* test_net.c — SSE/ACP framing, URL parsing, HTTP and TLS streams. */
 #include "greatest.h"
+#include "backends/acp/acp_wire.h"
 #include "net/net.h"
 
 #include <stdlib.h>
@@ -24,13 +25,6 @@ static void sse_col_cb(const char *data, size_t len, void *ud) {
 static void sse_col_free(sse_col *c) {
     for (int i = 0; i < c->n; i++) free(c->events[i]);
 }
-
-typedef struct {
-    uint8_t flags[32];
-    char *payloads[32];
-    size_t lens[32];
-    int n;
-} frame_col;
 
 /* ---- SSE ---- */
 
@@ -100,8 +94,6 @@ TEST sse_ignores_event_field(void) {
     PASS();
 }
 
-/* ---- Connect envelope framing ---- */
-
 TEST sse_every_split_and_final_flush(void) {
     const char wire[] =
         ": comment\r\nevent: message\r\ndata: hé世界\r\ndata: second\r\n\r\ndata: final\r";
@@ -123,11 +115,6 @@ TEST sse_every_split_and_final_flush(void) {
     }
     PASS();
 }
-
-typedef struct {
-    size_t length;
-    int count;
-} frame_length;
 
 /* ---- URL ---- */
 
@@ -339,6 +326,38 @@ TEST chunked_garbage_size_line_is_an_error(void) {
     PASS();
 }
 
+/* ---- ACP JSON-RPC identifiers ---- */
+
+TEST acp_ids_preserve_json_values(void) {
+    static const char *const ids[] = {"null",
+                                      "0",
+                                      "-1",
+                                      "9223372036854775807",
+                                      "9223372036854775808",
+                                      "18446744073709551615",
+                                      "\"plain-id\"",
+                                      "\"quoted\\\"id\"",
+                                      "\"before\\u0000after\""};
+    for (size_t i = 0; i < sizeof ids / sizeof ids[0]; i++) {
+        buf_t message;
+        buf_init(&message);
+        buf_appendf(&message, "{\"id\":%s}", ids[i]);
+        yyjson_doc *doc = jparse(message.data, message.len);
+        ASSERT(doc);
+        char *copy = acp_id_text(yyjson_doc_get_root(doc));
+        ASSERT(copy);
+        ASSERT_STR_EQ(ids[i], copy);
+        free(copy);
+        yyjson_doc_free(doc);
+        buf_free(&message);
+    }
+    char *missing = acp_id_text(NULL);
+    ASSERT(missing);
+    ASSERT_STR_EQ("null", missing);
+    free(missing);
+    PASS();
+}
+
 /* ---- TLS stream (stream.c) ---- */
 
 /* Accept one client and answer with plain HTTP instead of a TLS record. */
@@ -385,6 +404,7 @@ TEST tls_to_plain_http_server_fails_cleanly(void) {
 }
 
 SUITE(net_suite) {
+    RUN_TEST(acp_ids_preserve_json_values);
     RUN_TEST(sse_every_split_and_final_flush);
     RUN_TEST(sse_single_event);
     RUN_TEST(sse_byte_by_byte);

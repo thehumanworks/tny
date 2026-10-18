@@ -84,7 +84,6 @@ void tny_extensions_free(tny_extensions *extensions);
 tny_extensions_state tny_extensions_get_state(const tny_extensions *extensions);
 size_t tny_extensions_entry_count(const tny_extensions *extensions);
 /* A short manager-owned status string; never contains child stderr. */
-const char *tny_extensions_status(const tny_extensions *extensions);
 
 /* Select the provider family used for action diagnostics and the setup-time
  * capability snapshot. The immutable snapshot contains every provider matrix

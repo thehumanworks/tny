@@ -19,15 +19,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-void mcp_secret_free(char *s) {
-    if (!s) return;
-    secure_zero(s, strlen(s));
-    free(s);
-}
-
 void mcp_header_lines_free(char **headers, size_t nheaders) {
     if (!headers) return;
-    for (size_t i = 0; i < nheaders; i++) mcp_secret_free(headers[i]);
+    for (size_t i = 0; i < nheaders; i++) secure_free(headers[i]);
     free(headers);
 }
 
@@ -75,7 +69,7 @@ void mcp_conn_close(mcp_conn *c) {
     yyjson_doc_free(c->tools);
     free(c->url);
     mcp_header_lines_free(c->headers, c->nheaders);
-    mcp_secret_free(c->session_id);
+    secure_free(c->session_id);
     memset(c, 0, sizeof *c);
 }
 
@@ -234,7 +228,7 @@ static yyjson_doc *http_message(mcp_conn *c, const char *method, const char *nam
                 http_close(h);
                 return NULL;
             }
-            mcp_secret_free(c->session_id);
+            secure_free(c->session_id);
             c->session_id = xstrdup(session);
         }
     }

@@ -37,7 +37,6 @@ typedef struct {
 
 tny_team_op tny_team_op_parse(const char *name);
 const char *tny_team_permission_tool(tny_team_op op);
-bool tny_team_op_is_sensitive(tny_team_op op);
 /* Shared grammar: OP --request FILE|- [--json]. Bounded JSON only. Caller owns
  * *request_out; errors are static safe strings. Parser does not confer authority. */
 tny_team_op tny_team_parse_argv(int argc, char **argv, const char *stdin_text, size_t stdin_len,

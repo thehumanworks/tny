@@ -646,15 +646,3 @@ oom:
     free(names.items);
     return TNY_TASK_OOM;
 }
-
-char *tny_task_names_joined(tny_ctx *ctx) {
-    tny_task_info *items = NULL;
-    size_t count = 0;
-    if (tny_task_list(ctx, &items, &count) != TNY_TASK_OK) return NULL;
-    buf_t out;
-    buf_init(&out);
-    for (size_t i = 0; i < count; i++)
-        if (items[i].valid) buf_appendf(&out, "%s%s", out.len ? "|" : "", items[i].name);
-    tny_task_list_free(items, count);
-    return buf_detach(&out);
-}

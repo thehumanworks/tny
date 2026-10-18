@@ -109,7 +109,6 @@ void tny_engine_workspace_changed(tny_engine *e, const char *action, const char 
 
 /* Runner-only parked continuation. Snapshot includes native turn affinity:
  * strip native.turn_state from the disk checkpoint; carry it privately. */
-int tny_engine_background(tny_engine *e);
 bool tny_engine_parked(tny_engine *e);
 yyjson_mut_val *tny_engine_checkpoint(tny_engine *e, yyjson_mut_doc *d);
 int tny_engine_restore(tny_engine *e, yyjson_val *root);

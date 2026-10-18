@@ -86,7 +86,6 @@ const char *tny_norm_verdict_name(tny_norm_verdict);
 tny_norm_verdict tny_norm_verify(const tny_dictionary *, const char *raw, size_t raw_len,
                                  const tny_norm_proposal *);
 /* Exposed pieces of the verifier, for focused unit and mutation tests. */
-bool tny_norm_admissible(const tny_dictionary *, const tny_norm_correction *);
 bool tny_norm_number_value(const char *s, size_t n, uint64_t *value);
 /* Semantic-token Levenshtein distance of a and b is at most 3 + n / 4, where n
  * counts a's semantic tokens (Lean: editBound). */

@@ -42,17 +42,11 @@ int acp_write_line(int fd, const char *json, size_t len);
 
 /* Message builders (append the JSON object, no newline). `params_json` /
  * `result_json` are raw JSON text; NULL means `{}` (params) or `null`
- * (result). `id_raw` is verbatim id JSON text. Shared by the fd senders
- * below (docs/backends/acp.md). */
+ * (result). `id_raw` is verbatim id JSON text. The client transport owns
+ * sending and allocation-failure handling (docs/backends/acp.md). */
 void acp_fmt_request(buf_t *b, int64_t id, const char *method, const char *params_json);
 void acp_fmt_notify(buf_t *b, const char *method, const char *params_json);
 void acp_fmt_result(buf_t *b, const char *id_raw, const char *result_json);
-
-/* fd senders: builder + "\n" + write. */
-int acp_send_request(int fd, int64_t id, const char *method, const char *params_json);
-int acp_send_notify(int fd, const char *method, const char *params_json);
-int acp_send_result(int fd, const char *id_raw, const char *result_json);
-int acp_send_error(int fd, const char *id_raw, int code, const char *msg);
 
 /* ---- small helpers ---- */
 
@@ -60,10 +54,6 @@ int acp_send_error(int fd, const char *id_raw, int code, const char *msg);
 char *acp_id_text(yyjson_val *msg);
 /* Numeric id, or -1 when the id is absent or not an integer. */
 int64_t acp_id_num(yyjson_val *msg);
-
-/* Flatten a ContentBlock[] into plain text. Returns false and sets *bad to
- * the offending block type when a block we cannot represent is present. */
-bool acp_blocks_to_text(yyjson_val *arr, buf_t *out, const char **bad);
 
 /* Append a ContentBlock text object: {"type":"text","text":"…"} */
 void acp_append_text_block(buf_t *b, const char *text, size_t len);

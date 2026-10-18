@@ -76,26 +76,6 @@ static void field_str(buf_t *b, const char *name, const char *s) {
     escape_cstr(b, s);
 }
 
-static const char *event_type(tny_event_kind kind) {
-    switch (kind) {
-    case TNY_EV_TEXT_DELTA: return "text_delta";
-    case TNY_EV_THINKING: return "thinking";
-    case TNY_EV_TOOL_START: return "tool_start";
-    case TNY_EV_TOOL_END: return "tool_end";
-    case TNY_EV_PERMISSION: return "permission_request";
-    case TNY_EV_PLAN: return "plan";
-    case TNY_EV_USAGE: return "usage";
-    case TNY_EV_TURN_END: return "turn_end";
-    case TNY_EV_ERROR: return "error";
-    case TNY_EV_STATUS: return "status";
-    case TNY_EV_STEER_REJECTED: return "steer_rejected";
-    case TNY_EV_CUSTOM_MESSAGE: return "custom_message";
-    case TNY_EV_USER_MESSAGE: return "user_message";
-    case TNY_EV_TOOL_PROGRESS: return "tool_progress";
-    }
-    return "unknown";
-}
-
 /* Same values tny_event_error_code() reports: the stable TNY_STATUS_*
  * categories, and OK for every event that is not an error. */
 static int public_error_code(const tny_backend_event *ev) {
@@ -136,7 +116,7 @@ void tny_event_jsonl_append(buf_t *out, const tny_owned_event *event) {
     escape_cstr(out, event->provider);
     field_str(out, "session_id", event->session_id);
     field_str(out, "turn_id", event->turn_id);
-    field_str(out, "type", event_type(ev->kind));
+    field_str(out, "type", tny_event_kind_name(ev->kind));
     buf_appendf(out, ",\"kind\":%u", (unsigned)ev->kind);
     switch (ev->kind) {
     case TNY_EV_TEXT_DELTA:

@@ -963,10 +963,6 @@ tny_extensions_state tny_extensions_get_state(const tny_extensions *x) {
 
 size_t tny_extensions_entry_count(const tny_extensions *x) { return x ? x->n_entries : 0; }
 
-const char *tny_extensions_status(const tny_extensions *x) {
-    return x ? x->status : "extension manager unavailable";
-}
-
 void tny_extensions_set_provider(tny_extensions *x, tny_backend_id provider) {
     if (!x || provider < 0 || provider >= TNY_BK_COUNT) return;
     x->selected_provider = provider;

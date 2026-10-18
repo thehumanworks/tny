@@ -23,9 +23,16 @@ const char *jget_strn(yyjson_val *obj, const char *key, size_t *len_out) {
 
 int64_t jget_int(yyjson_val *obj, const char *key, int64_t dflt) {
     yyjson_val *v = jget(obj, key);
-    if (!v) return dflt;
-    if (yyjson_is_int(v)) return yyjson_get_sint(v);
-    if (yyjson_is_real(v)) return (int64_t)yyjson_get_real(v);
+    if (yyjson_is_sint(v)) return yyjson_get_sint(v);
+    if (yyjson_is_uint(v)) {
+        uint64_t value = yyjson_get_uint(v);
+        return value <= INT64_MAX ? (int64_t)value : dflt;
+    }
+    if (yyjson_is_real(v)) {
+        double value = yyjson_get_real(v);
+        /* INT64_MAX rounds up to 2^63 as a double: the upper bound is exclusive. */
+        if (value >= -0x1p63 && value < 0x1p63) return (int64_t)value;
+    }
     return dflt;
 }
 

@@ -129,17 +129,6 @@ static const char *rn_kind_name(tny_event_kind k) {
     return "status";
 }
 
-static const char *rn_stop_name(tny_stop_reason s) {
-    switch (s) {
-    case TNY_STOP_DONE: return "done";
-    case TNY_STOP_INTERRUPTED: return "interrupted";
-    case TNY_STOP_DENIED: return "denied";
-    case TNY_STOP_STEP_LIMIT: return "step_limit";
-    case TNY_STOP_ERROR: return "error";
-    }
-    return "error";
-}
-
 static tny_stop_reason rn_stop_from(const char *s) {
     if (s && strcmp(s, "done") == 0) return TNY_STOP_DONE;
     if (s && strcmp(s, "interrupted") == 0) return TNY_STOP_INTERRUPTED;
@@ -232,7 +221,7 @@ static void rn_event_line(buf_t *b, const tny_backend_event *ev) {
         break;
     case TNY_EV_TURN_END:
         buf_appends(b, ",\"stop\":");
-        jescape(b, rn_stop_name(ev->stop));
+        jescape(b, tny_stop_reason_name(ev->stop));
         break;
     }
     buf_appends(b, "}");
@@ -703,7 +692,7 @@ static void rn_finalize(rn_state *r, tny_stop_reason stop, int exit_code) {
     buf_t b;
     buf_init(&b);
     buf_appends(&b, "{\"ev\":\"turn_end\",\"stop\":");
-    jescape(&b, rn_stop_name(stop));
+    jescape(&b, tny_stop_reason_name(stop));
     buf_appendf(&b, ",\"exit_code\":%d,\"result_text\":", exit_code);
     jescape(&b, result ? result : "{}");
     buf_appends(&b, "}");
