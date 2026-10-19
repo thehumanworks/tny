@@ -1,3 +1,4 @@
+# Offline harness benchmark route tests use the existing tests fileset and Python stdlib.
 # test-openai-errors links the private failure policy and existing JSON/util
 # sources only; src/tests filesets and the C compiler cover it without CPython,
 # provider I/O, generated fixtures or additional dependencies.

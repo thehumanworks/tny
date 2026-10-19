@@ -198,4 +198,5 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0188: Focus verification maintenance on production invariants](0188-focused-verification-maintenance.md) — replace benchmark-only Lean translators with direct decision, exact-ratio and mutation checks; retain production proofs and archived evidence.
 - [0190: Cache-stable context and bounded discovery](0190-cache-stable-context-and-bounded-discovery.md) — deterministic resolved skill catalogs, stable learned advice, bounded MCP discovery and direct result slices.
 - [0191 — Metadata-driven releases](0191-metadata-driven-releases.md)
+- [0192: Budgeted recoverable working context](0192-budgeted-recoverable-working-context.md) — reversible old tool-output references at native request boundaries; preserve exact user constraints and latest batches instead of automatic lossy turn summaries.
 - [0193: Strict owned command checks](0193-strict-owned-command-checks.md) — opt-in Linux guardian adoption and drainage without changing ordinary shell semantics.

@@ -5,6 +5,7 @@ import http.client
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -158,6 +159,107 @@ class Provider(BaseHTTPRequestHandler):
                 self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
             self.wfile.write(b"0\r\n\r\n")
         self.wfile.flush()
+
+
+class WorkingContextProvider(BaseHTTPRequestHandler):
+    """Long single-turn protocol fixture, with recovery through real run_code."""
+
+    def log_message(self, *_args):
+        pass
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        self.server.requests.append((body, dict(self.headers)))
+        chat = "messages" in body
+        items = body.get("messages", body.get("input", []))
+        outputs = [
+            item.get("content") if chat else item.get("output")
+            for item in items
+            if item.get("role") == "tool" or item.get("type") == "function_call_output"
+        ]
+        step = len(outputs)
+        tool = step < 13
+        if step < 12:
+            name, arguments = code_call(
+                "run_code",
+                json.dumps({"code": "print('x'*4096 + 'HIDDEN-MIDDLE' + 'x'*4096)"}),
+            )
+        elif step == 12:
+            reference = re.search(r"transcript:[0-9]+:[0-9a-f]{16}", outputs[0])
+            self.server.folded = reference is not None
+            name, arguments = code_call(
+                "read_tool_result",
+                {
+                    "handle": reference.group() if reference else "missing",
+                    "offset": 0,
+                    "length": 16384,
+                },
+            )
+        else:
+            self.server.recovered = "HIDDEN-MIDDLE" in outputs[-1]
+        if tool:
+            item = {
+                "type": "function_call",
+                "call_id": f"ctx_{step}",
+                "name": name,
+                "arguments": arguments,
+            }
+            delta = {
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": f"ctx_{step}",
+                        "type": "function",
+                        "function": {"name": name, "arguments": arguments},
+                    }
+                ]
+            }
+        else:
+            item = {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "CONTEXT-OK"}],
+            }
+            delta = {"content": "CONTEXT-OK"}
+        if chat:
+            events = [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": delta,
+                            "finish_reason": "tool_calls" if tool else "stop",
+                        }
+                    ]
+                }
+            ]
+        else:
+            events = [
+                {"type": "response.output_item.done", "output_index": 0, "item": item}
+            ]
+            if not tool:
+                events.append(
+                    {"type": "response.output_text.delta", "delta": "CONTEXT-OK"}
+                )
+            events.append(
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "status": "completed",
+                        "usage": {"input_tokens": 1, "output_tokens": 1},
+                    },
+                }
+            )
+        wire = b"".join(
+            b"data: " + json.dumps(event).encode() + b"\n\n" for event in events
+        )
+        if chat:
+            wire += b"data: [DONE]\n\n"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Content-Length", str(len(wire)))
+        self.end_headers()
+        self.wfile.write(wire)
 
 
 class CacheTests(unittest.TestCase):
@@ -361,6 +463,66 @@ class CacheTests(unittest.TestCase):
         self.env["TNY_OPENAI_CACHE"] = "0"
         self.ask("--ephemeral")
         self.check_routing(self.server.requests, enabled=False)
+
+    def test_long_turn_context_recovery_both_wires(self):
+        self.server.RequestHandlerClass = WorkingContextProvider
+        settings = self.home / ".tny" / "settings.json"
+        settings.parent.mkdir(exist_ok=True)
+        for wire in ("chat", "responses"):
+            with self.subTest(wire=wire):
+                self.server.requests.clear()
+                self.server.folded = self.server.recovered = False
+                settings.write_text(
+                    json.dumps(
+                        {
+                            "compat": {
+                                "base_url": self.env["TNY_CODEX_BASE_URL"],
+                                "api_key_env": "CHATGPT_ACCESS_TOKEN",
+                                "wire_api": wire,
+                            }
+                        }
+                    )
+                )
+                self.ask(
+                    provider="compat",
+                    prompt="Preserve this exact goal and all constraints.",
+                )
+                self.assertTrue(self.server.folded)
+                self.assertTrue(self.server.recovered)
+                self.assertEqual(len(self.server.requests), 14)
+                bodies = [body for body, _ in self.server.requests]
+                prefixes = [
+                    body.get(
+                        "instructions", body.get("messages", [{}])[0].get("content")
+                    )
+                    for body in bodies
+                ]
+                self.assertEqual(len(set(prefixes)), 1)
+                for body in bodies:
+                    self.assertIn(
+                        "Preserve this exact goal and all constraints.",
+                        json.dumps(body),
+                    )
+
+                # The older folded output is byte-stable on subsequent POSTs.
+                def first_output(body):
+                    return next(
+                        (
+                            item.get("content", item.get("output"))
+                            for item in body.get("messages", body.get("input", []))
+                            if item.get("role") == "tool"
+                            or item.get("type") == "function_call_output"
+                        ),
+                        "",
+                    )
+
+                folded = [
+                    first_output(body)
+                    for body in bodies
+                    if "transcript:" in first_output(body)
+                ]
+                self.assertGreater(len(folded), 1)
+                self.assertEqual(len(set(folded)), 1)
 
     def test_compatible_provider_has_no_cache_extensions(self):
         self.env["OPENAI_API_KEY"] = "fixture"

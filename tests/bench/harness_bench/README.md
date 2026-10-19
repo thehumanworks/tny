@@ -1,8 +1,9 @@
 # Cross-harness recording benchmark
 
 This is an opt-in live benchmark. It runs the same synthetic task in a fresh Git
-repository for each harness and repetition. A loopback proxy forwards Responses
-requests to the ChatGPT subscription endpoint and records provider usage. The
+repository for each harness and repetition. A loopback proxy forwards requests to one explicitly selected, fixed provider
+route and records provider usage. The default is current Sign in with ChatGPT
+(SIWC) on the public OpenAI Responses API, not the legacy Codex backend. The
 verifier runs afterward from the task directory; the agent never sees it.
 An active workspace lives under its own randomized `ws-*` directory inside
 its run directory and is moved to `workspace/` after verification. A new run
@@ -27,12 +28,73 @@ The ledger and workflow fixtures derive from the repository's earlier public
 swarm cases. Treat them as task completion checks, not as blind held-out
 evidence for anyone who has worked with those cases.
 
-The proxy reads the current `tokens.access_token` and `tokens.account_id` from
-`~/.codex/auth.json` for **each** request. Harnesses receive an isolated `HOME`
-with fake credentials and no user skills, extensions, MCP configuration, or
-user `AGENTS.md`. The proxy does not record real credentials or response
-headers. Keep run directories private: gzipped request bodies contain the
-synthetic workspace and conversation.
+The proxy alone reads existing credentials on each request; it never refreshes,
+registers, copies, or logs them. Harnesses receive an isolated `HOME` with
+synthetic credentials and no user skills, extensions, MCP configuration, or
+user `AGENTS.md`. Keep run directories private: gzipped requests contain the
+synthetic workspace and conversation. This is not an OS security boundary.
+
+## Routes and credential boundaries
+
+- `openai-siwc` (default): public `/v1/responses`, existing
+  `~/.tny/openai-auth.json`. Requires the exact OpenAI issuer, plan grant, scope,
+  and unexpired token. Refresh/sign in separately through tny if necessary.
+- `openai-responses`: public Responses, existing `OPENAI_API_KEY`.
+- `openai-chat`: public Chat Completions, existing `OPENAI_API_KEY`.
+- `inception-chat`: `https://api.inceptionlabs.ai/v1/chat/completions`, existing
+  `INCEPTION_API_KEY`; direct model `mercury-3`, not `inception/mercury-3`.
+- `legacy-codex`: explicit compatibility with the old ChatGPT Codex endpoint
+  and `~/.codex/auth.json`, never a fallback for current-route failures.
+
+Only tny's adapters are wired for the four current routes. Other harnesses
+fail before starting, rather than silently comparing different APIs. Legacy
+cross-harness adapters remain available via `--route legacy-codex`.
+`--auth-file` selects an existing store for SIWC/legacy only; it cannot change
+credential type or origin. No arbitrary upstream URL is accepted. Redirects
+are refused, incoming authorization is never forwarded, and request path,
+model, streaming flag and body shape are checked before loading credentials.
+SIWC account IDs are not sent to public API routes. Unknown model names are
+not rewritten. The upstream still decides actual model/capability support.
+
+These profiles have offline wire/adapter coverage, not live-account
+certification. No provider requests are needed for their tests. References:
+[SIWC](https://developers.openai.com/siwc),
+[Chat Completions](https://developers.openai.com/api/reference/resources/chat),
+[Inception documentation](https://docs.inceptionlabs.ai/).
+
+## Plan paired trials without inference
+
+```sh
+python tests/bench/harness_bench/run.py --plan-only \
+  --route inception-chat --model mercury-3 --effort omit --harness tny \
+  --tasks-dir tests/bench/harness_bench/tasks-session --reps 3 \
+  --concurrency 1 --out /tmp/tny-bench --label candidate
+```
+
+This writes `manifest.json` with task-content hashes, route/model/effort,
+repetitions and concurrency. It neither reads credentials nor starts an agent.
+Use the same task/rep identities, route, model, effort and concurrency for both
+arms; record both source revisions, binary hashes, provider/version, run dates
+and cold/warm cache policy alongside the report. Alternate baseline/candidate
+order to reduce time-of-day/cache bias. Never reuse a label for changed inputs.
+`--effort omit` means no CLI effort override, not proof of a provider's effective
+reasoning setting. Use an explicit supported effort when comparing reasoning.
+
+After live trials are explicitly authorized, remove `--plan-only`, use a fresh
+output label for each arm and point `--tny-bin` at each pinned binary. Compare
+using the existing `report.py --compare` method below. Preserve failures in
+cost/time per successful task; do not filter only winners. Missing usage or
+pricing stays null. Uncached token counts can be known even when model pricing
+is not. Missing cache-write and reasoning details stay unknown. A successful
+fixture oracle with incomplete usage remains a task success with
+`measurement_valid: false`, not fabricated model failure. Historical price
+weights remain dated comparison assumptions, not a subscription invoice. For
+legacy price compatibility, unreported cache writes are priced as ordinary
+uncached input; the write-token metric itself remains null. Each result labels
+this assumption and SIWC costs as API-equivalent rather than subscription bills.
+Truncated streams and Chat length/content-filter stops cannot count as success.
+Offline/mocked completions establish transport/accounting correctness only,
+never model quality, paid cache-hit gains, or production throughput.
 
 ## Run
 
@@ -41,7 +103,7 @@ From the repository root, after building `build/tny`:
 ```sh
 export TMPDIR=/home/tomas/.cache/tny-opt/tmp
 uvx --with zstandard --with tiktoken python tests/bench/harness_bench/run.py \
-  --harness tny --harness codex --harness pi --harness omp --harness hermes \
+  --route legacy-codex --harness tny --harness codex --harness pi --harness omp --harness hermes \
   --harness fx --harness unreal-agent \
   --task all --reps 3 --concurrency 3 --model gpt-5.6-luna --effort low \
   --tny-bin build/tny --label baseline \

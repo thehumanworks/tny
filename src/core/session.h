@@ -74,6 +74,12 @@ void session_add_assistant_ex(tny_session_state *s, const char *content, const c
  * skipped. The stored transcript is never modified. *repairs counts the
  * deviations found. Caller frees the document. */
 yyjson_mut_doc *session_provider_view(tny_session_state *s, int boundary, int *repairs);
+/* Reversible older tool-output folding at a quiescent provider boundary.
+ * budget=0 disables folding. Budget measures serialized view bytes only; large
+ * protected content may exceed it. No transcript mutation or tool execution. */
+#define TNY_WORKING_CONTEXT_BYTES (64u * 1024u)
+yyjson_mut_doc *session_working_view(tny_session_state *s, int boundary, int *repairs,
+                                     size_t budget);
 void session_add_tool_result(tny_session_state *s, const char *tool_call_id, const char *content);
 /* Borrowed array of messages in the working doc. */
 yyjson_mut_val *session_messages(tny_session_state *s);
@@ -126,7 +132,7 @@ char *session_store_result(tny_session_state *s, const char *data, size_t len);
 char *session_read_result(tny_session_state *s, const char *handle, size_t off, size_t maxlen,
                           size_t *out_len);
 
-/* Compaction: after 8 completed turns keep latest 4 verbatim; force=true
+/* Legacy explicit compaction: nonforce keeps latest 4 turns after 8; force=true
  * condenses everything before the latest turn. Summary is mechanical
  * (requests, files, commands, outcomes). */
 int session_compact(tny_session_state *s, bool force); /* 1 changed, 0 no-op */

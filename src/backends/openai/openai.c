@@ -715,8 +715,8 @@ static char *build_request_chat(oa_impl *o, oa_request_owner *request) {
     }
     if (buf_oom(b) || provider_oom()) { return NULL; }
     int repairs = 0;
-    yyjson_mut_doc *view =
-        oa_request_take_view(request, session_provider_view(s, boundary, &repairs));
+    yyjson_mut_doc *view = oa_request_take_view(
+        request, session_working_view(s, boundary, &repairs, TNY_WORKING_CONTEXT_BYTES));
     if (!view) { return NULL; }
     note_repairs(o, repairs);
     if (!provider_oom() && o->continuing && o->turn->text.len)
@@ -826,8 +826,8 @@ static char *build_request_rsp(oa_impl *o, oa_request_owner *request) {
     int boundary = session_compact_boundary(s, &summary);
     if (buf_oom(b) || provider_oom()) { return NULL; }
     int repairs = 0;
-    yyjson_mut_doc *view =
-        oa_request_take_view(request, session_provider_view(s, boundary, &repairs));
+    yyjson_mut_doc *view = oa_request_take_view(
+        request, session_working_view(s, boundary, &repairs, TNY_WORKING_CONTEXT_BYTES));
     if (!view) { return NULL; }
     note_repairs(o, repairs);
     if (!provider_oom() && o->continuing && o->turn->text.len)

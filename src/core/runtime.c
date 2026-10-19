@@ -1372,8 +1372,8 @@ static void finalize_turn(tny_engine *e) {
     if (tny_alloc_scope_failed()) return;
     if (!session_title(e->session) && e->prompt_text) session_set_title(e->session, e->prompt_text);
     if (tny_alloc_scope_failed()) return;
-    if (e->stop == TNY_STOP_DONE) (void)tny_engine_compact(e, false, "threshold");
-    if (tny_alloc_scope_failed()) return;
+    /* Native requests apply a reversible byte-budgeted working view. Do not
+     * automatically truncate user constraints into the legacy turn summary. */
     session_save(e->session);
 }
 

@@ -78,7 +78,7 @@ class SessionTest(unittest.TestCase):
             calls = []
 
             class FakeProxy:
-                def __init__(self, path, auth_file):
+                def __init__(self, path, auth_file, *args):
                     self.path = path
                     self.path.mkdir(parents=True)
                     self.base_url = "http://127.0.0.1:1"
@@ -105,6 +105,7 @@ class SessionTest(unittest.TestCase):
                                 "tools_chars": 0,
                                 "tool_output_chars": [],
                             },
+                            "stream_complete": True,
                             "input_tokens": 20 * turn,
                             "cached_input_tokens": 0,
                             "cache_write_tokens": 0,
@@ -116,7 +117,7 @@ class SessionTest(unittest.TestCase):
                     )
 
             def invoke(
-                name, run_dir, proxy_url, prompt, model, effort, binary, session
+                name, run_dir, proxy_url, prompt, model, effort, binary, session, route
             ):
                 calls.append((prompt, session))
                 code = (
@@ -154,6 +155,10 @@ class SessionTest(unittest.TestCase):
             output = io.StringIO()
             argv = [
                 "run.py",
+                "--route",
+                "legacy-codex",
+                "--out",
+                temp,
                 "--tasks-dir",
                 str(tasks),
                 "--task",

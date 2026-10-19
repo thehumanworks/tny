@@ -1,4 +1,4 @@
-"""Per-run recording proxy for the ChatGPT Responses endpoint.
+"""Per-run recording proxy for an explicit provider and wire contract.
 
 Only loopback clients can connect. OAuth material is read for each request and
 never written to the recording directory. Request bodies are synthetic task
@@ -15,14 +15,9 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-UPSTREAM = "https://chatgpt.com/backend-api/codex/responses"
+from routes import ROUTES
+
 MODELS_UPSTREAM = "https://chatgpt.com/backend-api/codex/models"
-PATHS = {
-    "/v1/responses",
-    "/responses",
-    "/codex/responses",
-    "/backend-api/codex/responses",
-}
 ROUTING_HEADERS = {"session-id", "thread-id", "originator", "version"}
 TERMINAL_EVENTS = {"response.completed", "response.incomplete", "response.failed"}
 TOOL_TYPES = {
@@ -31,6 +26,39 @@ TOOL_TYPES = {
     "local_shell_call",
     "web_search_call",
 }
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Never forward bearer credentials to a redirect target, even same-origin.
+        return None
+
+
+def open_upstream(request, timeout):
+    return urllib.request.build_opener(_NoRedirect()).open(request, timeout=timeout)
+
+
+def record_chat_event(event, row, output_items):
+    """Chat usage arrives separately from the final choice. Missing is unknown."""
+    usage = event.get("usage")
+    if isinstance(usage, dict):
+        details = usage.get("prompt_tokens_details") or {}
+        output_details = usage.get("completion_tokens_details") or {}
+        row.update(
+            input_tokens=usage.get("prompt_tokens"),
+            cached_input_tokens=details.get("cached_tokens"),
+            cache_write_tokens=details.get("cache_write_tokens"),
+            output_tokens=usage.get("completion_tokens"),
+            reasoning_tokens=output_details.get("reasoning_tokens"),
+        )
+    for choice in event.get("choices") or []:
+        if choice.get("finish_reason") is not None:
+            row["completion"] = "chat." + choice["finish_reason"]
+        for call in (choice.get("delta") or {}).get("tool_calls") or []:
+            key = (choice.get("index", 0), call.get("index", 0))
+            item = output_items.setdefault(key, {"type": "function_call", "name": ""})
+            item["name"] += (call.get("function") or {}).get("name", "")
+    row["output_items"] = list(output_items.values())
 
 
 def _chars(value):
@@ -43,7 +71,7 @@ def static_parts(body):
     """Return instruction fragments and tool definitions across wire layouts."""
     instructions = [body["instructions"]] if body.get("instructions") else []
     tools = list(body.get("tools") or [])
-    items = body.get("input") or []
+    items = body.get("input", body.get("messages")) or []
     if not isinstance(items, list):
         items = [items]
     for item in items:
@@ -63,7 +91,7 @@ def static_parts(body):
 def sections(body):
     """Report JSON character counts with tool outputs separated from history."""
     instructions, tools = static_parts(body)
-    items = body.get("input") or []
+    items = body.get("input", body.get("messages")) or []
     if not isinstance(items, list):
         items = [items]
     by_type = {}
@@ -74,8 +102,10 @@ def sections(body):
         by_type[item_type] = by_type.get(item_type, 0) + 1
         if isinstance(item, dict) and item.get("role") in {"developer", "system"}:
             continue
-        if item_type in {"function_call_output", "custom_tool_call_output"}:
-            outputs.append(_chars(item.get("output", "")))
+        if item_type in {"function_call_output", "custom_tool_call_output"} or (
+            isinstance(item, dict) and item.get("role") == "tool"
+        ):
+            outputs.append(_chars(item.get("output", item.get("content", ""))))
         else:
             history += _chars(item)
     per_tool = [
@@ -102,10 +132,12 @@ class _Server(ThreadingHTTPServer):
         # socket tracebacks contain no useful benchmark information.
         pass
 
-    def __init__(self, output_dir, auth_file):
+    def __init__(self, output_dir, auth_file, route="legacy-codex", model=None):
         super().__init__(("127.0.0.1", 0), _Handler)
         self.output_dir = Path(output_dir)
-        self.auth_file = Path(auth_file)
+        self.auth_file = Path(auth_file) if auth_file else None
+        self.route = ROUTES[route]
+        self.model = model
         self.rows = []
         self.lock = threading.Lock()
         self.current_turn = None
@@ -149,23 +181,20 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urllib.parse.urlsplit(self.path)
-        if parsed.path != "/backend-api/codex/models":
+        if (
+            self.server.route.name != "legacy-codex"
+            or parsed.path != "/backend-api/codex/models"
+        ):
             self._reject(404)
             return
         try:
-            auth = json.loads(self.server.auth_file.read_text())["tokens"]
             url = MODELS_UPSTREAM
             if parsed.query:
                 url += "?" + parsed.query
-            request = urllib.request.Request(
-                url,
-                headers={
-                    "Authorization": "Bearer " + auth["access_token"],
-                    "chatgpt-account-id": auth["account_id"],
-                    "Accept": "application/json",
-                },
-            )
-            with urllib.request.urlopen(request, timeout=30) as response:
+            headers = self.server.route.headers(self.server.auth_file)
+            headers["Accept"] = "application/json"
+            request = urllib.request.Request(url, headers=headers)
+            with open_upstream(request, timeout=30) as response:
                 body = response.read(4 * 1024 * 1024 + 1)
                 if len(body) > 4 * 1024 * 1024:
                     self._error(502)
@@ -182,7 +211,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._error(502)
 
     def do_POST(self):
-        if self.path not in PATHS:
+        if self.path not in self.server.route.paths:
             self._reject(404)
             return
         with self.server.lock:
@@ -212,13 +241,16 @@ class _Handler(BaseHTTPRequestHandler):
                 self._error(415)
                 return
             body = json.loads(raw)
+            self.server.route.validate(body, self.server.model)
         except (ValueError, OSError, json.JSONDecodeError):
             self._error(400)
             return
 
         row = {
+            "route": self.server.route.name,
             "request_bytes": len(raw),
             "http_status": None,
+            "stream_complete": False,
             "first_event_ms": None,
             "input_tokens": None,
             "cached_input_tokens": None,
@@ -232,20 +264,18 @@ class _Handler(BaseHTTPRequestHandler):
             row["turn"] = request_turn
         started = time.monotonic()
         try:
-            auth = json.loads(self.server.auth_file.read_text())["tokens"]
-            headers = {
-                "Authorization": "Bearer " + auth["access_token"],
-                "chatgpt-account-id": auth["account_id"],
-                "Content-Type": "application/json",
-                "Accept": "text/event-stream",
-                "OpenAI-Beta": "responses=v1",
-            }
-            for key, value in self.headers.items():
-                if key.lower() in ROUTING_HEADERS or key.lower().startswith("x-codex-"):
-                    headers[key] = value
-            request = urllib.request.Request(UPSTREAM, data=raw, headers=headers)
+            headers = self.server.route.headers(self.server.auth_file)
+            if self.server.route.name == "legacy-codex":
+                for key, value in self.headers.items():
+                    if key.lower() in ROUTING_HEADERS or key.lower().startswith(
+                        "x-codex-"
+                    ):
+                        headers[key] = value
+            request = urllib.request.Request(
+                self.server.route.endpoint, data=raw, headers=headers
+            )
             try:
-                response = urllib.request.urlopen(request, timeout=180)
+                response = open_upstream(request, timeout=180)
             except urllib.error.HTTPError as error:
                 row["http_status"] = error.code
                 self._error(error.code)
@@ -279,6 +309,11 @@ class _Handler(BaseHTTPRequestHandler):
                         payload = b"\n".join(event_lines)
                         event_lines.clear()
                         if payload == b"[DONE]":
+                            if self.server.route.wire == "chat/completions":
+                                row["stream_complete"] = row.get("completion") in {
+                                    "chat.stop",
+                                    "chat.tool_calls",
+                                }
                             continue
                         try:
                             event = json.loads(payload)
@@ -288,6 +323,8 @@ class _Handler(BaseHTTPRequestHandler):
                             row["first_event_ms"] = round(
                                 (time.monotonic() - started) * 1000, 3
                             )
+                        if self.server.route.wire == "chat/completions":
+                            record_chat_event(event, row, output_items)
                         if event.get("type") in {
                             "response.output_item.added",
                             "response.output_item.done",
@@ -305,6 +342,9 @@ class _Handler(BaseHTTPRequestHandler):
                                 }
                         if event.get("type") in TERMINAL_EVENTS:
                             row["completion"] = event["type"]
+                            row["stream_complete"] = (
+                                event["type"] == "response.completed"
+                            )
                             result = event.get("response") or {}
                             usage = result.get("usage") or {}
                             details = usage.get("input_tokens_details") or {}
@@ -312,7 +352,7 @@ class _Handler(BaseHTTPRequestHandler):
                             row.update(
                                 input_tokens=usage.get("input_tokens"),
                                 cached_input_tokens=details.get("cached_tokens"),
-                                cache_write_tokens=details.get("cache_write_tokens", 0),
+                                cache_write_tokens=details.get("cache_write_tokens"),
                                 cache_write_reported="cache_write_tokens" in details,
                                 output_tokens=usage.get("output_tokens"),
                                 reasoning_tokens=output_details.get("reasoning_tokens"),
@@ -338,10 +378,10 @@ class _Handler(BaseHTTPRequestHandler):
 class RecordingProxy:
     """A fresh proxy and recorder for one benchmark run."""
 
-    def __init__(self, output_dir, auth_file):
+    def __init__(self, output_dir, auth_file, route="legacy-codex", model=None):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.server = _Server(self.output_dir, auth_file)
+        self.server = _Server(self.output_dir, auth_file, route, model)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
     @property
