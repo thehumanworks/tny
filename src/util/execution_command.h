@@ -8,7 +8,7 @@
  * and retains/reaps *pid. Output includes both stdout and stderr. */
 int tny_exec_command_start(char *const argv[], const char *cwd, int timeout_ms,
                            const char *session_sock, const char *session_id,
-                           const char *permission_mode, bool self_improve, int output_fd,
-                           pid_t *pid, int *lifeline);
+                           const char *permission_mode, bool self_improve, bool owned_check,
+                           int output_fd, pid_t *pid, int *lifeline);
 int tny_exec_command_main(void);
 #endif

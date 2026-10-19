@@ -4,6 +4,7 @@
 #include "util/tny_poll.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -23,6 +24,7 @@
 #elif defined(__linux__)
 #include <dirent.h>
 #include <sys/syscall.h>
+#include <sys/prctl.h>
 #include <stdio.h>
 #include <string.h>
 #endif
@@ -550,5 +552,81 @@ bool tny_process_parent_lost(void) {
     }
     if (g_expected_parent == 0) return false; /* ordinary CLI: no watch */
     return getppid() != g_expected_parent;
+#endif
+}
+
+/* This is deliberately separate from ordinary ancestry-based shell cleanup.
+ * A fresh guardian owns every child here and is the only consuming reaper. */
+int tny_process_owned_check_init(void) {
+#if defined(__linux__) && !defined(__EMSCRIPTEN__)
+    char path[96];
+    snprintf(path, sizeof path, "/proc/self/task/%ld/children", (long)getpid());
+    FILE *children = fopen(path, "r");
+    if (!children) return errno;
+    int value = fgetc(children);
+    int rc = ferror(children) ? EIO : value != EOF ? EBUSY : 0;
+    fclose(children);
+    if (rc) return rc;
+    return prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0 ? 0 : errno;
+#else
+    return ENOTSUP;
+#endif
+}
+
+int tny_process_owned_check_drain(pid_t root, int *root_status, bool *root_reaped, bool *forced) {
+#if defined(__linux__) && !defined(__EMSCRIPTEN__)
+    int status;
+    pid_t got;
+    unsigned reaped_count = 0;
+    while ((got = waitpid(-1, &status, WNOHANG)) > 0) {
+        if (got == root && !*root_reaped) {
+            *root_status = status;
+            *root_reaped = true;
+        }
+        /* Bound reaping so live children and the deadline cannot starve. */
+        if (++reaped_count == 4096) break;
+    }
+    if (got < 0) return errno == ECHILD ? 1 : errno == EINTR ? 0 : -1;
+    /* /proc/self/task/<tid>/children lists only this guardian's direct children.
+     * Reading may race adoption, but we repeat until the kernel reports ECHILD.
+     * No external process scan, process groups, persisted PIDs or sibling waits. */
+    char path[96];
+    snprintf(path, sizeof path, "/proc/self/task/%ld/children", (long)getpid());
+    FILE *children = fopen(path, "r");
+    if (!children) return -1;
+    long child;
+    int rc = 0;
+    unsigned visited = 0;
+    while (visited++ < 4096 && fscanf(children, "%ld", &child) == 1) {
+        if (child <= 0 || child > INT_MAX) {
+            rc = -1;
+            break;
+        }
+        siginfo_t info = {0};
+        /* WNOWAIT proves current child ownership without releasing PID identity.
+         * This sole reaper does not wait again between validation and signalling.
+         * A child exiting meanwhile becomes a pinned zombie, never a reused PID. */
+        if (waitid(P_PID, (id_t)child, &info, WEXITED | WNOHANG | WNOWAIT) != 0) {
+            if (errno == EINTR) continue;
+            rc = -1;
+            break;
+        }
+        if (!info.si_pid) {
+            if (kill((pid_t)child, SIGKILL) != 0 && errno != ESRCH) {
+                rc = -1;
+                break;
+            }
+            *forced = true;
+        }
+    }
+    if (ferror(children)) rc = -1;
+    fclose(children);
+    return rc;
+#else
+    (void)root;
+    (void)root_status;
+    (void)root_reaped;
+    (void)forced;
+    return -1;
 #endif
 }

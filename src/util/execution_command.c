@@ -33,8 +33,8 @@ static bool optional(yyjson_mut_doc *d, yyjson_mut_val *obj, const char *name, c
 }
 int tny_exec_command_start(char *const argv[], const char *cwd, int timeout_ms,
                            const char *session_sock, const char *session_id,
-                           const char *permission_mode, bool self_improve, int output_fd,
-                           pid_t *pid, int *lifeline) {
+                           const char *permission_mode, bool self_improve, bool owned_check,
+                           int output_fd, pid_t *pid, int *lifeline) {
     *pid = -1;
     *lifeline = -1;
     if (!argv || !argv[0] || !cwd || !permission_mode || timeout_ms < 1 || timeout_ms > 600000 ||
@@ -49,7 +49,8 @@ int tny_exec_command_start(char *const argv[], const char *cwd, int timeout_ms,
               optional(d, obj, "session_sock", session_sock) &&
               optional(d, obj, "session_id", session_id) &&
               yyjson_mut_obj_add_strcpy(d, obj, "permission_mode", permission_mode) &&
-              yyjson_mut_obj_add_bool(d, obj, "self_improve", self_improve);
+              yyjson_mut_obj_add_bool(d, obj, "self_improve", self_improve) &&
+              yyjson_mut_obj_add_bool(d, obj, "owned_check", owned_check);
     size_t argc = 0;
     for (; ok && argv[argc]; ++argc) {
         if (argc >= 256) {
@@ -139,8 +140,9 @@ int tny_exec_command_main(void) {
     const char *cwd = jget_str(root, "cwd");
     int64_t timeout = jget_int(root, "timeout_ms", 0);
     size_t argc = yyjson_arr_size(args);
-    if (!tny_exec_json_valid(root) || yyjson_obj_size(root) != 7 || !yyjson_is_arr(args) || !argc ||
-        argc > 256 || !cwd || timeout < 1 || timeout > 600000 || !command_environment(root)) {
+    if (!tny_exec_json_valid(root) || yyjson_obj_size(root) != 8 || !yyjson_is_arr(args) || !argc ||
+        argc > 256 || !cwd || timeout < 1 || timeout > 600000 || !command_environment(root) ||
+        !yyjson_is_bool(jget(root, "owned_check"))) {
         yyjson_doc_free(doc);
         close(fd);
         return 125;
@@ -183,6 +185,12 @@ int tny_exec_command_main(void) {
         close(fd);
         return 125;
     }
+    bool owned_check = jget_bool(root, "owned_check", false);
+    if (owned_check && tny_process_owned_check_init() != 0) {
+        yyjson_doc_free(doc);
+        close(fd);
+        return 125;
+    }
     pid_t shell = -1;
     tny_fd_mapping output[] = {{.source = STDOUT_FILENO, .target = STDOUT_FILENO},
                                {.source = STDERR_FILENO, .target = STDERR_FILENO}};
@@ -209,6 +217,21 @@ int tny_exec_command_main(void) {
         (void)tny_poll(&p, 1, 25);
     }
     close(fd);
+    if (owned_check) {
+        bool cancelled = !reaped, forced = false;
+        int cleanup = 0;
+        int64_t cleanup_deadline = monotonic_ms() + 5000;
+        do {
+            cleanup = tny_process_owned_check_drain(shell, &status, &reaped, &forced);
+            if (cleanup != 0) break;
+            (void)tny_poll(NULL, 0, 10);
+        } while (monotonic_ms() < cleanup_deadline);
+        if (cleanup != 1 || !reaped) return 125;
+        if (cancelled) return 130;
+        /* Exit zero with live background work is not a completed owned check. */
+        if (forced) return 125;
+        return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    }
     if (!reaped) {
         int cleanup = tny_process_stop_owned_tree(shell, &status, &reaped);
         if (cleanup || !reaped) return 125;
@@ -221,8 +244,8 @@ int tny_exec_command_main(void) {
 #else
 int tny_exec_command_start(char *const argv[], const char *cwd, int timeout_ms,
                            const char *session_sock, const char *session_id,
-                           const char *permission_mode, bool self_improve, int output_fd,
-                           pid_t *pid, int *lifeline) {
+                           const char *permission_mode, bool self_improve, bool owned_check,
+                           int output_fd, pid_t *pid, int *lifeline) {
     (void)argv;
     (void)cwd;
     (void)timeout_ms;
@@ -230,6 +253,7 @@ int tny_exec_command_start(char *const argv[], const char *cwd, int timeout_ms,
     (void)session_id;
     (void)permission_mode;
     (void)self_improve;
+    (void)owned_check;
     (void)output_fd;
     *pid = -1;
     *lifeline = -1;

@@ -524,6 +524,31 @@ TEST tool_prepare_validates_rewrites_and_complete_permission_subjects(void) {
     env.perm = perm;
     tools_call call;
 
+    /* Explicit owned checks must not disappear into first-party interception
+     * or remote terminal dispatch, and invalid configuration never executes. */
+    ASSERT_EQ(-1,
+              tools_call_prepare(&env, "terminal",
+                                 "{\"command\":\"tny jobs list\",\"owned_check\":\"yes\"}", &call));
+    ASSERT(call.error);
+    tools_call_free(&call);
+    ctx->ssh_host = xstrdup("never-contact.invalid");
+    ASSERT_EQ(-1, tools_call_prepare(&env, "terminal",
+                                     "{\"command\":\"touch must-not-exist\",\"owned_check\":true}",
+                                     &call));
+    ASSERT(call.error && strstr(call.error, "unsupported over SSH"));
+    tools_call_free(&call);
+    free(ctx->ssh_host);
+    ctx->ssh_host = NULL;
+    ASSERT_EQ(0, tools_call_prepare(&env, "terminal",
+                                    "{\"command\":\"tny jobs list\",\"owned_check\":true}", &call));
+    ASSERT(call.intercept == NULL);
+    tools_call_free(&call);
+    ASSERT_EQ(0,
+              tools_call_prepare(&env, "terminal",
+                                 "{\"command\":\"tny jobs list\",\"owned_check\":false}", &call));
+    ASSERT(call.intercept != NULL);
+    tools_call_free(&call);
+
     ASSERT_EQ(-1, tools_call_prepare(NULL, "list_files", "{}", &call));
     ASSERT_EQ(-1, tools_call_prepare(&env, NULL, "{}", &call));
     ASSERT_EQ(-1, tools_call_prepare(&env, "list_files", "{}", NULL));

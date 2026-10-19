@@ -258,3 +258,12 @@ of the session/checkpoint identity. A persisted activation nonce joins an interr
 session to exactly one parent-owned job, while the jobs boundary accepts topology only
 through a transient compiler-owned manifest and validates the ordered durable
 projection before adoption (ADR 0157).
+
+### Owned foreground checks
+
+On native Linux, a foreground terminal call may set `owned_check: true` to use
+strict cooperative descendant ownership in the existing command guardian.
+Successful completion then requires a reaped zero-exit command and no remaining
+children; forced residual cleanup returns nonzero. Other platforms reject the
+mode, and ordinary shell/background behavior is unchanged. See
+[ADR 0193](adr/0193-strict-owned-command-checks.md) for the state machine and limits.
