@@ -10,10 +10,6 @@ on:
         description: Commit whose CI and SDK gates must pass
         required: true
         type: string
-      bump:
-        description: Bump kind passed to the release planner
-        default: auto
-        type: string
 
 permissions:
   contents: read
@@ -65,7 +61,7 @@ jobs:
           SHA: ${{ steps.target.outputs.sha }}
         run: |
           set -eu
-          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SHA&per_page=100" \
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SHA&event=push&branch=main&per_page=100" \
             --jq '.workflow_runs[] | [.path, .status, (.conclusion // "-"), .id] | @tsv')"
           printf '%s\n' "$runs"
           ready=true
@@ -94,11 +90,14 @@ jobs:
         if: steps.gates.outputs.ready == 'true'
         env:
           SHA: ${{ steps.target.outputs.sha }}
-          BUMP: ${{ inputs.bump }}
         run: |
           set -eu
+          # Ignore late gates for commits from before metadata releases existed.
+          if ! git cat-file -e "$SHA:release.json"; then
+            echo "historical commit has no release.json request; not releasing"
+            exit 0
+          fi
           set -- --commit "$SHA" --github-output "$GITHUB_OUTPUT"
-          if [ "$BUMP" != auto ]; then set -- "$@" --bump "$BUMP"; fi
           python3 scripts/next_release_version.py "$@"
 
       - name: Create and push the tag
@@ -110,8 +109,12 @@ jobs:
           set -eu
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$tag" "$SHA" -m "tny $tag"
-          git push origin "refs/tags/$tag"
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            test "$(git rev-parse "$tag^{commit}")" = "$SHA"
+          else
+            git tag -a "$tag" "$SHA" -m "tny $tag"
+            git push origin "refs/tags/$tag"
+          fi
           echo "tagged $SHA as $tag" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Dispatch the release workflow on the tag
@@ -120,13 +123,28 @@ jobs:
           tag: ${{ steps.next.outputs.tag }}
         run: |
           set -eu
+          # A duplicate gate completion must not start duplicate publication.
+          state="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.tag_name == "'"$tag"'") | .draft')"
+          if [ "$state" = false ]; then
+            echo "$tag is already published" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          status="$(gh run list --workflow release.yml --branch "$tag" \
+            --json status --jq '.[0].status // empty')"
+          if [ -n "$status" ] && [ "$status" != completed ]; then
+            echo "publication for $tag is already $status" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          previous="$(gh run list --workflow release.yml --branch "$tag" \
+            --json databaseId --jq '.[0].databaseId // 0')"
           gh workflow run release.yml --ref "$tag"
           # Dispatches are asynchronous; wait until the run exists so a
           # silent no-start fails here instead of leaving a bare tag.
           for _ in $(seq 1 18); do
             sleep 10
             url="$(gh run list --workflow release.yml --branch "$tag" \
-              --json url --jq '.[0].url // empty')"
+              --json url,databaseId --jq '.[0] | select(.databaseId != '"$previous"') | .url // empty')"
             if [ -n "$url" ]; then
               echo "release workflow: $url"
               echo "release workflow: $url" >> "$GITHUB_STEP_SUMMARY"
