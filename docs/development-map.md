@@ -61,3 +61,13 @@ use the [compact invariant map](verification/value-density.md#invariant-map).
 
 The [modernization record](verification/agent-first-modernization.md) tracks the
 specific changes, measured evidence and limits for this iteration.
+
+## Historical task briefs
+
+Root-level `HANDOFF.md` and `SWARM_DELIVERY_PROMPT.md` described past deliveries,
+not current work or authorization. Their last pre-cleanup copies remain in
+[Git history](https://github.com/thehumanworks/tny/tree/656d63a386719211580df8159742b02c0a3a6745).
+Dated verification records remain under `docs/verification/`; historical links
+and source hashes describe the recorded revision, not today's file inventory.
+Editor hook progress is per-machine state and stays ignored; reusable editor
+rules still point to `AGENTS.md`.

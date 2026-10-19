@@ -46,3 +46,6 @@ agents/out
 .claude/worktrees
 site/assets/wasm/
 .worktrees
+
+# Per-machine editor hook progress, not project inputs
+/.cursor/hooks/state/
