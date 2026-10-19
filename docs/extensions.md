@@ -1,9 +1,14 @@
 # Python extensions and event hooks
 
+Extensions are tny's Python **plugin** seam. Use the existing `setup(api)`
+entry point for event-driven behavior; no second framework, provider loop,
+package manager, or C ABI change is needed.
+
 tny extensions are trusted Python programs that observe normalized agent
-events and can request a small set of portable actions. Python support is
-conditional on an external interpreter being available; tny does not bundle
-one. The architectural decision is [ADR 0027](adr/0027-python-event-hooks.md).
+events and can request a small set of portable actions. The extension host
+requires an external Python interpreter; it does not reuse the embedded
+interpreter used by tool code cells. The architectural decision is
+[ADR 0027](adr/0027-python-event-hooks.md).
 The additive parity vocabulary, capability states, and provider authority
 rules are frozen by [ADR 0028](adr/0028-extension-parity-contract.md) and the
 [release-pinned manifest](features/extension-hook-parity.md).
@@ -103,6 +108,82 @@ copyable extensions for JSONL event logging, file-backed project context,
 stopping after a failed tool, a one-shot verification continuation, and a
 stateful directory package with relative imports. The examples are loaded and
 invoked through the real Python host by `tests/extensions/test_examples.py`.
+
+## Develop and check a plugin offline
+
+Start with a working example, inspect the API, and check the explicit file
+before installing it. From this checkout:
+
+```sh
+PYTHONPATH=python python3 -m tny_ext catalog
+PYTHONPATH=python python3 -m tny_ext catalog --json
+PYTHONPATH=python python3 -m tny_ext check examples/extensions/verify_once.py --json
+PYTHONPATH=python python3 -m tny_ext check examples/extensions/ci_guard --json
+make test-extensions-python
+```
+
+For an installed copy, replace `PYTHONPATH=python` with the install's
+`<prefix>/lib/tny` directory. No `pip install` is needed. `--help` is available
+at the top level and for each command.
+
+`catalog` derives event names, action kinds, Python class names, and field
+types from the shipped API itself. Its JSON separates the common event
+envelope from event-specific fields. It does **not** discover, import, or run
+any user extension. This is an API vocabulary, not a promise that every
+provider supports every action; use the capability matrix for that.
+
+**`check` executes the selected extension's imports and `setup(api)` with your
+full user permissions. It is not static analysis, a sandbox, or a security
+audit. Only check code you trust.** The checker itself does not start inference
+or call registered handlers, but arbitrary import/setup code can perform I/O,
+run programs, or block. It loads only paths you explicitly pass, in that order;
+it never scans a checkout or your global extensions directory. Checking a
+project file is not installation or permission for automatic project discovery.
+
+The checker uses the same loader as the persistent runtime host, including
+relative imports, async setup, and redirecting ordinary setup stdout to
+stderr. It reports setup/import failures and callbacks that cannot accept one
+positional event. Unknown event names are warnings, not errors, so future
+events remain usable. Zero handlers and uninspectable callback signatures
+also produce warnings. Handler return values, runtime effects, installation
+name collisions, and provider action support still need runtime tests.
+
+`--json` writes one report to stdout with `schema_version`, `ok`,
+`extensions`, and `diagnostics`. Diagnostics include severity, code, entry,
+message, and event/registration index when relevant. Exit status is `0` for a
+passing check (possibly with warnings), `1` for load/signature errors, and `2`
+for invalid command arguments or capability input. A failing entry does not
+suppress checks of later entries.
+
+By default setup receives an empty capability view, not simulated support.
+For plugins that register handlers conditionally, supply a saved snapshot:
+
+```sh
+tny doctor --json > /tmp/tny-doctor.json
+PYTHONPATH=python python3 -m tny_ext check ./reviewer.py \
+  --capabilities /tmp/tny-doctor.json --json
+```
+
+`--capabilities` accepts either full doctor JSON or its
+`extensions.capabilities` object. This only selects setup branches for a
+local check; it does not change tny's configuration or permissions. Check the
+runtime capability view again for actions during real turns.
+
+The same helpers are reusable from tests without a CLI subprocess:
+
+```python
+from tny_ext.development import check_extensions, extension_catalog
+
+report = check_extensions(["./reviewer.py"])
+assert report.ok, report.diagnostics
+catalog = extension_catalog()
+```
+
+`CheckReport`, `ExtensionSummary`, and `CheckDiagnostic` are frozen dataclasses.
+`report.to_dict()` returns a JSON-serializable report. `api.on(...)` preserves
+the decorated callback's type and identity in both direct and decorator forms.
+The Python authoring tools are native development helpers; they do not enable
+Python extensions in wasm, where the existing unsupported behavior is unchanged.
 
 ## Normalized event envelope
 

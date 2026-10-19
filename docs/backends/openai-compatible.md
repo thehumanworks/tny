@@ -1,6 +1,7 @@
 # OpenAI-compatible providers
 
 This backend is the **native harness**. tny owns the tool loop, permissions, MCP, skills, and sessions.
+For code navigation and focused checks, see the [native provider source map](openai-source-map.md).
 
 ## System prompt
 

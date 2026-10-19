@@ -1,3 +1,6 @@
+# test-openai-errors links the private failure policy and existing JSON/util
+# sources only; src/tests filesets and the C compiler cover it without CPython,
+# provider I/O, generated fixtures or additional dependencies.
 # test-subagent-e2e uses existing Python/procps/POSIX inputs and loopback mocks;
 # the opt-in verify-subagents-live target is excluded from make test.
 # Host-capability integration uses existing Python/OpenSSL, private workspaces,

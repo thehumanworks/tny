@@ -21,6 +21,23 @@ backend. Speech, images, web search, dictation and the `/status` weekly
 allowance still use the Codex login: they live on `chatgpt.com/backend-api`,
 which a SIWC token must never reach.
 
+## Migrating from legacy Codex
+
+New turns no longer select `codex` merely because a legacy credential file or
+`CHATGPT_ACCESS_TOKEN` exists. Sign in with `tny --provider openai login`, then
+select `--provider openai` for new work. If settings explicitly select `codex`,
+change the `provider` setting to `openai`; saved choices are intentionally not
+rewritten. Existing sessions retain their recorded provider, and explicit legacy
+selection (including `--chatgpt-token` when no higher-priority choice applies)
+remains supported. See [provider precedence](../cli.md#provider-selection) and
+[ADR 0189](../adr/0189-agent-first-modernization.md).
+
+Migration requires a new SIWC authorization, not renaming a token file. tny
+never converts a Codex token into a SIWC token or silently switches to billed API
+usage. `OPENAI_API_KEY`, when explicitly configured, still takes precedence.
+The legacy credential stores remain untouched for existing sessions and
+provider-independent features.
+
 Canonical sources: the SIWC developer docs
 (`developers.openai.com/siwc/llms.txt`) and Pi's `openai` provider; see
 [sources.md](../sources.md#sign-in-with-chatgpt-openai-provider-adr-0186).

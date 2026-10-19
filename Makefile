@@ -742,6 +742,23 @@ $(TEST_BIN): $(TEST_OBJS) $(call objects,$(OBJ_DBG),$(TEST_SRC))
 	@mkdir -p $(@D)
 	$(CXX) $(DBG_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
 
+# Provider failure policy is also linked without the backend/runtime graph.
+# Keep this fast gate independent of the embedded interpreter and transports.
+OPENAI_ERRORS_SRC := src/backends/openai/errors.c src/util/alloc.c src/util/util.c \
+                     src/json/json.c third_party/yyjson/yyjson.c
+OPENAI_ERRORS_TEST_OBJ := $(BUILD)/openai-errors/test_openai_errors.o
+OPENAI_ERRORS_TEST := $(BUILD)/openai-errors/errors-test$(EXE)
+$(OPENAI_ERRORS_TEST_OBJ): tests/test_openai_errors.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(DBG_CFLAGS) -DTNY_OPENAI_ERRORS_STANDALONE=1 -MMD -MP -c -o $@ $<
+$(OPENAI_ERRORS_TEST): $(OPENAI_ERRORS_TEST_OBJ) $(call objects,$(OBJ_DBG),$(OPENAI_ERRORS_SRC))
+	$(CC) $(DBG_CFLAGS) -o $@ $^ $(filter-out $(PY_RUNTIME_LDLIBS),$(DBG_LDFLAGS))
+.PHONY: test-openai-errors
+test-openai-errors: $(OPENAI_ERRORS_TEST)
+	./$(OPENAI_ERRORS_TEST)
+test: test-openai-errors
+-include $(OPENAI_ERRORS_TEST_OBJ:.o=.d)
+
 debug: $(TEST_BIN)
 
 test-unit: $(TEST_BIN) $(BIN)

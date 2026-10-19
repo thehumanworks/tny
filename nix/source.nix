@@ -1,3 +1,6 @@
+# test-openai-errors links the private failure policy and existing JSON/util
+# sources only; src/tests filesets and the C compiler cover it without CPython,
+# provider I/O, generated fixtures or additional dependencies.
 # Optional python-embed-bench links the existing C/CPython graph and test fileset;
 # generated-code execution remains outside package builds and requires bwrap.
 # tests/build/test_code_cell_seams.py host-compiles the explicit unsupported

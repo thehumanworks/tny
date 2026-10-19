@@ -6,8 +6,8 @@ Baseline: `4e4d270`, feature branch `feat/execution-server-code-mode`.
 | --- | --- | --- |
 | EC01 | Exactly `run_code` on native Chat, Responses and ACP MCP; direct raw calls cannot execute | `test_execution_code_mode.py`, `test_acp_client.py`, `test_native_search.py`, `test_openai.c`: request capture and rejected direct/hosted calls |
 | EC02 | Each code cell starts a distinct fresh production execution process | `test_execution_code_mode.py`: observed child `--exec-server` PID and real file/shell effects |
-| EC03 | Code has no ambient file, process or module APIs | `test_code_runtime.c`, `test_execution_code_mode.py`: confined Python cell (ADR 0179) and absent loading builtins; effects enter `tools.call` |
-| EC04 | JSON codec and nested discovery preserve bounded tool semantics | `test_code_runtime.c`: nested empty arrays/objects; production catalog/describe/read/write cases |
+| EC03 | Code has the host user's file, process and network authority; only nested tools use tny policy | `test_code_runtime.c`, `test_execution_code_mode.py`: ordinary CPython builtins/imports and bundled standard library (ADR 0180 supersedes the original confinement design) |
+| EC04 | JSON codec and nested discovery preserve bounded tool semantics | `test_code_runtime.c`: nested empty arrays/objects; production search/catalog/describe/read/write cases, bounded projection and filtered-authority invariants |
 | EC05 | Trusted context controls workspace, profile, permissions, hooks and identity | `test_execution_permissions.py`, `test_manifest_permissions.py`, `test_acp_managed.py`, `test_execution_code_mode.py`: approval correlation, prepared identity, hooks and readonly/profile ceilings |
 | EC06 | Time, memory, printed output and nested-call counts are bounded | `test_code_runtime.c`, `test_execution_code_mode.py`: infinite-loop/allocation/output/call-limit cases |
 | EC07 | Malformed frames, unknown/duplicate replies, stale identity and EOF fail closed | `test_execution_protocol.c`, `test_execution_transport.c`, production private-entry cases; `check_execution_protocol.py` proves only the actual pure admission predicate |

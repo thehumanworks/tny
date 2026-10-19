@@ -245,6 +245,94 @@ static PyObject *tools_list(PyObject *self, PyObject *unused) {
     return PyUnicode_FromString(cell.host && cell.host->catalog ? cell.host->catalog : "[]");
 }
 
+/* Discovery returns names, not parameter schemas: inspect only the tools the
+ * task needs with describe(). Search never widens the already-filtered catalog.
+ * ASCII folding is locale-independent; non-ASCII bytes match exactly. */
+static unsigned char ascii_lower(unsigned char c) {
+    return c >= 'A' && c <= 'Z' ? (unsigned char)(c + ('a' - 'A')) : c;
+}
+
+static bool catalog_contains(const char *text, const char *query) {
+    if (!*query) return true;
+    if (!text) return false;
+    for (; *text; ++text) {
+        size_t n = 0;
+        while (query[n] && text[n] &&
+               ascii_lower((unsigned char)text[n]) == ascii_lower((unsigned char)query[n]))
+            ++n;
+        if (!query[n]) return true;
+    }
+    return false;
+}
+
+static PyObject *tools_search(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    if (refuse_after_limit()) return NULL;
+    const char *query = "";
+    Py_ssize_t query_len = 0;
+    int limit = 10;
+    static char query_key[] = "query", limit_key[] = "limit";
+    static char *keywords[] = {query_key, limit_key, NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|s#i:search", keywords, &query, &query_len,
+                                     &limit))
+        return NULL;
+    if (query_len > 256 || memchr(query, 0, (size_t)query_len) || limit < 1 || limit > 100) {
+        PyErr_SetString(PyExc_ValueError,
+                        "search requires a query of at most 256 UTF-8 bytes without NUL and "
+                        "a limit between 1 and 100");
+        return NULL;
+    }
+    const char *catalog = cell.host && cell.host->catalog ? cell.host->catalog : "[]";
+    yyjson_doc *doc = yyjson_read_opts((char *)catalog, strlen(catalog), 0, &heap_json, NULL);
+    if (!doc) return cell.fatal ? terminal(cell.fatal) : PyErr_NoMemory();
+    yyjson_mut_doc *result = yyjson_mut_doc_new(&heap_json);
+    yyjson_mut_val *matches = result ? yyjson_mut_arr(result) : NULL;
+    bool ok = matches != NULL;
+    unsigned total = 0;
+    size_t index, count;
+    yyjson_val *entry;
+    yyjson_arr_foreach(yyjson_doc_get_root(doc), index, count, entry) {
+        yyjson_val *fn = yyjson_obj_get(entry, "function");
+        if (!fn) fn = entry;
+        const char *name = yyjson_get_str(yyjson_obj_get(fn, "name"));
+        const char *description = yyjson_get_str(yyjson_obj_get(fn, "description"));
+        if (!name || (!catalog_contains(name, query) && !catalog_contains(description, query)))
+            continue;
+        ++total;
+        if (!ok || total > (unsigned)limit) continue;
+        size_t summary_len = description ? strlen(description) : 0;
+        if (summary_len > 240) {
+            summary_len = 240;
+            /* The catalog is valid UTF-8: don't cut inside a continuation. */
+            while (summary_len && ((unsigned char)description[summary_len] & 0xc0) == 0x80)
+                --summary_len;
+        }
+        yyjson_mut_val *item = yyjson_mut_obj(result);
+        ok = item && yyjson_mut_obj_add_str(result, item, "name", name) &&
+             yyjson_mut_obj_add_strn(result, item, "description", description ? description : "",
+                                     summary_len) &&
+             yyjson_mut_arr_append(matches, item);
+    }
+    yyjson_mut_val *root = ok ? yyjson_mut_obj(result) : NULL;
+    ok = root && yyjson_mut_obj_add_val(result, root, "tools", matches) &&
+         yyjson_mut_obj_add_uint(result, root, "total", total) &&
+         yyjson_mut_obj_add_bool(result, root, "truncated", total > (unsigned)limit);
+    PyObject *out = NULL;
+    if (ok) {
+        yyjson_mut_doc_set_root(result, root);
+        size_t len = 0;
+        char *text = yyjson_mut_write_opts(result, 0, &heap_json, &len, NULL);
+        if (text) {
+            out = PyUnicode_DecodeUTF8(text, (Py_ssize_t)len, "strict");
+            json_free(NULL, text);
+        }
+    }
+    yyjson_mut_doc_free(result);
+    yyjson_doc_free(doc);
+    if (!out && !PyErr_Occurred()) return cell.fatal ? terminal(cell.fatal) : PyErr_NoMemory();
+    return out;
+}
+
 static PyObject *tools_describe(PyObject *self, PyObject *name_obj) {
     (void)self;
     if (!PyUnicode_Check(name_obj)) {
@@ -287,6 +375,8 @@ static PyMethodDef tools_methods[] = {
     {"call", (PyCFunction)(void (*)(void))tools_call, METH_FASTCALL,
      "call(name, arguments_json) -> str: run a permitted nested tool"},
     {"list", tools_list, METH_NOARGS, "list() -> str: JSON catalog of permitted tools"},
+    {"search", (PyCFunction)(void (*)(void))tools_search, METH_VARARGS | METH_KEYWORDS,
+     "search(query='', limit=10) -> str: bounded name/description matches, total, truncated"},
     {"describe", tools_describe, METH_O, "describe(name) -> str | None: one tool's JSON schema"},
     {NULL, NULL, 0, NULL},
 };

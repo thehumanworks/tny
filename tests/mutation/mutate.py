@@ -326,14 +326,24 @@ TARGETS = [
     # transcript, and reasoning passthrough. test_openai.py drives every
     # branch through the mock's fault-injection knobs.
     (
-        "src/backends/openai/openai.c",
+        "src/backends/openai/errors.c",
         [
             "oa_error_token",
             "oa_error_token_is_permanent",
             "oa_status_is_retryable",
+            "oa_error_classify",
+            "oa_error_format",
+            "oa_error_retry_after_ms",
+        ],
+        None,
+        "tests/integration/test_openai.py",
+        "stream-recovery",
+    ),
+    (
+        "src/backends/openai/openai.c",
+        [
             "classify_error",
             "error_text",
-            "parse_retry_after",
             "schedule_retry",
             "fail_stream",
             "capture_reasoning_item",

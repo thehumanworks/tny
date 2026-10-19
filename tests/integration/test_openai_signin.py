@@ -462,6 +462,43 @@ def case_register(env, ws, home, issuer):
     return q
 
 
+def case_legacy_default(env, ws, home):
+    """Old credentials never silently select Codex or authorize public API use."""
+    Mock.reset(issuer=Mock.st["issuer"])
+    token = "legacy-migration-fixture"
+    record = json.dumps({"tokens": {"access_token": token}})
+    paths = [
+        os.path.join(home, ".codex", "auth.json"),
+        os.path.join(home, ".tny", "codex-auth.json"),
+    ]
+    try:
+        for path in paths:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                f.write(record)
+        legacy_env = dict(env, CHATGPT_ACCESS_TOKEN=token)
+        r = run(legacy_env, ws, "status", "--json")
+        assert r.returncode == 0, r.stderr.decode()
+        status = json.loads(r.stdout.decode())
+        assert status["backend"] == "openai" and status["auth"] == "missing", status
+        r = ask(legacy_env, ws)
+        assert r.returncode != 0
+        assert "tny --provider openai login" in (r.stdout.decode() + r.stderr.decode())
+        no_secret(r, token)
+        assert not Mock.st["token_calls"] and not Mock.st["api_calls"]
+        assert not os.path.exists(store_path(home))
+        for path in paths:
+            with open(path) as f:
+                assert f.read() == record, (
+                    "migration must not rewrite legacy credentials"
+                )
+    finally:
+        for path in paths:
+            if os.path.exists(path):
+                os.unlink(path)
+    print("ok  migration: legacy credentials ignored, SIWC guidance, stores untouched")
+
+
 def case_ask(env, ws, home):
     Mock.reset(issuer=Mock.st["issuer"])
     r = ask(env, ws, "--provider", "openai")
@@ -701,6 +738,7 @@ def main():
         with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as ws:
             env = base_env(home, issuer)
             Mock.reset(issuer=issuer)
+            case_legacy_default(env, ws, home)
             if not IS_WASM:
                 case_register(env, ws, home, issuer)
             else:

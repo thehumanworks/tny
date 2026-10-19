@@ -121,39 +121,9 @@ char *tny_backend_openai_usage_json(tny_backend *b); /* caller frees */
 
 #include "backends/openai/toolcalls.h"
 
-/* ---- provider failure classification and reasoning passthrough
- * (docs/adr/0069); pure helpers exposed for tests/test_openai.c ---- */
-
-/* A provider error category as a bounded lowercase identifier
- * ([a-z0-9_], at most cap-1 bytes; '-', '.', ' ' fold to '_'). Anything
- * else — free text, over-long strings — yields "" so message text never
- * reaches a diagnostic. */
-void oa_error_token(char *out, size_t cap, const char *raw);
-/* Categories that a retry cannot fix (invalid_*, context_length_*, …). */
-bool oa_error_token_is_permanent(const char *token);
-/* HTTP statuses worth a bounded retry: 408, 409, 425, 429, and 5xx. */
-bool oa_status_is_retryable(int status);
-
-/* ChatGPT-plan error codes with their own recovery (Sign in with ChatGPT,
- * docs/adr/0186). They arrive as `error.code` on an HTTP error body or a
- * response.failed event, whatever the status. */
-typedef enum {
-    OA_PLAN_ERROR_NONE = 0,
-    OA_PLAN_ERROR_USAGE_LIMIT,  /* pause; link to ChatGPT usage settings */
-    OA_PLAN_ERROR_UNAVAILABLE,  /* usage/user check unavailable: retry */
-    OA_PLAN_ERROR_NOT_ELIGIBLE, /* user, workspace or policy excluded */
-    OA_PLAN_ERROR_ROUTE,        /* method/endpoint not on the plan route */
-    OA_PLAN_ERROR_GRANT,        /* signed permission context refused */
-    OA_PLAN_ERROR_INVALID_USER, /* subscriber context invalid: sign in again */
-    OA_PLAN_ERROR_UNSUPPORTED   /* an input named by error.param */
-} oa_plan_error;
-/* The plan error for an exact provider code; NONE for anything else. */
-oa_plan_error oa_plan_error_of(const char *code);
-/* Only the "temporarily unavailable" plan errors are worth a retry. */
-bool oa_plan_error_retryable(oa_plan_error e);
-/* `error.param` as a bounded field path ([A-Za-z0-9_.[]-], at most cap-1
- * bytes); anything else yields "". */
-void oa_error_param(char *out, size_t cap, const char *raw);
+/* Private, independently testable failure policy; retained here for existing
+ * internal callers of the native backend facade. */
+#include "backends/openai/errors.h"
 
 /* Stream completion contract (docs/adr/0087): a response is complete only
  * once its terminal event arrived — on the chat wire a finish_reason also

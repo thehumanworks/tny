@@ -1,13 +1,14 @@
 """Registration API passed to an extension's ``setup(api)`` function."""
 
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple, Type, TypeVar, Union, overload
 
 from .capabilities import CapabilityView
 from .events import HookEvent, event_name
 
 Handler = Callable[[HookEvent], Any]
-EventSelector = Union[str, type]
+EventSelector = Union[str, Type[HookEvent]]
+_HandlerT = TypeVar("_HandlerT", bound=Callable[..., Any])
 
 
 @dataclass(frozen=True)
@@ -35,10 +36,20 @@ class ExtensionAPI:
         self.capabilities = capabilities or CapabilityView.empty()
         self._handlers: List[HandlerRegistration] = []
 
-    def on(self, event: EventSelector, handler: Optional[Handler] = None) -> Any:
+    @overload
+    def on(self, event: EventSelector, handler: _HandlerT) -> _HandlerT: ...
+
+    @overload
+    def on(
+        self, event: EventSelector, handler: None = None
+    ) -> Callable[[_HandlerT], _HandlerT]: ...
+
+    def on(
+        self, event: EventSelector, handler: Optional[_HandlerT] = None
+    ) -> Union[_HandlerT, Callable[[_HandlerT], _HandlerT]]:
         name = event_name(event)
 
-        def register(callback: Handler) -> Handler:
+        def register(callback: _HandlerT) -> _HandlerT:
             if not callable(callback):
                 raise TypeError("event handler must be callable")
             self._handlers.append(

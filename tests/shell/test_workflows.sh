@@ -73,6 +73,17 @@ cleanup() {
         sleep 0.05
     done
     signal_recorded_groups KILL
+    # Publication-boundary tests deliberately hide child_pid from the
+    # scheduler. Retain fixture-owned authority to clean up after a failure.
+    if valid_fixture_pid "${stubborn_pid:-}"; then
+        kill -KILL -- "-$stubborn_pid" 2> /dev/null || true
+    fi
+    if [ -n "${TNY_PUBLICATION_GATE:-}" ] && [ -f "$TNY_PUBLICATION_GATE/worker-pid" ]; then
+        hidden_worker_pid=$(cat "$TNY_PUBLICATION_GATE/worker-pid")
+        if valid_fixture_pid "$hidden_worker_pid"; then
+            kill -KILL "$hidden_worker_pid" 2> /dev/null || true
+        fi
+    fi
     if valid_fixture_pid "${scheduler_pid:-}"; then
         kill -KILL "$scheduler_pid" 2> /dev/null || true
     fi
@@ -159,6 +170,9 @@ if [ "$active" -gt "$maximum" ]; then
 fi
 printf 'start %s\n' "$task" >> "$TNY_FAKE_LOG.events"
 release
+# Signal tests must not interrupt the active-count critical section, where
+# their own cleanup would otherwise wait forever on the lock it already owns.
+: > "$TNY_FAKE_LOG.ready.$task"
 
 sleep "$delay"
 if grep -Fqx 'FAIL' "$TNY_FAKE_LOG.prompt.$task"; then
@@ -441,6 +455,22 @@ assert_eq "$(tny_status consumer)" failed
 [ ! -f "$TNY_FAKE_LOG.prompt.consumer" ] || fail "oversized consumer reached tny"
 assert_file_contains "$TNY_WORKFLOW_DIR/run/consumer/stderr" 'exceeds 5 bytes'
 
+# Concurrent scheduler/worker cancellation sends one TERM to the owned group,
+# not a second signal to a leader that is already cleaning up.
+(
+    trap - EXIT HUP INT TERM
+    cancel_dir="$temporary/cancel-once"
+    mkdir -p "$cancel_dir"
+    kill() { printf '%s\n' "$*" >> "$cancel_dir/signals"; }
+    _tny_workflow_request_cancel "$cancel_dir" 12345 &
+    first_canceller=$!
+    _tny_workflow_request_cancel "$cancel_dir" 12345 &
+    second_canceller=$!
+    wait "$first_canceller"
+    wait "$second_canceller"
+    assert_eq "$(cat "$cancel_dir/signals")" '-TERM -- -12345' "one cooperative group cancellation"
+)
+
 # Complete a real worker after the reaper checks its result marker but before
 # the liveness probe returns. Committed success and failure results must survive;
 # an exit without a result must still be reported as a crashed worker.
@@ -609,11 +639,12 @@ case ${ZSH_VERSION:-} in
 esac
 # Expanded by the child scheduler shell, not this test process.
 # shellcheck disable=SC2016
-scheduler_program='. "$1"; TNY_WORKFLOW_DIR=$2; export TNY_WORKFLOW_DIR; _tny_workflow_run_impl --quiet'
+scheduler_program='. "$1"; TNY_WORKFLOW_DIR=$2; export TNY_WORKFLOW_DIR; if [ -n "${TNY_PUBLICATION_GATE:-}" ]; then . "$TNY_PUBLICATION_GATE/hook"; fi; _tny_workflow_run_impl --quiet'
 start_scheduler() {
     local pid_file attempt
     pid_file=$1
-    rm -f "$pid_file"
+    scheduler_status_file="$pid_file.status"
+    rm -f "$pid_file" "$scheduler_status_file"
     # Zsh may put an asynchronous `exec` behind a short-lived job wrapper, so
     # its outer $! is not reliably the process that installed scheduler traps.
     # Keep a supervisor alive, record its direct child, signal that exact PID,
@@ -622,8 +653,10 @@ start_scheduler() {
         "$1" -c "$2" _ "$3" "$4" &
         scheduler=$!
         printf "%s\n" "$scheduler" > "$5"
-        wait "$scheduler"
-        exit $?
+        if wait "$scheduler"; then rc=0; else rc=$?; fi
+        printf "%s\n" "$rc" > "$5.status.tmp"
+        mv "$5.status.tmp" "$5.status"
+        exit "$rc"
     ' _ "$current_shell" "$scheduler_program" "$root/shell/tny-workflows.sh" \
         "$TNY_WORKFLOW_DIR" "$pid_file" &
     scheduler_launcher_pid=$!
@@ -638,34 +671,34 @@ start_scheduler() {
     valid_fixture_pid "$scheduler_pid" || fail "scheduler supervisor published an invalid PID"
 }
 
+wait_scheduler() {
+    local deadline
+    deadline=$(($(date +%s) + 15))
+    while [ ! -s "$scheduler_status_file" ]; do
+        [ "$(date +%s)" -lt "$deadline" ] || fail "scheduler did not settle cancellation within 15 seconds"
+        sleep 0.02
+    done
+    if wait "$scheduler_launcher_pid"; then scheduler_rc=0; else scheduler_rc=$?; fi
+    assert_eq "$scheduler_rc" "$(cat "$scheduler_status_file")" "scheduler completion receipt"
+}
+
 start_scheduler "$temporary/signal-scheduler.pid"
 attempt=0
-while ! grep -Fqx 'start slow' "$TNY_FAKE_LOG.events" 2> /dev/null; do
+while [ ! -f "$TNY_FAKE_LOG.ready.slow" ]; do
     kill -0 "$scheduler_pid" 2> /dev/null || fail "scheduler exited before the signal fixture started"
     attempt=$((attempt + 1))
     [ "$attempt" -lt 300 ] || fail "signal fixture did not start"
     sleep 0.01
 done
 kill -TERM "$scheduler_pid"
-set +e
-wait "$scheduler_launcher_pid"
-scheduler_rc=$?
-set -e
+wait_scheduler
 assert_eq "$scheduler_rc" 130 "scheduler signal exit"
 if kill -0 "$scheduler_pid" 2> /dev/null; then
     fail "scheduler survived its signal fixture"
 fi
 scheduler_pid=
 scheduler_launcher_pid=
-# The child's EXIT trap writes the active-count file after the worker's
-# wait(2) returns. A loaded host can land that write after the scheduler
-# has already exited 130; wait for the drop instead of reading once.
-attempt=0
-while [ "$(cat "$TNY_FAKE_LOG.active")" != 0 ]; do
-    attempt=$((attempt + 1))
-    [ "$attempt" -lt 100 ] || break
-    sleep 0.01
-done
+# Reaping the worker must imply that its child's EXIT cleanup already ran.
 assert_eq "$(cat "$TNY_FAKE_LOG.active")" 0 "active child after scheduler signal"
 assert_file_contains "$TNY_FAKE_LOG.events" 'end slow'
 tny_workflow_cleanup
@@ -693,10 +726,10 @@ assert_eq "$(tr -d ' ' < "$TNY_WORKFLOW_DIR/run/stubborn/child_pid")" "$stubborn
 assert_eq "$(ps -o pgid= -p "$grandchild_pid" | tr -d ' ')" "$stubborn_pid" "grandchild process group"
 started_at=$(date +%s)
 kill -TERM "$scheduler_pid"
-set +e
-wait "$scheduler_launcher_pid"
-scheduler_rc=$?
-set -e
+# Further interrupts must not abort the shutdown/reaping already in progress.
+sleep 0.05
+kill -TERM "$scheduler_pid"
+wait_scheduler
 elapsed=$(($(date +%s) - started_at))
 assert_eq "$scheduler_rc" 130 "uncooperative scheduler signal exit"
 if kill -0 "$scheduler_pid" 2> /dev/null; then
@@ -717,6 +750,69 @@ while kill -0 "$stubborn_pid" 2> /dev/null || kill -0 "$grandchild_pid" 2> /dev/
     sleep 0.01
 done
 tny_workflow_cleanup
+stubborn_pid=
+
+# Stop exactly between spawning and publishing the worker or its child PID.
+# An empty/missing PID file must not let cancellation miss an owned process,
+# nor leave the scheduler waiting forever on an unsignalled stubborn child.
+TNY_PUBLICATION_GATE="$temporary/publication-gate"
+export TNY_PUBLICATION_GATE
+mkdir -p "$TNY_PUBLICATION_GATE"
+cat > "$TNY_PUBLICATION_GATE/hook" << 'PUBLICATION'
+printf() {
+    if [ "$#" -eq 2 ] && [ "$1" = '%s\n' ]; then
+        case $TNY_PUBLICATION_KIND in
+            child) target=${child:-} ;;
+            worker) target=${child:-${pid:-}} ;;
+        esac
+        if [ -n "$target" ] && [ "$2" = "$target" ]; then
+            if [ -n "${child:-}" ]; then
+                : > "$TNY_PUBLICATION_GATE/child-blocked"
+            else
+                builtin printf '%s\n' "$target" > "$TNY_PUBLICATION_GATE/worker-pid"
+                : > "$TNY_PUBLICATION_GATE/worker-blocked"
+            fi
+            while [ "${cancelled:-0}" -eq 0 ]; do sleep 0.01; done
+        fi
+    fi
+    builtin printf "$@"
+}
+PUBLICATION
+for TNY_PUBLICATION_KIND in worker child; do
+    export TNY_PUBLICATION_KIND
+    rm -f "$TNY_PUBLICATION_GATE/child-blocked" "$TNY_PUBLICATION_GATE/worker-blocked" "$TNY_PUBLICATION_GATE/worker-pid"
+    TNY_UNCOOPERATIVE_LOG="$temporary/scenario-publication-$TNY_PUBLICATION_KIND"
+    export TNY_UNCOOPERATIVE_LOG
+    mkdir -p "$TNY_UNCOOPERATIVE_LOG"
+    tny_workflow_begin "$temporary/flow-publication-$TNY_PUBLICATION_KIND" > /dev/null
+    tny_task stubborn -- "TASK stubborn"
+    start_scheduler "$temporary/publication-$TNY_PUBLICATION_KIND.pid"
+    attempt=0
+    while [ ! -f "$TNY_PUBLICATION_GATE/child-blocked" ] ||
+        { [ "$TNY_PUBLICATION_KIND" = worker ] && [ ! -f "$TNY_PUBLICATION_GATE/worker-blocked" ]; } ||
+        [ ! -f "$TNY_UNCOOPERATIVE_LOG/ready" ]; do
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 300 ] || fail "$TNY_PUBLICATION_KIND publication fixture did not start"
+        sleep 0.01
+    done
+    stubborn_pid=$(cat "$TNY_UNCOOPERATIVE_LOG/parent")
+    grandchild_pid=$(cat "$TNY_UNCOOPERATIVE_LOG/grandchild")
+    kill -TERM "$scheduler_pid"
+    wait_scheduler
+    assert_eq "$scheduler_rc" 130 "$TNY_PUBLICATION_KIND publication cancellation"
+    scheduler_pid=
+    scheduler_launcher_pid=
+    attempt=0
+    while kill -0 "$stubborn_pid" 2> /dev/null || kill -0 "$grandchild_pid" 2> /dev/null; do
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 100 ] || fail "$TNY_PUBLICATION_KIND publication left a child process running"
+        sleep 0.01
+    done
+    stubborn_pid=
+    rm -f "$TNY_PUBLICATION_GATE/worker-pid"
+    tny_workflow_cleanup
+done
+unset TNY_PUBLICATION_GATE TNY_PUBLICATION_KIND
 TNY_WORKFLOW_TNY=$fake
 export TNY_WORKFLOW_TNY
 

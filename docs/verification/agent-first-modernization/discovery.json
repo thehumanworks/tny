@@ -1,0 +1,20 @@
+{
+  "metric": "UTF-8 output bytes, not tokenizer counts or model quality",
+  "baseline_workflow": "tools.list() + tools.describe('read_file')",
+  "candidate_workflow": "tools.search('read_file') + tools.describe('read_file')",
+  "baseline": {
+    "binary_sha256": "022cf49ca52ec99eca5011b76e066f2b0ccb1d4840dd4665f6caf59eb4a7512f",
+    "discovery_utf8_bytes": 19848,
+    "selected_schema_utf8_bytes": 320,
+    "selected_schema_sha256": "edfc241aab5e413ac2e8ea2467eaacd68b2dca54aeccd4417c7c85025fb58fa2",
+    "workflow_utf8_bytes": 20168
+  },
+  "candidate": {
+    "binary_sha256": "6340ed8b29831c07304413984de82fe6678833ac265fb24c54a4644bad62ad85",
+    "discovery_utf8_bytes": 183,
+    "selected_schema_utf8_bytes": 320,
+    "selected_schema_sha256": "edfc241aab5e413ac2e8ea2467eaacd68b2dca54aeccd4417c7c85025fb58fa2",
+    "workflow_utf8_bytes": 503
+  },
+  "reduction_percent": 97.50595001983339
+}

@@ -33,15 +33,15 @@ Env knobs:
   MOCK_TRUNCATED_TERMINAL
                       responses wire: omit the final chunk and close after the
                       terminal event, proving the dead socket is discarded
-  MOCK_CUT_ANSWER_ONCE=clean|abort|stall
+  MOCK_CUT_ANSWER_ONCE=clean|abort|reset|stall
                       both wires: the first final-answer stream is interrupted
                       after two text deltas — the chunked body ends cleanly
-                      with no terminal event, the socket is reset, or it stays
-                      open and silent until the client hangs up. The follow-up
-                      POST must carry the shown partial as a trailing assistant
-                      message plus one user continuation turn (docs/adr/0087);
-                      it is answered with the rest of the text.
-  MOCK_CUT_CALL_ONCE=clean|abort|stall
+                      with no terminal event, closes with truncated HTTP framing,
+                      resets, or stays silent until the client hangs up. The
+                      follow-up POST must carry the shown partial plus one user
+                      continuation turn (docs/adr/0087). Only reset may instead
+                      replay the exact input when no answer bytes survived.
+  MOCK_CUT_CALL_ONCE=clean|abort|reset|stall
                       both wires: the first tool-call stream is interrupted
                       after a partial arguments delta, before the terminal
                       event; the retried POST gets the ordinary stream
@@ -188,7 +188,7 @@ JSON_BODY_ONCE = os.environ.get("MOCK_JSON_BODY_ONCE") == "1"
 CUT_ANSWER_ONCE = os.environ.get("MOCK_CUT_ANSWER_ONCE")
 CUT_CALL_ONCE = os.environ.get("MOCK_CUT_CALL_ONCE")
 for _cut in (CUT_ANSWER_ONCE, CUT_CALL_ONCE):
-    if _cut not in (None, "clean", "abort", "stall"):
+    if _cut not in (None, "clean", "abort", "reset", "stall"):
         raise ValueError(f"unknown cut mode {_cut!r}")
 CUT_PARTIAL = 14  # two 7-character deltas of the answer reach the client
 CONTINUE_MARK = "Continue from precisely where it stopped"
@@ -399,16 +399,20 @@ class Handler(BaseHTTPRequestHandler):
     def _cut(self, wire: bytes, mode: str):
         """Stream `wire`, then interrupt the response instead of ending it
         (docs/adr/0087): a chunked body that ends cleanly without its
-        terminal event, a reset socket, or a silent open socket."""
+        terminal event, truncated HTTP framing, a reset socket, or silence."""
         self._start_stream()
         for i in range(0, len(wire), CHUNK_WIDTH):
             self._chunk(wire[i : i + CHUNK_WIDTH])
         if mode == "clean":
             self._chunk(b"")  # complete transport, incomplete response
-        elif mode == "abort":
-            self.connection.setsockopt(
-                socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
-            )
+        elif mode in ("abort", "reset"):
+            if mode == "reset":
+                self.connection.setsockopt(
+                    socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
+                )
+            # FIN delivers the sent partial before truncated chunked EOF. RST
+            # can discard unread bytes, so only reset fixtures allow replay
+            # of the original request instead of requiring continuation.
             # The handler's makefile() reader retains the descriptor after
             # socket.close(). Explicitly end transport I/O before releasing
             # that reference; otherwise macOS can observe an open, silent
@@ -427,12 +431,14 @@ class Handler(BaseHTTPRequestHandler):
                     break  # EOF: the client hung up on the stalled stream
             self.close_connection = True
 
-    def _take_cut(self, which: str):
+    def _take_cut(self, which: str, messages=None):
         """The interruption mode for this stream, once per fixture run."""
         mode = CUT_ANSWER_ONCE if which == "answer" else CUT_CALL_ONCE
         if not mode or _cut_state[which]:
             return None
         _cut_state[which] = True
+        if which == "answer":
+            _cut_state["messages"] = messages
         return mode
 
     def _continuation(self, msgs, text: str):
@@ -441,11 +447,22 @@ class Handler(BaseHTTPRequestHandler):
         continuation turn; the reply is the remainder of the text."""
         if not (CUT_ANSWER_ONCE and _cut_state["answer"]):
             return text
+        if CUT_ANSWER_ONCE == "reset" and msgs == _cut_state["messages"]:
+            return text  # No answer bytes survived the reset: exact replay.
         tail = msgs[-2:]
+        partial = tail[0].get("content") if len(tail) == 2 else None
+        expected_partial = partial == text[:CUT_PARTIAL]
+        if CUT_ANSWER_ONCE == "reset":
+            expected_partial = (
+                isinstance(partial, str)
+                and 0 < len(partial) <= CUT_PARTIAL
+                and text.startswith(partial)
+            )
         need(
             len(tail) == 2
             and tail[0].get("role") == "assistant"
-            and tail[0].get("content") == text[:CUT_PARTIAL],
+            and expected_partial
+            and msgs[:-2] == _cut_state["messages"],
             f"continuation must trail the shown partial: {tail!r}",
         )
         need(
@@ -453,7 +470,7 @@ class Handler(BaseHTTPRequestHandler):
             and CONTINUE_MARK in str(tail[1].get("content")),
             f"continuation must end with the user nudge: {tail!r}",
         )
-        return text[CUT_PARTIAL:]
+        return text[len(partial) :]
 
     def _json(self, code, obj):
         body = json.dumps(obj).encode()
@@ -1167,7 +1184,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             tool_msg = next(m for m in msgs if m.get("role") == "tool")
             text = self._answer_text(req, tool_msg["content"], structured is not None)
-            cut_answer = self._take_cut("answer")
+            cut_answer = self._take_cut("answer", msgs)
             if cut_answer:
                 text = text[:CUT_PARTIAL]
             else:
@@ -1612,7 +1629,7 @@ class Handler(BaseHTTPRequestHandler):
             text = self._answer_text(
                 req, outputs[0].get("output", ""), structured is not None
             )
-            cut_answer = self._take_cut("answer")
+            cut_answer = self._take_cut("answer", items)
             if cut_answer:
                 text = text[:CUT_PARTIAL]
             else:
