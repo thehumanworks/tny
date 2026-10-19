@@ -350,7 +350,20 @@ A user message that mentioned a skill ([ADR 0056](../adr/0056-skill-mention-inje
 
 ## Compaction (native)
 
-After **eight** completed turns, keep the latest **four** verbatim and replace older turns with a structured summary (requests, outcomes, files, commands, interruptions). `/compact` forces condensation of everything before the latest turn. The on-disk transcript stays intact; only the model view shrinks.
+Native requests now apply a reversible 64 KiB serialized-message soft budget
+([ADR 0192](../adr/0192-budgeted-recoverable-working-context.md)). Older large tool
+outputs become head/tail excerpts with session-local `transcript:INDEX:DIGEST`
+handles recoverable through `read_tool_result`. The latest two tool batches,
+all user instructions, assistant state, call arguments and reasoning stay exact;
+the full transcript remains unchanged. Profiles without result recovery keep
+full output. This is not a token-window or total-request limit: protected content
+can exceed it. Recover omitted evidence before relying on it.
+
+Automatic turn-count summarization is removed. `/compact` still explicitly
+condenses everything before the latest turn using the legacy lossy mechanical
+summary; it is not semantic preservation of goals or verified outcomes. Existing
+manual/stored compaction boundaries continue to apply. The on-disk transcript
+stays intact; only the model view shrinks.
 
 ## Recovery
 

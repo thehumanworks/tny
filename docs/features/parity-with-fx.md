@@ -8,7 +8,7 @@ fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https:
 | --- | --- | --- | --- |
 | Interactive shell | `fx` | `tny` | ✅ raw-termios ANSI shell, one poll loop, lazy backend, first paint ~4 ms |
 | One-shot | `fx ask`, stdin, `--json`, `--image`, `--resume`, `--no-save` | same shape | ✅ plus `--continue-recovery`; exit codes 0/1/2/130 |
-| Sessions | `~/.fx/sessions/`, `fx sessions`, `resume last`, compact after 8 turns, `/continue`, recover | `~/.tny/sessions/`, same UX | ✅ compact 8→keep 4, recovery checkpoints, `session recover` |
+| Sessions | `~/.fx/sessions/`, `fx sessions`, `resume last`, compact after 8 turns, `/continue`, recover | `~/.tny/sessions/`, same UX | ✅ recoverable working-context budget, explicit `/compact`, recovery checkpoints, `session recover` |
 | Permissions | `ask` / `auto` / `yolo`, rules, session grants | same (native loop) | ✅ rules last-match-wins, workspace>global; native gates for every profile |
 | Sandbox | `os` (macOS), `none`, `auto` | `os` via Seatbelt (macOS) / bubblewrap (Linux), plus `none` / `auto` | ✅ local foreground/background `terminal` children confine writes to workspace, extra dirs, temp, and devices; network stays open; `doctor` reports the effective mode |
 | Tools | files, grep/glob, `terminal`, web_search/fetch, vision, memory, skill, subagent, MCP lazy select | same names where possible | ✅ 27 tools; `run_command` aliased to `terminal`; `web_search` uses Codex login across providers, else DuckDuckGo; explicit command/URL overrides win (ADR 0109); `read_image` (`vision` alias) shows png/jpeg/gif/webp |
