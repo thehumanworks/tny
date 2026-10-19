@@ -237,7 +237,8 @@ release. The publish job flattens `dist/sdk/*` to the asset root before the
 globs run. Each CLI archive also carries the pure-Python extension host under
 `lib/tny/` and the sourceable Bash/Zsh workflow library under `share/tny/`;
 Python and the shells themselves are never bundled. The
-version is not hardcoded anywhere: make derives it from `git describe`
+release request is recorded in root `release.json` (`{"version":"0.28.0"}`).
+Development builds still derive their identity from `git describe`
 (docs/adr/0014), release jobs pass `TNY_VERSION=${tag#v}` explicitly
 (shallow checkouts and the Alpine container have no tags), and the
 `version` job fails the release if the built binary does not report the
@@ -249,50 +250,41 @@ asset from the os/arch/libc words in its name, so keep the triple naming.
 While the repo is private, mise needs `GITHUB_TOKEN` (or
 `MISE_GITHUB_TOKEN`) set to list and download releases.
 
-With automatic releases enabled, the flow is to merge to `main`. The `auto-release` workflow
-(`.github/workflows/auto-release.yml`, docs/adr/0085) tags and publishes
-every merge once the `ci` and `sdk` workflows are both green on that
-commit. Whichever of the two completes last does the work: it checks the
-other gate through the Actions API, runs `scripts/next_release_version.py`,
-pushes the annotated tag as `github-actions[bot]`, and dispatches
-`release.yml` on the tag ref (a tag pushed with `GITHUB_TOKEN` never fires
-`on: push: tags`, so the dispatch is the trigger, not a fallback). The
-`release` run then builds, packages, certifies the SDK artifacts and
-publishes; it does not repeat the test suite, which the two gates already
-ran on that commit ([ADR 0110](adr/0110-one-suite-per-platform.md)), and
-the auto-release job fails loudly if that run does not start.
+With automatic releases enabled, merge a PR that updates root `release.json`
+to the desired stable `X.Y.Z` version. [ADR 0191](adr/0191-metadata-driven-releases.md)
+supersedes the automatic Conventional Commit bump policy. The first request is
+**0.28.0**; merge the metadata/workflow PR next to publish that build.
 
-The version comes from the commit messages since the newest stable
-`vX.Y.Z` tag reachable from the commit (Conventional Commits prefixes,
-scanned on every commit in the range, so a PR's branch commits count):
+The existing `auto-release` → `tag-release` → `release` pipeline waits for both
+`ci` and `sdk` **main-push** runs to pass on the exact merge SHA. It reads the
+metadata at that SHA, creates an immutable annotated `vX.Y.Z` tag, then explicitly
+dispatches `release.yml` on the tag. A `GITHUB_TOKEN` tag push does not trigger
+another push workflow, so this dispatch is necessary. Builds, SDK certification,
+checksums and provenance use that exact tag. Existing distribution targets and
+optional registry-publication settings are unchanged.
 
-| Since the last tag                                | Bump                         |
-| ------------------------------------------------- | ---------------------------- |
-| `feat:` / `feat(scope):`                          | minor                        |
-| `type!:` or a `BREAKING CHANGE:` footer           | minor before 1.0, then major |
-| anything else (`fix:`, `ci:`, `docs:`, no prefix) | patch                        |
+- No version update means no additional release after that version was tagged.
+- Malformed versions, regressions and conflicting tags fail closed; tags never move.
+- A duplicate gate completion reuses the same tag and skips an already-published
+  or currently running release. Failed publication can be retried on the tag.
+- Uploads are staged in a draft release; only complete uploads become public.
+  Published assets are never overwritten by a retry.
+- Late gate completions for historical commits without `release.json` do not
+  release. The standalone planner retains legacy behavior for historical tooling.
+- The metadata request is explicit: commit-message bump guesses and skip-release
+  markers do not override it. To postpone a release, do not bump the metadata.
 
-Opt out of releasing one merge with `[skip release]` (or `[no release]`) in
-the squashed commit or in any commit the merge introduces; the next merge
-releases both. A commit whose gates finish after a newer commit has already
-been released is skipped, so tags never move backwards. Pre-release tags
-(`v1.2.3-rc.1`) are ignored as bases and are still cut by hand.
-Merges that touch `src/` are followed by the Pages bot's `[skip ci]` mirror
-commit, so the release tag normally sits one commit below the tip of `main`.
+**One-time activation:** GitHub recorded `auto-release.yml` as disabled manually
+on 2026-10-19. Merge the metadata PR, then enable **auto-release** in Actions while
+its main CI/SDK checks run. If both already finished, choose **Run workflow → main**
+on `release` once. This uses the same gates and version, with no manual tag.
+A repository-level disabled workflow cannot be enabled by editing its YAML.
 
-Manual paths still work: `git tag v<version> && git push origin v<version>`
-starts `release.yml` directly (a tag on a `[skip ci]` commit will not — pick
-the merge commit; the release does not test, so tag only commits whose gates
-are green), and "Run workflow" on `auto-release` cuts a release from
-the newest commit with green gates, optionally forcing the bump kind. If a
-tag exists without a release, dispatch it on the tag ref:
-`gh workflow run release.yml --ref v<version>`.
-Running `release.yml` on `main` calls the shared `tag-release.yml` workflow,
-preserving the same CI/SDK gates and version selection as `auto-release.yml`.
-This explicit path also works when automatic releases are disabled in GitHub.
-If the gates are still running, dispatch it again after both pass. Other branch
-refs are rejected. Only tag refs enter the binary/SDK build jobs, and the tag
-grammar is validated before compiling.
+Manual `release` runs on main use the newest non-`[skip ci]` commit and require its
+main-push gates. Other branch refs are rejected. For a failed tag publication use
+`gh workflow run release.yml --ref v0.28.0`, or rerun its failed jobs. Hand-pushed
+tags must match the metadata and should only reference a green commit; the release
+workflow validates metadata/tag/binary identity but does not repeat full CI.
 
 ## Darwin is Metal / Apple Silicon, not Intel
 

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Decide the next release tag for a commit on main (docs/adr/0085).
 
-The tag is the single source of truth for the version (docs/adr/0014), so
+release.json requests an exact stable version (ADR 0191). Without it,
+legacy commits retain Conventional Commit planning:
+
+The tag is the single source of truth for the built version (docs/adr/0014), so
 releasing means choosing the next tag. This script reads the stable `vX.Y.Z`
 tags reachable from the commit, classifies every commit since the newest one
 by its Conventional Commits prefix, and prints the tag that
@@ -21,6 +24,7 @@ never bumped from; humans cut those by hand.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -133,11 +137,52 @@ class Plan:
     base: str | None = None
 
 
+def metadata_plan(repo: Repo, commit: str, newest: Version | None) -> Plan | None:
+    """Use the release request at the resolved commit, never the working tree.
+
+    An unchanged request does not release later commits. An exact tagged SHA
+    remains dispatchable, so a failed publication can be retried without a new tag.
+    Repositories predating release.json retain the legacy planner.
+    """
+    if not repo.git("ls-tree", "--name-only", commit, "release.json").strip():
+        return None
+    data = json.loads(repo.git("show", f"{commit}:release.json"))
+    value = data.get("version") if isinstance(data, dict) else None
+    if not isinstance(value, str) or not re.fullmatch(
+        r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", value
+    ):
+        raise ValueError("release.json version must be a stable X.Y.Z string")
+    version = parse_stable_tag("v" + value)
+    assert version is not None
+    if version.tag in repo.tags():
+        tagged = repo.rev_parse(version.tag)
+        if newest is not None and newest > version:
+            return Plan(None, f"{newest.tag} supersedes metadata request {version.tag}")
+        if tagged == commit:
+            return Plan(
+                version.tag, "retry publication for the exact tagged commit", "metadata"
+            )
+        if version.tag in repo.tags("--merged", commit):
+            return Plan(None, f"release.json {value} is unchanged since its release")
+        raise ValueError(f"{version.tag} already points at another commit")
+    if newest is not None and version <= newest:
+        raise ValueError(f"release.json {value} must exceed latest tag {newest.tag}")
+    return Plan(
+        version.tag,
+        "explicit release.json version",
+        "metadata",
+        newest.tag if newest else None,
+    )
+
+
 def plan_release(repo: Repo, commit: str, override: str | None = None) -> Plan:
     """Decide whether `commit` gets a new tag, and which one."""
     commit = repo.rev_parse(commit)
     base = highest_stable(repo.tags("--merged", commit))
     newest = highest_stable(repo.tags())
+    metadata = metadata_plan(repo, commit, newest)
+    if metadata is not None:
+        return metadata
     if newest is not None and (base is None or newest > base):
         return Plan(
             None,
@@ -199,7 +244,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         plan = plan_release(Repo(args.repo), args.commit, args.bump)
-    except subprocess.CalledProcessError as error:
+    except (subprocess.CalledProcessError, ValueError) as error:
         detail = getattr(error, "stderr", None) or str(error)
         print(f"error: {detail.strip()}", file=sys.stderr)
         return 1

@@ -123,6 +123,71 @@ class PlanReleaseTests(unittest.TestCase):
     def plan(self, ref: str = "HEAD", **kwargs: object) -> object:
         return nrv.plan_release(nrv.Repo(self.repo.path), ref, **kwargs)
 
+    def metadata(self, value: object, message: str = "fix: release request") -> str:
+        import json
+
+        (self.repo.path / "release.json").write_text(
+            json.dumps(value), encoding="utf-8"
+        )
+        self.repo.git("add", "release.json")
+        return self.repo.commit(message)
+
+    def test_metadata_uses_exact_requested_version_and_resolved_commit(self) -> None:
+        requested = self.metadata({"version": "0.10.0"})
+        self.metadata({"version": "0.11.0"})
+        self.assertEqual(self.plan(requested).tag, "v0.10.0")
+        self.assertEqual(self.plan(override=nrv.MAJOR).tag, "v0.11.0")
+
+    def test_metadata_retry_is_dispatchable_but_unchanged_later_commit_skips(
+        self,
+    ) -> None:
+        self.metadata({"version": "0.9.0"})
+        self.repo.tag("v0.9.0")
+        self.assertEqual(self.plan().tag, "v0.9.0")
+        self.repo.commit("feat: does not implicitly change release request")
+        self.assertIsNone(self.plan().tag)
+
+    def test_metadata_invalid_or_regressive_values_fail_closed(self) -> None:
+        for value in (
+            None,
+            123,
+            "0.7.0",
+            "01.9.0",
+            "v0.9.0",
+            "0.9.0-rc.1",
+            "0.9.0\nBAD=1",
+        ):
+            with self.subTest(value=value):
+                self.metadata({"version": value})
+                with self.assertRaises(ValueError):
+                    self.plan()
+
+    def test_metadata_collision_does_not_retarget_existing_tag(self) -> None:
+        old = self.repo.git("rev-parse", "HEAD")
+        self.repo.git("checkout", "-b", "other")
+        self.repo.commit("fix: other history")
+        self.repo.tag("v0.9.0")
+        self.repo.git("checkout", "main")
+        self.assertEqual(self.repo.git("rev-parse", "HEAD"), old)
+        self.metadata({"version": "0.9.0"})
+        with self.assertRaisesRegex(ValueError, "another commit"):
+            self.plan()
+
+    def test_metadata_late_completion_cannot_retry_superseded_release(self) -> None:
+        old = self.metadata({"version": "0.9.0"})
+        self.repo.tag("v0.9.0")
+        self.metadata({"version": "0.10.0"})
+        self.repo.tag("v0.10.0")
+        self.assertIsNone(self.plan(old).tag)
+
+    def test_metadata_merge_and_squash_both_request_same_version(self) -> None:
+        self.repo.git("checkout", "-b", "metadata")
+        requested = self.metadata({"version": "0.12.0"})
+        self.assertEqual(self.plan(requested).tag, "v0.12.0")
+        self.repo.git("checkout", "main")
+        self.repo.git("merge", "--no-ff", "-m", "Merge release request", "metadata")
+        self.assertEqual(self.plan().tag, "v0.12.0")
+
     def test_already_released_commit_is_skipped(self) -> None:
         plan = self.plan()
         self.assertIsNone(plan.tag)
@@ -263,6 +328,9 @@ class AutoReleaseWorkflowContractTests(unittest.TestCase):
         # documented fallback is a dispatch on the tag ref.
         self.assertIn('gh workflow run release.yml --ref "$tag"', self.shared)
         self.assertIn("scripts/next_release_version.py", self.shared)
+        self.assertIn('git cat-file -e "$SHA:release.json"', self.shared)
+        self.assertIn("event=push&branch=main", self.shared)
+        self.assertIn("github.ref == 'refs/heads/main'", self.workflow)
         self.assertIn("concurrency:\n  group: auto-release", self.shared)
         self.assertNotIn("concurrency:", self.workflow)
         self.assertIn("uses: ./.github/workflows/tag-release.yml", self.workflow)
@@ -270,6 +338,74 @@ class AutoReleaseWorkflowContractTests(unittest.TestCase):
 
 class ReleaseDispatchTests(unittest.TestCase):
     workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    def test_publication_is_draft_first_and_retry_does_not_replace_public_assets(
+        self,
+    ) -> None:
+        step = self.workflow.split("      - name: Create GitHub release", 1)[1]
+        step = step.split("  validate-registries:", 1)[0]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        for state, fail_upload in (
+            ("", False),
+            ("", True),
+            ("true", False),
+            ("false", False),
+        ):
+            with (
+                self.subTest(existing_draft=state),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                (root / "assets").mkdir()
+                for name in ("tny-test.tar.gz", "SHA256SUMS"):
+                    (root / "assets" / name).write_text("fixture")
+                gh = root / "gh"
+                gh.write_text(
+                    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALLS"\n'
+                    'if [ "$1" = api ]; then printf "%s" "$STATE"; fi\n'
+                    'if [ "$1 $2" = "release upload" ] && [ "$FAIL_UPLOAD" = true ]; then exit 1; fi\n',
+                    encoding="utf-8",
+                )
+                gh.chmod(0o755)
+                calls = root / "calls"
+                result = subprocess.run(
+                    ["bash", "-c", script],
+                    cwd=root,
+                    env={
+                        **os.environ,
+                        "PATH": f"{root}{os.pathsep}{os.environ['PATH']}",
+                        "STATE": state,
+                        "FAIL_UPLOAD": str(fail_upload).lower(),
+                        "CALLS": str(calls),
+                        "GITHUB_REF_NAME": "v0.28.0",
+                        "GITHUB_REPOSITORY": "example/tny",
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                log = calls.read_text()
+                if fail_upload:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("release upload", log)
+                    self.assertNotIn("release edit", log)
+                    continue
+                self.assertEqual(result.returncode, 0, result.stderr)
+                if state == "false":
+                    self.assertNotIn("release upload", log)
+                    self.assertNotIn("release edit", log)
+                else:
+                    self.assertLess(
+                        log.index("release upload"), log.index("release edit")
+                    )
+                    self.assertIn("--draft=false", log)
+                    if not state:
+                        self.assertIn("--verify-tag --draft", log)
+                        self.assertLess(
+                            log.index("release create"), log.index("release upload")
+                        )
+                    else:
+                        self.assertNotIn("release create", log)
 
     def test_only_tags_build_and_validate_before_compiling(self) -> None:
         route, version = self.workflow.split("  version:\n", 1)
