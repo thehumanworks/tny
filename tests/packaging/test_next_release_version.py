@@ -147,6 +147,12 @@ class PlanReleaseTests(unittest.TestCase):
         self.repo.commit("feat: does not implicitly change release request")
         self.assertIsNone(self.plan().tag)
 
+    def test_unchanged_metadata_cannot_steal_an_unpublished_request(self) -> None:
+        request = self.metadata({"version": "0.9.0"})
+        self.repo.commit("fix: later merge finishes CI first")
+        self.assertIsNone(self.plan().tag)
+        self.assertEqual(self.plan(request).tag, "v0.9.0")
+
     def test_metadata_invalid_or_regressive_values_fail_closed(self) -> None:
         for value in (
             None,

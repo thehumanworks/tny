@@ -263,7 +263,8 @@ another push workflow, so this dispatch is necessary. Builds, SDK certification,
 checksums and provenance use that exact tag. Existing distribution targets and
 optional registry-publication settings are unchanged.
 
-- No version update means no additional release after that version was tagged.
+- Only a commit that changes the requested version can create its tag. A later
+  unchanged merge cannot consume the version by finishing CI first.
 - Malformed versions, regressions and conflicting tags fail closed; tags never move.
 - A duplicate gate completion reuses the same tag and skips an already-published
   or currently running release. Failed publication can be retried on the tag.

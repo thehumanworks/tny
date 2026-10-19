@@ -167,6 +167,14 @@ def metadata_plan(repo: Repo, commit: str, newest: Version | None) -> Plan | Non
         raise ValueError(f"{version.tag} already points at another commit")
     if newest is not None and version <= newest:
         raise ValueError(f"release.json {value} must exceed latest tag {newest.tag}")
+    parents = repo.git("rev-list", "--parents", "-n", "1", commit).split()[1:]
+    if (
+        parents
+        and repo.git("ls-tree", "--name-only", parents[0], "release.json").strip()
+    ):
+        prior = json.loads(repo.git("show", f"{parents[0]}:release.json"))
+        if isinstance(prior, dict) and prior.get("version") == value:
+            return Plan(None, "release.json version was not updated by this commit")
     return Plan(
         version.tag,
         "explicit release.json version",
