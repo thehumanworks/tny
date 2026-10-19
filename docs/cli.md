@@ -281,6 +281,9 @@ wasm behavior: remote-only — the browser build has no `ssh` to spawn, so
 named OpenAI-compatible HTTP profile. Names come from a settings object with
 `base_url` or a `NAME_BASE_URL` environment variable. Both Responses (default)
 and Chat Completions (`wire_api: "chat"`) use the native tools/MCP/session loop.
+The direct Inception endpoint `https://api.inceptionlabs.ai/v1` defaults to Chat
+Completions when no wire is configured. An explicit flag, environment variable,
+or profile wire still wins; other endpoints keep their existing default.
 No vendor agent binary is required.
 
 Precedence: explicit flag, settings `provider`, remembered `last_provider`
@@ -302,6 +305,41 @@ tny provider setup openrouter --base-url https://openrouter.ai/api/v1 --api-key-
 tny provider setup aiproxy --base-url https://your-gateway.example/v1 --api-key-env AIPROXY_API_KEY
 tny provider setup  # interactive environment-variable name prompts
 ```
+
+For direct Inception (with `INCEPTION_API_KEY` exported):
+
+```sh
+tny provider setup inception --base-url https://api.inceptionlabs.ai/v1 --api-key-env INCEPTION_API_KEY --model mercury-3 --wire-api chat
+tny --provider inception ask "What is a diffusion model?"
+```
+
+`provider setup --wire-api chat` persists the choice in `~/.tny/settings.json`;
+no per-turn flag is needed. You can also edit the provider object directly:
+
+```json
+{"inception": {"base_url": "https://api.inceptionlabs.ai/v1", "api_key_env": "INCEPTION_API_KEY", "model": "mercury-3", "wire_api": "chat"}}
+```
+
+For `openai` and named OpenAI-compatible HTTP profiles, `INCEPTION_WIRE_API=chat` or
+`INCEPTION_WIRE_API=responses` overrides that provider's settings. The general
+name is `<PROVIDER>_WIRE_API`: uppercase the provider name and replace punctuation
+with underscores (for example `my-gateway` becomes `MY_GATEWAY_WIRE_API`).
+Precedence is `--wire-api` > nonempty provider environment variable > provider
+`wire_api` setting > endpoint default. An empty environment variable is ignored.
+Only the selected provider's controls apply; a wire variable alone does not
+select or create a provider. Invalid effective values fail before a request and
+are not echoed. Valid higher-priority overrides can repair invalid settings.
+External ACP agents and built-in subscription profiles retain their own protocol
+contracts; these HTTP-profile settings do not configure them.
+`OPENAI_WIRE_API=chat` remains supported but never carries ChatGPT-plan tokens to
+Chat Completions; Sign in with ChatGPT is Responses-only.
+
+Use a model enabled for your account. `mercury-3` is the user's reported model,
+not a live-verified entitlement. Direct Inception takes a provider-local model
+ID; `inception/mercury-3` is an OpenRouter-style ID. tny does not rewrite model
+IDs or forward credentials to another provider. For another Chat-only gateway,
+set `--wire-api chat` explicitly. There is no automatic retry on `/responses`
+404s: a 404 may also mean a missing model, not a wrong protocol.
 
 AIProxy's example URL is a placeholder: supply your gateway URL. Setup stores
 only configuration and environment-variable names, never API keys. Existing
@@ -1080,7 +1118,7 @@ any backend work.
 | Provider | Flags / env |
 | --- | --- |
 | codex (builtin profile) | credential precedence `--chatgpt-token` (+ `--chatgpt-account-id`) > `CHATGPT_ACCESS_TOKEN` (+ `CHATGPT_ACCOUNT_ID`) > `~/.tny/codex-auth.json` (`tny --provider codex login`) > `$CODEX_HOME/auth.json` (`codex login`); the winning file auto-refreshes in place, flag/env tokens need no filesystem; account id explicit or from the JWT claim → `https://chatgpt.com/backend-api/codex` on the Responses wire with `chatgpt-account-id` + `OpenAI-Beta: responses=v1`; persisted `OPENAI_API_KEY` auth.json entries are rejected (use an env-key profile); default model `gpt-5.6-sol`; `TNY_CODEX_BASE_URL` redirects the ChatGPT-mode URL (mocks/gateways) without shadowing the profile ([backends/codex.md](backends/codex.md)) |
-| openai | with no key, a Sign in with ChatGPT login (`tny --provider openai login`) authorizes the default `https://api.openai.com/v1` Responses endpoint only; any `--base-url`, `OPENAI_BASE_URL`, `--wire-api chat` or custom auth header turns it off ([backends/openai-chatgpt.md](backends/openai-chatgpt.md)). `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0016](adr/0016-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API`. `--base-url-env NAME` reads the base URL from environment variable `NAME` with `--base-url` precedence, keeping a secret-bearing gateway URL off argv (native subagent children use it, [ADR 0087](adr/0087-explicit-subagent-contract-and-private-launch.md)); an empty `NAME` or combining it with `--base-url` is a startup error (exit 1) |
+| openai | with no key, a Sign in with ChatGPT login (`tny --provider openai login`) authorizes the default `https://api.openai.com/v1` Responses endpoint only; any `--base-url`, `OPENAI_BASE_URL`, `--wire-api chat` or custom auth header turns it off ([backends/openai-chatgpt.md](backends/openai-chatgpt.md)). `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`, except the direct Inception endpoint; `chat` for Chat Completions providers, [ADR 0194](adr/0194-inception-chat-completions-default.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API`. `--base-url-env NAME` reads the base URL from environment variable `NAME` with `--base-url` precedence, keeping a secret-bearing gateway URL off argv (native subagent children use it, [ADR 0087](adr/0087-explicit-subagent-contract-and-private-launch.md)); an empty `NAME` or combining it with `--base-url` is a startup error (exit 1) |
 | named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY`; `NAME_WIRE_API` / profile `wire_api` |
 | grok (builtin profile) | session token from `~/.grok/auth.json` (minted by tny's native device login or the grok CLI; expired OIDC tokens auto-refresh at resolve) → CLI chat proxy (chat wire, `X-XAI-Token-Auth` + `x-grok-model-override` + `x-grok-client-version: 1.0.45` headers — HTTP 426 means the client version is too old, `TNY_GROK_CLIENT_VERSION` overrides the pin — default model `grok-4.6`); else `XAI_API_KEY` → `api.x.ai` (responses wire, same default model); `GROK_OAUTH2_ISSUER` / `GROK_OAUTH2_CLIENT_ID` override the login endpoint |
 

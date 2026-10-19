@@ -131,9 +131,9 @@ struct tny_subagent_plan_owner {
             arg("--base-url-env");
             arg(TNY_SUBAGENT_URL_ENV);
         }
-        if (parent && ctx.backend == TNY_BK_OPENAI && ctx.wire_api) {
+        if (parent && ctx.backend == TNY_BK_OPENAI) {
             arg("--wire-api");
-            arg(tny_wire_is_chat(ctx.wire_api) ? "chat" : "responses");
+            arg(tny_provider_wire_is_chat(&ctx) ? "chat" : "responses");
         }
         if (model) {
             arg("--model");

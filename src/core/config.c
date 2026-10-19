@@ -4,6 +4,7 @@
 #include "core/extensions.h"
 #include "core/instructions.h"
 #include "core/openai_auth.h"
+#include "net/net.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -88,7 +89,7 @@ const char *tny_service_tier_error(const tny_ctx *ctx, const char *tier) {
     if (!tny_tier_is_ultrafast(tier)) return NULL;
     if (ctx->backend != TNY_BK_OPENAI || strcmp(tny_provider_name(ctx), "openai") != 0)
         return "ultrafast requires the openai provider (not codex or compatible profiles)";
-    if (tny_wire_is_chat(ctx->wire_api))
+    if (tny_provider_wire_is_chat(ctx))
         return "ultrafast requires --wire-api responses (Chat Completions is unsupported)";
     const char *model =
         ctx->model ? ctx->model : (ctx->openai_signin ? TNY_OPENAI_SIGNIN_MODEL : NULL);
@@ -98,6 +99,18 @@ const char *tny_service_tier_error(const tny_ctx *ctx, const char *tier) {
 }
 
 bool tny_wire_is_chat(const char *wire_api) { return wire_api && strcmp(wire_api, "chat") == 0; }
+
+/* Resolve the wire from the final endpoint, including CLI URL overrides.
+ * Explicit configuration always wins. Never probe a different endpoint or
+ * change credentials/model identifiers after an HTTP failure. */
+bool tny_provider_wire_is_chat(const tny_ctx *ctx) {
+    if (!ctx) return false;
+    if (ctx->wire_api && *ctx->wire_api) return tny_wire_is_chat(ctx->wire_api);
+    url_parts url;
+    return ctx->base_url && url_parse(ctx->base_url, &url) == 0 &&
+           strcmp(url.scheme, "https") == 0 && strcmp(url.host, "api.inceptionlabs.ai") == 0 &&
+           url.port == 443 && (strcmp(url.path, "/v1") == 0 || strcmp(url.path, "/v1/") == 0);
+}
 
 static const char *bk_names[TNY_BK_COUNT] = {"openai", "acp"};
 
@@ -551,7 +564,7 @@ static void apply_openai_signin(tny_ctx *ctx, bool default_endpoint) {
     ctx->openai_signin_expires_at = 0;
     ctx->openai_signin_key = 0;
     const char *base = tny_openai_signin_base_url();
-    if (ctx->api_key || !default_endpoint || !base || tny_wire_is_chat(ctx->wire_api) ||
+    if (ctx->api_key || !default_endpoint || !base || tny_provider_wire_is_chat(ctx) ||
         !ctx->auth_header_name || strcmp(ctx->auth_header_name, "Authorization") != 0 ||
         !ctx->auth_header_prefix || strcmp(ctx->auth_header_prefix, "Bearer ") != 0)
         return;
@@ -596,7 +609,7 @@ static void load_openai_profile(tny_ctx *ctx) {
     const char *wa = getenv("OPENAI_WIRE_API");
     if (!wa || !*wa) wa = jget_str(oa, "wire_api");
     free(ctx->wire_api);
-    ctx->wire_api = wa && *wa ? provider_strdup(ctx, wa) : NULL; /* NULL = responses */
+    ctx->wire_api = wa && *wa ? provider_strdup(ctx, wa) : NULL; /* NULL = endpoint default */
     tny_ctx_clear_extra_headers(ctx); /* builtin-profile headers must not leak */
     apply_openai_signin(ctx, !bu || !*bu || strcmp(bu, TNY_OPENAI_API_BASE_URL) == 0);
 }
@@ -633,7 +646,7 @@ static void apply_custom_provider(tny_ctx *ctx, const char *name) {
     const char *wa = derived_env_value(name, "_WIRE_API");
     if (!wa) wa = jget_str(o, "wire_api");
     free(ctx->wire_api);
-    ctx->wire_api = wa && *wa ? provider_strdup(ctx, wa) : NULL; /* NULL = responses */
+    ctx->wire_api = wa && *wa ? provider_strdup(ctx, wa) : NULL; /* NULL = endpoint default */
     tny_ctx_clear_extra_headers(ctx);
 }
 
@@ -1189,7 +1202,6 @@ static int resolve_provider(tny_ctx *ctx, const char *flag_value, const char *wi
             ctx->provider_name = NULL;
             load_openai_profile(ctx);
         }
-        tny_openai_signin_sync(ctx); /* hour-long access tokens: refresh near expiry */
     }
     free(selected);
     apply_provider_model(ctx, id);
@@ -1210,6 +1222,29 @@ static int resolve_provider(tny_ctx *ctx, const char *flag_value, const char *wi
         free(ctx->wire_api);
         ctx->wire_api = provider_strdup(ctx, wire_override);
     }
+    /* Validate only the selected, effective source: a CLI/env override can
+     * repair invalid lower-priority settings. Never echo arbitrary values. */
+    if (!acp) {
+        yyjson_val *wire_setting = NULL;
+        if (!wire_override && (!builtin || custom) &&
+            !derived_env_value(tny_provider_name(ctx), "_WIRE_API") && ctx->settings)
+            wire_setting =
+                jget(jget(yyjson_doc_get_root(ctx->settings), tny_provider_name(ctx)), "wire_api");
+        bool bad_setting =
+            wire_setting && (!yyjson_is_str(wire_setting) ||
+                             yyjson_get_len(wire_setting) != strlen(yyjson_get_str(wire_setting)) ||
+                             !*yyjson_get_str(wire_setting));
+        if (bad_setting || (ctx->wire_api && strcmp(ctx->wire_api, "chat") != 0 &&
+                            strcmp(ctx->wire_api, "responses") != 0)) {
+            fputs("tny: provider wire_api must be chat|responses (settings.json, "
+                  "PROVIDER_WIRE_API or --wire-api)\n",
+                  stderr);
+            free(env_pick);
+            return -1;
+        }
+    }
+    /* Do not refresh a plan token until the final wire is valid and safe. */
+    if (!acp && !custom && !builtin) tny_openai_signin_sync(ctx);
     const char *tier_error = tny_service_tier_error(ctx, ctx->service_tier);
     if (tier_error) {
         fprintf(stderr, "tny: %s\n", tier_error);

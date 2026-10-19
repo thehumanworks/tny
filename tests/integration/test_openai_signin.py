@@ -565,6 +565,26 @@ def case_guards(env, ws):
 
 
 def case_refresh(env, ws, home, issuer):
+    # Reject unsafe/effective wire choices before refreshing a stale plan token.
+    for wire, flags in (
+        ("invalid-secret-wire", ()),
+        (None, ("--wire-api", "chat")),
+        ("invalid-secret-wire", ("--wire-api", "chat")),
+    ):
+        seed_store(home, issuer, expires_in=60)
+        Mock.reset(issuer=issuer)
+        selected = dict(env)
+        if wire:
+            selected["OPENAI_WIRE_API"] = wire
+        r = ask(selected, ws, "--provider", "openai", *flags)
+        assert not Mock.st["token_calls"], "unsafe wire refreshed a plan token"
+        assert not any(c[1] for c in Mock.st["api_calls"]), (
+            "unsafe wire sent a plan token"
+        )
+        if not flags:
+            assert r.returncode != 0 and not Mock.st["api_calls"]
+        no_secret(r, "invalid-secret-wire", "plan-access-1", "plan-refresh-1")
+
     seed_store(home, issuer, expires_in=60)  # inside the 180 s early window
     Mock.reset(issuer=issuer)
     r = ask(env, ws, "--provider", "openai")

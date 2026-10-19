@@ -2436,9 +2436,7 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
     jm_set_str(doc, chat, "codex_url", chat_is_codex ? getenv("TNY_CODEX_BASE_URL") : NULL);
     jm_set_str(doc, chat, "base_url", chat_is_acp ? NULL : ctx->base_url);
     jm_set_str(doc, chat, "wire_api",
-               !chat_is_acp && ctx->wire_api
-                   ? (tny_wire_is_chat(ctx->wire_api) ? "chat" : "responses")
-                   : NULL);
+               !chat_is_acp ? (tny_provider_wire_is_chat(ctx) ? "chat" : "responses") : NULL);
     jm_set_str(doc, chat, "model", ctx->model);
     jm_set_str(doc, chat, "effort", ctx->reasoning_effort);
     /* The selected conversation provider IS the ChatGPT account here, so the
@@ -2769,7 +2767,7 @@ static char *jobs_item_launch_snapshot(tny_ctx *parent, yyjson_val *item, char *
     jm_set_bool(doc.get(), root, "acp_require_tools_authority", acp);
     jm_set_str(doc.get(), root, "api_key", acp ? NULL : ctx->api_key);
     jm_set_str(doc.get(), root, "base_url", acp ? NULL : ctx->base_url);
-    const char *wire = acp ? NULL : (tny_wire_is_chat(ctx->wire_api) ? "chat" : "responses");
+    const char *wire = acp ? NULL : (tny_provider_wire_is_chat(ctx) ? "chat" : "responses");
     jm_set_str(doc.get(), root, "wire_api", wire);
     bool codex = strcmp(tny_provider_name(ctx), "codex") == 0;
     jm_set_bool(doc.get(), root, "codex", codex);
