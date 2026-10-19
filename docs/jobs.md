@@ -761,3 +761,20 @@ child stderr, provider body or credential is published. The run/task/attempt and
 private capability are validated. Absence or an unreadable sidecar is **unknown**,
 not proof of success or permission to replay external effects. Retry clears the
 current projection while retaining earlier attempt evidence.
+
+## Implementation ownership map
+
+`src/core/jobs_record.cpp` owns validation of persisted job records and bounded
+state-lock transactions. Its private C++ header contains the move-disabled
+transaction owner and shared mutable-record accessors. It does not schedule,
+launch, cancel, reap, project, or repair a job. `jobs.cpp` retains those decisions,
+including attempt fencing, admission, cleanup holds, retries, and reservations;
+`util/jobs_host.c` remains the OS seam. The public C interface in `jobs.h` is
+unchanged.
+
+Transaction destruction and reset release document, path, then lock, without
+publishing state. Commit updates revision/time, performs the existing private
+atomic write, and releases ownership even when writing fails. Loading continues
+to reject duplicate keys, embedded NULs, excessive nesting, unsupported schema,
+mismatched IDs, and invalid item indexes/states. This extraction adds no new
+process-cleanup or crash-durability guarantee.

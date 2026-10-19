@@ -12,16 +12,16 @@ ROOT = Path(__file__).resolve().parents[2]
 MUTANTS = [
     (
         "transaction-retains-document",
-        "jobs",
-        "        doc.reset();\n        dir.reset();\n        lock_fd.reset();",
-        "        dir.reset();\n        lock_fd.reset();",
+        "jobs_record",
+        "    doc.reset();\n    dir.reset();\n    lock_fd.reset();",
+        "    dir.reset();\n    lock_fd.reset();",
         "!transaction.dir && !transaction.doc",
     ),
     (
         "transaction-retains-lock",
-        "jobs",
-        "        doc.reset();\n        dir.reset();\n        lock_fd.reset();",
-        "        doc.reset();\n        dir.reset();",
+        "jobs_record",
+        "    doc.reset();\n    dir.reset();\n    lock_fd.reset();",
+        "    doc.reset();\n    dir.reset();",
         "!transaction.dir && !transaction.doc",
     ),
     (
