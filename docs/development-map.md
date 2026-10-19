@@ -15,7 +15,8 @@ behavior is in the linked feature contract; ADRs explain decisions when needed.
 | Implement a nested tool | `src/core/tools_*.c`, [catalog](features/mcp-and-skills.md) | owning unit suite + real execution fixture |
 | Run/cancel a code cell | `execution*.c`, `code_runtime.c`, `util/execution_*.c` | `test_execution_code_mode.py`, `test_terminal_cancel.py` |
 | Resume/crash recovery | `session.c`, `checkpoint.cpp`, `runner.cpp` | `runner_suite`, session/checkpoint fixtures |
-| Durable background work | `jobs.cpp`, `team_*.c`, `util/jobs_host.c` | job/team integration fixtures |
+| Durable job records and transactions | `core/jobs_record.cpp`, private `jobs_record.hpp` | `make test-runner-ownership test-runner-mutation`; job corruption fixtures |
+| Durable background orchestration | `core/jobs.cpp`, `team_*.c`, `util/jobs_host.c` | job/team integration fixtures |
 | Shell DAG scheduling | `shell/tny-workflows.sh`, [workflows](workflows.md) | `make test-shell-workflows` (Bash and Zsh) |
 | Bounded workflow learning | `learning.c`, `util/learning_store.c`, [contract](instruction-improvement.md) | `learning_suite`, `learning_process_suite` |
 | CLI / TUI presentation | `src/cli/`, `src/tui/` | CLI JSON/help fixtures, PTY tests |

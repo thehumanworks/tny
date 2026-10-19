@@ -1140,13 +1140,13 @@ test-runtime-mutation:
 	python3 tests/mutation/runtime_critical.py
 .PHONY: test-runtime-mutation
 
-# Runner/job ownership faults (ADR 0118) bind the real runner.cpp/jobs.cpp
-# sources into one fixture with real fd/pipe/flock boundaries, an
+# Runner/job ownership faults (ADR 0118) bind runner.cpp, jobs.cpp and
+# jobs_record.cpp into one fixture with real fd/pipe/flock boundaries, an
 # allocator-instrumented alloc.c, and syscall-faulting copies of the unchanged
 # C host seams. Everything else is the ordinary debug object graph.
 RUNNER_OWNERSHIP := $(BUILD)/runner-ownership/runner-ownership
 RUNNER_HOST_ALLOC := $(BUILD)/runner-host/alloc.o
-RUNNER_OWNERSHIP_OBJS = $(filter-out $(OBJ_DBG)/src/core/runner.cpp.o $(OBJ_DBG)/src/core/jobs.cpp.o \
+RUNNER_OWNERSHIP_OBJS = $(filter-out $(OBJ_DBG)/src/core/runner.cpp.o $(OBJ_DBG)/src/core/jobs.cpp.o $(OBJ_DBG)/src/core/jobs_record.cpp.o \
     $(OBJ_DBG)/src/util/alloc.o $(OBJ_DBG)/src/util/jobs_host.o $(OBJ_DBG)/src/util/process.o,\
     $(sort $(TEST_OBJS))) $(BUILD)/runner-host/jobs_host.o $(BUILD)/runner-host/process.o \
     $(OBJ_DBG)/tests/fixtures/resource_host_faults.o $(RUNNER_HOST_ALLOC)

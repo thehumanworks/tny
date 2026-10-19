@@ -49,11 +49,30 @@ extern "C" {
 #include "util/resources.hpp"
 #include "json/ownership.hpp"
 #include <memory>
+#include "core/jobs_record.hpp"
+
+using tny::jobs_detail::jm_bool;
+using tny::jobs_detail::jm_int;
+using tny::jobs_detail::jm_item;
+using tny::jobs_detail::jm_item_count;
+using tny::jobs_detail::jm_items;
+using tny::jobs_detail::jm_set_bool;
+using tny::jobs_detail::jm_set_int;
+using tny::jobs_detail::jm_set_null;
+using tny::jobs_detail::jm_set_str;
+using tny::jobs_detail::jm_str;
+using tny::jobs_detail::jobs_record_load;
+using tny::jobs_detail::jobs_record_store;
+using tny::jobs_detail::jobs_txn;
+using tny::jobs_detail::jobs_txn_begin;
+using tny::jobs_detail::jobs_txn_commit;
+using tny::jobs_detail::jobs_txn_end;
+using tny::jobs_detail::json_unique_keys;
+using tny::jobs_detail::record_state_is_known;
+using tny::jobs_detail::state_is_known;
 
 extern "C" char **environ;
 
-#define JOBS_STATE_LOCK_TRIES         80
-#define JOBS_STATE_LOCK_WAIT_MS       25
 #define JOBS_POLL_MS                  100
 #define JOBS_CANCEL_GRACE_MS          (TNY_PROCESS_CANCEL_GRACE_MS + 1000)
 #define JOBS_ENV_API_KEY              "TNY_JOB_API_KEY"
@@ -62,9 +81,6 @@ extern "C" char **environ;
 #define JOBS_LIST_MAX                 200
 #define SWARM_DEPENDENCY_SUMMARY_MAX  2048u
 #define SWARM_DEPENDENCY_EVIDENCE_MAX 16384u
-
-static const char *const JOB_STATES[] = {"queued", "running",   "succeeded",
-                                         "failed", "cancelled", "interrupted"};
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -180,64 +196,6 @@ static void safe_err(char *err, size_t errlen, const char *fmt, ...) {
 static const char *artifact_string(yyjson_val *, const char *, size_t);
 static int jobs_admission(tny_ctx *, yyjson_val *, const char *, int, int, tny_admission_op, bool,
                           tny_admission_result *);
-
-/* ---- mutable-document accessors (job.json is read-modify-written) ---- */
-
-static void jm_set_str(yyjson_mut_doc *doc, yyjson_mut_val *obj, const char *key,
-                       const char *value) {
-    yyjson_mut_val *v = value ? yyjson_mut_strcpy(doc, value) : yyjson_mut_null(doc);
-    yyjson_mut_obj_put(obj, yyjson_mut_strcpy(doc, key), v);
-}
-
-static void jm_set_int(yyjson_mut_doc *doc, yyjson_mut_val *obj, const char *key, int64_t value) {
-    yyjson_mut_obj_put(obj, yyjson_mut_strcpy(doc, key), yyjson_mut_sint(doc, value));
-}
-
-static void jm_set_null(yyjson_mut_doc *doc, yyjson_mut_val *obj, const char *key) {
-    yyjson_mut_obj_put(obj, yyjson_mut_strcpy(doc, key), yyjson_mut_null(doc));
-}
-
-static void jm_set_bool(yyjson_mut_doc *doc, yyjson_mut_val *obj, const char *key, bool value) {
-    yyjson_mut_val *existing = yyjson_mut_obj_get(obj, key);
-    if (yyjson_mut_is_bool(existing)) {
-        /* Re-latching a durable cleanup hold must never allocate or erase it. */
-        yyjson_mut_set_bool(existing, value);
-        return;
-    }
-    yyjson_mut_val *name = yyjson_mut_strcpy(doc, key);
-    yyjson_mut_val *replacement = yyjson_mut_bool(doc, value);
-    /* yyjson interprets a NULL value as removal, not insertion failure. */
-    if (name && replacement) yyjson_mut_obj_put(obj, name, replacement);
-}
-
-static const char *jm_str(yyjson_mut_val *obj, const char *key) {
-    return yyjson_mut_get_str(yyjson_mut_obj_get(obj, key));
-}
-
-static int64_t jm_int(yyjson_mut_val *obj, const char *key, int64_t dflt) {
-    yyjson_mut_val *v = yyjson_mut_obj_get(obj, key);
-    return v && yyjson_mut_is_int(v) ? yyjson_mut_get_sint(v) : dflt;
-}
-
-static bool jm_bool(yyjson_mut_val *obj, const char *key, bool dflt) {
-    yyjson_mut_val *v = yyjson_mut_obj_get(obj, key);
-    return v && yyjson_mut_is_bool(v) ? yyjson_mut_get_bool(v) : dflt;
-}
-
-static yyjson_mut_val *jm_items(yyjson_mut_doc *doc) {
-    yyjson_mut_val *items = yyjson_mut_obj_get(yyjson_mut_doc_get_root(doc), "items");
-    return items && yyjson_mut_is_arr(items) ? items : NULL;
-}
-
-static yyjson_mut_val *jm_item(yyjson_mut_doc *doc, int index) {
-    yyjson_mut_val *items = jm_items(doc);
-    return items ? yyjson_mut_arr_get(items, (size_t)index) : NULL;
-}
-
-static int jm_item_count(yyjson_mut_doc *doc) {
-    yyjson_mut_val *items = jm_items(doc);
-    return items ? (int)yyjson_mut_arr_size(items) : 0;
-}
 
 /* A DAG child inherits only instruction context. Provider/chat and image
  * allowances remain in the separate anonymous supervisor payload and can
@@ -463,168 +421,6 @@ int tny_jobs_child_context_apply(tny_ctx *ctx, const char *path, char *err, size
 static bool state_is_terminal(const char *state) {
     return state && (strcmp(state, "succeeded") == 0 || strcmp(state, "failed") == 0 ||
                      strcmp(state, "cancelled") == 0 || strcmp(state, "interrupted") == 0);
-}
-
-static bool state_is_known(const char *state) {
-    if (!state) return false;
-    for (size_t i = 0; i < sizeof JOB_STATES / sizeof JOB_STATES[0]; i++)
-        if (strcmp(state, JOB_STATES[i]) == 0) return true;
-    return false;
-}
-
-/* ---- loading and validating a record (fails closed) ---- */
-
-static bool record_state_is_known(yyjson_val *state) {
-    const char *text = yyjson_get_str(state);
-    return text && strlen(text) == yyjson_get_len(state) && state_is_known(text);
-}
-
-static bool json_unique_keys(yyjson_val *value, unsigned depth) {
-    if (!value || depth > 64) return false;
-    size_t i, max;
-    yyjson_val *key, *child;
-    if (yyjson_is_obj(value)) {
-        yyjson_obj_foreach(value, i, max, key, child) {
-            const char *name = yyjson_get_str(key);
-            size_t len = yyjson_get_len(key);
-            if (!name || strlen(name) != len || yyjson_obj_getn(value, name, len) != child ||
-                !json_unique_keys(child, depth + 1))
-                return false;
-        }
-    } else if (yyjson_is_arr(value)) {
-        yyjson_arr_foreach(value, i, max,
-                           child) if (!json_unique_keys(child, depth + 1)) return false;
-    } else if (yyjson_is_str(value) && strlen(yyjson_get_str(value)) != yyjson_get_len(value)) {
-        return false;
-    }
-    return true;
-}
-
-static yyjson_mut_doc *jobs_record_load(const char *dir, const char *id, char *err, size_t errlen) {
-    tny::c_string path(jobs_file(dir, "job.json"));
-    if (!path) return NULL;
-    size_t len = 0;
-    tny::c_string data(file_slurp(path.get(), &len));
-    if (!data) {
-        safe_err(err, errlen, "no job record");
-        return NULL;
-    }
-    if (len > TNY_JOBS_PAYLOAD_MAX) {
-        safe_err(err, errlen, "the job record is too large");
-        return NULL;
-    }
-    tny::document doc(jparse(data.get(), len));
-    data.reset(); /* The parsed document owns its bytes from this point. */
-    yyjson_val *root = doc ? yyjson_doc_get_root(doc.get()) : NULL;
-    if (!root || !yyjson_is_obj(root) || !json_unique_keys(root, 0)) {
-        safe_err(err, errlen, "the job record is not a JSON object");
-        return NULL;
-    }
-    int64_t version = jget_int(root, "version", 0);
-    const char *kind = jget_str(root, "kind");
-    const char *record_id = jget_str(root, "id");
-    yyjson_val *items = jget(root, "items");
-    bool ok = version == TNY_JOBS_SCHEMA_VERSION && kind && strcmp(kind, "job") == 0 && record_id &&
-              tny_jobs_valid_id(record_id) && (!id || strcmp(record_id, id) == 0) && items &&
-              yyjson_is_arr(items) && yyjson_arr_size(items) <= TNY_JOBS_MAX_ITEMS &&
-              record_state_is_known(jget(root, "state"));
-    if (ok) {
-        size_t idx, max;
-        yyjson_val *item;
-        yyjson_arr_foreach(items, idx, max, item) {
-            if (!yyjson_is_obj(item) || jget_int(item, "index", -1) != (int64_t)idx ||
-                !record_state_is_known(jget(item, "state")))
-                ok = false;
-        }
-    }
-    if (!ok) {
-        safe_err(err, errlen, "the job record is not a supported version 1 record");
-        return NULL;
-    }
-    yyjson_mut_doc *mut = yyjson_doc_mut_copy(doc.get(), jallocator());
-    if (!mut) safe_err(err, errlen, "out of memory");
-    return mut;
-}
-
-static int jobs_record_store(const char *dir, yyjson_mut_doc *doc) {
-    tny::c_string json(jwrite_pretty(doc));
-    if (!json) return ENOMEM;
-    tny::c_string path(jobs_file(dir, "job.json"));
-    return path ? tny_jobs_host_write_private(path.get(), json.get(), strlen(json.get())) : ENOMEM;
-}
-
-/* ---- state transactions ---- */
-
-struct jobs_txn {
-    // Reverse member destruction releases the document and path before the lock.
-    tny::lock_descriptor lock_fd;
-    tny::c_string dir;
-    tny::mutable_document doc;
-    jobs_txn() noexcept = default;
-    ~jobs_txn() noexcept = default;
-    jobs_txn(const jobs_txn &) = delete;
-    jobs_txn &operator=(const jobs_txn &) = delete;
-    jobs_txn(jobs_txn &&) = delete;
-    jobs_txn &operator=(jobs_txn &&) = delete;
-    void reset() noexcept {
-        doc.reset();
-        dir.reset();
-        lock_fd.reset();
-    }
-};
-
-static void jobs_txn_end(jobs_txn *t) {
-    if (t) t->reset();
-}
-
-/* Bounded, never blocking: the state lock is only ever held for a few
- * in-memory edits plus one atomic write. */
-static int jobs_txn_begin(const char *dir, const char *id, jobs_txn *t, char *err, size_t errlen) {
-    t->reset();
-    char *lock = jobs_file(dir, "state.lock");
-    if (!lock) return ENOMEM;
-    tny::lock_descriptor state_lock;
-    state_lock.adopt(tny_jobs_host_lock_open(lock));
-    int fd = state_lock.borrow();
-    free(lock);
-    if (fd < 0) {
-        safe_err(err, errlen, "cannot open the job state lock");
-        return EIO;
-    }
-    tny_jobs_lock_rc rc = TNY_JOBS_LOCK_BUSY;
-    for (int i = 0; i < JOBS_STATE_LOCK_TRIES; i++) {
-        rc = tny_jobs_host_lock_try(fd);
-        if (rc != TNY_JOBS_LOCK_BUSY) break;
-        tny_jobs_host_sleep_ms(JOBS_STATE_LOCK_WAIT_MS);
-    }
-    if (rc != TNY_JOBS_LOCK_ACQUIRED) {
-        safe_err(err, errlen, "another process is updating this job");
-        return EBUSY;
-    }
-    t->lock_fd.adopt(state_lock.release());
-    t->dir.reset(tny_alloc_strdup(dir));
-    if (!t->dir) {
-        safe_err(err, errlen, "out of memory");
-        jobs_txn_end(t);
-        return ENOMEM;
-    }
-    t->doc.reset(jobs_record_load(dir, id, err, errlen));
-    if (!t->doc) {
-        jobs_txn_end(t);
-        return EINVAL;
-    }
-    return 0;
-}
-
-static int jobs_txn_commit(jobs_txn *t) {
-    yyjson_mut_val *root = yyjson_mut_doc_get_root(t->doc.get());
-    jm_set_int(t->doc.get(), root, "revision", jm_int(root, "revision", 0) + 1);
-    char *now = now_iso8601();
-    jm_set_str(t->doc.get(), root, "updated", now ? now : "");
-    free(now);
-    int rc = jobs_record_store(t->dir.get(), t->doc.get());
-    jobs_txn_end(t);
-    return rc;
 }
 
 /* ---------------------------------------------------- output reservations */

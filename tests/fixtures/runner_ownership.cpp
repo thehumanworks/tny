@@ -157,6 +157,10 @@ static int checked_job_write(const char *path, const void *data, size_t size) {
 #ifndef TNY_JOBS_SOURCE
 #define TNY_JOBS_SOURCE "../../src/core/jobs.cpp"
 #endif
+#ifndef TNY_JOBS_RECORD_SOURCE
+#define TNY_JOBS_RECORD_SOURCE "../../src/core/jobs_record.cpp"
+#endif
+#include TNY_JOBS_RECORD_SOURCE
 #include TNY_JOBS_SOURCE
 #undef tny_jobs_host_write_private
 #undef tny_jobs_host_reap
