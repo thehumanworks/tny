@@ -31,6 +31,11 @@ on:
 permissions:
   contents: read
 
+# Manual retries and tag-triggered runs cannot upload the same release together.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   dispatch-main:
     name: gated main release
@@ -69,6 +74,9 @@ jobs:
       - name: Validate canonical SDK versions from the tag
         run: |
           set -eu
+          if [ -f release.json ]; then
+            python -c 'import json,os; assert "v" + json.load(open("release.json"))["version"] == os.environ["GITHUB_REF_NAME"], "release.json/tag mismatch"'
+          fi
           node sdk/typescript/scripts/release-version.mjs "$GITHUB_REF_NAME" > /tmp/tny-sdk-versions.json
           TNY_RELEASE_TAG="$GITHUB_REF_NAME" TNY_REQUIRE_RELEASE_TAG=1 \
             python -c 'import json,sys; sys.path.insert(0,"sdk/python"); from release_version import build_version; value=json.load(open("/tmp/tny-sdk-versions.json")); assert build_version() == value["python"]'
@@ -451,11 +459,24 @@ jobs:
           cd assets
           shopt -s nullglob
           files=( tny-* libtny1-* libtny0-compat-* conformance-* thehumanworks-* )
-          gh release create "$GITHUB_REF_NAME" \
+          # Completed releases are immutable; a duplicate retry never replaces assets.
+          existing="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.tag_name == "'"$GITHUB_REF_NAME"'") | .draft')"
+          if [ "$existing" = false ]; then
+            echo "$GITHUB_REF_NAME is already published"
+            exit 0
+          fi
+          if [ -z "$existing" ]; then
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+              --title "tny $GITHUB_REF_NAME" --generate-notes
+          fi
+          # A failed upload leaves a draft, not a partial public release.
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --clobber "${files[@]}" SHA256SUMS
+          gh release edit "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "tny $GITHUB_REF_NAME" \
-            --generate-notes \
-            "${files[@]}" SHA256SUMS
+            --draft=false
 
   validate-registries:
     name: validate complete SDK registry set

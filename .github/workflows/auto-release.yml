@@ -4,11 +4,9 @@
 # Runs when one of the main-branch gates (ci, sdk) completes on a
 # push to main. It releases only once both are green on the same
 # commit: whichever gate finishes last does the work, the earlier ones
-# see something still in progress and stop. The version is not stored
-# anywhere (docs/adr/0014): scripts/next_release_version.py bumps the
-# newest reachable v* tag from the Conventional Commits prefixes since
-# it (feat -> minor, ! / BREAKING CHANGE -> major, else patch) and
-# skips commits that already carry a tag or opt out with [skip release].
+# see something still in progress and stop. release.json requests the exact
+# stable version to publish; unchanged metadata does not create a new release.
+# Historical commits without metadata are ignored by the workflow.
 #
 # A tag pushed with GITHUB_TOKEN never starts `on: push: tags`
 # workflows, so this dispatches release.yml on the new tag ref instead
@@ -16,7 +14,7 @@
 # then builds, tests, and publishes exactly as for a hand-pushed tag.
 #
 # Manual use: "Run workflow" on main cuts a release from the newest
-# commit whose gates are green, with an optional forced bump kind.
+# commit whose gates are green, using its release.json request.
 
 name: auto-release
 
@@ -26,12 +24,6 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
-    inputs:
-      bump:
-        description: "Bump kind (auto reads the commit messages)"
-        type: choice
-        default: auto
-        options: [auto, patch, minor, major]
 
 permissions:
   contents: read
@@ -40,7 +32,7 @@ jobs:
   tag:
     name: tag and dispatch release
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_branch == 'main')
@@ -50,4 +42,3 @@ jobs:
       actions: write
     with:
       target_sha: ${{ github.event.workflow_run.head_sha || github.sha }}
-      bump: ${{ inputs.bump || 'auto' }}
