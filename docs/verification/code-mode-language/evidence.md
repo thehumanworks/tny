@@ -53,7 +53,7 @@ and all published per-language aggregates are recomputed in the offline gate.
 | Focused production Lua runtime suite | 6/6 passed, 68 assertions | `./build/tny-test -s code_runtime_suite` |
 | Production execution integration | 18 cases: 17 passed, one explicit wasm-only platform skip | `build/code-mode-bench/execution-integration-final.log` |
 | Existing production source-linked protocol check | Seven universal obligations over all 192 input bits, satisfiable non-vacuity witness, 9,600 compiled representative cases | `build/code-mode-bench/protocol-final.log` |
-| Existing abstract SMT obligations | Four ACP-catalog and six shell-mode obligations proved | `python3 tests/formal/check.py` |
+| Historical abstract SMT obligations (retired 2026-10-19; no production correspondence) | Four ACP-catalog and six shell-mode model obligations proved at this baseline | Former `python3 tests/formal/check.py`; see [value audit](../value-density.md) |
 
 The unchanged production protocol predicate hash is
 `e7a1b727207551197fe372d46dd320b4b6fd8b57021a75a82ce032dc5c2d910b`.

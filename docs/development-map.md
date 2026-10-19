@@ -43,6 +43,9 @@ Each extension point has one owner and one contract. Prefer extending that owner
 to adding a parallel plugin loader, persistence layer, provider bridge, or
 self-improvement controller.
 
+For what each verification layer actually guarantees (and what it does not),
+use the [compact invariant map](verification/value-density.md#invariant-map).
+
 ## Verification ladder
 
 1. State the invariant and add the smallest executable counterexample or bounded

@@ -251,7 +251,7 @@ claim. The original environment used Lean 4.30.0.
 | INV14 | Deferred | Independent C mutations could run with bounded parallelism, but concurrent Lean checks created memory pressure during this audit. | Measure peak memory and elapsed time first; preserve passing-control-first behavior and precise rejection-stage assertions. |
 | INV15 | Deferred | `gui/proofs/Proofs/Effort.lean` has no exported golden linkage; picker behavior is linked by ordinary tests and review. | Consider finite catalog checks against the real selector, with explicit scope; do not imply equivalence for arbitrary catalogs. |
 | INV16 | Deferred | ACP/dictation replay readers use minimum row counts, while the new regeneration check enforces exact fixture sets. More strict parsing has limited immediate benefit. | Add malformed-parser controls when changing the format; avoid tests that merely duplicate current row counts. |
-| INV17 | Retained | The small `tests/formal/check.py` Z3 launcher fails closed on diagnostics, satisfiable/unknown results and missing tools. Six shell obligations complement concrete tests. | Keep it and its obligations; replacing 22 clear lines with a framework or deleting the check has no demonstrated benefit. |
+| INV17 | Superseded 2026-10-19 | The small `tests/formal/check.py` Z3 launcher fails closed on diagnostics, satisfiable/unknown results and missing tools. Six shell obligations complement concrete tests. | Re-audit found no mechanical link to production: the obligations restate their own assumptions. The detached models and launcher were removed; production shell/catalog tests and source-linked execution proof remain. |
 
 ## Focused verification completed
 

@@ -417,7 +417,7 @@ jobs:
 
   ci:
     name: ci
-    needs: [quality, build, musl, wasm, tsan, fuzz, lean-proofs]
+    needs: [quality, valgrind, build, musl, wasm, tsan, fuzz, lean-proofs]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -425,6 +425,7 @@ jobs:
         run: |
           set -eu
           test "${{ needs.quality.result }}" = "success"
+          test "${{ needs.valgrind.result }}" = "success"
           test "${{ needs.build.result }}" = "success"
           test "${{ needs.musl.result }}" = "success"
           test "${{ needs.wasm.result }}" = "success"

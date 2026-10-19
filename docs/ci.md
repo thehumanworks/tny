@@ -98,6 +98,16 @@ installs, and native dependency inspection. Its aggregate `sdk` job fails
 unless the packaging contract and every Python and Node matrix entry succeed;
 use that single terminal status for branch protection.
 
+SDK conformance runs once per selected runtime/platform against the clean
+installed artifact: bundled wheel or packed npm package. Source unit tests,
+strict type checks, reference C conformance, discovery-wheel loading and native
+dependency inspection remain separate checks. Repeating the same adapter on
+the source checkout adds no independent installation boundary. Native compiler
+parallelism is capped at four jobs, including later C fixture builds. The
+`ci` aggregate requires Valgrind as well as every other declared CI job.
+See the [verification value audit](verification/value-density.md) for evidence,
+remaining model/code gaps and baseline timings; speedup is not yet measured.
+
 SDK fixture builds include both `lib-shared` and `release`: ACP usage tests
 launch the `tny` executable as their owning-runtime MCP bridge. The
 `test-sdk-python` and `test-sdk-typescript` targets build both prerequisites.
