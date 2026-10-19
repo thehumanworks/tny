@@ -267,3 +267,5 @@ in
 # existing C compiler and Python. Its paired corpus needs Git history, so run
 # the experiment outside the filtered Nix source. The edit-feedback mutation
 # focus uses the existing mutation runner; core/edit suites cover the behavior.
+# Strict owned-command checks extend existing process/execution sources and
+# tests/integration/test_execution_command.py; existing filesets include them.

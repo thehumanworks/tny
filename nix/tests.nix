@@ -296,3 +296,5 @@ stdenv.mkDerivation {
 # existing C compiler and Python. Its paired corpus needs Git history, so run
 # the experiment outside the filtered Nix source. The edit-feedback mutation
 # focus uses the existing mutation runner; core/edit suites cover the behavior.
+# test_execution_command.py's Linux owned-check cases use Python stdlib ctypes,
+# /proc, sh/sleep and the production binary. Existing inputs suffice; macOS skips.

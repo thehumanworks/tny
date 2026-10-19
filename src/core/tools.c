@@ -149,8 +149,10 @@ static const char *SCHEMA_JSON =
     "command in the workspace. command, optional timeout_s (default 120), background. "
     "Background returns JSON with task_id and log; inspect with task_id, or wait with "
     "task_id and wait_s (0-600). Wait timeout/cancellation does not cancel work. Never poll PIDs. "
+    "Optional owned_check (native Linux, foreground only) rejects live background leftovers. "
     "Do not combine task_id with command/background.\",\"parameters\":{\"type\":\"object\","
     "\"properties\":{\"command\":{\"type\":\"string\"},\"timeout_s\":{\"type\":\"integer\"},"
+    "\"owned_check\":{\"type\":\"boolean\"},"
     "\"background\":{\"type\":\"boolean\"},\"task_id\":{\"type\":\"string\"},"
     "\"wait_s\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":600}}}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"web_fetch\",\"description\":\"HTTP GET a URL "
@@ -883,6 +885,17 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         }
         if (validate_call_schema(call->name, call->args, &call->error) != 0) return -1;
     }
+    if (!call->custom && strcmp(call->name, "terminal") == 0) {
+        yyjson_val *owned = jget(call->args, "owned_check");
+        if (owned && !yyjson_is_bool(owned)) {
+            call->error = tool_err("owned_check must be a boolean");
+            return -1;
+        }
+        if (jget_bool(call->args, "owned_check", false) && env->ctx->ssh_host) {
+            call->error = tool_err("owned_check is unsupported over SSH");
+            return -1;
+        }
+    }
     if (strcmp(call->name, "mcp_select_tool") == 0) {
         const char *server = jget_str(call->args, "server");
         const char *tool = jget_str(call->args, "tool");
@@ -978,7 +991,8 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
      * (docs/adr/0063). A background command keeps its detached contract and
      * is never intercepted. */
     if (!call->custom && strcmp(call->name, "terminal") == 0 &&
-        !jget_bool(call->args, "background", false)) {
+        !jget_bool(call->args, "background", false) &&
+        !jget_bool(call->args, "owned_check", false)) {
         call->intercept = tny_intercept_parse(env, call->detail);
         if (call->intercept) {
             if (call->intercept->kind == TNY_INTERCEPT_REFUSED) {

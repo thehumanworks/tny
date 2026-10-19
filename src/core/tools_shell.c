@@ -238,6 +238,16 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     const char *cmd = jget_str(args, "command");
     const char *id = jget_str(args, "task_id");
     if (jget(args, "task_id") && !id) return tool_err("task_id must be a string");
+    bool owned_check = jget_bool(args, "owned_check", false);
+    if (jget(args, "owned_check") && !yyjson_is_bool(jget(args, "owned_check")))
+        return tool_err("owned_check must be a boolean");
+    if (owned_check && (id || jget_bool(args, "background", false)))
+        return tool_err("owned_check requires a foreground command");
+#if !defined(__linux__) || defined(__EMSCRIPTEN__)
+    if (owned_check) return tool_err("owned_check is supported only on native Linux");
+#endif
+    if (owned_check && !env->execution_server)
+        return tool_err("owned_check requires the execution server");
     if (id) return background_call(env, cmd, id, args);
     if (!cmd || !*cmd) return tool_err("missing command or task_id");
     if (jget_bool(args, "background", false)) return background_call(env, cmd, NULL, args);
@@ -259,10 +269,10 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     int lifeline = -1;
     pid_t pid = -1;
     if (env->execution_server) {
-        int rc = tny_exec_command_start(sandbox.argv, env->ctx->cwd, (int)(timeout_s * 1000),
-                                        env->session_sock, env->session_id,
-                                        tny_perm_mode_name(env->ctx->perm_mode),
-                                        !env->ctx->no_self_improve, pipefd[1], &pid, &lifeline);
+        int rc = tny_exec_command_start(
+            sandbox.argv, env->ctx->cwd, (int)(timeout_s * 1000), env->session_sock,
+            env->session_id, tny_perm_mode_name(env->ctx->perm_mode), !env->ctx->no_self_improve,
+            owned_check, pipefd[1], &pid, &lifeline);
         if (rc) {
             tny_sandbox_command_free(&sandbox);
             close(pipefd[0]);
@@ -397,28 +407,47 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
             (void)tny_poll(NULL, 0, 20);
         }
     }
-    if (!reaped && (cancelled || timed_out || output_limited)) tny_process_kill_tree(pid);
-    while (!reaped && waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+    /* Strict cleanup belongs exclusively to the guardian. A missed deadline
+     * is unknown, never authority for a group sweep or an unbounded wait.
+     * Leave a delayed guardian its lifeline-EOF cleanup obligation. */
+    if (!owned_check && !reaped && (cancelled || timed_out || output_limited))
+        tny_process_kill_tree(pid);
+    if (!owned_check && !reaped) {
+        pid_t done;
+        do done = waitpid(pid, &status, 0);
+        while (done < 0 && errno == EINTR);
+        reaped = done == pid;
+    }
     if (result_fd >= 0) close(result_fd);
     buf_t res;
     buf_init(&res);
     int code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
     /* The user interrupted the turn: report that, not the signal this
      * process chose to stop the command with. */
+    bool cleanup_confirmed = owned_check && reaped && WIFEXITED(status) && code != 125;
+    if (owned_check && (!reaped || timed_out || output_limited)) code = 125;
     if (cancelled) code = SHELL_EXIT_CANCELLED;
     if (reaped && code == 0 && !cancelled && !timed_out && !output_limited && out.len > 0)
         learning_terminal_read(env, cmd);
     char *denied_path = sandbox_kind != TNY_SANDBOX_NONE ? tny_sandbox_denied_path(out.data) : NULL;
+    if (owned_check)
+        buf_appends(&res, cleanup_confirmed ? "owned cleanup: complete\n"
+                                            : "owned cleanup: unconfirmed or residual work\n");
     if (shell_profile) {
         buf_appendf(&res, "exit: %d\nbytes: %zu\ncwd: %s\n", code, output_bytes, env->ctx->cwd);
-        if (cancelled) buf_appends(&res, "cancelled: interrupted and the command was killed\n");
+        if (cancelled)
+            buf_appends(&res, owned_check ? "cancelled: owned check interrupted\n"
+                                          : "cancelled: interrupted and the command was killed\n");
         if (denied_path)
             buf_appendf(&res,
                         "error: os sandbox denied a write to %s; add its parent directory to "
                         "workspace extra dirs with `tny workspace add DIR` or `--add-dir DIR`\n",
                         denied_path);
         if (timed_out)
-            buf_appendf(&res, "timed out after %llds and was killed\n", (long long)timeout_s);
+            buf_appendf(&res,
+                        owned_check ? "timed out after %llds\n"
+                                    : "timed out after %llds and was killed\n",
+                        (long long)timeout_s);
         if (output_limited)
             buf_appendf(&res, "output stopped at the %u MiB hard cap\n",
                         SHELL_PROFILE_OUTPUT_MAX / (1024u * 1024u));
@@ -442,8 +471,13 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
                     denied_path);
     }
     if (timed_out)
-        buf_appendf(&res, "(timed out after %llds and was killed)\n", (long long)timeout_s);
-    if (cancelled) buf_appends(&res, "(cancelled: interrupted and the command was killed)\n");
+        buf_appendf(&res,
+                    owned_check ? "(timed out after %llds)\n"
+                                : "(timed out after %llds and was killed)\n",
+                    (long long)timeout_s);
+    if (cancelled)
+        buf_appends(&res, owned_check ? "(cancelled: owned check interrupted)\n"
+                                      : "(cancelled: interrupted and the command was killed)\n");
     buf_appendf(&res, "exit code: %d\n", code);
     if (out.len) {
         buf_appends(&res, "output:\n");

@@ -118,6 +118,14 @@ int tny_process_scope_destroy(tny_process_scope *scope);
  * and retain persisted reservations. Only process teardown releases authority. */
 void tny_process_scope_retain_until_exit(tny_process_scope *scope);
 
+/* Fresh single-threaded command guardian only. Linux orphan adoption is not a
+ * hostile-process sandbox. No other children/reapers may share this process. */
+int tny_process_owned_check_init(void);
+/* Reap all children, kill only still-owned direct children, and repeat after
+ * adoption. 1 means ECHILD, 0 pending, -1 unknown. root_status/root_reaped retain
+ * the command's exit independently of cleanup. forced records live leftovers. */
+int tny_process_owned_check_drain(pid_t root, int *root_status, bool *root_reaped, bool *forced);
+
 /* Cooperative parent-loss watch for a detached job's child (docs/adr/0093).
  * tny_process_expect_parent() records the supervisor pid this process was
  * told to run under — the private TNY_JOB_PARENT_PID value, parsed once — and
