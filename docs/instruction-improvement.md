@@ -28,7 +28,9 @@ establish recovery. User instructions and permissions remain authoritative.
 Evidence lives in private `~/.tny/learning/<workspace-hash>.json` files. Only
 bounded counters and source session IDs persist—no filenames, command text,
 file contents or credentials. Eligible advice uses fixed templates, at most
-1 KiB. Files are private, atomically replaced and merged under a nonblocking
+1 KiB. Model-facing advice is stable while the eligible rules are unchanged;
+counters remain in this evidence store rather than being repeated in every
+prompt (ADR 0190). Files are private, atomically replaced and merged under a nonblocking
 lock. Pending updates retry at normal turn completion and carry into the next
 turn of the same live backend. If the process exits/restarts while the store is
 still unavailable, unflushed counters can be lost; learning must not block the

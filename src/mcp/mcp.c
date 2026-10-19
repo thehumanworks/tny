@@ -902,7 +902,9 @@ char *mcp_search_tools(tools_env *env, const char *query) {
         pthread_mutex_unlock(&g_mu);
         if (!out.len) buf_appends(&out, "(no MCP tools cached yet — search with keywords)");
         buf_appends(&out, "\nCall one with mcp_select_tool(server, tool, arguments).");
-        return buf_detach(&out);
+        char *result = tool_bound_result(env, out.data, out.len);
+        buf_free(&out);
+        return result;
     }
 
     char *query_lc = xstrdup(query);
@@ -936,7 +938,9 @@ char *mcp_search_tools(tools_env *env, const char *query) {
     free(query_lc);
     if (!out.len) buf_appends(&out, "(no matching MCP tools)");
     buf_appends(&out, "\nCall one with mcp_select_tool(server, tool, arguments).");
-    return buf_detach(&out);
+    char *result = tool_bound_result(env, out.data, out.len);
+    buf_free(&out);
+    return result;
 }
 
 char *mcp_call_tool_raw(tools_env *env, const char *server, const char *tool, const char *args_json,

@@ -1197,20 +1197,40 @@ char *session_read_result(tny_session_state *s, const char *handle, size_t off, 
     buf_t b;
     buf_init(&b);
     buf_appendf(&b, "%s/results/%s.txt", s->dir, handle);
-    size_t len = 0;
-    char *all = file_slurp(b.data, &len);
+    FILE *f = b.data ? fopen(b.data, "rb") : NULL;
     buf_free(&b);
-    if (!all) return NULL;
-    if (off >= len) {
-        free(all);
+    if (!f) return NULL;
+    struct stat st;
+    if (fstat(fileno(f), &st) != 0 || st.st_size < 0) {
+        fclose(f);
+        return NULL;
+    }
+    /* Compare before converting the byte offset to off_t, including SIZE_MAX. */
+    if ((uintmax_t)off >= (uintmax_t)st.st_size) {
+        fclose(f);
         *out_len = 0;
         return xstrdup("");
     }
-    size_t n = len - off;
-    if (n > maxlen) n = maxlen;
-    char *out = xstrndup(all + off, n);
-    free(all);
-    *out_len = n;
+    uintmax_t remaining = (uintmax_t)st.st_size - (uintmax_t)off;
+    size_t n = remaining < maxlen ? (size_t)remaining : maxlen;
+    if (n == SIZE_MAX || fseeko(f, (off_t)off, SEEK_SET) != 0) {
+        fclose(f);
+        return NULL;
+    }
+    char *out = malloc(n + 1);
+    if (!out) {
+        fclose(f);
+        return NULL;
+    }
+    size_t got = fread(out, 1, n, f);
+    bool failed = ferror(f);
+    fclose(f);
+    if (failed) {
+        free(out);
+        return NULL;
+    }
+    out[got] = '\0';
+    *out_len = got;
     return out;
 }
 

@@ -1,0 +1,53 @@
+{
+  "metric": "Exact UTF-8 instruction prefix bytes; not model tokens or provider cache hits",
+  "baseline": {
+    "binary_sha256": "0bc18a5108a84127a028405915596572da04beac3db900302881058f81b7304e",
+    "eligible_prompt_bytes": [
+      5062,
+      5062,
+      5062
+    ],
+    "eligible_common_prefix_bytes": 4810,
+    "identical_eligible_prompts": false,
+    "passed_tasks": 5,
+    "provider_requests": [
+      5,
+      5,
+      4,
+      4,
+      4
+    ],
+    "tool_calls": [
+      4,
+      4,
+      3,
+      3,
+      3
+    ]
+  },
+  "candidate": {
+    "binary_sha256": "c4d07879572e50bca5f9d7449f0c755a1cea3c33fc5477186fffc91d18c2af93",
+    "eligible_prompt_bytes": [
+      5017,
+      5017,
+      5017
+    ],
+    "eligible_common_prefix_bytes": 5017,
+    "identical_eligible_prompts": true,
+    "passed_tasks": 5,
+    "provider_requests": [
+      5,
+      5,
+      4,
+      4,
+      4
+    ],
+    "tool_calls": [
+      4,
+      4,
+      3,
+      3,
+      3
+    ]
+  }
+}

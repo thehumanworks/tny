@@ -256,6 +256,57 @@ TEST search_matches_tokens_not_substring(void) {
     PASS();
 }
 
+/* Both discovery paths use the same spill contract as MCP tool calls. */
+TEST search_results_are_bounded_and_recoverable(void) {
+    mcp_test_env();
+    mcp_shutdown_all();
+    write_profile(fast_profile());
+    tny_ctx *ctx = tny_ctx_load(m_ws);
+    ASSERT(ctx);
+    tools_env env = {.ctx = ctx};
+    mcp_warm_start(ctx);
+    ASSERT(catalog_ready(ctx, 8000));
+    const char *queries[] = {"", "deploy"};
+    for (int ephemeral = 0; ephemeral < 2; ephemeral++) {
+        ctx->no_save = ephemeral != 0;
+        env.session = session_new(ctx);
+        ASSERT(env.session);
+        for (size_t i = 0; i < sizeof queries / sizeof queries[0]; i++) {
+            ctx->max_tool_result_bytes = 32768;
+            char *full = mcp_search_tools(&env, queries[i]);
+            ASSERT(full);
+            ctx->max_tool_result_bytes = 64;
+            char *preview = mcp_search_tools(&env, queries[i]);
+            ASSERT(preview && strstr(preview, "[truncated:"));
+            const char *start = strstr(preview, "handle \"");
+            ASSERT(start);
+            start += strlen("handle \"");
+            const char *end = strchr(start, '\"');
+            ASSERT(end);
+            char *handle = xstrndup(start, (size_t)(end - start));
+            size_t got = 0;
+            char *restored = session_read_result(env.session, handle, 0, 32768, &got);
+            ASSERT(restored);
+            ASSERT_EQ(strlen(full), got);
+            ASSERT_STR_EQ(full, restored);
+            free(restored);
+            free(handle);
+            free(preview);
+            free(full);
+        }
+        session_close(env.session);
+        env.session = NULL;
+    }
+    /* Without a session, bounding still works but cannot promise a handle. */
+    char *preview = mcp_search_tools(&env, "");
+    ASSERT(preview && strstr(preview, "[truncated:"));
+    ASSERT_FALSE(strstr(preview, "Full output stored"));
+    free(preview);
+    mcp_shutdown_all();
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 /* A server whose command cannot start is silent everywhere until a call
  * names it; the call then reports the existing spawn error. */
 TEST failed_server_silent_until_call(void) {
@@ -1587,6 +1638,7 @@ SUITE(mcp_suite) {
     RUN_TEST(select_waits_for_warming_server);
     RUN_TEST(hung_server_does_not_stall);
     RUN_TEST(search_matches_tokens_not_substring);
+    RUN_TEST(search_results_are_bounded_and_recoverable);
     RUN_TEST(failed_server_silent_until_call);
     RUN_TEST(missing_runtime_context_fails_cleanly);
     RUN_TEST(workspace_profile_never_loads_and_acp_never_warms);

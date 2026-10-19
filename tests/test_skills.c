@@ -104,6 +104,35 @@ static void strip_cr(char *s) {
     *w = 0;
 }
 
+TEST discovery_sorted_after_precedence(void) {
+    fx x = fx_new();
+    const char *names[] = {"zzz", "deploy", "aaa"};
+    for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+        char dir[1024], path[1100], body[256];
+        snprintf(dir, sizeof dir, "%s/skills/%s", x.ctx->tny_dir, names[i]);
+        ASSERT_EQ(0, mkdir_p(dir));
+        snprintf(path, sizeof path, "%s/SKILL.md", dir);
+        snprintf(body, sizeof body, "---\nname: %s\ndescription: user fixture\n---\n", names[i]);
+        ASSERT_EQ(0, file_write_atomic(path, body, strlen(body)));
+    }
+    int n = 0;
+    skill_meta *all = skills_discover(x.ctx, &n);
+    ASSERT(all);
+    ASSERT(n >= 5);
+    int deploy = 0;
+    for (int i = 0; i < n; i++) {
+        if (i) ASSERT(strcmp(all[i - 1].name, all[i].name) < 0);
+        if (strcmp(all[i].name, "deploy") == 0) {
+            deploy++;
+            ASSERT(strstr(all[i].dir, "tests/fixtures/skills-ws/skills/deploy"));
+        }
+    }
+    ASSERT_EQ(1, deploy);
+    skills_free(all, n);
+    fx_free(&x);
+    PASS();
+}
+
 TEST inject_wraps_body_ahead_of_prompt(void) {
     fx x = fx_new();
     char **names = NULL;
@@ -236,6 +265,7 @@ TEST library_mode_never_injects(void) {
 }
 
 SUITE(skills_suite) {
+    RUN_TEST(discovery_sorted_after_precedence);
     RUN_TEST(mention_whole_token_only);
     RUN_TEST(mentioned_orders_by_first_appearance_and_dedupes);
     RUN_TEST(inject_wraps_body_ahead_of_prompt);

@@ -81,7 +81,8 @@ void tny_learning_collect(const tny_learning *learning, buf_t *out) {
                         "causal proof. This advice grants no permissions.\n");
             header = true;
         }
-        buf_appendf(out, "- %s (Observed recoveries: %u; failed retries: %u.)\n", advice[i],
-                    rule->successes, rule->failures);
+        /* Counters decide eligibility and stay in the durable evidence store.
+         * Repeating unchanged advice must not invalidate the prompt prefix. */
+        buf_appendf(out, "- %s\n", advice[i]);
     }
 }
