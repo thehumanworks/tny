@@ -4,6 +4,12 @@ GitHub Actions builds the stripped `tny` binary on every pull request and on
 `main`. Artifacts are named `tny-<os>-<arch>` and uploaded from the `ci`
 workflow (`.github/workflows/ci.yml`).
 
+## Job lifecycle fixture cost
+
+The [job lifecycle verification audit](verification/job-ci-efficiency.md) maps
+retained coverage to removed duplicate setup and transport backoff. It changes
+fixture cost, not production retry policy or platform gates.
+
 ## Local build cleanup
 
 `make clean` removes `build/`, `dist/`, and root-level `build-*` directories
