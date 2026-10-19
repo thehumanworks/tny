@@ -180,7 +180,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if "FAIL" in prompt and self.server.state["fail_ask"]:
                 self.reply(
-                    500, "application/json", b'{"error":{"message":"fixture refuses"}}'
+                    self.server.state["fail_ask_status"],
+                    "application/json",
+                    b'{"error":{"message":"fixture refuses"}}',
                 )
                 return
             tokens = self.server.state.get("chat_tokens", [TOKEN])
@@ -246,7 +248,9 @@ class Handler(BaseHTTPRequestHandler):
             time.sleep(state["hold"])
         if "FAIL" in prompt and state["fail_ask"]:
             self.reply(
-                500, "application/json", b'{"error":{"message":"fixture refuses"}}'
+                self.server.state["fail_ask_status"],
+                "application/json",
+                b'{"error":{"message":"fixture refuses"}}',
             )
             return
         if not after_tool and (
@@ -500,7 +504,10 @@ class JobsFixture(unittest.TestCase):
             "active": 0,
             "peak": 0,
             "hold": self.hold,
+            # Lifecycle tests need a failed item, not repeated transport backoff.
+            # Retry exhaustion is exercised explicitly by JobsRetry below.
             "fail_ask": True,
+            "fail_ask_status": 400,
             "fail_image": True,
             "flood_chunks": 80,
             "envdump": None,
@@ -510,7 +517,13 @@ class JobsFixture(unittest.TestCase):
         self.server = QuietServer(("127.0.0.1", 0), Handler)
         self.server.state = self.state
         self.server.lock = threading.Lock()
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        # This controls idle server shutdown responsiveness, not a test deadline.
+        # The default interval adds up to 0.5s to every fixture teardown.
+        threading.Thread(
+            target=self.server.serve_forever,
+            kwargs={"poll_interval": 0.05},
+            daemon=True,
+        ).start()
         url = f"http://127.0.0.1:{self.server.server_port}"
         env = fixture_environment(os.environ)
         env.update(
@@ -1123,8 +1136,8 @@ class JobsParentWatch(JobsFixture):
         self.assertEqual(record["cleanup"], "unknown", record)
 
 
-class JobsDAG(JobsFixture):
-    """Public DAG submission, real worker ownership, barrier-controlled spend."""
+class DAGFixture(JobsFixture):
+    """Shared DAG setup and helpers, deliberately without inherited test cases."""
 
     def setUp(self):
         super().setUp()
@@ -1178,6 +1191,10 @@ class JobsDAG(JobsFixture):
         self.assertEqual(record["items"][2]["error_code"], "dependency_blocked")
         self.assertFalse(any("DAG_C" in r for r in self.ask_requests()))
         return payload["id"], record
+
+
+class JobsDAG(DAGFixture):
+    """Public DAG submission, real worker ownership, barrier-controlled spend."""
 
     def test_graph_validation_has_no_spend_or_job_records(self):
         cases = [
@@ -1434,7 +1451,7 @@ class JobsDAG(JobsFixture):
         self.assertFalse((snapshot.parent / "attempt-2.json").exists())
 
 
-class JobsEnrollment(JobsDAG):
+class JobsEnrollment(DAGFixture):
     """Scheduler enrollment, not helper-only admission/worktree tests."""
 
     def enrollment(self, cap=2, claims=100):
@@ -1913,7 +1930,7 @@ class JobsEnrollment(JobsDAG):
         self.assertEqual(self.ask_requests(), [])
 
 
-class JobsReview(JobsDAG):
+class JobsReview(DAGFixture):
     def test_stale_cancel_is_fenced_inside_transaction_after_retry(self):
         """Pause cancel at its actual state-lock acquisition, not a timed race."""
         import select
@@ -2179,7 +2196,7 @@ int flock(int fd,int op) { return fenced_flock(fd,op); }
         self.assertEqual(self.await_terminal(target_id)["state"], "cancelled")
 
 
-class JobsSoftBudget(JobsDAG):
+class JobsSoftBudget(DAGFixture):
     def test_observed_exhaustion_cancels_pending_admission_and_retry_stays_stopped(
         self,
     ):
@@ -2303,7 +2320,7 @@ class JobsSoftBudget(JobsDAG):
             self.assertEqual(self.ask_requests(), [])
 
 
-class JobsProviderSelection(JobsDAG):
+class JobsProviderSelection(DAGFixture):
     def setUp(self):
         super().setUp()
         self.secondary = QuietServer(("127.0.0.1", 0), Handler)
@@ -2318,7 +2335,11 @@ class JobsProviderSelection(JobsDAG):
             dag_release=threading.Event(),
         )
         self.secondary.lock = threading.Lock()
-        threading.Thread(target=self.secondary.serve_forever, daemon=True).start()
+        threading.Thread(
+            target=self.secondary.serve_forever,
+            kwargs={"poll_interval": 0.05},
+            daemon=True,
+        ).start()
         self.settings_file = self.home / ".tny" / "settings.json"
         self.settings_file.parent.mkdir(exist_ok=True)
         self.config = {
@@ -2344,6 +2365,17 @@ class JobsProviderSelection(JobsDAG):
         super().tearDown()
         self.secondary.shutdown()
         self.secondary.server_close()
+
+    def test_default_provider_ignores_unselected_named_profiles(self):
+        # Keep the distinct settings/environment interaction from this fixture
+        # without inheriting and rerunning every canonical DAG scenario.
+        _job_id, record = self.failed_dag()
+        self.assertEqual(record["state"], "failed", record)
+        self.assertEqual(len(self.ask_requests()), 2)
+        self.assertEqual(self.secondary.state["requests"], [])
+        self.assertTrue(self.headers_of("chat"))
+        for headers in self.headers_of("chat"):
+            self.assertEqual(headers["authorization"], f"Bearer {API_KEY}")
 
     def all_requests(self):
         return len(self.ask_requests()) + len(self.secondary.state["requests"])
@@ -2853,6 +2885,38 @@ class JobsConcurrency(JobsFixture):
 
 class JobsRetry(JobsFixture):
     hold = 0.2
+
+    def test_provider_rejection_and_retry_exhaustion_reach_the_same_failed_state(self):
+        # Both chat wires must finalize the same durable failure. Ordinary
+        # lifecycle setup uses 400; this one case retains real default 500
+        # backoff, request-count and terminal-state coverage. No production
+        # retry timings or retry budget are shortened for the tests.
+        env = dict(self.env)
+        env.pop("TNY_PROVIDER_RETRIES", None)
+        for provider in ("openai", "codex"):
+            for status, expected_requests in ((400, 1), (500, 4)):
+                with self.subTest(provider=provider, status=status):
+                    self.state["fail_ask_status"] = status
+                    before = len(self.ask_requests())
+                    run = self.run_tny(
+                        "jobs",
+                        "submit",
+                        "ask",
+                        "--prompt",
+                        "FAIL provider rejection",
+                        "--json",
+                        provider=provider,
+                        env=env,
+                    )
+                    job_id = json.loads(run.stdout)["id"]
+                    record = self.await_terminal(job_id)
+                    self.assertEqual(record["state"], "failed", record)
+                    self.assertEqual(record["attempt"], 1, record)
+                    self.assertEqual(record["items"][0]["state"], "failed", record)
+                    self.assertEqual(record["items"][0]["exit_code"], 2, record)
+                    self.assertEqual(
+                        len(self.ask_requests()) - before, expected_requests
+                    )
 
     def mixed_job(self):
         request = self.batch_request(
