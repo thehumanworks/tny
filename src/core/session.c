@@ -672,6 +672,99 @@ yyjson_mut_doc *session_provider_view(tny_session_state *s, int boundary, int *r
     return d;
 }
 
+/* Provider payload budget, not a token/window guarantee. Only old result text
+ * is replaced; goals, assistant state, calls and the newest two batches remain
+ * exact. References resolve against this session's original transcript, so no
+ * second archive or random handle can invalidate the cache prefix on resume. */
+yyjson_mut_doc *session_working_view(tny_session_state *s, int boundary, int *repairs,
+                                     size_t budget) {
+    yyjson_mut_doc *d = session_provider_view(s, boundary, repairs);
+    if (!d || !budget || (s->ctx->tool_profile != TNY_TOOLS_ALL && !s->ctx->library_mode)) return d;
+    char *serialized = jwrite(d);
+    if (!serialized) {
+        yyjson_mut_doc_free(d);
+        return NULL;
+    }
+    size_t bytes = strlen(serialized);
+    free(serialized);
+    if (bytes <= budget) return d;
+    yyjson_mut_val *view = yyjson_mut_doc_get_root(d);
+    size_t protect = 0, latest = 0, batches = 0, i, max;
+    yyjson_mut_val *m;
+    yyjson_mut_arr_foreach(view, i, max, m) {
+        if (yyjson_mut_arr_size(yyjson_mut_obj_get(m, "tool_calls")) > 0) {
+            protect = latest;
+            latest = i;
+            batches++;
+        }
+    }
+    if (batches < 2) return d;
+    yyjson_mut_val *original = session_messages(s);
+    size_t count = yyjson_mut_arr_size(original);
+    yyjson_mut_arr_iter source_iter = yyjson_mut_arr_iter_with(original);
+    size_t source_index = 0;
+    yyjson_mut_arr_foreach(view, i, max, m) {
+        if (i >= protect || bytes <= budget) break;
+        const char *role = mrole(m);
+        yyjson_mut_val *content = yyjson_mut_obj_get(m, "content");
+        const char *text = yyjson_mut_get_str(content);
+        if (!role || strcmp(role, "tool") != 0 || !text || strlen(text) <= 2048) continue;
+        const char *id = yyjson_mut_get_str(yyjson_mut_obj_get(m, "tool_call_id"));
+        size_t found = count;
+        yyjson_mut_val *source;
+        while ((source = yyjson_mut_arr_iter_next(&source_iter))) {
+            size_t j = source_index++;
+            if (boundary > 0 && j < (size_t)boundary) continue;
+            const char *source_role = mrole(source);
+            const char *source_id = yyjson_mut_get_str(yyjson_mut_obj_get(source, "tool_call_id"));
+            const char *source_text = yyjson_mut_get_str(yyjson_mut_obj_get(source, "content"));
+            if (source_role && strcmp(source_role, "tool") == 0 && id && source_id &&
+                strcmp(id, source_id) == 0 && source_text && strcmp(text, source_text) == 0) {
+                found = j;
+                break;
+            }
+        }
+        if (found == count) continue; /* Never elide a synthesized repair. */
+        size_t len = strlen(text);
+        char reference[96];
+        snprintf(reference, sizeof reference, "transcript:%zu:%016llx", found,
+                 (unsigned long long)fnv1a(text, len));
+        buf_t compact;
+        buf_init(&compact);
+        buf_appendf(&compact,
+                    "[Older tool output: %zu bytes. Excerpts only, not proof of success. "
+                    "Recover exact bytes with read_tool_result(handle=\"%s\", offset=0, "
+                    "length=16384).]\n",
+                    len, reference);
+        /* JSON-safe UTF-8 excerpts: do not cut through a continuation byte. */
+        size_t head = 256, tail = len - 256;
+        while (head && (((unsigned char)text[head] & 0xc0) == 0x80)) head--;
+        while (tail < len && (((unsigned char)text[tail] & 0xc0) == 0x80)) tail++;
+        buf_append(&compact, text, head);
+        buf_appends(&compact, "\n[... middle retained in transcript ...]\n");
+        buf_append(&compact, text + tail, len - tail);
+        char *before = jwrite_mut_val(content);
+        yyjson_mut_val *replacement = yyjson_mut_strcpy(d, compact.data);
+        char *after = replacement ? jwrite_mut_val(replacement) : NULL;
+        if (!before || !after || buf_oom(&compact)) {
+            free(before);
+            free(after);
+            buf_free(&compact);
+            yyjson_mut_doc_free(d);
+            return NULL;
+        }
+        size_t old_bytes = strlen(before), new_bytes = strlen(after);
+        if (new_bytes < old_bytes) {
+            yyjson_mut_obj_put(m, yyjson_mut_strcpy(d, "content"), replacement);
+            bytes -= old_bytes - new_bytes;
+        }
+        free(before);
+        free(after);
+        buf_free(&compact);
+    }
+    return d;
+}
+
 void session_add_tool_result(tny_session_state *s, const char *tool_call_id, const char *content) {
     yyjson_mut_val *m = yyjson_mut_obj(s->doc);
     yyjson_mut_obj_put(m, yyjson_mut_strcpy(s->doc, "role"), yyjson_mut_strcpy(s->doc, "tool"));
@@ -1176,6 +1269,33 @@ char *session_store_result(tny_session_state *s, const char *data, size_t len) {
 
 char *session_read_result(tny_session_state *s, const char *handle, size_t off, size_t maxlen,
                           size_t *out_len) {
+    if (!s || !handle || !out_len) return NULL;
+    /* Session-local immutable transcript references. No filesystem path is
+     * accepted, and the digest rejects stale/edited references. */
+    if (str_starts(handle, "transcript:")) {
+        const char *number = handle + strlen("transcript:");
+        if (*number < '0' || *number > '9') return NULL;
+        char *end = NULL;
+        errno = 0;
+        unsigned long long index = strtoull(number, &end, 10);
+        if (errno || !end || *end != ':' || strlen(end + 1) != 16) return NULL;
+        const char *hash = end + 1;
+        for (const char *p = hash; *p; p++)
+            if (!((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f'))) return NULL;
+        unsigned long long digest = strtoull(hash, NULL, 16);
+        yyjson_mut_val *messages = session_messages(s);
+        if (index >= yyjson_mut_arr_size(messages)) return NULL;
+        yyjson_mut_val *m = yyjson_mut_arr_get(messages, (size_t)index);
+        const char *role = mrole(m);
+        const char *text = yyjson_mut_get_str(yyjson_mut_obj_get(m, "content"));
+        if (!role || strcmp(role, "tool") != 0 || !text || fnv1a(text, strlen(text)) != digest)
+            return NULL;
+        size_t len = strlen(text);
+        size_t n = off < len ? len - off : 0;
+        if (n > maxlen) n = maxlen;
+        *out_len = n;
+        return xstrndup(text + (off < len ? off : len), n);
+    }
     /* handle ids are hex only — reject anything path-like */
     for (const char *p = handle; *p; p++)
         if (!((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f'))) return NULL;

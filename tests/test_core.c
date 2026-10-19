@@ -968,6 +968,352 @@ TEST session_result_sparse_slices(void) {
     PASS();
 }
 
+TEST session_working_context_reversible_and_stable(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session_state *s = session_new(ctx);
+    char payload[8193];
+    memset(payload, 'x', sizeof payload - 1);
+    payload[sizeof payload - 1] = '\0';
+    memcpy(payload + 4096, "verified outcome: exit 7, unfinished", 35);
+    const char *goal =
+        "Keep all user constraints, including unresolved work. Do not claim success.";
+    session_add_text(s, "user", goal);
+    for (int i = 0; i < 12; i++) {
+        char calls[256], id[32];
+        snprintf(id, sizeof id, "call_%d", i);
+        snprintf(calls, sizeof calls,
+                 "[{\"id\":\"%s\",\"type\":\"function\",\"function\":{\"name\":\"run_code\","
+                 "\"arguments\":\"{\\\"code\\\":\\\"print(1)\\\"}\"}}]",
+                 id);
+        session_add_assistant(s, "Work remains; this is not completion evidence.", calls);
+        session_add_tool_result(s, id, payload);
+    }
+    char *original = jwrite(s->doc);
+    int repairs = -1;
+    yyjson_mut_doc *unfolded = session_provider_view(s, 0, &repairs);
+    ASSERT(unfolded);
+    char *baseline = jwrite(unfolded);
+    ASSERT(baseline);
+    size_t baseline_bytes = strlen(baseline);
+    free(baseline);
+    yyjson_mut_doc_free(unfolded);
+    yyjson_mut_doc *view = session_working_view(s, 0, &repairs, 32768);
+    ASSERT(view);
+    ASSERT_EQ(0, repairs);
+    char *first = jwrite(view);
+    ASSERT(first);
+    ASSERT(strlen(first) < 32768);
+    ASSERT(strstr(first, goal));
+    ASSERT_EQ(25, yyjson_mut_arr_size(yyjson_mut_doc_get_root(view)));
+    for (size_t i = 21; i <= 24; i++) {
+        char *expected = jwrite_mut_val(yyjson_mut_arr_get(session_messages(s), i));
+        char *actual = jwrite_mut_val(yyjson_mut_arr_get(yyjson_mut_doc_get_root(view), i));
+        ASSERT_STR_EQ(expected, actual);
+        free(expected);
+        free(actual);
+    }
+    const char *folded = yyjson_mut_get_str(
+        yyjson_mut_obj_get(yyjson_mut_arr_get(yyjson_mut_doc_get_root(view), 2), "content"));
+    const char *ref_start = strstr(folded, "transcript:");
+    ASSERT(ref_start);
+    const char *ref_end = strchr(ref_start, '"');
+    ASSERT(ref_end);
+    char *reference = xstrndup(ref_start, (size_t)(ref_end - ref_start));
+    size_t got = 0;
+    char *recovered = session_read_result(s, reference, 0, sizeof payload, &got);
+    ASSERT(recovered);
+    ASSERT_EQ(sizeof payload - 1, got);
+    ASSERT_STR_EQ(payload, recovered);
+    free(recovered);
+    char *unchanged = jwrite(s->doc);
+    ASSERT_STR_EQ(original, unchanged);
+    free(unchanged);
+    ASSERT_EQ(0, session_save(s));
+    char *id = xstrdup(s->id);
+    session_close(s);
+    s = session_open(ctx, id);
+    ASSERT(s);
+    yyjson_mut_doc *again = session_working_view(s, 0, &repairs, 32768);
+    ASSERT(again);
+    char *second = jwrite(again);
+    ASSERT_STR_EQ(first, second);
+    recovered = session_read_result(s, reference, 4096, 35, &got);
+    ASSERT(recovered);
+    ASSERT_EQ(35, got);
+    ASSERT_EQ(0, memcmp(payload + 4096, recovered, 35));
+    free(recovered);
+    recovered = session_read_result(s, reference, SIZE_MAX, 10, &got);
+    ASSERT(recovered);
+    ASSERT_EQ(0, got);
+    free(recovered);
+    ASSERT_EQ(NULL, session_read_result(s, "transcript:2:0000000000000000", 0, 10, &got));
+    ASSERT_EQ(NULL, session_read_result(s, "transcript:999999999999999999999:0000000000000000", 0,
+                                        10, &got));
+    ASSERT_EQ(NULL,
+              session_read_result(s, "transcript:../../secret:0000000000000000", 0, 10, &got));
+    fprintf(stderr,
+            "working-context fixture: %zu -> %zu view bytes (%zu fewer); exact resume and "
+            "recovery\n",
+            baseline_bytes, strlen(first), baseline_bytes - strlen(first));
+    free(original);
+    free(first);
+    free(second);
+    free(reference);
+    free(id);
+    yyjson_mut_doc_free(view);
+    yyjson_mut_doc_free(again);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST session_working_context_preserves_protected_overflow(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->no_save = true;
+    tny_session_state *s = session_new(ctx);
+    session_add_text(s, "user", "All constraints remain exact, even beyond the soft budget.");
+    session_add_assistant(s, "unresolved",
+                          "[{\"id\":\"pending\",\"type\":\"function\","
+                          "\"function\":{\"name\":\"run_code\",\"arguments\":\"{}\"}}]");
+    int repairs = 0;
+    yyjson_mut_doc *baseline = session_provider_view(s, 0, &repairs);
+    ASSERT_EQ(1, repairs);
+    yyjson_mut_doc *bounded = session_working_view(s, 0, &repairs, 1);
+    ASSERT(bounded);
+    ASSERT_EQ(1, repairs);
+    char *expected = jwrite(baseline), *actual = jwrite(bounded);
+    ASSERT_STR_EQ(expected, actual);
+    ASSERT_EQ(2, session_message_count(s));
+    yyjson_mut_doc_free(baseline);
+    yyjson_mut_doc_free(bounded);
+    free(expected);
+    free(actual);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+static void working_context_add_batch(tny_session_state *s, const char *id, const char *payload,
+                                      const char *extras) {
+    char calls[256];
+    snprintf(calls, sizeof calls,
+             "[{\"id\":\"%s\",\"type\":\"function\",\"function\":{\"name\":\"run_code\","
+             "\"arguments\":\"{\\\"code\\\":\\\"print(1)\\\"}\"}}]",
+             id);
+    session_add_assistant_ex(s, "Still working.", calls, extras);
+    if (payload) session_add_tool_result(s, id, payload);
+}
+
+static const char *working_context_result(yyjson_mut_doc *view, const char *id) {
+    size_t i, n;
+    yyjson_mut_val *message;
+    yyjson_mut_arr_foreach(yyjson_mut_doc_get_root(view), i, n, message) {
+        const char *call_id = yyjson_mut_get_str(yyjson_mut_obj_get(message, "tool_call_id"));
+        if (call_id && strcmp(call_id, id) == 0)
+            return yyjson_mut_get_str(yyjson_mut_obj_get(message, "content"));
+    }
+    return NULL;
+}
+
+TEST session_working_context_ephemeral_utf8_and_reasoning(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->no_save = true;
+    ctx->tool_profile = TNY_TOOLS_ALL;
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    char payload[8193];
+    memset(payload, 'x', sizeof payload - 1);
+    payload[sizeof payload - 1] = '\0';
+    /* Both 256-byte excerpt boundaries land inside a four-byte code point. */
+    memcpy(payload + 254, "\xf0\x9f\x98\x80", 4);
+    memcpy(payload + sizeof payload - 1 - 258, "\xf0\x9f\x98\x80", 4);
+    memcpy(payload + 32, "\"\\\n\t", 4);
+    memcpy(payload + sizeof payload - 1 - 32, "\"\\\n\t", 4);
+    session_add_text(s, "user", "Preserve every instruction and reasoning signature.");
+    working_context_add_batch(
+        s, "old_utf8", payload,
+        "{\"reasoning_details\":[{\"type\":\"reasoning.text\",\"text\":\"private\","
+        "\"signature\":\"signed\"}],\"reasoning_content\":\"plain\","
+        "\"reasoning_items\":[{\"type\":\"reasoning\",\"id\":\"rs_1\","
+        "\"encrypted_content\":\"encrypted\",\"summary\":[]}]}");
+    working_context_add_batch(s, "recent_1", "first recent result", NULL);
+    working_context_add_batch(s, "recent_2", "second recent result", NULL);
+    char *original = jwrite(s->doc);
+    ASSERT(original);
+    int repairs = -1;
+    yyjson_mut_doc *baseline = session_provider_view(s, 0, &repairs);
+    ASSERT(baseline);
+    ASSERT_EQ(0, repairs);
+    yyjson_mut_doc *disabled = session_working_view(s, 0, &repairs, 0);
+    ASSERT(disabled);
+    char *expected = jwrite(baseline), *actual = jwrite(disabled);
+    ASSERT(expected && actual);
+    ASSERT_STR_EQ(expected, actual);
+    free(expected);
+    free(actual);
+    yyjson_mut_doc_free(disabled);
+
+    yyjson_mut_doc *folded = session_working_view(s, 0, &repairs, 4096);
+    ASSERT(folded);
+    ASSERT_EQ(0, repairs);
+    actual = jwrite(folded);
+    ASSERT(actual);
+    ASSERT(strlen(actual) <= 4096);
+    yyjson_doc *valid_json = jparse(actual, strlen(actual));
+    ASSERT(valid_json); /* Rejects excerpts containing partial UTF-8 code points. */
+    yyjson_doc_free(valid_json);
+    free(actual);
+    const char *content = working_context_result(folded, "old_utf8");
+    ASSERT(content && strstr(content, "transcript:2:"));
+    ASSERT_FALSE(strstr(content, "\xf0\x9f\x98\x80"));
+    const char *start = strstr(content, "transcript:"), *end = strchr(start, '"');
+    ASSERT(end);
+    char *reference = xstrndup(start, (size_t)(end - start));
+    ASSERT(reference);
+    size_t got = 0;
+    char *recovered = session_read_result(s, reference, 0, sizeof payload, &got);
+    ASSERT(recovered);
+    ASSERT_EQ(sizeof payload - 1, got);
+    ASSERT_STR_EQ(payload, recovered);
+    free(recovered);
+    ASSERT_EQ(0, s->n_mem_results); /* Recovery needs neither a spill nor a saved session. */
+    expected = jwrite_mut_val(yyjson_mut_arr_get(yyjson_mut_doc_get_root(baseline), 1));
+    actual = jwrite_mut_val(yyjson_mut_arr_get(yyjson_mut_doc_get_root(folded), 1));
+    ASSERT(expected && actual);
+    ASSERT_STR_EQ(expected, actual); /* Calls, arguments and every reasoning member survive. */
+    free(expected);
+    free(actual);
+    actual = jwrite(s->doc);
+    ASSERT(actual);
+    ASSERT_STR_EQ(original, actual);
+    free(actual);
+    free(original);
+    free(reference);
+    yyjson_mut_doc_free(baseline);
+    yyjson_mut_doc_free(folded);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST session_working_context_restricted_profiles_keep_results(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->no_save = true;
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    char payload[8193];
+    memset(payload, 'p', sizeof payload - 1);
+    payload[sizeof payload - 1] = '\0';
+    session_add_text(s, "user", "Keep outputs recoverable under the selected profile.");
+    working_context_add_batch(s, "older", payload, NULL);
+    working_context_add_batch(s, "recent_1", "one", NULL);
+    working_context_add_batch(s, "recent_2", "two", NULL);
+    yyjson_mut_doc *baseline = session_provider_view(s, 0, NULL);
+    ASSERT(baseline);
+    char *expected = jwrite(baseline);
+    ASSERT(expected);
+    const tny_tool_profile profiles[] = {TNY_TOOLS_TERMINAL, TNY_TOOLS_TERMINAL_EDIT};
+    perm_engine *perm = perm_new(ctx);
+    ASSERT(perm);
+    tools_env env = {.ctx = ctx, .session = s, .perm = perm};
+    for (size_t i = 0; i < sizeof profiles / sizeof profiles[0]; i++) {
+        ctx->tool_profile = profiles[i];
+        ASSERT_FALSE(tool_schema_has(&env, "read_tool_result"));
+        char *result = tools_execute(&env, "read_tool_result", "{\"handle\":\"unused\"}");
+        ASSERT(result && strstr(result, "unknown tool read_tool_result"));
+        free(result);
+        yyjson_mut_doc *view = session_working_view(s, 0, NULL, 1);
+        ASSERT(view);
+        char *actual = jwrite(view);
+        ASSERT(actual);
+        ASSERT_STR_EQ(expected, actual);
+        free(actual);
+        yyjson_mut_doc_free(view);
+    }
+    /* Embedded mode intentionally ignores the shell profile in the existing
+     * tool catalogue, so the working view follows that same capability. */
+    ctx->library_mode = true;
+    ASSERT(tool_schema_has(&env, "read_tool_result"));
+    yyjson_mut_doc *view = session_working_view(s, 0, NULL, 4096);
+    ASSERT(view);
+    const char *content = working_context_result(view, "older");
+    ASSERT(content && strstr(content, "transcript:2:"));
+    yyjson_mut_doc_free(view);
+    free(expected);
+    yyjson_mut_doc_free(baseline);
+    perm_free(perm);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST session_working_context_repaired_source_indices(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->no_save = true;
+    ctx->tool_profile = TNY_TOOLS_ALL;
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    char payload[8193];
+    memset(payload, 'm', sizeof payload - 1);
+    payload[sizeof payload - 1] = '\0';
+    session_add_text(s, "user", "Outside the requested boundary.");
+    session_add_tool_result(s, "outside", payload);
+    session_add_text(s, "user", "Current task."); /* boundary = 2 */
+    session_add_tool_result(s, "orphan", payload);
+    working_context_add_batch(s, "missing", NULL, NULL);
+    session_add_text(s, "user", "Continue after interruption.");
+    session_add_assistant(s, "", NULL);
+    working_context_add_batch(s, "older", payload, NULL); /* source result index = 8 */
+    session_add_tool_result(s, "older", "Duplicate answer must not reach the provider.");
+    working_context_add_batch(s, "recent_1", "one", NULL);
+    working_context_add_batch(s, "recent_2", "two", NULL);
+    char *original = jwrite(s->doc);
+    ASSERT(original);
+    int repairs = 0;
+    yyjson_mut_doc *view = session_working_view(s, 2, &repairs, 4096);
+    ASSERT(view);
+    ASSERT_EQ(4, repairs); /* Orphan, missing result, empty assistant, duplicate. */
+    ASSERT_EQ(10, yyjson_mut_arr_size(yyjson_mut_doc_get_root(view)));
+    const char *content = working_context_result(view, "older");
+    ASSERT(content && strstr(content, "transcript:8:"));
+    const char *start = strstr(content, "transcript:"), *end = strchr(start, '"');
+    ASSERT(end);
+    char *reference = xstrndup(start, (size_t)(end - start));
+    ASSERT(reference);
+    size_t got = 0;
+    char *recovered = session_read_result(s, reference, 1024, 4096, &got);
+    ASSERT(recovered);
+    ASSERT_EQ((size_t)4096, got);
+    ASSERT_EQ(0, memcmp(payload + 1024, recovered, got));
+    free(recovered);
+    content = working_context_result(view, "missing");
+    ASSERT(content && strstr(content, "error: tool result missing"));
+    ASSERT_FALSE(strstr(content, "transcript:"));
+    char *actual = jwrite(s->doc);
+    ASSERT(actual);
+    ASSERT_STR_EQ(original, actual);
+    free(actual);
+    free(original);
+    free(reference);
+    yyjson_mut_doc_free(view);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST session_compaction(void) {
     ensure_env();
     write_settings("{}");
@@ -6825,6 +7171,8 @@ SUITE(core_suite) {
     RUN_TEST(session_result_handles);
     RUN_TEST(session_result_sparse_slices);
     RUN_TEST(session_compaction);
+    RUN_TEST(session_working_context_reversible_and_stable);
+    RUN_TEST(session_working_context_preserves_protected_overflow);
     RUN_TEST(session_recovery_roundtrip);
     RUN_TEST(image_mime_from_magic);
     RUN_TEST(image_data_url_roundtrip);
@@ -6877,4 +7225,7 @@ SUITE(core_suite) {
     RUN_TEST(ui_settings_defaults_and_generated_roundtrips);
     RUN_TEST(ui_global_flags_last_override_wins);
     RUN_TEST(version_string_is_sane);
+    RUN_TEST(session_working_context_ephemeral_utf8_and_reasoning);
+    RUN_TEST(session_working_context_restricted_profiles_keep_results);
+    RUN_TEST(session_working_context_repaired_source_indices);
 }
