@@ -321,7 +321,7 @@ int main(void) {
     release(&p);
     REQUIRE(tny_alloc_test_scope_count() == allocations); // destruction allocates nothing
 
-    // Empty optionals remove stale carriers and omit selectors, without truncation.
+    // Empty optionals remove stale carriers; the effective wire remains frozen.
     ctx.api_key = "";
     ctx.base_url = NULL;
     ctx.model = NULL;
@@ -331,11 +331,12 @@ int main(void) {
     fault_at(0);
     REQUIRE(tny_subagent_plan_build(&env, NULL, &p) == 0);
     REQUIRE(!value(p.envp, TNY_SUBAGENT_KEY_ENV) && !value(p.envp, TNY_SUBAGENT_URL_ENV));
-    const char *short_args[] = {"--cwd",    cwd,       "--provider",        provider,
-                                "--effort", "default", "--permission-mode", "yolo",
-                                "ask",      "--json",  "--stdin",           NULL};
+    const char *short_args[] = {
+        "--cwd",    cwd,       "--provider",        provider, "--wire-api", "responses",
+        "--effort", "default", "--permission-mode", "yolo",   "ask",        "--json",
+        "--stdin",  NULL};
     for (size_t i = 0; short_args[i]; ++i) equal(p.argv[i + 1], short_args[i]);
-    REQUIRE(!p.argv[12]);
+    REQUIRE(!p.argv[sizeof short_args / sizeof *short_args]);
     release(&p);
 
     // Both representations of an empty inherited environment are supported.
