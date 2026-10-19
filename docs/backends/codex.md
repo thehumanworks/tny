@@ -36,7 +36,12 @@ Four sources, first hit wins ([ADR 0066](../adr/0066-native-chatgpt-login-and-cr
 | 3 | `~/.tny/codex-auth.json` | yes, in place | written by `tny --provider codex login` (below); tny's own |
 | 4 | `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`) | yes, in place | written by the Codex CLI's `codex login`; OAuth tokens only |
 
-Any of them present auto-detects the provider ([cli.md](../cli.md#provider-selection)).
+Stored credentials and `CHATGPT_ACCESS_TOKEN` do not auto-select this legacy
+provider. Select `--provider codex` explicitly or retain a saved provider choice.
+An explicit `--chatgpt-token` flag remains a compatibility selector when no
+higher-priority provider choice applies ([cli.md](../cli.md#provider-selection)).
+For new ChatGPT-plan turns, run `tny --provider openai login`; old tokens are
+not converted, copied, or deleted ([ADR 0189](../adr/0189-agent-first-modernization.md)).
 `tny providers` / `tny doctor` name the source in use; tokens never print.
 
 - **bearer** — the access token, sent as `Authorization: Bearer`.

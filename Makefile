@@ -742,6 +742,22 @@ $(TEST_BIN): $(TEST_OBJS) $(call objects,$(OBJ_DBG),$(TEST_SRC))
 	@mkdir -p $(@D)
 	$(CXX) $(DBG_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
 
+# Provider failure policy is also linked without the backend/runtime graph.
+# Keep this fast gate independent of the embedded interpreter and transports.
+OPENAI_ERRORS_SRC := src/backends/openai/errors.c src/util/alloc.c src/util/util.c \
+                     src/json/json.c third_party/yyjson/yyjson.c
+OPENAI_ERRORS_TEST_OBJ := $(BUILD)/openai-errors/test_openai_errors.o
+OPENAI_ERRORS_TEST := $(BUILD)/openai-errors/errors-test$(EXE)
+$(OPENAI_ERRORS_TEST_OBJ): tests/test_openai_errors.c | $(VERSION_H)
+	@mkdir -p $(@D)
+	$(CC) $(DBG_CFLAGS) -DTNY_OPENAI_ERRORS_STANDALONE=1 -MMD -MP -c -o $@ $<
+$(OPENAI_ERRORS_TEST): $(OPENAI_ERRORS_TEST_OBJ) $(call objects,$(OBJ_DBG),$(OPENAI_ERRORS_SRC))
+	$(CC) $(DBG_CFLAGS) -o $@ $^ $(filter-out $(PY_RUNTIME_LDLIBS),$(DBG_LDFLAGS))
+.PHONY: test-openai-errors
+test-openai-errors: $(OPENAI_ERRORS_TEST)
+	./$(OPENAI_ERRORS_TEST)
+-include $(OPENAI_ERRORS_TEST_OBJ:.o=.d)
+
 debug: $(TEST_BIN)
 
 test-unit: $(TEST_BIN) $(BIN)
@@ -1215,7 +1231,7 @@ test-subagent-e2e: release
 verify-subagents-live: release
 	python3 tests/integration/live_subagent_check.py --live --tny '$(abspath $(BIN))' --output '$(BUILD)/subagents-live.json'
 
-test: test-code-mode-language verify-formal dictation-fixture test-unit test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
+test: test-code-mode-language verify-formal dictation-fixture test-unit test-openai-errors test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
 	tests/integration/run.sh
 
 size: release

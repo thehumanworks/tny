@@ -285,8 +285,13 @@ No vendor agent binary is required.
 
 Precedence: explicit flag, settings `provider`, remembered `last_provider`
 (`last_backend` compatibility alias), OpenAI env, exactly one complete named
-env pair, an openai Sign in with ChatGPT login, native Codex OAuth
-credentials, Grok OAuth credentials, then openai.
+env pair, an openai Sign in with ChatGPT login, an explicit legacy
+`--chatgpt-token` flag, Grok OAuth credentials, then openai.
+Stored Codex logins and `CHATGPT_ACCESS_TOKEN` no longer auto-select the legacy
+profile. Use `tny --provider openai login` for new ChatGPT-plan turns; credentials
+are never converted or copied between the two profiles. Explicit `--provider codex`,
+saved provider choices and existing session provider snapshots remain compatible
+([ADR 0189](adr/0189-agent-first-modernization.md)).
 An explicit or remembered unknown/removed selector fails rather than falling
 back. Installed binaries and Claude auth artifacts do not affect selection.
 
@@ -1074,7 +1079,7 @@ any backend work.
 
 | Provider | Flags / env |
 | --- | --- |
-| codex (builtin profile) | credential precedence `--chatgpt-token` (+ `--chatgpt-account-id`) > `CHATGPT_ACCESS_TOKEN` (+ `CHATGPT_ACCOUNT_ID`) > `~/.tny/codex-auth.json` (`tny --provider codex login`) > `$CODEX_HOME/auth.json` (`codex login`); the winning file auto-refreshes in place, flag/env tokens need no filesystem; account id explicit or from the JWT claim → `https://chatgpt.com/backend-api/codex` on the Responses wire with `chatgpt-account-id` + `OpenAI-Beta: responses=v1`; an `OPENAI_API_KEY` auth.json → `api.openai.com`; default model `gpt-5.6-sol`; `TNY_CODEX_BASE_URL` redirects the ChatGPT-mode URL (mocks/gateways) without shadowing the profile ([backends/codex.md](backends/codex.md)) |
+| codex (builtin profile) | credential precedence `--chatgpt-token` (+ `--chatgpt-account-id`) > `CHATGPT_ACCESS_TOKEN` (+ `CHATGPT_ACCOUNT_ID`) > `~/.tny/codex-auth.json` (`tny --provider codex login`) > `$CODEX_HOME/auth.json` (`codex login`); the winning file auto-refreshes in place, flag/env tokens need no filesystem; account id explicit or from the JWT claim → `https://chatgpt.com/backend-api/codex` on the Responses wire with `chatgpt-account-id` + `OpenAI-Beta: responses=v1`; persisted `OPENAI_API_KEY` auth.json entries are rejected (use an env-key profile); default model `gpt-5.6-sol`; `TNY_CODEX_BASE_URL` redirects the ChatGPT-mode URL (mocks/gateways) without shadowing the profile ([backends/codex.md](backends/codex.md)) |
 | openai | with no key, a Sign in with ChatGPT login (`tny --provider openai login`) authorizes the default `https://api.openai.com/v1` Responses endpoint only; any `--base-url`, `OPENAI_BASE_URL`, `--wire-api chat` or custom auth header turns it off ([backends/openai-chatgpt.md](backends/openai-chatgpt.md)). `--base-url`, `--api-key-env NAME`, `--wire-api responses\|chat` (default `responses`; `chat` for legacy-only providers, [ADR 0016](adr/0016-responses-api-default-wire.md)), `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_WIRE_API`. `--base-url-env NAME` reads the base URL from environment variable `NAME` with `--base-url` precedence, keeping a secret-bearing gateway URL off argv (native subagent children use it, [ADR 0087](adr/0087-explicit-subagent-contract-and-private-launch.md)); an empty `NAME` or combining it with `--base-url` is a startup error (exit 1) |
 | named provider | same flags; `NAME_BASE_URL` (beats the settings `base_url`), key from the profile's `api_key_env`, default `NAME_API_KEY` — never `OPENAI_API_KEY`; `NAME_WIRE_API` / profile `wire_api` |
 | grok (builtin profile) | session token from `~/.grok/auth.json` (minted by tny's native device login or the grok CLI; expired OIDC tokens auto-refresh at resolve) → CLI chat proxy (chat wire, `X-XAI-Token-Auth` + `x-grok-model-override` + `x-grok-client-version: 1.0.45` headers — HTTP 426 means the client version is too old, `TNY_GROK_CLIENT_VERSION` overrides the pin — default model `grok-4.6`); else `XAI_API_KEY` → `api.x.ai` (responses wire, same default model); `GROK_OAUTH2_ISSUER` / `GROK_OAUTH2_CLIENT_ID` override the login endpoint |

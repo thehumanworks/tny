@@ -9,7 +9,8 @@
 
 A C11 coding-agent harness for agents, built by agents, focused on the
 agent: an interactive TUI shell and a noninteractive-first CLI that drive
-four kinds of agent backends through one normalized event loop. User
+native OpenAI-compatible HTTP profiles and optional verified Claude ACP through
+one normalized event loop. User
 constraints and tasks are the goal. Keep it fast, portable and small
 through measurement; there is no binary-size ceiling
 ([ADR 0150](docs/adr/0150-agent-first-harness-and-measured-footprint.md)).
@@ -38,6 +39,17 @@ bounded recovery guidance from actual edit/read/retry outcomes and applies it to
 later requests and sessions. No preset, manual experiment, or extra model call
 is required. Use `--no-self-improve` to opt out. See
 [the scope and evidence](docs/instruction-improvement.md).
+
+For new ChatGPT-plan sessions, use `tny --provider openai login`: the supported
+Sign in with ChatGPT flow uses the public Responses API. Legacy Codex credentials
+no longer silently choose the old provider; explicit legacy selections remain
+compatible. See [migration and credential boundaries](docs/backends/openai-chatgpt.md).
+
+Extensions use the existing typed Python API, not a second agent runtime. Inspect
+the event/action catalog or validate explicitly trusted plugins before a turn
+with `python -m tny_ext`; see the [plugin authoring guide](docs/extensions.md).
+Agents changing the harness can start with the [development map](docs/development-map.md)
+and its targeted checks rather than traversing the entire codebase.
 
 ## Ephemeral sessions
 

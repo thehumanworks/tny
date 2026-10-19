@@ -1110,7 +1110,9 @@ static int resolve_provider(tny_ctx *ctx, const char *flag_value, const char *wi
         if ((url && *url) || (key && *key)) flag_value = "openai";
         else if ((env_pick = env_sole_detected_provider()) != NULL) flag_value = env_pick;
         else if (tny_openai_signin_present()) flag_value = "openai"; /* docs/adr/0186 */
-        else if (ctx->chatgpt_token || tny_codex_auth_present()) flag_value = "codex";
+        /* Legacy credentials alone must not opt new turns into Codex.
+         * Keep the explicit token flag as a compatibility request (ADR 0189). */
+        else if (ctx->chatgpt_token) flag_value = "codex";
         else if (tny_grok_auth_present()) flag_value = "grok";
         else flag_value = "openai";
     }

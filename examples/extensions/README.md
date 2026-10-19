@@ -7,6 +7,25 @@ persistent Python host used by tny.
 > Extensions are trusted programs with your full user permissions. Read an
 > extension before installing it.
 
+## Inspect and check before installing
+
+From the repository root:
+
+```sh
+PYTHONPATH=python python3 -m tny_ext catalog --json
+PYTHONPATH=python python3 -m tny_ext check examples/extensions/verify_once.py --json
+PYTHONPATH=python python3 -m tny_ext check examples/extensions/ci_guard --json
+make test-extensions-python
+```
+
+`catalog` loads no extensions. `check` runs imports and setup for only the
+explicit trusted paths, with full user permissions, but does not call their
+event handlers or start inference itself. It is not a sandbox or static check.
+For capability-dependent setup, add `--capabilities` with saved
+`tny doctor --json` output. See the
+[development guide](../../docs/extensions.md#develop-and-check-a-plugin-offline)
+for diagnostics, exit statuses, and the reusable Python test API.
+
 ## Install one example
 
 Direct-file extensions:
@@ -51,5 +70,6 @@ tny --max-extension-iterations 2 ask "finish this task"
 ```
 
 `tool_start`, `tool_progress`, and `tool_end` are normalized observations.
-For Cursor, Codex, and ACP, the host owns tool execution, so an event hook
-cannot promise to block a tool before it starts.
+Use `pre_tool_use` for native pre-execution controls, and check
+`api.capabilities` before requesting an action. Observation does not imply
+that a provider exposes the corresponding control boundary.

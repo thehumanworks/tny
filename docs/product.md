@@ -24,7 +24,8 @@ The final report stays skim-readable. Private reasoning need not be dumped.
 
 One native HTTP backend supports Responses and Chat Completions. Named
 profiles cover environment-key gateways (OpenRouter, explicitly configured
-AIProxy and others), Codex's ChatGPT Responses subscription, and Grok's public
+AIProxy and others), Sign in with ChatGPT on the public OpenAI Responses API,
+explicit legacy Codex compatibility, and Grok's public
 API or compatible subscription proxy. No external agent binary is required.
 See [ADR 0152](adr/0152-native-http-only-providers.md). Optional external ACP
 clients connect through the owning-runtime MCP bridge ([ADR 0164](adr/0164-optional-acp-clients.md));

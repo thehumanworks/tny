@@ -50,6 +50,10 @@ The product source is live under `src/` with unit, integration, mutation, and la
 
 ## Layout
 
+Use [the development map](docs/development-map.md) to locate the owning seam and
+focused verification for a change. Prefer extending an existing extension point
+over introducing another loader, provider loop, or persistence layer.
+
 ```text
 src/main.c
 src/cli/ src/tui/ src/core/ src/util/ src/json/

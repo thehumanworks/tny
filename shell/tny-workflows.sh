@@ -554,7 +554,7 @@ _tny_workflow_compose_context() {
 }
 
 _tny_workflow_execute_task() {
-    local task task_dir run_dir composed output_tmp error_tmp child rc value executable task_path
+    local task task_dir run_dir composed output_tmp error_tmp child rc value executable task_path cancelled
     task=$1
     task_dir="$TNY_WORKFLOW_DIR/tasks/$task"
     run_dir="$TNY_WORKFLOW_DIR/run/$task"
@@ -563,6 +563,12 @@ _tny_workflow_execute_task() {
     error_tmp="$run_dir/stderr.tmp"
     executable=${TNY_WORKFLOW_TNY:-tny}
     task_path=
+    child=
+    cancelled=0
+    # The worker owns the launch-to-publication gap: cancellation can arrive
+    # before the scheduler can read child_pid, or even before $! is assigned.
+    # Defer only that assignment gap; once known, settle and reap the child.
+    trap 'cancelled=1; if [ -n "${child:-}" ]; then trap "" HUP INT TERM; _tny_workflow_cancel_child "$run_dir" "$child"; exit 143; fi' HUP INT TERM
 
     if ! _tny_workflow_compose_context "$task" "$composed" 2> "$error_tmp"; then
         : > "$output_tmp"
@@ -607,10 +613,7 @@ _tny_workflow_execute_task() {
     [ "$(cat "$task_dir/persistent")" -eq 1 ] || set -- "$@" --ephemeral
     set -- "$@" ask --stdin
 
-    child=
-    # The scheduler owns group signalling and escalation. Waiting here keeps
-    # the worker alive until that bounded cancellation has settled the child.
-    trap 'if [ -n "${child:-}" ]; then wait "$child" 2> /dev/null || true; fi; exit 143' HUP INT TERM
+    [ "$cancelled" -eq 0 ] || exit 143
     if command -v setsid > /dev/null 2>&1; then
         env TNY_WORKFLOW_TASK_DIR="$task_path" setsid "$@" < "$composed" \
             > "$output_tmp" 2> "$error_tmp" &
@@ -629,6 +632,11 @@ _tny_workflow_execute_task() {
     fi
     child=$!
     printf '%s\n' "$child" > "$run_dir/child_pid"
+    if [ "$cancelled" -eq 1 ]; then
+        trap '' HUP INT TERM
+        _tny_workflow_cancel_child "$run_dir" "$child"
+        exit 143
+    fi
     if wait "$child"; then
         rc=0
     else
@@ -655,6 +663,34 @@ _tny_workflow_valid_pid() {
     esac
 }
 
+# The worker and scheduler can observe cancellation concurrently. Only the
+# winner sends TERM, so a cooperating child's cleanup is not interrupted by a
+# second TERM. Both owners may still escalate and must reap their own child.
+_tny_workflow_request_cancel() {
+    if mkdir "$1/cancelling" 2> /dev/null; then
+        kill -TERM -- "-$2" 2> /dev/null || kill -TERM "$2" 2> /dev/null || true
+    fi
+}
+
+_tny_workflow_cancel_child() {
+    local run_dir child_pid attempt
+    run_dir=$1
+    child_pid=$2
+    _tny_workflow_request_cancel "$run_dir" "$child_pid"
+    attempt=0
+    # Group existence only controls escalation, not successful completion.
+    # wait below establishes that the owned child actually exited.
+    while kill -0 -- "-$child_pid" 2> /dev/null &&
+        [ "$attempt" -lt "$TNY_WORKFLOW_CANCEL_GRACE_ATTEMPTS" ]; do
+        attempt=$((attempt + 1))
+        sleep 0.05
+    done
+    if kill -0 -- "-$child_pid" 2> /dev/null; then
+        kill -KILL -- "-$child_pid" 2> /dev/null || kill -KILL "$child_pid" 2> /dev/null || true
+    fi
+    wait "$child_pid" 2> /dev/null || true
+}
+
 _tny_workflow_cancel_running() {
     local task pid child_pid attempt active_group
     [ -f "$TNY_WORKFLOW_DIR/tasks.list" ] || return 0
@@ -665,10 +701,7 @@ _tny_workflow_cancel_running() {
         if [ -f "$TNY_WORKFLOW_DIR/run/$task/child_pid" ]; then
             child_pid=$(cat "$TNY_WORKFLOW_DIR/run/$task/child_pid")
             if _tny_workflow_valid_pid "$child_pid"; then
-                # Group first so descendants see TERM; the leader again in
-                # case the platform rejects `kill -- -PGID` but accepts pid.
-                kill -TERM -- "-$child_pid" 2> /dev/null || true
-                kill -TERM "$child_pid" 2> /dev/null || true
+                _tny_workflow_request_cancel "$TNY_WORKFLOW_DIR/run/$task" "$child_pid"
             fi
         fi
         if [ -f "$TNY_WORKFLOW_DIR/run/$task/pid" ]; then
@@ -701,8 +734,7 @@ _tny_workflow_cancel_running() {
         [ -f "$TNY_WORKFLOW_DIR/run/$task/child_pid" ] || continue
         child_pid=$(cat "$TNY_WORKFLOW_DIR/run/$task/child_pid")
         if _tny_workflow_valid_pid "$child_pid" && kill -0 -- "-$child_pid" 2> /dev/null; then
-            kill -KILL -- "-$child_pid" 2> /dev/null || true
-            kill -KILL "$child_pid" 2> /dev/null || true
+            kill -KILL -- "-$child_pid" 2> /dev/null || kill -KILL "$child_pid" 2> /dev/null || true
         fi
     done < "$TNY_WORKFLOW_DIR/tasks.list"
 
@@ -819,7 +851,7 @@ _tny_workflow_unfinished_count() {
 
 _tny_workflow_run_impl() {
     local jobs quiet task run_dir task_status running pid scheduled reaped unfinished
-    local maximum failed
+    local maximum failed cancelled
     jobs=${TNY_WORKFLOW_JOBS:-$TNY_WORKFLOW_DEFAULT_JOBS}
     quiet=0
     while [ "$#" -gt 0 ]; do
@@ -867,7 +899,7 @@ _tny_workflow_run_impl() {
     # Zsh function-local EXIT traps are not guaranteed to run when a signal
     # trap exits the function. Cancel explicitly, then disarm the fallback so
     # Bash and Zsh both perform the bounded group shutdown exactly once.
-    trap 'trap - EXIT HUP INT TERM; _tny_workflow_cancel_running; exit 130' HUP INT TERM
+    trap 'trap - EXIT; trap "" HUP INT TERM; _tny_workflow_cancel_running; exit 130' HUP INT TERM
 
     while :; do
         scheduled=0
@@ -887,9 +919,20 @@ _tny_workflow_run_impl() {
                 _tny_workflow_ready "$task" || continue
                 _tny_workflow_write_atomic "$TNY_WORKFLOW_DIR/run/$task/status" running
                 [ "$quiet" -eq 1 ] || printf 'tny workflow: start %s\n' "$task" >&2
+                # Publish the worker before acting on a signal. Otherwise
+                # cleanup could miss the new owner and return while it runs.
+                cancelled=0
+                trap 'cancelled=1' HUP INT TERM
                 (_tny_workflow_execute_task "$task") &
                 pid=$!
                 printf '%s\n' "$pid" > "$TNY_WORKFLOW_DIR/run/$task/pid"
+                trap 'trap - EXIT; trap "" HUP INT TERM; _tny_workflow_cancel_running; exit 130' HUP INT TERM
+                if [ "$cancelled" -eq 1 ]; then
+                    trap - EXIT
+                    trap '' HUP INT TERM
+                    _tny_workflow_cancel_running
+                    exit 130
+                fi
                 running=$((running + 1))
                 scheduled=1
                 [ "$running" -lt "$jobs" ] || break

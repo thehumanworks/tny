@@ -25,9 +25,26 @@ Native loop only, unless noted.
 
 Agents receive exactly `run_code({code, timeout_ms?})`. A Python 3.14 script
 (timeout 600 s by default, up to 600 s) composes the tools below through
-`tools.call(name, arguments_json)`, with discovery via `tools.list()` and
+`tools.call(name, arguments_json)`, with progressive discovery via `tools.search(query)` and
 `tools.describe(name)`. Results are strings; the pre-bound stdlib `json` module
 converts explicitly ([ADR 0179](../adr/0179-python-code-mode-cpython.md)).
+
+`tools.search(query="", limit=10)` returns a JSON object with `tools` (name and
+description summaries only), `total` matching entries, and `truncated`. Matching
+is an ASCII case-insensitive substring of the name or full description, in stable
+catalog order. Non-ASCII bytes match exactly. Queries are limited to 256 UTF-8
+bytes, limits to 1–100 entries, and each description summary to 240 UTF-8 bytes
+(never split inside a character). Refine a truncated search; inspect the complete
+schema with `tools.describe(name)` before calling it. `tools.list()` remains
+backward compatible and returns the full schema catalog, but printing it is
+usually unnecessary. Search only projects the same filtered catalog, adds no
+authority, makes no provider calls, and consumes no nested-tool-call budget.
+
+```python
+print(tools.search("file"))
+print(tools.describe("read_file"))
+```
+
 The deadline covers the entire cell, including nested tools and child inference;
 set a smaller `timeout_ms` for a shorter budget. Explicit cancellation still
 interrupts active work. [ADR 0184](../adr/0184-code-cell-delegation-budget.md)

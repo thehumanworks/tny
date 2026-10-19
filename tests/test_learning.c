@@ -2,11 +2,13 @@
 #include "core/learning.h"
 #include <dirent.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/file.h>
 #include <sys/stat.h>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -394,7 +396,82 @@ TEST learning_process_merge(void) {
     PASS();
 }
 
+TEST learning_crash_leftovers_do_not_block_save(void) {
+    char root[64], path[256], stale[320];
+    ASSERT(fixture(root));
+    tny_learning l, fresh;
+    tny_learning_begin(&l, root, "workspace", session, true, true);
+    episode(&l, TNY_LEARN_READ, true);
+    store_path(path, root, &l, "json");
+    snprintf(stale, sizeof stale, "%s.%ld.tmp", path, (long)getpid());
+    int fd = open(stale, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    ASSERT(fd >= 0);
+    ASSERT_EQ(5, write(fd, "stale", 5));
+    ASSERT_EQ(0, close(fd));
+    episode(&l, TNY_LEARN_READ, true);
+    tny_learning_flush(&l);
+    tny_learning_begin(&fresh, root, "workspace", session, true, true);
+    ASSERT_EQ(2, fresh.rules[0].successes);
+    ASSERT_EQ(0, l.store.delta[0].successes);
+    char *data = file_slurp(stale, NULL);
+    ASSERT(data);
+    ASSERT_STR_EQ("stale", data); /* only our own temporary file may be removed */
+    free(data);
+    cleanup(root);
+    PASS();
+}
+
+/* Run the write-failure injection in a child so signal/rlimit state cannot
+ * affect other suites. A failed save preserves the old snapshot and delta,
+ * leaves no owned temporary file, and a retry publishes exactly once. */
+static int write_failure_recovery(const char *root) {
+    tny_learning l, fresh;
+    tny_learning_begin(&l, root, "workspace", session, true, true);
+    episode(&l, TNY_LEARN_READ, true);
+    if (l.store.delta[0].successes) return 1;
+    struct rlimit original, limited;
+    if (getrlimit(RLIMIT_FSIZE, &original)) return 2;
+    limited = original;
+    limited.rlim_cur = 1;
+    if (signal(SIGXFSZ, SIG_IGN) == SIG_ERR || setrlimit(RLIMIT_FSIZE, &limited)) return 3;
+    episode(&l, TNY_LEARN_READ, true);
+    if (setrlimit(RLIMIT_FSIZE, &original)) return 4;
+    if (l.store.delta[0].successes != 1) return 5;
+    tny_learning_begin(&fresh, root, "workspace", session, true, true);
+    if (fresh.rules[0].successes != 1) return 6;
+    char path[256];
+    snprintf(path, sizeof path, "%s/learning", root);
+    DIR *dir = opendir(path);
+    if (!dir) return 7;
+    struct dirent *entry;
+    unsigned files = 0;
+    while ((entry = readdir(dir))) {
+        if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, "..")) ++files;
+    }
+    closedir(dir);
+    if (files != 2) return 8; /* snapshot and stable lock only */
+    tny_learning_flush(&l);
+    tny_learning_flush(&l);
+    tny_learning_begin(&fresh, root, "workspace", session, true, true);
+    return fresh.rules[0].successes != 2 || l.store.delta[0].successes != 0 ? 9 : 0;
+}
+
+TEST learning_write_failure_is_retryable(void) {
+    char root[64];
+    ASSERT(fixture(root));
+    pid_t child = fork();
+    ASSERT(child >= 0);
+    if (child == 0) _exit(write_failure_recovery(root));
+    int status;
+    ASSERT_EQ(child, waitpid(child, &status, 0));
+    cleanup(root);
+    ASSERT(WIFEXITED(status));
+    ASSERT_EQ(0, WEXITSTATUS(status));
+    PASS();
+}
+
 SUITE(learning_suite) {
+    RUN_TEST(learning_crash_leftovers_do_not_block_save);
     RUN_TEST(learning_promotion_and_demotion);
     RUN_TEST(learning_policies_and_bound);
     RUN_TEST(learning_no_invented_evidence);
@@ -410,4 +487,7 @@ SUITE(learning_suite) {
 
 /* As with task_workspace_process_suite, macOS leaks --atExit deadlocks forked
  * children. Register this suite for normal/ASan tests, not the Darwin leak pass. */
-SUITE(learning_process_suite) { RUN_TEST(learning_process_merge); }
+SUITE(learning_process_suite) {
+    RUN_TEST(learning_process_merge);
+    RUN_TEST(learning_write_failure_is_retryable);
+}

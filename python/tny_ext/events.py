@@ -424,6 +424,15 @@ _EVENT_TYPES: Dict[str, Type[HookEvent]] = {
 _EVENT_TYPES["permission"] = PermissionRequestEvent
 
 
+def event_types() -> Tuple[Type[HookEvent], ...]:
+    """Return the known public event classes in stable name order.
+
+    Aliases are omitted. Unknown future names remain valid subscriptions.
+    """
+
+    return tuple(sorted(set(_EVENT_TYPES.values()), key=lambda cls: cls.EVENT_NAME))
+
+
 def event_name(event: Any) -> str:
     """Return a valid event name from a string or HookEvent subclass."""
 
@@ -726,4 +735,5 @@ __all__ = [
     "WorkspaceChangeEvent",
     "event_from_dict",
     "event_name",
+    "event_types",
 ]

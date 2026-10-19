@@ -17,6 +17,7 @@ reproducible offline evidence from unmeasured live-model improvement.
 | --- | --- |
 | [product.md](product.md) | Goal, non-goals, success metrics |
 | [architecture.md](architecture.md) | Process model, event bus, backend roles |
+| [development-map.md](development-map.md) | Find the owning code seam and smallest relevant verification without traversing the whole repository |
 | [language-and-runtime.md](language-and-runtime.md) | Why C11, library bill of materials |
 | [size-and-speed.md](size-and-speed.md) | Measured footprint, speed budgets, historical bake-off |
 | [implementation-plan.md](implementation-plan.md) | Ordered phases and acceptance gates |

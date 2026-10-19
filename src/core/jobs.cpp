@@ -6202,11 +6202,13 @@ static int worker_spawn_item(yyjson_val *payload, yyjson_val *item, bool image, 
  * suffices; uncertain cleanup always retains the existing admission hold. */
 static bool worker_acp_cleanup_complete(const job_slot *slot) {
     if (!slot->acp_cleanup_path || (slot->killed && !slot->cleanup_unknown)) return true;
+    const int raw_fd = open(slot->acp_cleanup_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (raw_fd < 0) return false;
     tny::descriptor fd;
-    fd.adopt(open(slot->acp_cleanup_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+    fd.adopt(raw_fd);
     struct stat st;
-    if (fd.borrow() < 0 || fstat(fd.borrow(), &st) != 0 || !S_ISREG(st.st_mode) ||
-        st.st_uid != getuid() || (st.st_mode & 077) != 0 || st.st_nlink != 1 || st.st_size != 9)
+    if (fstat(fd.borrow(), &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != getuid() ||
+        (st.st_mode & 077) != 0 || st.st_nlink != 1 || st.st_size != 9)
         return false;
     char receipt[10];
     ssize_t got;

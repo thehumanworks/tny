@@ -949,7 +949,7 @@ static void codex_auth_write(bool present) {
     } else unlink(path);
 }
 
-TEST backend_default_prefers_codex_login(void) {
+TEST backend_default_ignores_legacy_codex_login(void) {
     ensure_env();
     unsetenv("CODEX_HOME");
     unsetenv("CURSOR_API_KEY");
@@ -964,9 +964,14 @@ TEST backend_default_prefers_codex_login(void) {
     codex_auth_write(true);
     ctx = tny_ctx_load(g_ws);
     ASSERT(tny_codex_auth_present());
-    /* subscription wins: the codex builtin profile on the openai backend */
+    /* A legacy store is not consent to select the legacy provider. */
     ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
+    ASSERT_EQ(NULL, ctx->api_key);
+    ASSERT_FALSE(ctx->openai_signin);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
     ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+    ASSERT_STR_EQ("fixture-oauth", ctx->api_key);
     ASSERT_EQ(TNY_BK_ACP, tny_resolve_backend(ctx, "acp")); /* flag beats it */
     tny_ctx_free(ctx);
 
@@ -981,6 +986,19 @@ TEST backend_default_prefers_codex_login(void) {
     ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
     tny_ctx_free(ctx);
 
+    /* Explicit and remembered selections preserve legacy compatibility. */
+    const char *selectors[] = {"provider", "last_provider", "last_backend"};
+    for (size_t i = 0; i < sizeof selectors / sizeof selectors[0]; ++i) {
+        char settings[100];
+        snprintf(settings, sizeof settings, "{\"%s\":\"codex\"}", selectors[i]);
+        write_settings(settings);
+        ctx = tny_ctx_load(g_ws);
+        ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+        ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+        ASSERT_STR_EQ("fixture-oauth", ctx->api_key);
+        tny_ctx_free(ctx);
+    }
+
     write_settings("{}");
     codex_auth_write(false);
     PASS();
@@ -989,7 +1007,7 @@ TEST backend_default_prefers_codex_login(void) {
 TEST provider_last_used_and_scoped_models(void) {
     ensure_env();
     write_settings("{}");
-    codex_auth_write(true); /* codex detectable, but last-used must win */
+    codex_auth_write(true); /* legacy credentials must not override last-used */
 
     tny_ctx *ctx = tny_ctx_load(g_ws);
     ctx->backend = TNY_BK_OPENAI;
@@ -1587,7 +1605,7 @@ TEST builtin_codex_profile(void) {
     buf_free(&j);
     setenv("TNY_CODEX_BASE_URL", "http://127.0.0.1:1/codex", 1);
     ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL)); /* auto-detected */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex")); /* explicit legacy */
     ASSERT_STR_EQ("codex", tny_provider_name(ctx));
     ASSERT_STR_EQ("http://127.0.0.1:1/codex", ctx->base_url);
     ASSERT(has_extra_header(ctx, "chatgpt-account-id: acct_field"));
@@ -1716,13 +1734,16 @@ TEST codex_credential_precedence(void) {
     ASSERT(has_extra_header(ctx, "OpenAI-Beta: responses=v1"));
     tny_ctx_free(ctx);
 
-    /* env alone, no files, no id: derived from the claim; auto-detected */
+    /* Legacy env alone does not select Codex or become an OpenAI API key. */
     unsetenv("CHATGPT_ACCOUNT_ID");
     tny_store_write_json(NULL);
     codex_auth_write(false);
-    ASSERT(tny_codex_auth_present()); /* env counts */
+    ASSERT(tny_codex_auth_present()); /* still available for explicit use */
     ctx = tny_ctx_load(g_ws);
     ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
+    ASSERT_EQ(NULL, ctx->api_key);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "codex"));
     ASSERT_STR_EQ("codex", tny_provider_name(ctx));
     ASSERT_STR_EQ(env_jwt, ctx->api_key);
     ASSERT(has_extra_header(ctx, "chatgpt-account-id: acct_env"));
@@ -2146,8 +2167,8 @@ TEST builtin_profile_edge_credentials(void) {
     PASS();
 }
 
-/* Subscription logins auto-detect in docs/cli.md order: codex first, then
- * claude, then grok — and a settings profile with the builtin's name
+/* Subscription logins auto-detect in docs/cli.md order; legacy Codex and
+ * Claude artifacts are ignored. A settings profile with the builtin's name
  * shadows the builtin entirely (explicit config wins). */
 TEST builtin_profile_detection_and_shadowing(void) {
     ensure_env();
@@ -2169,8 +2190,8 @@ TEST builtin_profile_detection_and_shadowing(void) {
 
     codex_auth_write(true);
     ctx = tny_ctx_load(g_ws);
-    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL)); /* codex first */
-    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL)); /* legacy ignored */
+    ASSERT_STR_EQ("grok", tny_provider_name(ctx));
     tny_ctx_free(ctx);
     codex_auth_write(false);
 
@@ -2431,10 +2452,11 @@ TEST backend_default_cursor_key_from_env(void) {
     ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
     tny_ctx_free(ctx);
 
-    codex_auth_write(true); /* codex login outranks a cursor env key */
+    codex_auth_write(true); /* both legacy credentials and Cursor env are ignored */
     ctx = tny_ctx_load(g_ws);
     ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, NULL));
-    ASSERT_STR_EQ("codex", tny_provider_name(ctx));
+    ASSERT_STR_EQ("openai", tny_provider_name(ctx));
+    ASSERT_EQ(NULL, ctx->api_key);
     tny_ctx_free(ctx);
 
     unsetenv("CURSOR_API_KEY");
@@ -6655,7 +6677,7 @@ SUITE(core_suite) {
     RUN_TEST(job_owner_locks_answer_liveness_without_waiting);
     RUN_TEST(codex_models_normalize_keeps_listed_slugs);
     RUN_TEST(codex_client_version_env_override);
-    RUN_TEST(backend_default_prefers_codex_login);
+    RUN_TEST(backend_default_ignores_legacy_codex_login);
     RUN_TEST(openai_signin_resolution_and_precedence);
     RUN_TEST(openai_signin_mode_heuristic);
     RUN_TEST(openai_id_token_checks);

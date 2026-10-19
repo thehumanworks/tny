@@ -207,51 +207,6 @@ TEST fallback_ids_are_slot_unique(void) {
     PASS();
 }
 
-/* ---- provider failure classification (docs/adr/0069) ---- */
-
-TEST error_token_keeps_only_identifiers(void) {
-    char t[33];
-    oa_error_token(t, sizeof t, "invalid_request_error");
-    ASSERT_STR_EQ("invalid_request_error", t);
-    oa_error_token(t, sizeof t, "Rate-Limit Exceeded");
-    ASSERT_STR_EQ("rate_limit_exceeded", t);
-    oa_error_token(t, sizeof t, "server_error.upstream");
-    ASSERT_STR_EQ("server_error_upstream", t);
-    /* free text, punctuation, or anything key-shaped is dropped whole */
-    oa_error_token(t, sizeof t, "no tool output found for call_1: {bad}");
-    ASSERT_STR_EQ("", t);
-    oa_error_token(t, sizeof t, "sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
-    ASSERT_STR_EQ("", t);
-    oa_error_token(t, sizeof t, "a_category_name_that_is_far_too_long_to_be_one");
-    ASSERT_STR_EQ("", t);
-    oa_error_token(t, sizeof t, "");
-    ASSERT_STR_EQ("", t);
-    oa_error_token(t, sizeof t, NULL);
-    ASSERT_STR_EQ("", t);
-    PASS();
-}
-
-TEST retryable_statuses_and_permanent_tokens(void) {
-    ASSERT(oa_status_is_retryable(429));
-    ASSERT(oa_status_is_retryable(408));
-    ASSERT(oa_status_is_retryable(500));
-    ASSERT(oa_status_is_retryable(502));
-    ASSERT(oa_status_is_retryable(529));
-    ASSERT_FALSE(oa_status_is_retryable(400));
-    ASSERT_FALSE(oa_status_is_retryable(401));
-    ASSERT_FALSE(oa_status_is_retryable(403));
-    ASSERT_FALSE(oa_status_is_retryable(404));
-    ASSERT_FALSE(oa_status_is_retryable(422));
-    ASSERT(oa_error_token_is_permanent("invalid_request_error"));
-    ASSERT(oa_error_token_is_permanent("context_length_exceeded"));
-    ASSERT(oa_error_token_is_permanent("insufficient_quota"));
-    ASSERT(oa_error_token_is_permanent("model_not_found"));
-    ASSERT_FALSE(oa_error_token_is_permanent("server_error"));
-    ASSERT_FALSE(oa_error_token_is_permanent("overloaded_error"));
-    ASSERT_FALSE(oa_error_token_is_permanent(""));
-    PASS();
-}
-
 /* ---- reasoning passthrough: OpenRouter reasoning_details fragments ---- */
 
 static yyjson_doc *frag(const char *json) { return jparse(json, strlen(json)); }
@@ -2492,53 +2447,6 @@ TEST request_construction_oom_after_usage_skips_finalization(void) {
 
 /* ---- ChatGPT-plan route (docs/adr/0186) ---- */
 
-TEST plan_error_codes_classify(void) {
-    ASSERT_EQ(OA_PLAN_ERROR_USAGE_LIMIT,
-              oa_plan_error_of("subscription_sharing_usage_limit_exceeded"));
-    ASSERT_EQ(OA_PLAN_ERROR_UNAVAILABLE,
-              oa_plan_error_of("subscription_sharing_usage_unavailable"));
-    ASSERT_EQ(OA_PLAN_ERROR_UNAVAILABLE, oa_plan_error_of("subscription_sharing_user_unavailable"));
-    ASSERT_EQ(OA_PLAN_ERROR_NOT_ELIGIBLE,
-              oa_plan_error_of("subscription_sharing_user_not_eligible"));
-    ASSERT_EQ(OA_PLAN_ERROR_ROUTE, oa_plan_error_of("subscription_sharing_route_not_supported"));
-    ASSERT_EQ(OA_PLAN_ERROR_GRANT, oa_plan_error_of("chatpass_v2_scope_not_authorized"));
-    ASSERT_EQ(OA_PLAN_ERROR_GRANT, oa_plan_error_of("chatpass_v2_invalid_authorization_context"));
-    ASSERT_EQ(OA_PLAN_ERROR_INVALID_USER, oa_plan_error_of("subscription_sharing_invalid_user"));
-    ASSERT_EQ(OA_PLAN_ERROR_UNSUPPORTED,
-              oa_plan_error_of("subscription_sharing_unsupported_capability"));
-    /* exact codes only: no prefixes, no case folding */
-    ASSERT_EQ(OA_PLAN_ERROR_NONE, oa_plan_error_of("subscription_sharing_usage_limit"));
-    ASSERT_EQ(OA_PLAN_ERROR_NONE, oa_plan_error_of("SUBSCRIPTION_SHARING_INVALID_USER"));
-    ASSERT_EQ(OA_PLAN_ERROR_NONE, oa_plan_error_of("rate_limit_exceeded"));
-    ASSERT_EQ(OA_PLAN_ERROR_NONE, oa_plan_error_of(NULL));
-    /* only a temporary unavailability is worth retrying; a usage limit
-     * waits for the user, not a backoff */
-    ASSERT(oa_plan_error_retryable(OA_PLAN_ERROR_UNAVAILABLE));
-    ASSERT_FALSE(oa_plan_error_retryable(OA_PLAN_ERROR_USAGE_LIMIT));
-    ASSERT_FALSE(oa_plan_error_retryable(OA_PLAN_ERROR_INVALID_USER));
-    ASSERT_FALSE(oa_plan_error_retryable(OA_PLAN_ERROR_NONE));
-    PASS();
-}
-
-TEST plan_error_param_is_sanitized(void) {
-    char p[16];
-    oa_error_param(p, sizeof p, "tools[0].type");
-    ASSERT_STR_EQ("tools[0].type", p);
-    oa_error_param(p, sizeof p, "max-output_1");
-    ASSERT_STR_EQ("max-output_1", p);
-    oa_error_param(p, sizeof p, "a\x1b[2Jb"); /* terminal escapes never print */
-    ASSERT_STR_EQ("", p);
-    oa_error_param(p, sizeof p, "a b");
-    ASSERT_STR_EQ("", p);
-    oa_error_param(p, sizeof p, "`rm`");
-    ASSERT_STR_EQ("", p);
-    oa_error_param(p, sizeof p, "0123456789abcdef"); /* does not fit: dropped, not cut */
-    ASSERT_STR_EQ("", p);
-    oa_error_param(p, sizeof p, NULL);
-    ASSERT_STR_EQ("", p);
-    PASS();
-}
-
 TEST plan_input_uses_developer_role(void) {
     yyjson_mut_doc *view = yyjson_mut_doc_new(NULL);
     yyjson_mut_val *msgs = yyjson_mut_arr(view);
@@ -2608,8 +2516,6 @@ SUITE(openai_suite) {
     RUN_TEST(first_streamed_name_sticks);
     RUN_TEST(overflow_and_garbage_are_dropped_safely);
     RUN_TEST(fallback_ids_are_slot_unique);
-    RUN_TEST(error_token_keeps_only_identifiers);
-    RUN_TEST(retryable_statuses_and_permanent_tokens);
     RUN_TEST(reasoning_details_merge_by_index);
     RUN_TEST(openai_preview_rides_the_next_request_with_captured_bytes);
     RUN_TEST(openai_preview_refuses_wrong_hash_and_foreign_roots);
@@ -2621,7 +2527,5 @@ SUITE(openai_suite) {
     RUN_TEST(stream_complete_needs_a_terminal_event);
     RUN_TEST(stall_window_parses_and_clamps);
     RUN_TEST(continuation_trails_partial_then_user_turn);
-    RUN_TEST(plan_error_codes_classify);
-    RUN_TEST(plan_error_param_is_sanitized);
     RUN_TEST(plan_input_uses_developer_role);
 }

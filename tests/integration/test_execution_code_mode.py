@@ -277,6 +277,27 @@ class ExecutionCodeMode(unittest.TestCase):
             self.assertEqual(schema["properties"]["timeout_ms"]["maximum"], 600000)
             self.assertFalse(schema.get("additionalProperties", True))
 
+    def test_progressive_discovery_preserves_filtered_authority(self):
+        for wire in ("responses", "chat"):
+            with self.subTest(wire=wire):
+                output = self.run_code(
+                    "full = json.loads(tools.list())\n"
+                    "names = {x['function']['name'] for x in full}\n"
+                    "matches = json.loads(tools.search('terminal'))\n"
+                    "assert matches['total'] >= 1\n"
+                    "assert all(x['name'] in names for x in matches['tools'])\n"
+                    "assert all(set(x) == {'name', 'description'} for x in matches['tools'])\n"
+                    "assert all(len(x['description'].encode()) <= 240 for x in matches['tools'])\n"
+                    "assert tools.describe('write_file') is None\n"
+                    "assert json.loads(tools.search('write_file'))['total'] == 0\n"
+                    "assert len(tools.search('terminal').encode()) < len(tools.list().encode())\n"
+                    "print('discovery-keeps-authority')\n",
+                    wire=wire,
+                    env={"TNY_TOOLS": "terminal"},
+                )
+                self.assertEqual(output, "discovery-keeps-authority\n")
+                self.assert_schema(wire)
+
     def test_binary_output_and_unicode_error_do_not_break_protocol(self):
         # Cover every lead byte with representative continuation, overlong,
         # surrogate, non-continuation and truncation boundaries. Expected text

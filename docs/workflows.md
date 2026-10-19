@@ -246,8 +246,12 @@ implicit cache or resume.
 The scheduler installs signal handlers only inside its own subshell. On
 `HUP`, `INT`, or `TERM` it sends `TERM` to each active worker process group,
 waits for a bounded grace period, sends `KILL` to any surviving group, and
-reaps the workers before returning. It does not replace traps owned by the
-calling script.
+reaps the workers before returning. Worker and child ownership is retained
+across launch/PID-publication races: an interrupt cannot skip a just-launched
+process or leave a worker waiting on an unsignalled child. A task receives one
+initial `TERM`, so cooperative cleanup is not interrupted by duplicate requests;
+surviving groups still receive bounded escalation. It does not replace traps
+owned by the calling script.
 
 ### Environment
 

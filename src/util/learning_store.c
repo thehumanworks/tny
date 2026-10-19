@@ -56,9 +56,14 @@ static int open_directory(const tny_learning_store *store, bool create) {
         close(root);
         return -1;
     }
-    if (create && mkdirat(root, "learning", 0700) && errno != EEXIST) {
-        close(root);
-        return -1;
+    if (create) {
+        if (mkdirat(root, "learning", 0700) == 0) {
+            /* Best-effort persistence of the new directory entry too. */
+            while (fsync(root) < 0 && errno == EINTR) {}
+        } else if (errno != EEXIST) {
+            close(root);
+            return -1;
+        }
     }
     int dir = openat(root, "learning", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     int saved = errno;
@@ -138,9 +143,17 @@ static bool save(int dir, const char *name, const tny_learning_counter counters[
                        counters[2].successes, counters[2].failures, counters[2].session_id);
     if (len < 0 || (size_t)len >= sizeof data) return false;
     char temp[64];
-    /* The stable per-workspace lock serializes temp creation. O_EXCL refuses stale files. */
-    snprintf(temp, sizeof temp, "%s.%ld.tmp", name, (long)getpid());
-    int fd = openat(dir, temp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+    /* Crash leftovers and PID reuse must not prevent future saves. Never unlink
+     * a colliding name: it is not a file this invocation owns. */
+    int fd = -1;
+    for (unsigned attempt = 0; attempt < 8; ++attempt) {
+        uint64_t nonce;
+        if (!random_bytes((uint8_t *)&nonce, sizeof nonce)) return false;
+        snprintf(temp, sizeof temp, "%s.%016llx.tmp", name, (unsigned long long)nonce);
+        fd = openat(dir, temp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+        if (fd >= 0) break;
+        if (errno != EEXIST) return false;
+    }
     if (fd < 0) return false;
     bool ok = fchmod(fd, 0600) == 0;
     size_t offset = 0;
@@ -153,8 +166,16 @@ static bool save(int dir, const char *name, const tny_learning_counter counters[
     if (ok) ok = fsync(fd) == 0;
     if (close(fd)) ok = false;
     if (ok) ok = renameat(dir, temp, dir, name) == 0;
-    if (!ok) unlinkat(dir, temp, 0);
-    return ok;
+    if (!ok) {
+        unlinkat(dir, temp, 0);
+        return false;
+    }
+    /* Rename is the publication/consumption point. A directory fsync failure
+     * cannot make the published delta retryable: merging it again duplicates
+     * evidence. Persistence is best effort on filesystems that reject fsync;
+     * this void API does not promise a crash-durable acknowledgment. */
+    while (fsync(dir) < 0 && errno == EINTR) {}
+    return true;
 }
 
 static void merge(tny_learning_store *store, tny_learning_counter counters[3]) {

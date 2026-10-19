@@ -10,7 +10,9 @@ tny is a native agent harness with one OpenAI-compatible HTTP provider backend
 ([ADR 0152](adr/0152-native-http-only-providers.md)). CLI, TUI and libtny share
 the runtime, session store, permissions, tools, MCP and event loop. Profiles
 select credentials, URL, model and Responses or Chat Completions wire format.
-Codex and Grok subscription authentication use native login and refresh.
+Sign in with ChatGPT uses native login/refresh and the public OpenAI Responses
+API. Legacy Codex selection remains explicit compatibility; Grok has its own
+login/refresh path. Tokens are not interchangeable between these profiles.
 
 ```text
 CLI / TUI / C ABI / Python / Node SDKs

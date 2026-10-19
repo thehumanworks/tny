@@ -35,6 +35,14 @@ still unavailable, unflushed counters can be lost; learning must not block the
 task. Corrupt state stays untouched. Original session logs remain the detailed
 execution evidence; the learner's counters are not an immutable audit archive.
 
+Temporary snapshots use random exclusive names so a crash leftover or reused
+process ID cannot block the next writer. Failed pre-publication writes retain
+their pending delta and remove only their own temporary file. Successful rename
+consumes the delta once; directory sync is attempted after publication, but a
+filesystem that rejects directory sync cannot provide a power-loss durability
+guarantee. Retrying a directory-sync failure as a new merge would double-count
+evidence, so it does not requeue the published delta (ADR 0189).
+
 Inspect or disable the effective default:
 
 ```sh

@@ -387,16 +387,14 @@ def check_stream_interruption(env, ws, wire):
     for mode, note in (
         ("clean", b"stream closed before completion"),
         ("abort", b"stream aborted mid-response"),
+        ("reset", b"stream aborted mid-response"),
         ("stall", b"stream stalled (no data for 1s)"),
     ):
-        if mode == "abort" and IS_WASM:
-            # A reset socket errors fetch()'s ReadableStream, which discards
-            # the chunks it had not yet handed out: the partial never reaches
-            # tny, so the whole request is repeated (SI-2 path) and the mock's
-            # continuation expectation cannot apply. docs/verification/
-            # stream-interruption.md records the wasm row; clean and stall
-            # exercise SI-3 on this transport.
-            print("check_stream_interruption: abort mode skipped on wasm")
+        if mode in ("abort", "reset") and IS_WASM:
+            # fetch() may discard queued bytes on truncated HTTP or reset;
+            # keep these native transport checks separate from the clean and
+            # stall continuation guarantees already verified on wasm.
+            print(f"check_stream_interruption: {mode} mode skipped on wasm")
             continue
         mock, port = start_mock(MOCK_EXPECT_WIRE=wire, MOCK_CUT_ANSWER_ONCE=mode)
         try:
@@ -424,13 +422,17 @@ def check_stream_interruption(env, ws, wire):
                 out,
             )
             assert out["steps"] == 2, (wire, mode, out)
-            assert (
-                note + b": continuing the answer in 1.0s (attempt 2/4)" in r.stderr
-            ), (
-                wire,
-                mode,
-                r.stderr,
-            )
+            continuation = note + b": continuing the answer in 1.0s (attempt 2/4)"
+            replay = note + b": retrying in 1.0s (attempt 2/4)"
+            if mode == "reset":
+                # RST may discard any unread portion, including all answer
+                # bytes. The mock verifies exact replay or exact continuation
+                # from the received prefix, and the output above must be whole
+                # and delivered exactly once in either case.
+                assert continuation in r.stderr or replay in r.stderr, (wire, r.stderr)
+                assert (continuation in r.stderr) != (replay in r.stderr), r.stderr
+            else:
+                assert continuation in r.stderr, (wire, mode, r.stderr)
             assert b"attempt 3/4" not in r.stderr, (wire, mode, r.stderr)
             if mode == "stall":
                 assert elapsed < 10, (wire, mode, elapsed)
@@ -440,7 +442,7 @@ def check_stream_interruption(env, ws, wire):
 
     # a tool call cut mid-arguments is retried whole, never run truncated
     # (the mock rejects any echoed call whose arguments differ)
-    for mode in ("clean", "abort", "stall"):
+    for mode in ("clean", "abort", "reset", "stall"):
         mock, port = start_mock(MOCK_EXPECT_WIRE=wire, MOCK_CUT_CALL_ONCE=mode)
         try:
             r = ask_json(
