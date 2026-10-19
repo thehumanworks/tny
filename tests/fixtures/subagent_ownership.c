@@ -79,6 +79,8 @@ static void selectors(const tny_subagent_plan *p, const tny_ctx *ctx, const char
         ctx->model,
         "--effort",
         ctx->reasoning_effort,
+        "--max-steps",
+        "0",
         "--permission-mode",
         tny_perm_mode_name(ctx->perm_mode),
         "--ephemeral",
@@ -177,7 +179,7 @@ int main(void) {
     }
 
     // The effective parent step cap is owned, including the largest valid cap.
-    const int ceilings[] = {1, 7, INT_MAX};
+    const int ceilings[] = {0, 1, 7, INT_MAX};
     for (size_t i = 0; i < sizeof ceilings / sizeof *ceilings; ++i) {
         tny_subagent_plan limited = {0};
         ctx.max_steps = ceilings[i];
@@ -277,7 +279,7 @@ int main(void) {
     equal(p.argv[4], "fixture-provider");
     equal(p.argv[12], "model-original");
     equal(p.argv[14], "high");
-    equal(p.argv[22], "0123456789abcdef");
+    equal(option(&p, "--resume-id"), "0123456789abcdef");
     equal(value(p.envp, "AMBIENT"), "original");
     REQUIRE(value(p.envp, TNY_SUBAGENT_KEY_ENV)[0] == 'S');
     model[0] = 'm';
@@ -331,10 +333,10 @@ int main(void) {
     fault_at(0);
     REQUIRE(tny_subagent_plan_build(&env, NULL, &p) == 0);
     REQUIRE(!value(p.envp, TNY_SUBAGENT_KEY_ENV) && !value(p.envp, TNY_SUBAGENT_URL_ENV));
-    const char *short_args[] = {
-        "--cwd",    cwd,       "--provider",        provider, "--wire-api", "responses",
-        "--effort", "default", "--permission-mode", "yolo",   "ask",        "--json",
-        "--stdin",  NULL};
+    const char *short_args[] = {"--cwd",       cwd,         "--provider",        provider,
+                                "--wire-api",  "responses", "--effort",          "default",
+                                "--max-steps", "0",         "--permission-mode", "yolo",
+                                "ask",         "--json",    "--stdin",           NULL};
     for (size_t i = 0; short_args[i]; ++i) equal(p.argv[i + 1], short_args[i]);
     REQUIRE(!p.argv[sizeof short_args / sizeof *short_args]);
     release(&p);

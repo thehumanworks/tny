@@ -204,3 +204,5 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 
 - [0195: Retire unused desktop interfaces](0195-retire-unused-desktop-interfaces.md) — remove Slint and the independent terminal emulator; preserve harness durability.
 - [0194: Direct Inception Chat Completions default](0194-inception-chat-completions-default.md)
+
+- [0197: Subagent failure recovery](0197-subagent-failure-recovery.md) — preserve unlimited budgets, report safe failure classes and inspect partial work before continuation.

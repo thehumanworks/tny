@@ -4804,6 +4804,8 @@ TEST subagent_plan_carries_resolved_config_privately(void) {
                           "mock-model",
                           "--effort",
                           "high",
+                          "--max-steps",
+                          "0",
                           "--permission-mode",
                           "ask",
                           "--no-self-improve",
@@ -5202,7 +5204,8 @@ TEST subagent_process_outcomes_are_classified(void) {
     r = subagent_sh(&env, "create", NULL,
                     "echo 'provider said SENTINEL-STDERR' >&2; printf 'partial SENTINEL'; exit 3");
     ASSERT_STR_EQ("error: SUBAGENT_CHILD_FAILED: the child failed (exit 3) before storing a "
-                  "session; check the provider setup with tny doctor, then retry create",
+                  "session; check provider setup with tny doctor and inspect any effects "
+                  "before retrying create",
                   r);
     free(r);
     snprintf(script, sizeof script,
@@ -5212,8 +5215,9 @@ TEST subagent_process_outcomes_are_classified(void) {
     r = subagent_sh(&env, "create", NULL, script);
     snprintf(want, sizeof want,
              "error: SUBAGENT_CHILD_FAILED: child %s failed (exit 2); its session keeps the "
-             "details. Check {\"action\":\"lifecycle\",\"id\":\"%s\"} and retry with "
-             "action=message",
+             "details. Reason: unknown failure; inspect the child before continuing. "
+             "Check {\"action\":\"inspect\",\"id\":\"%s\"} before continuing with "
+             "action=message; do not recreate completed work",
              id, id);
     ASSERT_STR_EQ(want, r);
     ASSERT_EQ(NULL, strstr(r, "SENTINEL"));
@@ -5225,9 +5229,28 @@ TEST subagent_process_outcomes_are_classified(void) {
     r = subagent_sh(&env, "create", NULL, script);
     ASSERT(strstr(r, "SUBAGENT_CHILD_FAILED: child ") && strstr(r, "(reported an error)"));
     free(r);
+    static const char *const reasons[][2] = {
+        {"step limit reached", "step limit reached; increase --max-steps"},
+        {"authentication failed (HTTP 401, SENTINEL): SENTINEL", "authentication rejected"},
+        {"provider rate limit (HTTP 429): SENTINEL", "provider rate limit; wait"},
+        {"provider rejected the request (HTTP 404): SENTINEL", "provider route or model not found"},
+        {"provider error (HTTP 503): SENTINEL", "provider unavailable"},
+        {"SENTINEL", "unknown failure"},
+    };
+    for (size_t i = 0; i < sizeof reasons / sizeof reasons[0]; ++i) {
+        snprintf(script, sizeof script,
+                 "printf '{\"output\":\"\",\"exit_code\":2,\"error\":\"%s\","
+                 "\"session_id\":\"%s\"}'; exit 2",
+                 reasons[i][0], id);
+        r = subagent_sh(&env, "create", NULL, script);
+        ASSERT(strstr(r, reasons[i][1]));
+        ASSERT_EQ(NULL, strstr(r, "SENTINEL"));
+        free(r);
+    }
     r = subagent_sh(&env, "create", NULL, "kill -TERM $$");
     ASSERT_STR_EQ("error: SUBAGENT_CHILD_FAILED: the child failed (signal 15) before storing a "
-                  "session; check the provider setup with tny doctor, then retry create",
+                  "session; check provider setup with tny doctor and inspect any effects "
+                  "before retrying create",
                   r);
     free(r);
 
@@ -5396,8 +5419,22 @@ TEST subagent_stored_state_and_session_guards(void) {
     session_close(s);
     r = subagent_call(&env, "lifecycle", id);
     snprintf(want, sizeof want,
-             "subagent %s\nstatus: error\nexit_code: 2\nrunning: false\nresumable: true", id);
+             "subagent %s\nstatus: error\nexit_code: 2\nrunning: false\nresumable: true\n"
+             "reason: unknown failure; inspect the child before continuing",
+             id);
     ASSERT_STR_EQ(want, r);
+    free(r);
+
+    s = session_open(ctx, id);
+    session_set_status_finished(
+        s, "error", 2,
+        "{\"output\":\"PARTIAL-WORK\",\"error\":\"provider rate limit (HTTP 429): SECRET\"}");
+    ASSERT_EQ(0, session_save(s));
+    session_close(s);
+    r = subagent_call(&env, "inspect", id);
+    ASSERT(strstr(r, "reason: provider rate limit; wait before continuing"));
+    ASSERT(strstr(r, "partial result:\nPARTIAL-WORK"));
+    ASSERT_EQ(NULL, strstr(r, "SECRET"));
     free(r);
 
     /* stored running with no live writer is stale, never success */
@@ -5409,6 +5446,10 @@ TEST subagent_stored_state_and_session_guards(void) {
     snprintf(want, sizeof want,
              "subagent %s\nstatus: stale\nexit_code: null\nrunning: false\nresumable: true", id);
     ASSERT_STR_EQ(want, r);
+    free(r);
+
+    r = subagent_call(&env, "inspect", id);
+    ASSERT_EQ(NULL, strstr(r, "partial result:"));
     free(r);
 
     /* a live writer lock means running and busy; message changes nothing */

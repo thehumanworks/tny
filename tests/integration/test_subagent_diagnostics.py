@@ -103,8 +103,9 @@ def e_ephemeral(action):
 def e_child_failed(sid):
     return (
         f"error: SUBAGENT_CHILD_FAILED: child {sid} failed (exit 2); its session keeps "
-        f'the details. Check {{"action":"lifecycle","id":"{sid}"}} and retry with '
-        "action=message"
+        "the details. Reason: authentication rejected; repair the selected provider credentials. "
+        f'Check {{"action":"inspect","id":"{sid}"}} before continuing with '
+        "action=message; do not recreate completed work"
     )
 
 

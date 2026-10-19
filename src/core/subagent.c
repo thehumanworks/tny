@@ -293,6 +293,30 @@ static char *sa_success(tools_env *env, const char *sid, const char *output) {
     return result;
 }
 
+/* Never forward a provider diagnostic: debug mode can append credentials.
+ * Recognize only runtime-generated classes and return static guidance. Unknown
+ * failures stay unknown; neither a class nor a process exit proves no effects. */
+static const char *sa_failure_reason(const char *error) {
+    if (!error) return "unknown failure; inspect the child before continuing";
+    if (strcmp(error, "step limit reached") == 0)
+        return "step limit reached; increase --max-steps before continuing";
+    if (str_starts(error, "authentication failed (HTTP 401") ||
+        str_starts(error, "ChatGPT sign-in was not accepted (HTTP 401"))
+        return "authentication rejected; repair the selected provider credentials";
+    if (str_starts(error, "provider refused the request (HTTP 403") ||
+        str_starts(error, "ChatGPT plan request refused (HTTP 403"))
+        return "provider access refused; check model and account access";
+    if (str_starts(error, "provider rate limit (HTTP 429"))
+        return "provider rate limit; wait before continuing";
+    if (str_starts(error, "provider rejected the request (HTTP 404"))
+        return "provider route or model not found; check base URL, wire API and model";
+    if (str_starts(error, "provider rejected the request (HTTP 4"))
+        return "provider rejected the request; check model and request configuration";
+    if (str_starts(error, "provider error (HTTP 5"))
+        return "provider unavailable; inspect partial work before continuing";
+    return "unknown failure; inspect the child before continuing";
+}
+
 static char *sa_outcome(tools_env *env, sa_action action, const char *resume_id, sa_proc *p) {
     if (p->spawn_error == ENOTSUP)
         return tool_err("SUBAGENT_UNSUPPORTED_CONTEXT: subagent needs a native tny build; this "
@@ -342,14 +366,16 @@ static char *sa_outcome(tools_env *env, sa_action action, const char *resume_id,
         else if (yyjson_get_int(code) != 0)
             snprintf(how, sizeof how, "exit %d", (int)yyjson_get_int(code));
         else snprintf(how, sizeof how, "reported an error");
-        result = known ? tool_err("SUBAGENT_CHILD_FAILED: child %s failed (%s); its session keeps "
-                                  "the details. Check {\"action\":\"lifecycle\",\"id\":\"%s\"} "
-                                  "and retry with action=message",
-                                  known, how, known)
-                       : tool_err("SUBAGENT_CHILD_FAILED: the child failed (%s) before storing a "
-                                  "session; check the provider setup with tny doctor, then retry "
-                                  "create",
-                                  how);
+        result =
+            known
+                ? tool_err("SUBAGENT_CHILD_FAILED: child %s failed (%s); its session keeps "
+                           "the details. Reason: %s. Check {\"action\":\"inspect\",\"id\":\"%s\"} "
+                           "before continuing with action=message; do not recreate completed work",
+                           known, how, sa_failure_reason(cerr), known)
+                : tool_err("SUBAGENT_CHILD_FAILED: the child failed (%s) before storing a "
+                           "session; check provider setup with tny doctor and inspect any effects "
+                           "before retrying create",
+                           how);
     } else if (!result) {
         result = tool_err("SUBAGENT_INVALID_RESPONSE: the child exited without a complete turn "
                           "result; check tny sessions for its state before retrying");
@@ -432,8 +458,13 @@ static char *sa_describe(tools_env *env, sa_action action, tny_session_state *s)
     buf_appendf(&r, "resumable: %s", !running ? "true" : "false");
     yyjson_mut_val *stored = yyjson_mut_obj_get(yyjson_mut_doc_get_root(s->doc), "result");
     const char *out = yyjson_mut_get_str(yyjson_mut_obj_get(stored, "output"));
-    if (action == SA_INSPECT && strcmp(state, "done") == 0 && out) {
-        buf_appends(&r, "\nresult:\n");
+    if (!running && has_exit && exit_code != 0) {
+        const char *error = yyjson_mut_get_str(yyjson_mut_obj_get(stored, "error"));
+        buf_appends(&r, "\nreason: ");
+        buf_appends(&r, sa_failure_reason(error));
+    }
+    if (action == SA_INSPECT && !running && out && (strcmp(state, "done") == 0 || has_exit)) {
+        buf_appends(&r, strcmp(state, "done") == 0 ? "\nresult:\n" : "\npartial result:\n");
         buf_appends(&r, out);
     }
     char *result = r.oom ? NULL : tool_bound_result(env, r.data, r.len);
