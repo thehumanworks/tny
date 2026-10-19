@@ -1,7 +1,7 @@
 # 0166 — Slint is an optional desktop companion, not a second harness
 
 Date: 2026-09-22
-Status: experimental; Linux compile and fake-CLI checks only
+Status: superseded by [ADR 0195](0195-retire-unused-desktop-interfaces.md); retained as historical context.
 
 ## Context
 

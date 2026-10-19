@@ -158,7 +158,7 @@ class MakeCleanContract(unittest.TestCase):
             self.artifact(directory)
         kept = [
             self.artifact("src"),
-            self.artifact("tnytty/build"),
+            self.artifact("fixture/build"),
             self.artifact("nested/build-other"),
             self.artifact("external"),
         ]

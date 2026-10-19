@@ -6,8 +6,7 @@
 limited migration for parser buffers/documents, runtime events/async
 tools, and runner/job resources. It supersedes the old blanket C++ ban,
 not the C ABI, platform support or reliability/performance gates. Keep
-untouched application/transport/OS code, third-party libraries and
-`tnytty` in C11. No public C++ ABI, Boost, UI framework or global allocator
+untouched application/transport/OS code and third-party libraries in C11. No public C++ ABI, Boost, UI framework or global allocator
 replacement is introduced. Runtime size and dependencies are measured,
 not inferred from the language.
 [ADR 0115](adr/0115-owned-stream-decoding-and-failure-boundaries.md) covers

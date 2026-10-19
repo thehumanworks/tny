@@ -1,7 +1,7 @@
 # 0045 — The repo becomes a monorepo; tnytty is the first sibling app
 
 Date: 2026-08-29
-Status: accepted
+Status: superseded by [ADR 0195](0195-retire-unused-desktop-interfaces.md); retained as historical context.
 
 ## Context
 

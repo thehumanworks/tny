@@ -6,17 +6,9 @@ Instructions for coding agents working on **tny**.
 
 ## What this repo is
 
-This repository is a **monorepo** (docs/adr/0045). The root is **tny**, the
-agent harness; sibling apps are self-contained top-level directories with
-their own Makefile, sources, tests, and docs contract:
-
-- [`tnytty/`](tnytty/docs/README.md) — **tnytty**, the tiny terminal: a C11
-  terminal emulator core (VT engine, pty, kitty graphics, bundled `icat`)
-  with a REST HTTP API for scripting and session sharing. Read
-  `tnytty/docs/` before touching `tnytty/`; the rest of this file governs
-  the harness at the root. Shared across apps: `third_party/` (vendored,
-  pinned once) and the quality gates below — `make quality` format-checks
-  sibling `*.c`/`*.h` too, and `make tnytty` / `make tnytty-test` delegate.
+The repository contains the tny agent harness, its SDKs and documentation.
+The retired desktop companion and terminal emulator are not runtime dependencies
+(ADR 0195).
 
 tny is a **C11 + private C++20 ownership** TUI + CLI coding-agent harness (ADR 0114): **a harness for agents, built by agents, focused on the agent**. User constraints and tasks are the goal. Keep it fast, portable and small without a fixed binary-size ceiling or competitor target. It uses one native OpenAI-compatible HTTP backend with Responses and Chat
 Completions, named environment-key profiles, Sign in with ChatGPT on the openai profile
@@ -115,7 +107,7 @@ Do not write exploits, exploit PoCs, malware, or attack procedures. Permission a
 
 ## Learned User Preferences
 
-- Unless told not to commit something, commit leftover files, including hook state and local helpers.
+- Commit task-relevant source and helpers; keep generated editor hook state local and ignored.
 - When asked to land a feature branch, commit, push the remote branch, and open a PR.
 
 ## Learned Workspace Facts

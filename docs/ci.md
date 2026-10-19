@@ -21,8 +21,7 @@ these directories to finish. Cleanup does not detect active users.
 With a custom `BUILD` value, such as `make clean BUILD=build-focus`, cleanup
 removes only that directory and `dist/`. The extra-directory sweep applies
 only when `BUILD` is exactly `build` (the default). It skips regular files and
-symlinks matching `build-*`, and never searches nested or sibling-app trees.
-Use `make tnytty-clean` separately for the terminal app.
+symlinks matching `build-*`, and never searches nested trees.
 See [ADR 0135](adr/0135-clean-build-variants.md).
 
 ## Matrix
@@ -48,10 +47,6 @@ runner or publishing a Windows artifact.
 The Pages workflow also builds `tny-web.mjs` with emsdk and publishes it
 under `assets/wasm/` — the landing terminal is the CI-tested artifact.
 
-Every glibc/Darwin build lane also runs the sibling `tnytty` app's tests
-and strict warnings from its own Makefile (docs/adr/0045). Size is reported,
-not gated by a harness byte ceiling ([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)).
-
 The Linux x86_64 lane runs the full integration suite. Linux aarch64 and
 Darwin arm64 retain unit, fault, ownership and packaging checks; they no longer
 have an additional hermetic full-suite CI lane. The hosted macOS full suite
@@ -62,8 +57,7 @@ runs the conversion suite, preserving coverage formerly supplied by Nix.
 The `lean-proofs` job verifies dictation normalization, ACP admission/lifecycle,
 and the source-linked production C code-cell policies. Committed dictation and
 ACP tables are replayed by native tests; the proof gate checks that their
-generators still produce the same cases. The GUI workflow separately verifies
-its state-machine proofs. These specifications and their finite replays do not
+generators still produce the same cases. These specifications and their finite replays do not
 prove the entire application correct.
 
 Offline benchmark selection uses direct Python policy checks, threshold and

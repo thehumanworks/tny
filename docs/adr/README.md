@@ -201,4 +201,6 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0191 — Metadata-driven releases](0191-metadata-driven-releases.md)
 - [0192: Budgeted recoverable working context](0192-budgeted-recoverable-working-context.md) — reversible old tool-output references at native request boundaries; preserve exact user constraints and latest batches instead of automatic lossy turn summaries.
 - [0193: Strict owned command checks](0193-strict-owned-command-checks.md) — opt-in Linux guardian adoption and drainage without changing ordinary shell semantics.
+
+- [0195: Retire unused desktop interfaces](0195-retire-unused-desktop-interfaces.md) — remove Slint and the independent terminal emulator; preserve harness durability.
 - [0194: Direct Inception Chat Completions default](0194-inception-chat-completions-default.md)

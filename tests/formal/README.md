@@ -1,8 +1,7 @@
 # Formal contracts
 
 Two formalisms live here: Lean 4 for production code-cell gates, dictation and
-ACP contracts, and Z3 for source-linked execution admission. GUI state-machine
-proofs live in `gui/proofs/`.
+ACP contracts, and Z3 for source-linked execution admission.
 
 Benchmark-only decision proofs were replaced with direct offline tests by
 [ADR 0188](../../docs/adr/0188-focused-verification-maintenance.md). The original

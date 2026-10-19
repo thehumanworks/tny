@@ -206,15 +206,6 @@ jobs:
           magick -version | grep -E '^Version: ImageMagick 7\.'
           TNY="$PWD/build/tny" python3 tests/integration/test_image_exports.py
 
-      # tnytty, the monorepo's sibling terminal app (docs/adr/0045): its own
-      # Makefile, tests with ASan/UBSan, strict warnings, and a size report.
-      - name: tnytty (test, strict warnings, release size)
-        run: |
-          set -eu
-          make -C tnytty test
-          make -C tnytty warn-strict
-          make -C tnytty release size
-
       - name: Verify or seed immutable ABI1 consumer fixture
         id: abi-fixtures
         run: make test-abi

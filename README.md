@@ -1,12 +1,5 @@
 # tny
 
-> This repository is a monorepo
-> ([ADR 0045](docs/adr/0045-monorepo-and-tnytty.md)): the root is the tny
-> harness; [`tnytty/`](tnytty/) is **tnytty, the tiny terminal** — a C11
-> terminal emulator core with a pty host, kitty graphics + bundled `icat`,
-> and a REST HTTP API for scripting and session sharing. See
-> [`tnytty/docs/`](tnytty/docs/README.md).
-
 A C11 coding-agent harness for agents, built by agents, focused on the
 agent: an interactive TUI shell and a noninteractive-first CLI that drive
 native OpenAI-compatible HTTP profiles and optional verified Claude ACP through
@@ -25,14 +18,6 @@ tny acp                      # serve tny's native loop to any ACP client
 ```
 
 Task presets (`--task NAME`) configure a native task independently of the HTTP provider.
-
-An [experimental Slint desktop companion](docs/gui.md) lives in `gui/`.
-It reuses the existing CLI for chat, sessions, draft services, images, SSH tools,
-and swarm/message-board inspection. Build it with `cd gui && cargo run` after
-building `tny`. Linux is the initial checked desktop target; macOS and iOS
-are **not yet verified or shipped** as GUI targets. See its documented
-[limitations](docs/gui.md#boundaries-and-next-steps) before using it for
-long-running turns.
 
 **Automatic workflow learning is on by default.** Normal CLI/TUI work learns
 bounded recovery guidance from actual edit/read/retry outcomes and applies it to
@@ -189,11 +174,8 @@ Public site (Geist Mono, fx.sh-style): [thehumanworks.github.io/tny](https://the
 The landing terminal is a client-side BYOK preview — pass `OPENAI_API_KEY`
 (and optionally `OPENAI_BASE_URL`) in the URL hash; both are encrypted in
 the tab ([ADR 0005](docs/adr/0005-client-side-landing-terminal.md)).
-tnytty's user-facing pages start at
-[docs/tnytty.html](https://thehumanworks.github.io/tny/docs/tnytty.html).
 
 The implementation contract lives in [docs/](docs/README.md): product scope,
 architecture, CLI/TUI specs, per-backend protocol notes,
 sessions/permissions/skills/MCP behavior, and measured size/speed.
-tnytty's contract is [`tnytty/docs/`](tnytty/docs/README.md). Update
-both the contract and `site/` when behavior changes (`make site`).
+Update the contract and `site/` when behavior changes (`make site`).
