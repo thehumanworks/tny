@@ -556,7 +556,7 @@ int tny_openai_signin_sync(tny_ctx *ctx) {
     bool ours = ctx->api_key && fnv1a(ctx->api_key, strlen(ctx->api_key)) == ctx->openai_signin_key;
     const char *base = tny_openai_signin_base_url();
     bool endpoint = base && ctx->base_url && strcmp(ctx->base_url, base) == 0 &&
-                    !tny_wire_is_chat(ctx->wire_api) && ctx->auth_header_name &&
+                    !tny_provider_wire_is_chat(ctx) && ctx->auth_header_name &&
                     strcasecmp(ctx->auth_header_name, "Authorization") == 0;
     if (!ours || !endpoint) {
         signin_drop(ctx, ours);

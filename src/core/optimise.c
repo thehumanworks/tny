@@ -120,7 +120,7 @@ tny_optimise *tny_optimise_start(const tny_ctx *parent, const tny_optimise_reque
             snprintf(err, errlen, "optimisation requires a native OpenAI-compatible provider");
             goto failed;
         }
-        if (tny_resolve_backend(ctx, provider) != TNY_BK_OPENAI) {
+        if (tny_resolve_backend_wire(ctx, provider, r->wire_api) != TNY_BK_OPENAI) {
             snprintf(err, errlen, "cannot configure optimisation provider");
             goto failed;
         }

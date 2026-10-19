@@ -4840,6 +4840,20 @@ TEST subagent_plan_carries_resolved_config_privately(void) {
     tny_subagent_plan_free(&plan);
     unsetenv("TNY_NESTED");
 
+    /* Freeze inferred wire too: a child must not inherit a different profile
+     * wire when settings/environment change after admission. */
+    free(ctx->wire_api);
+    ctx->wire_api = NULL;
+    free(ctx->base_url);
+    ctx->base_url = xstrdup("https://api.inceptionlabs.ai/v1");
+    ASSERT_EQ(0, tny_subagent_plan_build(&env, NULL, &plan));
+    bool inferred_chat = false;
+    for (int i = 0; plan.argv[i] && plan.argv[i + 1]; i++)
+        if (strcmp(plan.argv[i], "--wire-api") == 0)
+            inferred_chat = strcmp(plan.argv[i + 1], "chat") == 0;
+    ASSERT(inferred_chat);
+    tny_subagent_plan_free(&plan);
+
     /* explicit account flag travels; ephemeral parents stay one-shot; a
      * keyless local gateway sends no key carrier */
     ctx->chatgpt_account_id = xstrdup("acct-flag");
@@ -5587,6 +5601,119 @@ TEST wire_api_resolution(void) {
     ASSERT_STR_EQ("responses", ctx->wire_api);
     tny_ctx_free(ctx);
     unsetenv("LEGACY_WIRE_API");
+    write_settings("{}");
+    PASS();
+}
+
+/* Provider wire controls are scoped and validated after precedence. */
+TEST wire_api_precedence_validation(void) {
+    ensure_env();
+    unsetenv("OPENAI_WIRE_API");
+    unsetenv("MY_GATEWAY_WIRE_API");
+    write_settings("{\"my-gateway\":{\"base_url\":\"https://example.test/v1\","
+                   "\"wire_api\":\"chat\"}}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    setenv("UNSELECTED_WIRE_API", "secret-invalid-value", 1);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "my-gateway"));
+    ASSERT_STR_EQ("chat", ctx->wire_api);
+    setenv("MY_GATEWAY_WIRE_API", "responses", 1);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "my-gateway"));
+    ASSERT_STR_EQ("responses", ctx->wire_api);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend_wire(ctx, "my-gateway", "chat"));
+    ASSERT_STR_EQ("chat", ctx->wire_api);
+    setenv("MY_GATEWAY_WIRE_API", "secret-invalid-value", 1);
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, "my-gateway"));
+    ASSERT_STR_EQ("chat", ctx->wire_api); /* failed staging leaves parent intact */
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend_wire(ctx, "my-gateway", "responses"));
+    ASSERT_STR_EQ("responses", ctx->wire_api);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "openai"));
+    ASSERT_EQ(NULL, ctx->wire_api); /* unrelated provider env never leaks */
+    tny_ctx_free(ctx);
+    unsetenv("MY_GATEWAY_WIRE_API");
+    unsetenv("UNSELECTED_WIRE_API");
+
+    const char *invalid[] = {"\"wrong\"", "\"\"", "false", "7", "null", "\"chat\\u0000wrong\""};
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        char settings[256];
+        snprintf(settings, sizeof settings,
+                 "{\"my-gateway\":{\"base_url\":\"https://example.test/v1\",\"wire_api\":%s}}",
+                 invalid[i]);
+        write_settings(settings);
+        ctx = tny_ctx_load(g_ws);
+        ASSERT(ctx);
+        ASSERT_EQ(-1, tny_resolve_backend(ctx, "my-gateway"));
+        setenv("MY_GATEWAY_WIRE_API", "chat", 1);
+        ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(ctx, "my-gateway"));
+        ASSERT_STR_EQ("chat", ctx->wire_api);
+        unsetenv("MY_GATEWAY_WIRE_API");
+        ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend_wire(ctx, "my-gateway", "responses"));
+        ASSERT_STR_EQ("responses", ctx->wire_api);
+        tny_ctx_free(ctx);
+    }
+    write_settings("{\"openai\":{\"wire_api\":\"wrong\"}}");
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT_EQ(-1, tny_resolve_backend(ctx, "openai"));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend_wire(ctx, "openai", "chat"));
+    ASSERT_FALSE(ctx->openai_signin);
+    tny_ctx_free(ctx);
+    write_settings("{}");
+    PASS();
+}
+
+/* Endpoint defaults must not change explicit wires, credentials or model IDs. */
+TEST inception_chat_wire_default(void) {
+    tny_ctx ctx = {0};
+    const char *chat_urls[] = {"https://api.inceptionlabs.ai/v1",
+                               "https://api.inceptionlabs.ai:443/v1/"};
+    for (size_t i = 0; i < sizeof(chat_urls) / sizeof(chat_urls[0]); i++) {
+        ctx.base_url = (char *)chat_urls[i];
+        ASSERT(tny_provider_wire_is_chat(&ctx));
+        ctx.wire_api = "responses";
+        ASSERT_FALSE(tny_provider_wire_is_chat(&ctx));
+        ctx.wire_api = "chat";
+        ASSERT(tny_provider_wire_is_chat(&ctx));
+        ctx.wire_api = NULL;
+    }
+    const char *other_urls[] = {NULL,
+                                "",
+                                "https://api.openai.com/v1",
+                                "https://openrouter.ai/api/v1",
+                                "https://api.inceptionlabs.ai.example/v1",
+                                "https://example.test/api.inceptionlabs.ai/v1",
+                                "https://api.inceptionlabs.ai:8443/v1",
+                                "https://api.inceptionlabs.ai/v2",
+                                "https://api.inceptionlabs.ai/v1?route=other",
+                                "http://api.inceptionlabs.ai/v1"};
+    for (size_t i = 0; i < sizeof(other_urls) / sizeof(other_urls[0]); i++) {
+        ctx.base_url = (char *)other_urls[i];
+        ASSERT_FALSE(tny_provider_wire_is_chat(&ctx));
+    }
+    ASSERT_FALSE(tny_provider_wire_is_chat(NULL));
+
+    ensure_env();
+    unsetenv("INCEPTION_WIRE_API");
+    setenv("INCEPTION_API_KEY", "synthetic-inception-key", 1);
+    write_settings("{\"inception\":{\"base_url\":\"https://api.inceptionlabs.ai/v1\","
+                   "\"model\":\"mercury-3\"}}");
+    tny_ctx *loaded = tny_ctx_load(g_ws);
+    ASSERT(loaded);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(loaded, "inception"));
+    ASSERT(tny_provider_wire_is_chat(loaded));
+    ASSERT_STR_EQ("mercury-3", loaded->model);
+    ASSERT_STR_EQ("synthetic-inception-key", loaded->api_key);
+    ASSERT_FALSE(loaded->openai_signin);
+    setenv("INCEPTION_WIRE_API", "responses", 1);
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(loaded, "inception"));
+    ASSERT_FALSE(tny_provider_wire_is_chat(loaded));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend_wire(loaded, "inception", "chat"));
+    ASSERT(tny_provider_wire_is_chat(loaded));
+    ASSERT_EQ(TNY_BK_OPENAI, tny_resolve_backend(loaded, "openai"));
+    ASSERT_FALSE(tny_provider_wire_is_chat(loaded));
+    tny_ctx_free(loaded);
+    unsetenv("INCEPTION_WIRE_API");
+    unsetenv("INCEPTION_API_KEY");
     write_settings("{}");
     PASS();
 }
@@ -7245,6 +7372,8 @@ SUITE(core_suite) {
     RUN_TEST(base_url_env_flag);
     RUN_TEST(responses_text_format_flattens);
     RUN_TEST(wire_api_resolution);
+    RUN_TEST(wire_api_precedence_validation);
+    RUN_TEST(inception_chat_wire_default);
     RUN_TEST(wire_api_flag);
     RUN_TEST(color_flag);
     RUN_TEST(ui_settings_defaults_and_generated_roundtrips);

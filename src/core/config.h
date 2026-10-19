@@ -90,7 +90,7 @@ typedef struct tny_ctx {
     char *auth_header_name;   /* default Authorization */
     char *auth_header_prefix; /* default "Bearer " */
     char *max_tokens_field;   /* NULL = omit */
-    char *wire_api;           /* "responses" (default) | "chat" (docs/adr/0016) */
+    char *wire_api;           /* explicit "responses" | "chat"; NULL uses endpoint default */
     char *output_schema;      /* normalized response_format JSON, or NULL */
     char **extra_headers;     /* NULL-terminated extra request header lines set
                                * by builtin profiles (ChatGPT account, grok
@@ -435,8 +435,9 @@ bool tny_tier_is_ultrafast(const char *tier);
 /* NULL when supported; otherwise a static actionable error. No provider I/O. */
 const char *tny_service_tier_error(const tny_ctx *ctx, const char *tier);
 
-/* True when ctx->wire_api selects the legacy Chat Completions wire. The
- * default (NULL or anything else) is the Responses API (docs/adr/0016). */
+/* Parse an explicit Chat Completions selection; NULL means unspecified. */
 bool tny_wire_is_chat(const char *wire_api);
+/* Effective wire: explicit selection, otherwise endpoint-specific default. */
+bool tny_provider_wire_is_chat(const tny_ctx *ctx);
 
 #endif

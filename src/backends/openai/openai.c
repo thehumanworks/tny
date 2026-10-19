@@ -962,7 +962,7 @@ static int start_post_mode(oa_impl *o, char *errbuf, size_t errlen, bool retry) 
     }
     /* the wire is read per POST so /provider and settings edits apply on
      * the next request, and every event in one stream parses consistently */
-    o->wire_chat = tny_wire_is_chat(o->ctx->wire_api);
+    o->wire_chat = tny_provider_wire_is_chat(o->ctx);
     oa_request_owner *request = oa_request_new();
     if (!request) goto request_oom;
     char *body = o->wire_chat ? build_request_chat(o, request) : build_request_rsp(o, request);
@@ -2390,7 +2390,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
 }
 
 static int oa_doctor(struct tny_ctx *ctx, char *line, size_t linelen) {
-    const char *wire = tny_wire_is_chat(ctx->wire_api) ? ", wire chat" : "";
+    const char *wire = tny_provider_wire_is_chat(ctx) ? ", wire chat" : "";
     if (ctx->openai_signin && ctx->api_key) {
         tny_openai_signin s;
         (void)tny_openai_signin_read(&s);
