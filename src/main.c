@@ -11,6 +11,7 @@
 #include "core/acp_bridge.h"
 #include "core/code_runtime.h"
 #include "core/execution.h"
+#include "core/execution_parallel.h"
 #include "util/process.h"
 #include "util/execution_command.h"
 #include "util/util.h"
@@ -18,6 +19,7 @@
 int main(int argc, char **argv) {
     if (tny_process_scope_admit() != 0) return 1;
     if (argc == 2 && strcmp(argv[1], "--exec-command") == 0) return tny_exec_command_main();
+    if (argc == 2 && strcmp(argv[1], "--exec-tool") == 0) return tny_execution_tool_main();
     if (argc == 2 && strcmp(argv[1], "--exec-server") == 0) return tny_execution_server_main();
     if (argc == 2 && strcmp(argv[1], "--code-cell") == 0) return tny_code_cell_main();
     if (argc == 3 && strcmp(argv[1], "--acp-mcp-bridge") == 0)

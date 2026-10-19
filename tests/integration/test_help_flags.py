@@ -75,6 +75,7 @@ PARSED_WITHOUT_HELP = {
         # Private execution/guardian entries require inherited IPC endpoints.
         "--exec-server",
         "--exec-command",
+        "--exec-tool",
         # Private Python code-cell child: fd 3 socket from its execution server.
         "--code-cell",
         "--child-context",
@@ -268,7 +269,12 @@ class HelpFlagAlignmentTest(unittest.TestCase):
                 [str(TNY), *arguments], capture_output=True, text=True, timeout=5
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            for private in ("--exec-server", "--exec-command", "--code-cell"):
+            for private in (
+                "--exec-server",
+                "--exec-command",
+                "--exec-tool",
+                "--code-cell",
+            ):
                 self.assertNotIn(private, result.stdout + result.stderr)
 
     def test_subcommand_flags_match_help(self) -> None:
