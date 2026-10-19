@@ -158,10 +158,13 @@ bool str_ends(const char *s, const char *suffix) {
 }
 
 char *str_trim(char *s) {
-    char *end;
-    while (isspace((unsigned char)*s)) memmove(s, s + 1, strlen(s));
-    end = s + strlen(s);
-    while (end > s && isspace((unsigned char)end[-1])) *--end = 0;
+    char *start = s;
+    while (isspace((unsigned char)*start)) start++;
+    char *end = start + strlen(start);
+    while (end > start && isspace((unsigned char)end[-1])) end--;
+    size_t len = (size_t)(end - start);
+    if (start != s) memmove(s, start, len);
+    s[len] = 0;
     return s;
 }
 

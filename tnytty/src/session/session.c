@@ -52,7 +52,7 @@ tt_session *tt_session_create_at(tt_registry *r, char *const argv[], int cols, i
     s->argv = copy_argv(argv);
     s->term = vt_new(cols, rows, r->scrollback);
     if (!s->argv || !s->term) goto fail;
-    tt_rand_hex(s->id, TT_SESSION_ID_LEN);
+    if (!tt_rand_hex(s->id, TT_SESSION_ID_LEN)) goto fail;
     if (tt_pty_spawn_at(&s->pty, s->argv, cols, rows, cwd) != 0) goto fail;
     s->alive = true;
     s->created = time(NULL);

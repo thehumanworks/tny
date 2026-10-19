@@ -14,6 +14,7 @@ extern "C" {
 /* Read helpers (immutable docs). All tolerate NULL nodes. */
 const char *jget_str(yyjson_val *obj, const char *key); /* NULL if absent */
 const char *jget_strn(yyjson_val *obj, const char *key, size_t *len_out);
+/* Finite numbers in int64_t range; reals truncate toward zero, otherwise dflt. */
 int64_t jget_int(yyjson_val *obj, const char *key, int64_t dflt);
 double jget_num(yyjson_val *obj, const char *key, double dflt);
 bool jget_bool(yyjson_val *obj, const char *key, bool dflt);

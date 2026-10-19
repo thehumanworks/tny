@@ -11,9 +11,8 @@
  *   - the runner is the sole session writer; t->session is a read replica,
  *     re-opened from disk after every turn_end;
  *   - ctx mutations (model/provider/effort/workspace) restart the runner —
- *     tui_prewarm_drop maps here, so the existing "drop before mutating"
- *     call sites already do the right thing; mid-turn the restart is
- *     deferred until the turn ends. */
+ *     tui_runner_invalidate discards idle state before a mutation, while
+ *     active turns keep their snapshot until the turn ends. */
 #include "tui/tui.h"
 
 #include <signal.h>
@@ -26,6 +25,17 @@
 bool tui_runner_mode(const tui *t) {
     /* A clean exec runner remains available after caller-side TLS use. */
     return t->rc != NULL || tny_isolation_enabled(t->ctx);
+}
+
+/* Context changes never start a provider or interrupt an active turn. */
+void tui_runner_defer_rebind(tui *t) {
+    if (tui_runner_mode(t) && t->turn_active) t->rc_restart_pending = true;
+}
+
+void tui_runner_invalidate(tui *t) {
+    if (!t->rc) return;
+    if (t->turn_active) t->rc_restart_pending = true;
+    else tui_runner_drop(t, "rebind");
 }
 
 int tui_runner_fd(const tui *t) { return t->rc ? tny_runner_client_fd(t->rc) : -1; }

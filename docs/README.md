@@ -23,6 +23,12 @@ reproducible offline evidence from unmeasured live-model improvement.
 | [ci.md](ci.md) | GitHub Actions: Linux arches and Darwin arm64; automatic tagged releases after green CI and SDK gates; Nix is developer-only |
 | [nix.md](nix.md) | The flake: `nix run`, overlay, dev shell, TLS/version specifics, native CI on x86_64-linux / aarch64-linux / aarch64-darwin |
 
+## Maintenance
+
+| Doc | Why |
+| --- | --- |
+| [October 2026 cleanup audit](maintenance/2026-10-cleanup.md) | Repository-wide candidate register, implemented cleanup, retained contracts, verification evidence and follow-up gates |
+
 ## User surfaces
 
 | Doc | Why |

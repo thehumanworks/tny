@@ -134,25 +134,6 @@ int tny_image_export_options(int argc, char **argv, tny_image_export_request *, 
 int tny_image_export_settings_resolve(const tny_image_export_request *, tny_image_export_settings *,
                                       char *err, size_t errlen);
 
-/* The sensitive permission identity: the operation, the ordered canonical
- * inputs with the SHA-256 of their exact current bytes (plus the manifest path
- * and source operation id of every artifact input), the canonical destination
- * and every setting that changes what is written — canvas, policy, gravity,
- * background, format, overwrite, persistence, columns and labels.
- *
- * It is built at prepare and rebuilt at execute, so a source, a record or a
- * destination that changed after the grant is a different operation and needs
- * a new one. Reading these inputs is an ordinary read: the caller applies its
- * existing allowed-root rules to each resolved path. 0 on success. */
-int tny_image_export_detail(const tny_image_export_request *, buf_t *out, char *err, size_t errlen);
-
-/* Resolve the input paths this request would read, in order, so a caller can
- * apply its allowed-root policy before anything is opened. Each returned entry
- * is malloc'd; count is written even on failure for cleanup. */
-int tny_image_export_inputs(const tny_image_export_request *,
-                            char *paths[TNY_IMAGE_EXPORT_SOURCES_MAX], size_t *count, char *err,
-                            size_t errlen);
-
 /* Owned execution snapshot. Resolve records once, check the returned artifact
  * paths against allowed roots, then capture bytes and derive the grant detail.
  * Run this SAME plan after perm_check; never resolve records or reopen inputs

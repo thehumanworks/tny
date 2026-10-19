@@ -27,6 +27,7 @@ SUITE_EXTERN(core_suite);
 SUITE_EXTERN(runtime_suite);
 SUITE_EXTERN(extensions_suite);
 SUITE_EXTERN(tui_suite);
+SUITE_EXTERN(tui_hist_suite);
 SUITE_EXTERN(openai_suite);
 SUITE_EXTERN(ephemeral_suite);
 SUITE_EXTERN(session_bg_suite);
@@ -87,6 +88,7 @@ int main(int argc, char **argv) {
     RUN_SUITE(runtime_suite);
     RUN_SUITE(extensions_suite);
     RUN_SUITE(tui_suite);
+    RUN_SUITE(tui_hist_suite);
     RUN_SUITE(openai_suite);
     RUN_SUITE(ephemeral_suite);
     RUN_SUITE(session_bg_suite);

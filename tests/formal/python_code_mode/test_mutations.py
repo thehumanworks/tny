@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Source mutants must fail at the expected stage of the real checkers.
+"""Source mutants must fail at the expected stage of the production C checker.
 
 `lean` mutants are accepted by the translator and must be rejected by Lean
 theorem checking (not by a hash). `translator` mutants leave the whitelist
@@ -10,7 +10,6 @@ harness itself is shown to work. Production sources are only read.
 
 from __future__ import annotations
 
-import ast
 import os
 import re
 import shutil
@@ -21,8 +20,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 C_CHECKER = ROOT / "tests/formal/check_code_policy.py"
-PY_CHECKER = ROOT / "tests/formal/python_code_mode/check_runtime_selection.py"
-POLICY = ROOT / "tests/bench/python_runtime/policy.py"
 C_FILES = ("core/code_policy.c", "core/code_policy.h", "core/code_runtime.h")
 
 EXTRA = "\nbool tny_code_extra_gate(uint64_t x) { return x != 0; }\n"
@@ -296,85 +293,6 @@ def c_mutants(extra: list[str]) -> list[str]:
     return failures
 
 
-def py_mutants() -> tuple[list[str], int]:
-    source = POLICY.read_text()
-
-    def conjunct(drop: str | None = None, edit=None) -> str:
-        tree = ast.parse(source)
-        function = next(n for n in tree.body if isinstance(n, ast.FunctionDef))
-        expression = function.body[0].value
-        if drop is not None:
-            before = len(expression.values)
-            expression.values = [
-                v for v in expression.values if drop not in ast.unparse(v)
-            ]
-            if len(expression.values) != before - 1:
-                raise SystemExit(f"python mutant {drop!r} matched no single conjunct")
-        if edit is not None:
-            edit(expression)
-        return ast.unparse(tree) + "\n"
-
-    def weaken_size(expression: ast.BoolOp) -> None:
-        node = next(v for v in expression.values if "bytes_lighter" in ast.unparse(v))
-        node.ops = [ast.LtE()]
-
-    def swap_tokens(expression: ast.BoolOp) -> None:
-        node = next(v for v in expression.values if "tokens_lighter" in ast.unparse(v))
-        node.left, node.comparators[0] = node.comparators[0], node.left
-
-    def reverse_first(expression: ast.BoolOp) -> None:
-        node = next(v for v in expression.values if "first_lighter" in ast.unparse(v))
-        node.left, node.comparators[0] = node.comparators[0], node.left
-
-    mutants = {
-        "size gate dropped": (conjunct("bytes_lighter"), "lean"),
-        "size gate < becomes <=": (conjunct(edit=weaken_size), "lean"),
-        "semantics check dropped": (conjunct("semantics_ok"), "lean"),
-        "trial completeness dropped": (conjunct("trials_complete"), "lean"),
-        "solved guard dropped": (conjunct("solved_cpython > 0"), "lean"),
-        "token comparison reversed": (conjunct(edit=swap_tokens), "lean"),
-        "first-pass comparison reversed": (conjunct(edit=reverse_first), "lean"),
-        "non-bool and operand": (
-            source.replace("and semantics_ok", "and 1"),
-            "translator",
-        ),
-        "chained comparison": (
-            source.replace("corpus_total > 0", "0 < corpus_total < 10**9"),
-            "translator",
-        ),
-        "helper call": (
-            source.replace("corpus_total > 0", "max(corpus_total, 0) > 0"),
-            "translator",
-        ),
-        "division": (
-            source.replace(
-                "tokens_lighter * solved_cpython", "tokens_lighter // solved_cpython"
-            ),
-            "translator",
-        ),
-    }
-    failures = []
-    with tempfile.TemporaryDirectory(prefix="tny-selection-mutants-") as temporary:
-        control = Path(temporary) / "control.py"
-        control.write_text(source)
-        if stage(run([str(PY_CHECKER), "--source", str(control)])) != "passed":
-            raise SystemExit("unmodified policy copy did not pass")
-        print("Python control: unmodified copy passes")
-        for index, (name, (text, expected)) in enumerate(mutants.items()):
-            if text == source:
-                raise SystemExit(f"python mutant {name!r} did not change the source")
-            path = Path(temporary) / f"m{index}.py"
-            path.write_text(text)
-            actual = stage(run([str(PY_CHECKER), "--source", str(path)]))
-            verdict = "ok" if actual == expected else "FAIL"
-            print(
-                f"Python {verdict}: {name}: rejected by {actual.split(':')[0]} (expected {expected})"
-            )
-            if actual != expected:
-                failures.append(f"{name}: {actual}")
-    return failures, len(mutants)
-
-
 def main() -> None:
     extra = []
     for option, variable in (
@@ -383,9 +301,8 @@ def main() -> None:
     ):
         if os.environ.get(variable):
             extra += [option, os.environ[variable]]
-    python_failures, python_count = py_mutants()
-    failures = c_mutants(extra) + python_failures
-    total = len(C_MUTANTS) + python_count
+    failures = c_mutants(extra)
+    total = len(C_MUTANTS)
     if failures:
         raise SystemExit(
             "mutants not rejected at the expected stage:\n" + "\n".join(failures)

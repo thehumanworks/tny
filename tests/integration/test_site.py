@@ -102,9 +102,9 @@ def main() -> None:
             fail(f"site.css missing {needle}")
 
     for needle in (
-        "aesGcmSeal",
-        "obfuscateUrl",
-        "SseParser",
+        "takeSecretsFromLocation",
+        "sanitizeApiKey",
+        "sanitizeBaseUrl",
         "OPENAI_BASE_URL",
         "OPENAI_API_KEY",
         "wrapToCols",
@@ -123,7 +123,14 @@ def main() -> None:
     # only thing on this page that speaks a provider wire.
     for js in sorted((SITE / "assets").glob("*.js")):
         blob = js.read_text(encoding="utf-8")
-        for needle in ("chat/completions", '"/responses"', "'/responses'"):
+        for needle in (
+            "chat/completions",
+            '"/responses"',
+            "'/responses'",
+            "response.output_item.",
+            "response.function_call_arguments.",
+            "response.output_text.",
+        ):
             if needle in blob:
                 fail(
                     f"{js.name} contains provider-wire code ({needle!r}); "
@@ -188,12 +195,11 @@ def main() -> None:
     node = subprocess.run(["node", "-v"], capture_output=True, text=True)
     if node.returncode != 0:
         fail("node is required to unit-test term-core.js")
-    js = subprocess.run(
-        ["node", str(ROOT / "tests" / "site" / "test_term.js")],
-        cwd=ROOT,
-    )
-    if js.returncode != 0:
-        sys.exit(js.returncode)
+    for args in (
+        ["node", "tests/site/test_term.js"],
+        ["node", "--experimental-vm-modules", "tests/site/test_term_wasm.js"],
+    ):
+        subprocess.check_call(args, cwd=ROOT)
     print("ok site landing terminal")
 
 

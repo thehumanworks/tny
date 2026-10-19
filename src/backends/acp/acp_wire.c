@@ -5,7 +5,6 @@
 
 #include <errno.h>
 #include <poll.h>
-#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -106,60 +105,10 @@ void acp_fmt_result(buf_t *b, const char *id_raw, const char *result_json) {
                 result_json ? result_json : "null");
 }
 
-int acp_send_request(int fd, int64_t id, const char *method, const char *params_json) {
-    buf_t b;
-    buf_init(&b);
-    acp_fmt_request(&b, id, method, params_json);
-    int rc = acp_write_line(fd, b.data, b.len);
-    buf_free(&b);
-    return rc;
-}
-
-int acp_send_notify(int fd, const char *method, const char *params_json) {
-    buf_t b;
-    buf_init(&b);
-    acp_fmt_notify(&b, method, params_json);
-    int rc = acp_write_line(fd, b.data, b.len);
-    buf_free(&b);
-    return rc;
-}
-
-int acp_send_result(int fd, const char *id_raw, const char *result_json) {
-    buf_t b;
-    buf_init(&b);
-    acp_fmt_result(&b, id_raw, result_json);
-    int rc = acp_write_line(fd, b.data, b.len);
-    buf_free(&b);
-    return rc;
-}
-
-int acp_send_error(int fd, const char *id_raw, int code, const char *msg) {
-    buf_t b;
-    buf_init(&b);
-    buf_appendf(&b, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":%d,\"message\":",
-                id_raw ? id_raw : "null", code);
-    jescape(&b, msg ? msg : "error");
-    buf_appends(&b, "}}");
-    int rc = acp_write_line(fd, b.data, b.len);
-    buf_free(&b);
-    return rc;
-}
-
 char *acp_id_text(yyjson_val *msg) {
     if (tny_alloc_scope_failed()) return NULL;
     yyjson_val *id = jget(msg, "id");
     if (!id) return xstrdup("null");
-    if (yyjson_is_int(id) || yyjson_is_uint(id) || yyjson_is_sint(id)) {
-        char tmp[32];
-        snprintf(tmp, sizeof tmp, "%lld", (long long)yyjson_get_sint(id));
-        return xstrdup(tmp);
-    }
-    if (yyjson_is_str(id)) {
-        buf_t b;
-        buf_init(&b);
-        jescape(&b, yyjson_get_str(id));
-        return buf_detach(&b);
-    }
     char *raw = jwrite_val(id);
     return raw || tny_alloc_scope_failed() ? raw : xstrdup("null");
 }
@@ -168,45 +117,6 @@ int64_t acp_id_num(yyjson_val *msg) {
     yyjson_val *id = jget(msg, "id");
     if (!id || !yyjson_is_int(id)) return -1;
     return yyjson_get_sint(id);
-}
-
-/* Text of one ContentBlock, or NULL when the block carries no plain text. */
-static const char *block_text(yyjson_val *blk, const char **bad) {
-    const char *type = jget_str(blk, "type");
-    if (!type) type = "text";
-    if (strcmp(type, "text") == 0) return jget_str(blk, "text");
-    if (strcmp(type, "resource_link") == 0) return jget_str(blk, "uri");
-    if (strcmp(type, "resource") == 0) {
-        yyjson_val *res = jget(blk, "resource");
-        const char *t = jget_str(res, "text");
-        if (t) return t;
-        *bad = "resource(blob)";
-        return NULL;
-    }
-    *bad = type;
-    return NULL;
-}
-
-bool acp_blocks_to_text(yyjson_val *arr, buf_t *out, const char **bad) {
-    *bad = NULL;
-    if (!arr || !yyjson_is_arr(arr)) return true;
-    size_t idx, max;
-    yyjson_val *blk;
-    yyjson_arr_foreach(arr, idx, max, blk) {
-        if (!yyjson_is_obj(blk)) continue;
-        const char *why = NULL;
-        const char *t = block_text(blk, &why);
-        if (!t) {
-            if (why) {
-                *bad = why;
-                return false;
-            }
-            continue;
-        }
-        if (out->len) buf_appends(out, "\n");
-        buf_appends(out, t);
-    }
-    return true;
 }
 
 void acp_append_text_block(buf_t *b, const char *text, size_t len) {

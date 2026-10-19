@@ -19,6 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = json.loads((ROOT / "sdk/schema/events.json").read_text())
 SOURCE = (ROOT / "src/core/event_jsonl.c").read_text()
+NAMES = (ROOT / "src/core/events.h").read_text()
 HEADER = (ROOT / "include/tny/tny.h").read_text()
 
 TYPES = [event["type"] for event in SCHEMA["events"]]
@@ -29,9 +30,10 @@ PRIVATE = [event["c"].replace("TNY_EVENT_", "TNY_EV_") for event in SCHEMA["even
 
 class EventJsonlRegistryTest(unittest.TestCase):
     def test_type_names_match_the_registry(self) -> None:
-        table = re.findall(r'case (TNY_EV_[A-Z_]+): return "([a-z_]+)";', SOURCE)
+        table = re.findall(r'case (TNY_EV_[A-Z_]+): return "([a-z_]+)";', NAMES)
         self.assertEqual([name for name, _ in table], PRIVATE)
         self.assertEqual([value for _, value in table], TYPES)
+        self.assertIn('field_str(out, "type", tny_event_kind_name(ev->kind));', SOURCE)
 
     def emits(self, key: str) -> bool:
         """The key is written either as a JSON literal (\\"key\\":) or through

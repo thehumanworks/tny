@@ -34,29 +34,24 @@ typedef enum {
 
 typedef struct tny_backend tny_backend;
 
-/* One provider may multiplex a host stream, host diagnostics, a loopback
- * callback listener, callback clients, and an async-tool wake fd. Keep this
- * private bound comfortably above the Cursor callback server's fixed cap. */
+/* One provider may multiplex its transport, diagnostics, MCP bridge clients,
+ * and an async-tool wake fd. Keep this private bound above their combined cap. */
 #define TNY_BACKEND_POLLFD_MAX 16
 
 struct tny_backend {
     tny_backend_id id;
     void *impl;
 
-    /* Establish transport (spawn host, connect socket). 0 ok, -1 error
-     * (write a one-line reason into errbuf). Never called during CLI
-     * startup: either lazily when a turn is about to start, or from the
-     * TUI pre-warm thread right after first paint (docs/adr/0002) — so it
-     * must not print to the terminal and must not read ctx fields the TUI
-     * mutates (model/tier ride on create_or_resume instead). */
+    /* Establish transport (spawn agent, connect socket). 0 ok, -1 error
+     * (write a one-line reason into errbuf). The runtime calls this lazily
+     * when a turn is about to start, never during CLI startup. It must not
+     * print to the terminal; model/tier ride on create_or_resume instead. */
     int (*connect)(tny_backend *b, char *errbuf, size_t errlen);
     void (*disconnect)(tny_backend *b);
 
     /* Create a new backend session or resume from a stored pointer
-     * (session.json host alias, may be NULL for new). May run on the TUI
-     * pre-warm thread (docs/adr/0002): must not print to the terminal, may
-     * read ctx (the TUI drops any pending warm-up before mutating the
-     * model/tier/workspace fields) but must not write it. */
+     * (session.json host alias, may be NULL for new). Called by the owning
+     * runtime: must not print to the terminal or write ctx. */
     int (*create_or_resume)(tny_backend *b, const char *resume_pointer, char *errbuf,
                             size_t errlen);
     /* Serialized pointer for session storage; malloc'd, may return NULL. */

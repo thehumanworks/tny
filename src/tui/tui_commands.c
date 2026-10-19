@@ -353,11 +353,10 @@ static int resolve_provider(tny_ctx *ctx, const cli_globals *g, int argc, char *
     return tny_resolve_backend(ctx, argv[0]);
 }
 
-/* Rebinding commands drop the live backend; warming the (possibly new)
- * provider right away keeps the next prompt as fast as the first one. */
+/* Discard captured backend state; the next turn binds the updated context. */
 static void drop_backend(tui *t) {
     tui_drop_backend(t);
-    tui_prewarm_start(t);
+    tui_runner_defer_rebind(t);
 }
 
 typedef struct {
@@ -534,14 +533,13 @@ static void cmd_resume_id(tui *t, const char *id) {
         tui_err(t, "no such session for this workspace (try /sessions)");
         return;
     }
-    /* Reconciliation may replace ctx task strings. Wait out the warm-up
-     * reader before doing so, and do not start the target provider until the
-     * saved snapshot has been accepted. */
-    tui_prewarm_drop(t);
+    /* Reconciliation may replace ctx task strings. Invalidate the runner's
+     * captured context before accepting the saved snapshot. */
+    tui_runner_invalidate(t);
     char task_err[192];
     if (session_task_reconcile(s, task_err, sizeof task_err) != 0) {
         session_close(s);
-        if (!t->engine) tui_prewarm_start(t);
+        if (!t->engine) tui_runner_defer_rebind(t);
         tui_err(t, task_err);
         return;
     }
@@ -556,7 +554,7 @@ static void cmd_resume_id(tui *t, const char *id) {
     session_get_usage(s, &in_tok, &out_tok);
     t->in_tok = in_tok;
     t->out_tok = out_tok;
-    tui_prewarm_start(t);
+    tui_runner_defer_rebind(t);
     tui_sys(t, "resumed session");
     tui_linef(t, "  %s  %s", s->id, session_title(s) ? session_title(s) : "(untitled)");
 }
@@ -750,21 +748,21 @@ void tui_command(tui *t, const char *line) {
         else {
             /* runner mode: end the idle runner first — its stale session
              * copy must not clobber the new title (docs/adr/0053) */
-            if (t->rc) tui_prewarm_drop(t);
+            if (t->rc) tui_runner_invalidate(t);
             session_set_title(t->session, arg);
             session_save(t->session);
-            if (tui_runner_mode(t)) tui_prewarm_start(t);
+            if (tui_runner_mode(t)) tui_runner_defer_rebind(t);
             tui_sys(t, "renamed");
         }
     } else if (strcmp(c, "compact") == 0) {
         if (!t->session) tui_sys(t, "no session yet");
         else if (t->rc && t->turn_active) tui_sys(t, "finish the turn first");
         else {
-            if (t->rc) tui_prewarm_drop(t); /* same stale-copy rule as /rename */
+            if (t->rc) tui_runner_invalidate(t); /* same stale-copy rule as /rename */
             int rc = t->engine ? tny_engine_compact(t->engine, true, "manual")
                                : session_compact(t->session, true);
             if (!t->engine && rc >= 0) session_save(t->session);
-            if (tui_runner_mode(t) && !t->engine) tui_prewarm_start(t);
+            if (tui_runner_mode(t) && !t->engine) tui_runner_defer_rebind(t);
             if (rc > 0) tui_sys(t, "transcript compacted");
             else if (rc == 0) tui_sys(t, "nothing to compact");
             else tui_err(t, "compaction failed");
@@ -773,7 +771,7 @@ void tui_command(tui *t, const char *line) {
         run_cli(t, cmd_models, 0, NULL);
     } else if (strcmp(c, "model") == 0) {
         if (arg && *arg) {
-            tui_prewarm_drop(t); /* the warm-up thread reads ctx->model */
+            tui_runner_invalidate(t);
             char *previous = t->ctx->model ? xstrdup(t->ctx->model) : NULL;
             free(t->ctx->model);
             t->ctx->model = xstrdup(arg);
@@ -824,7 +822,7 @@ void tui_command(tui *t, const char *line) {
             else {
                 if (t->turn_active) tui_sys(t, "finish the turn first");
                 else {
-                    tui_prewarm_drop(t); /* resolve swaps ctx fields it reads */
+                    tui_runner_invalidate(t);
                     char *previous_model = t->ctx->model ? xstrdup(t->ctx->model) : NULL;
                     char *previous_effort =
                         t->ctx->reasoning_effort ? xstrdup(t->ctx->reasoning_effort) : NULL;
@@ -834,7 +832,7 @@ void tui_command(tui *t, const char *line) {
                     if (resolved < 0) {
                         tui_err(t, "provider switch failed; previous configuration retained (see "
                                    "diagnostic)");
-                        if (!t->engine) tui_prewarm_start(t);
+                        if (!t->engine) tui_runner_defer_rebind(t);
                     } else {
                         tny_engine_model_changed(t->engine, previous_model, t->ctx->model,
                                                  "provider");
@@ -871,7 +869,7 @@ void tui_command(tui *t, const char *line) {
             } else if (tier_error) {
                 tui_err(t, tier_error);
             } else {
-                tui_prewarm_drop(t); /* the warm-up thread reads the tier */
+                tui_runner_invalidate(t);
                 free(t->ctx->service_tier);
                 t->ctx->service_tier = xstrdup(next);
                 t->ctx->service_tier_explicit = true;
@@ -886,17 +884,16 @@ void tui_command(tui *t, const char *line) {
         }
         t->dirty = true;
     } else if (strcmp(c, "effort") == 0) {
-        /* Reasoning effort applies from the next turn without a rebind: it
-         * rides on codex turn/start, cursor SendOptions.model.params and the
-         * openai request body. Levels beyond the canonical set are fine when
-         * the provider's catalog advertises them (/models shows those). */
+        /* Updated effort applies from the next turn. Native requests read
+         * the context; isolated turns get a fresh runner snapshot. Levels
+         * beyond the canonical set may be advertised by /models. */
         if (!arg || !*arg) {
             tui_linef(t, "  reasoning effort: %s",
                       t->ctx->reasoning_effort ? t->ctx->reasoning_effort : "default");
             tui_sys(t, "usage: /effort [" TNY_EFFORT_LEVELS "|default] "
                        "— /models lists provider levels");
         } else {
-            tui_prewarm_drop(t); /* the warm-up thread reads the effort */
+            tui_runner_invalidate(t);
             char *previous = t->ctx->reasoning_effort ? xstrdup(t->ctx->reasoning_effort) : NULL;
             free(t->ctx->reasoning_effort);
             t->ctx->reasoning_effort = strcmp(arg, "default") == 0 ? NULL : xstrdup(arg);
@@ -907,7 +904,7 @@ void tui_command(tui *t, const char *line) {
             t->ctx->effort_from_settings = false;
             tny_engine_effort_changed(t->engine, previous, t->ctx->reasoning_effort, "command");
             free(previous);
-            if (!t->engine) tui_prewarm_start(t);
+            if (!t->engine) tui_runner_defer_rebind(t);
             if (!t->ctx->reasoning_effort) tui_linef(t, "  reasoning effort: provider default");
             else
                 tui_linef(t, "  reasoning effort: %s%s (next turn on)", arg,
@@ -932,7 +929,7 @@ void tui_command(tui *t, const char *line) {
             bool explicit_old = t->ctx->swarm_explicit;
             pid_t runner_pid = t->rc_pid;
             bool had_runner = t->rc != NULL;
-            tui_prewarm_drop(t);
+            tui_runner_invalidate(t);
             if (had_runner) {
                 char error[256];
                 if (!tui_worktree_wait_runner(runner_pid) || !t->session ||
@@ -977,14 +974,14 @@ void tui_command(tui *t, const char *line) {
             tui_err(t, "task selection is session-scoped; start /new before changing it");
         } else if (strcmp(arg, "clear") == 0) {
             task_selection_state previous;
-            tui_prewarm_drop(t);
+            tui_runner_invalidate(t);
             task_selection_take(t->ctx, &previous);
             if (t->session) {
                 session_task_clear(t->session);
                 if (session_save(t->session) != 0) {
                     task_selection_restore(t->ctx, &previous);
                     task_selection_rollback_session(t);
-                    if (!t->engine) tui_prewarm_start(t);
+                    if (!t->engine) tui_runner_defer_rebind(t);
                     tui_err(t, "could not persist cleared task; selection is unchanged");
                     t->dirty = true;
                     return;
@@ -995,21 +992,21 @@ void tui_command(tui *t, const char *line) {
             tui_sys(t, "task cleared");
         } else {
             task_selection_state previous;
-            tui_prewarm_drop(t);
+            tui_runner_invalidate(t);
             task_selection_take(t->ctx, &previous);
             if (tny_task_apply(t->ctx, arg) != 0) {
                 task_selection_restore(t->ctx, &previous);
-                if (!t->engine) tui_prewarm_start(t);
+                if (!t->engine) tui_runner_defer_rebind(t);
                 tui_err(t, "unknown task (use /task to list available presets)");
             } else if (t->session && session_task_bind_current(t->session) != 0) {
                 task_selection_restore(t->ctx, &previous);
                 task_selection_rollback_session(t);
-                if (!t->engine) tui_prewarm_start(t);
+                if (!t->engine) tui_runner_defer_rebind(t);
                 tui_err(t, "could not bind task to the fresh session; selection is unchanged");
             } else if (t->session && session_save(t->session) != 0) {
                 task_selection_restore(t->ctx, &previous);
                 task_selection_rollback_session(t);
-                if (!t->engine) tui_prewarm_start(t);
+                if (!t->engine) tui_runner_defer_rebind(t);
                 tui_err(t, "could not persist task selection; selection is unchanged");
             } else {
                 task_selection_discard(&previous);
@@ -1052,14 +1049,14 @@ void tui_command(tui *t, const char *line) {
     } else if (strcmp(c, "workspace") == 0) {
         char *av[4];
         int ac = arg ? tokenize(arg, av, 4) : 0;
-        if (ac) tui_prewarm_drop(t); /* add/remove edit dirs the warm-up reads */
+        if (ac) tui_runner_invalidate(t);
         int rc = run_cli(t, cmd_workspace, ac, av);
         if (rc == 0 && ac) {
             const char *path = ac > 1 ? av[1] : NULL;
             tny_engine_workspace_changed(t->engine, av[0], path);
         }
         tui_files_free(t);
-        if (ac && !t->engine) tui_prewarm_start(t);
+        if (ac && !t->engine) tui_runner_defer_rebind(t);
     } else if (strcmp(c, "setup") == 0) {
         char *av[8];
         int ac = arg ? tokenize(arg, av, 8) : 0;
@@ -1163,13 +1160,13 @@ static void wiz_finish(tui *t) {
         tui_err(t, "provider saved, but selection failed: out of memory");
         return;
     }
-    tui_prewarm_drop(t);
+    tui_runner_invalidate(t);
     char *resolve_args[] = {name};
     int resolved = run_cli(t, resolve_provider, 1, resolve_args);
     if (resolved < 0) {
         tui_err(t, "provider saved, but switch failed; previous configuration retained");
         free(name);
-        if (!t->engine) tui_prewarm_start(t);
+        if (!t->engine) tui_runner_defer_rebind(t);
         return;
     }
     tui_drop_backend(t);

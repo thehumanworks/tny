@@ -4,7 +4,7 @@
 # code-cell seams with the existing compiler/Python inputs. Its
 # tests/fixtures/code_output_pipe.c fault matrix inserts the actual production
 # helper and checks descriptor cleanup without downloads or new dependencies.
-# Code-mode language benchmarks, offline tests and Lean AST checker are in the
+# Benchmark policy checks and source-linked production C proofs are in the
 # existing ../tests fileset. Optional live trials/downloads are never sandbox inputs.
 # Python code cells build third_party/cpython's pinned tarball (fetched by
 # nix/cpython-source.nix) and the pinned third_party/<name>/URL libraries
@@ -84,7 +84,8 @@ let
     # Committed Lean tables in tests/formal/{dictation,acp}/golden are replayed
     # by C unit and ACP wire integration tests. verify-acp-proofs (like
     # verify-dictation-proofs) runs separately in CI, not in this sandbox;
-    # the default test closure needs no Lean toolchain or downloads.
+    # make verify-code-policy separately uses the declared Lean input to prove
+    # source-linked production C policies. No proof step downloads dependencies.
     ../examples # tests/extensions/test_examples.py loads every shipped example
     ../flake.nix
     ../default.nix
@@ -98,6 +99,8 @@ let
     ../sdk/python # native SDK/workflow tests and bounded-context regression
     ../sdk/typescript # addon, declarations, workflow tests and offline benchmark
     ../sdk/schema
+    # test_event_schema.py checks missing/stale generated files in a temporary
+    # copy using these existing SDK/include/test filesets and Python only.
     ../site
     # All of tests/, which includes the frozen tool-profile A/B fixtures
     # under tests/bench/fixtures/tools/ that

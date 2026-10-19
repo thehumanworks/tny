@@ -317,10 +317,6 @@ static int admissible(const tny_dictionary *d, const tny_norm_correction *c) {
     return 0;
 }
 
-bool tny_norm_admissible(const tny_dictionary *d, const tny_norm_correction *c) {
-    return admissible(d, c) == 1;
-}
-
 /* ---- reconstruction (Lean: Dictation.Apply.applyAll) ---- */
 
 static const char *find(const char *hay, size_t hn, const char *needle, size_t nn) {

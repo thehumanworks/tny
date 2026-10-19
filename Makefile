@@ -390,18 +390,15 @@ endif
 
 # Measure shipped artifacts without a fixed product size ceiling.
 
-# Experimental language decisions have an offline oracle test and a separate
-# source-linked Lean gate. Live Codex inference is never a build/test prerequisite.
+# Frozen benchmark decisions are checked directly against their Python policies
+# (ADR 0188). Live inference is never a build/test prerequisite.
 LEAN ?= lean
-.PHONY: test-code-mode-language verify-code-mode-language bench-code-mode-language
+.PHONY: test-code-mode-language bench-code-mode-language
 test-code-mode-language:
 	python3 tests/bench/code_mode/test_benchmark.py
 	python3 tests/build/test_code_cell_seams.py
 	python3 tests/bench/python_runtime/test_evidence.py
-
-verify-code-mode-language:
-	python3 tests/formal/check_code_mode_language.py --lean "$(LEAN)"
-	LEAN="$(LEAN)" python3 tests/formal/code_mode_language/test_mutations.py
+	python3 tests/bench/python_runtime/test_policy.py
 
 # Explicitly pass CODE_MODE_DOWNLOAD=--download to fetch the hash-pinned probe
 # source. CPython 3.14 headers/library and Linux bwrap/prlimit are required.
@@ -415,7 +412,6 @@ bench-code-mode-language:
 .PHONY: verify-code-policy
 verify-code-policy:
 	python3 tests/formal/check_code_policy.py --lean "$(LEAN)"
-	python3 tests/formal/python_code_mode/check_runtime_selection.py --lean "$(LEAN)"
 	LEAN="$(LEAN)" python3 tests/formal/python_code_mode/test_mutations.py
 
 # Replay executor for the frozen code-mode corpus on the shipped cell path:
@@ -451,6 +447,7 @@ python-embed-bench: $(PYTHON_EMBED_BENCH)
 
 .PHONY: verify-formal verify-execution-protocol
 verify-formal: verify-execution-protocol
+	python3 tests/formal/test_lean_golden.py
 	python3 tests/formal/check.py
 
 # Lean 4 proofs of dictation normalization (ADR 0175): prove, regenerate the
@@ -458,15 +455,13 @@ verify-formal: verify-execution-protocol
 # lake (elan); CI's lean-proofs job runs it. make test replays the tables.
 .PHONY: verify-dictation-proofs
 verify-dictation-proofs:
-	cd tests/formal/dictation && lake build && lake exe export golden
-	git diff --exit-code -- tests/formal/dictation/golden
+	python3 tests/formal/check_lean_golden.py tests/formal/dictation
 
 # ACP version admission and lifecycle (ADR 0177). Ordinary tests replay the
 # exported versions in C and the handshake transitions over the fixture wire.
 .PHONY: verify-acp-proofs
 verify-acp-proofs:
-	cd tests/formal/acp && lake build && lake exe export golden
-	git diff --exit-code -- tests/formal/acp/golden
+	python3 tests/formal/check_lean_golden.py tests/formal/acp
 
 # This proof translates the actual production C predicate through Clang AST;
 # missing Clang/Z3 or unsupported syntax is an error, never a skipped check.
@@ -1305,8 +1300,7 @@ site: release
 # versions are pinned twice, in lockstep (docs/adr/0061): .mise.toml for
 # developers and .github/workflows/ci.yml for CI, so
 #   mise install && make quality
-# needs no flags anywhere. Without mise, point the variables at uvx wrappers:
-#   make quality CLANG_FORMAT='uvx clang-format@21.1.2' CLANG_TIDY='uvx clang-tidy@22.1.8'
+# needs no flags anywhere. Without mise, use the pinned uvx commands in docs/ci.md.
 CLANG_FORMAT ?= clang-format
 CLANG_TIDY   ?= clang-tidy
 RUFF         ?= ruff

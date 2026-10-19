@@ -3027,7 +3027,8 @@ mod tests {
     #[test]
     fn local_index_is_bounded_and_never_follows_symlinks() {
         use std::os::unix::fs::symlink;
-        let fixture = std::env::temp_dir().join(format!(
+        // Match canonical application inputs even when the OS temp root is a symlink.
+        let fixture = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "tny-gui-index-{}-{:?}",
             std::process::id(),
             std::thread::current().id()
@@ -3181,7 +3182,7 @@ mod tests {
     #[test]
     fn git_paths_respect_excludes_without_scanning_private_files() {
         use std::os::unix::fs::symlink;
-        let fixture = std::env::temp_dir().join(format!(
+        let fixture = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "tny-gui-git-index-{}-{:?}",
             std::process::id(),
             std::thread::current().id()

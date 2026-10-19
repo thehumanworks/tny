@@ -383,7 +383,6 @@ TARGETS = [
         "tests/integration/test_tui.py",
         "perm-tokeniser",
     ),
-    ("src/tui/tui_prewarm.c", None, None),
     (
         # `tny mcp call` (issue #97): the CLI seam the unit suite drives
         # directly, plus the status the exit code is derived from.
@@ -984,7 +983,6 @@ EQUIVALENT = [
     # reset is state hygiene for the value-not-found case (value NULL, flag
     # never consulted), so flipping it is unobservable.
     "config.c:ctx->effort_from_settings = false;",
-    "tui_prewarm.c:pthread_cond_signal",  # signal-vs-broadcast style details
     # path_home() never returns NULL (it falls back to "/tmp"), so the
     # home_join NULL guards in the credential probes fire only on OOM.
     "profiles.c:if (!path) return false;",

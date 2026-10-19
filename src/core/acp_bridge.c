@@ -437,9 +437,7 @@ static int drain_client(tny_acp_bridge *b, bridge_client *c) {
         if (newline) {
             size_t len = (size_t)(newline - c->input.data);
             if (len && message(b, c, c->input.data, len) != 0) return -1;
-            memmove(c->input.data, newline + 1, c->input.len - len - 1);
-            c->input.len -= len + 1;
-            c->input.data[c->input.len] = 0;
+            buf_consume(&c->input, len + 1);
             continue;
         }
         if (c->read_closed) break;
@@ -476,11 +474,7 @@ static int drain_client(tny_acp_bridge *b, bridge_client *c) {
     if (c->output.len) {
         ssize_t n = socket_write(c->fd, c->output.data, c->output.len);
         if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) return -1;
-        if (n > 0) {
-            memmove(c->output.data, c->output.data + n, c->output.len - (size_t)n);
-            c->output.len -= (size_t)n;
-            c->output.data[c->output.len] = 0;
-        }
+        if (n > 0) buf_consume(&c->output, (size_t)n);
     }
     return c->read_closed && !c->pending && !c->output.len ? -1 : 0;
 }
@@ -755,9 +749,7 @@ int tny_acp_bridge_relay_main(const char *path) {
                 break;
             }
             if (n > 0) {
-                memmove(source->data, source->data + n, source->len - (size_t)n);
-                source->len -= (size_t)n;
-                source->data[source->len] = 0;
+                buf_consume(source, (size_t)n);
             } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
                 rc = 1;
                 done = true;

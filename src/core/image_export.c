@@ -395,22 +395,6 @@ static int sources_load(const tny_image_export_request *r, export_source *source
     return 0;
 }
 
-int tny_image_export_inputs(const tny_image_export_request *r,
-                            char *paths[TNY_IMAGE_EXPORT_SOURCES_MAX], size_t *count, char *err,
-                            size_t errlen) {
-    export_source sources[TNY_IMAGE_EXPORT_SOURCES_MAX] = {0};
-    size_t resolved = 0;
-    *count = 0;
-    int rc = sources_resolve(r, sources, &resolved, err, errlen);
-    for (size_t i = 0; !rc && i < resolved; i++) {
-        paths[i] = sources[i].path;
-        sources[i].path = NULL;
-        (*count)++;
-    }
-    sources_free(sources, resolved);
-    return rc;
-}
-
 /* ---- permission identity -------------------------------------------------- */
 
 static void settings_json(const tny_image_export_request *r, const tny_image_export_settings *s,
@@ -505,18 +489,6 @@ int tny_image_export_plan_detail(const tny_image_export_plan *plan, buf_t *out) 
         buf_appends(out, "}");
     }
     return out->oom ? 1 : 0;
-}
-
-int tny_image_export_detail(const tny_image_export_request *r, buf_t *out, char *err,
-                            size_t errlen) {
-    tny_image_export_plan *plan = tny_image_export_plan_new(r, err, errlen);
-    int rc = plan ? tny_image_export_plan_capture(plan, err, errlen) : 1;
-    if (!rc) {
-        rc = tny_image_export_plan_detail(plan, out);
-        if (rc) snprintf(err, errlen, "cannot format export permission identity");
-    }
-    tny_image_export_plan_free(plan);
-    return rc;
 }
 
 /* ---- staging ------------------------------------------------------------- */

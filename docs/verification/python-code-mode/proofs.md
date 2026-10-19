@@ -1,5 +1,24 @@
 # Python code mode — formal verification scope and evidence
 
+## Current scope (2026-10-18)
+
+[ADR 0188](../../adr/0188-focused-verification-maintenance.md) retires the
+benchmark-only Python-to-Lean translator and runtime-selection theorems.
+`tests/bench/python_runtime/test_policy.py` directly checks the unchanged policy,
+including exact ratios, decision partitions, large integers, mutations and the
+recorded held-out decision. These are finite regression checks.
+
+The source-linked C proof remains. The current `code_policy.c` has nine gates:
+timeout/source/call/result bounds, output admission and capture, UTF-8 lead
+widths, heap accounting and frame admission. The timeout ceiling is 600000 ms;
+the old JSON-kind predicate described below no longer exists. The pinned
+toolchain is Lean 4.30.0. Follow the
+[current checker guide](../../../tests/formal/python_code_mode/README.md) for
+runnable commands and scope. The dated report below is preserved as historical
+evidence; its earlier gate list, source hashes and timing are not current results.
+
+## Historical verification report
+
 Date: 2026-09-27. Lean 4.30.0 (`dc2533473114`), Clang 22.1.8, GCC 16.2.1,
 CPython 3.14.7, x86_64 Linux (LP64). Checkers, proofs and mutants live in
 [`tests/formal/check_code_policy.py`](../../../tests/formal/check_code_policy.py)

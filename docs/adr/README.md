@@ -195,3 +195,4 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0185: Grok proxy client-version compatibility](0185-grok-proxy-client-version.md) — current subscription version pin, HTTP/1.1 evidence and actionable HTTP 426 diagnostics.
 - [0186: Sign in with ChatGPT for the openai provider](0186-sign-in-with-chatgpt-openai-provider.md) — `tny --provider openai login` puts the ChatGPT plan on api.openai.com/v1; codex stays as the legacy backend-api profile.
 - [0187: OpenAI Ultrafast tier](0187-openai-ultrafast-tier.md) — distinct paid Responses tier, exact model/provider gates, CLI/TUI/settings parity and wasm request behavior.
+- [0188: Focus verification maintenance on production invariants](0188-focused-verification-maintenance.md) — replace benchmark-only Lean translators with direct decision, exact-ratio and mutation checks; retain production proofs and archived evidence.

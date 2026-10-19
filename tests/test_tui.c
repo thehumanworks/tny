@@ -1,12 +1,9 @@
-/* test_tui.c — unit tests for the TUI's pure-logic seams: the ANSI-aware
- * row writer, the overlay row budget, overlay lifecycle, and the pre-warm
- * handoff (docs/adr/0002) driven by a stub backend. */
+/* test_tui.c — TUI rendering, input, session and shell regression tests. */
 #include "greatest.h"
 #include "tui/tui.h"
 #include "core/config.h"
 
 #include <poll.h>
-#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>

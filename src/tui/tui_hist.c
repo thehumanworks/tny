@@ -6,12 +6,34 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 
 static char *hist_path(void) {
     char *dir = path_tny_dir();
     char *p = path_join(dir, "history");
     free(dir);
     return p;
+}
+
+/* Consume one owned prompt, preserving retained entries if allocation fails.
+ * The disk log remains append-only. */
+static bool hist_retain(tui *t, char *line) {
+    if (!line) return false;
+    if (t->n_hist < TUI_MAX_HIST) {
+        char **grown = realloc(t->hist, sizeof(char *) * (size_t)(t->n_hist + 1));
+        if (!grown) {
+            free(line);
+            return false;
+        }
+        t->hist = grown;
+    } else {
+        free(t->hist[0]);
+        memmove(t->hist, t->hist + 1, sizeof(char *) * (size_t)(TUI_MAX_HIST - 1));
+        t->n_hist--;
+    }
+    t->hist[t->n_hist++] = line;
+    t->hist_pos = t->n_hist;
+    return true;
 }
 
 void tui_hist_load(tui *t) {
@@ -21,45 +43,33 @@ void tui_hist_load(tui *t) {
         return;
     }
     char *p = hist_path();
-    size_t len = 0;
-    char *data = file_slurp(p, &len);
+    FILE *f = fopen(p, "r");
     free(p);
-    if (!data) return;
-    char *line = data;
-    for (size_t i = 0; i <= len; i++) {
-        if (i == len || data[i] == '\n') {
-            data[i] = 0;
-            if (*line) {
-                /* unescape the "\n" we wrote for multi-line prompts */
-                buf_t b;
-                buf_init(&b);
-                for (char *q = line; *q; q++) {
-                    if (q[0] == '\\' && q[1] == 'n') {
-                        buf_appends(&b, "\n");
-                        q++;
-                    } else if (q[0] == '\\' && q[1] == '\\') {
-                        buf_appends(&b, "\\");
-                        q++;
-                    } else buf_append(&b, q, 1);
-                }
-                char **grown = realloc(t->hist, sizeof(char *) * (size_t)(t->n_hist + 1));
-                if (!grown) {
-                    buf_free(&b);
-                } else {
-                    t->hist = grown;
-                    t->hist[t->n_hist++] = buf_detach(&b);
-                }
-            }
-            line = data + i + 1;
+    if (!f) return;
+    char *line = NULL;
+    size_t cap = 0;
+    ssize_t len;
+    while ((len = getline(&line, &cap, f)) >= 0) {
+        if (len && line[len - 1] == '\n') line[len - 1] = '\0';
+        if (!*line) continue;
+        /* Decode in place: escaping never makes the prompt shorter on disk. */
+        char *dst = line;
+        for (const char *src = line; *src; src++) {
+            if (src[0] == '\\' && src[1] == 'n') {
+                *dst++ = '\n';
+                src++;
+            } else if (src[0] == '\\' && src[1] == '\\') {
+                *dst++ = '\\';
+                src++;
+            } else *dst++ = *src;
         }
+        *dst = '\0';
+        (void)hist_retain(t, line);
+        line = NULL;
+        cap = 0;
     }
-    free(data);
-    if (t->n_hist > TUI_MAX_HIST) {
-        int drop = t->n_hist - TUI_MAX_HIST;
-        for (int i = 0; i < drop; i++) free(t->hist[i]);
-        memmove(t->hist, t->hist + drop, sizeof(char *) * (size_t)TUI_MAX_HIST);
-        t->n_hist = TUI_MAX_HIST;
-    }
+    free(line);
+    fclose(f);
     t->hist_pos = t->n_hist;
 }
 
@@ -69,11 +79,8 @@ void tui_hist_add(tui *t, const char *line) {
         t->hist_pos = t->n_hist;
         return;
     }
-    char **grown = realloc(t->hist, sizeof(char *) * (size_t)(t->n_hist + 1));
-    if (!grown) return;
-    t->hist = grown;
-    t->hist[t->n_hist++] = xstrdup(line);
-    t->hist_pos = t->n_hist;
+    if (!hist_retain(t, xstrdup(line))) return;
+    line = t->hist[t->n_hist - 1];
 
     if (t->ctx->no_save || t->session_readonly || t->background_view) return;
     char *dir = path_tny_dir();

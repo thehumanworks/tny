@@ -1,5 +1,6 @@
 /* test_util.c — glob, codecs, buffers, strings, paths. */
 #include "greatest.h"
+#include "json/json.h"
 #include "util/alloc.h"
 #include "util/parallel.h"
 #include "util/util.h"
@@ -112,6 +113,68 @@ TEST str_helpers(void) {
     ASSERT_FALSE(str_ends("json", "session.json"));
     char s[] = "  padded\t\n";
     ASSERT_STR_EQ("padded", str_trim(s));
+    PASS();
+}
+
+TEST str_trim_preserves_in_place_contract(void) {
+    static const struct {
+        const char *input;
+        const char *expected;
+    } cases[] = {{"", ""},
+                 {" \t\n\v\f\r", ""},
+                 {"untrimmed", "untrimmed"},
+                 {" \t\n\v\f\rleading", "leading"},
+                 {"trailing \t\n\v\f\r", "trailing"},
+                 {" \tinside \t\n space\r\n", "inside \t\n space"},
+                 {" \xc3\xa9 text \n", "\xc3\xa9 text"}};
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        char *text = xstrdup(cases[i].input);
+        ASSERT(text);
+        ASSERT_EQ(text, str_trim(text));
+        ASSERT_STR_EQ(cases[i].expected, text);
+        free(text);
+    }
+    char padded[65536];
+    memset(padded, ' ', sizeof padded);
+    memcpy(padded + sizeof padded - 7, "value\t", 7);
+    ASSERT_EQ(padded, str_trim(padded));
+    ASSERT_STR_EQ("value", padded);
+    PASS();
+}
+
+TEST json_integer_conversion_is_bounded(void) {
+    static const struct {
+        const char *number;
+        int64_t expected;
+    } cases[] = {{"0", 0},
+                 {"-42", -42},
+                 {"42.75", 42},
+                 {"-42.75", -42},
+                 {"9223372036854775807", INT64_MAX},
+                 {"-9223372036854775808", INT64_MIN},
+                 {"9223372036854775808", 73},
+                 {"18446744073709551615", 73},
+                 {"9223372036854774784.0", INT64_MAX - 1023},
+                 {"9223372036854775808.0", 73},
+                 {"-9223372036854775808.0", INT64_MIN},
+                 {"-9223372036854777856.0", 73},
+                 {"1e100", 73},
+                 {"-1e100", 73},
+                 {"true", 73},
+                 {"null", 73},
+                 {"\"42\"", 73}};
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        buf_t json;
+        buf_init(&json);
+        buf_appendf(&json, "{\"number\":%s}", cases[i].number);
+        yyjson_doc *doc = jparse(json.data, json.len);
+        ASSERT(doc);
+        ASSERT_EQ(cases[i].expected, jget_int(yyjson_doc_get_root(doc), "number", 73));
+        ASSERT_EQ(73, jget_int(yyjson_doc_get_root(doc), "missing", 73));
+        yyjson_doc_free(doc);
+        buf_free(&json);
+    }
+    ASSERT_EQ(73, jget_int(NULL, "number", 73));
     PASS();
 }
 
@@ -267,5 +330,7 @@ SUITE(util_suite) {
     RUN_TEST(buf_ops);
     RUN_TEST(buf_failed_growth_never_returns_partial_output);
     RUN_TEST(str_helpers);
+    RUN_TEST(str_trim_preserves_in_place_contract);
+    RUN_TEST(json_integer_conversion_is_bounded);
     RUN_TEST(path_helpers);
 }

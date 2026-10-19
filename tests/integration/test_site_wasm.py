@@ -4,6 +4,7 @@
 Serves site/ plus the built web artifact, opens the page in headless
 Chromium, feeds a key through the URL hash, and asserts:
   * the real TUI banner paints inside xterm.js,
+  * the URL-selected model reaches the CLI's provider configuration,
   * one no-tool turn streams from mock_openai.py,
   * /quit exits the binary cleanly.
 
@@ -87,6 +88,7 @@ def main():
                 f"http://127.0.0.1:{sport}/index.html"
                 f"#OPENAI_API_KEY=test-key-not-real"
                 f"&OPENAI_BASE_URL=http://127.0.0.1:{mport}/v1"
+                f"&OPENAI_MODEL=wasm-selected-model"
             )
 
             with sync_playwright() as pw:
@@ -120,6 +122,7 @@ def main():
                 )
                 banner = term_text()
                 assert "tny" in banner, banner
+                assert "wasm-selected-model" in banner, banner
                 # Native terminals apply ONLCR: every LF also returns to
                 # column zero. The browser stdout sink emits raw LF, so the
                 # xterm configuration must emulate that behavior. Otherwise

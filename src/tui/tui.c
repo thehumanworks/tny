@@ -137,9 +137,7 @@ static void oneline(char *dst, size_t cap, const char *src) {
 void tui_drop_backend(tui *t) {
     /* isolation mode: the runner is the backend. Mid-turn, defer the
      * restart — dropping now would kill the live turn (docs/adr/0053). */
-    if (t->rc && t->turn_active) t->rc_restart_pending = true;
-    else tui_runner_drop(t, "rebind");
-    t->bk_adopted = false;
+    tui_runner_invalidate(t);
     if (!t->engine) return;
     tny_engine_preserve_session_on_free(t->engine);
     tny_engine_free(t->engine);
@@ -585,7 +583,7 @@ void tui_new_session(tui *t, bool clear_screen) {
     if (t->session)
         session_set_extension_start(t->session, clear_screen ? "clear" : "new", previous);
     free(previous);
-    tui_prewarm_start(t); /* the next first prompt should not pay startup */
+    tui_runner_defer_rebind(t);
     t->in_tok = t->out_tok = 0;
     buf_clear(&t->last_reply);
     if (clear_screen) { tui_clear_screen(t); }
@@ -642,7 +640,7 @@ static void after_turn(tui *t) {
          * prompt sees the new model/effort/workspace (docs/adr/0053) */
         t->rc_restart_pending = false;
         tui_runner_drop(t, "rebind");
-        tui_prewarm_start(t);
+        tui_runner_defer_rebind(t);
     }
     t->cancel_ms = 0;
     buf_clear(&t->note);
@@ -768,8 +766,6 @@ static void tui_submit_inner(tui *t, const char *text) {
         return;
     }
 
-    buf_clear(&t->prompt_text);
-    buf_appends(&t->prompt_text, s);
     buf_clear(&t->last_reply);
 
     tui_note(t, "sending…");
@@ -795,17 +791,6 @@ static void tui_submit_inner(tui *t, const char *text) {
         }
     } else {
         rc = tny_engine_start(t->engine, s, imgs, err, sizeof err);
-        if (rc != 0 && t->bk_adopted) {
-            /* the pre-warmed, pre-resumed host may have died while the shell
-             * sat idle: one clean retry through the ordinary lazy path */
-            tui_drop_backend(t);
-            if (!ensure_backend(t)) {
-                buf_clear(&t->note);
-                t->dirty = true;
-                return;
-            }
-            rc = tny_engine_start(t->engine, s, imgs, err, sizeof err);
-        }
         if (rc != 0) {
             buf_clear(&t->note);
             tui_err(t, err);
@@ -813,7 +798,6 @@ static void tui_submit_inner(tui *t, const char *text) {
             return;
         }
     }
-    t->bk_adopted = false;
     buf_clear(&t->note); /* the spinner in the status row takes over */
     for (int i = 0; i < t->n_images; i++) {
         free(t->images[i]);
@@ -904,7 +888,6 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     buf_init(&t.overlay);
     buf_init(&t.note);
     buf_init(&t.last_reply);
-    buf_init(&t.prompt_text);
     t.perm = perm_new(ctx);
     t.tty = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
     tny_color_resolve(ctx, t.tty, &t.color, &t.attr);
@@ -964,9 +947,8 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     } else if (g->resume_picker) {
         tui_command(&t, "/sessions");
     }
-    /* warm the provider's host now — after the session is open, so a resumed
-     * session's host pointer rides along and the first prompt starts
-     * instantly; a failure stays silent and resurfaces on the lazy path */
+    /* Recover a saved continuation immediately. Ordinary sessions leave
+     * runner startup to their first turn. */
     if (!t.quit && !t.agents_dashboard) {
         bool checkpoint = t.session && yyjson_mut_obj_get(yyjson_mut_doc_get_root(t.session->doc),
                                                           "continuation");
@@ -977,7 +959,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
                 t.turn_active = true;
                 t.background_view = true;
             }
-        } else tui_prewarm_start(&t);
+        } else tui_runner_defer_rebind(&t);
     }
 
     t.dirty = true;
@@ -1086,9 +1068,9 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     if (!t.worktree) term_restore();
     bool had_runner = t.rc != NULL;
     pid_t runner_pid = t.rc_pid;
-    t.turn_active = false; /* cancellation requested above; now end the runner */
-    tui_prewarm_drop(&t);  /* runner mode: sends `end` — the runner cancels
-                            * any live turn, finalizes, saves, and exits */
+    t.turn_active = false;     /* cancellation requested above; now end the runner */
+    tui_runner_invalidate(&t); /* runner mode: sends `end` — the runner cancels
+                                * any live turn, finalizes, saves, and exits */
     if (t.engine) tny_engine_end_session(t.engine, "exit");
     tui_drop_backend(&t);
     if (t.session) {
@@ -1127,7 +1109,6 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     buf_free(&t.overlay);
     buf_free(&t.note);
     buf_free(&t.last_reply);
-    buf_free(&t.prompt_text);
     buf_free(&t.shell_pending);
     if (t.owns_ctx) tny_ctx_free(t.ctx);
     while (t.worktrees) {

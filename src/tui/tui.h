@@ -93,8 +93,6 @@ typedef struct tui {
     tny_engine *engine;
     tny_session_state *session;
     perm_engine *perm;
-    bool bk_adopted; /* engine backend came pre-resumed from warm-up and has
-                      * not sent yet: one lazy retry if send() fails */
 
     /* Native isolation (docs/adr/0053): turns run in a detached serve
      * runner; rc is its wire client and engine stays NULL. wasm and
@@ -126,12 +124,9 @@ typedef struct tui {
                     * drawn above the status row, dropped after the
                     * interaction ends — never enters the transcript */
     bool settings_open;
-    buf_t note;        /* transient status-line note */
-    buf_t last_reply;  /* last assistant text, for /copy */
-    buf_t prompt_text; /* prompt that started the active turn */
+    buf_t note;       /* transient status-line note */
+    buf_t last_reply; /* last assistant text, for /copy */
 
-    char *perm_id; /* host approval awaiting an answer */
-    int perm_opts;
     bool approval; /* an approval owns the keyboard */
 
     /* /provider setup wizard (docs/adr/0018): while wiz_step > 0 the
@@ -268,21 +263,12 @@ void tui_runner_drop(tui *t, const char *reason); /* end + close (idempotent) */
 void tui_runner_dispatch(tui *t);                 /* pump the socket, translate messages */
 int tui_runner_fd(const tui *t);                  /* poll fd, -1 when no runner */
 bool tui_runner_stop(tui *t, bool force);         /* verify termination, refresh saved session */
+/* Defer an active runner's rebind; idle contexts stay lazy. */
+void tui_runner_defer_rebind(tui *t);
+/* Discard idle captured configuration, or defer until the current turn ends. */
+void tui_runner_invalidate(tui *t);
 /* tui.c: render one normalized event (shared by engine and runner paths). */
 void tui_handle_backend_event(tui *t, const tny_backend_event *ev);
-
-/* tui_prewarm.c — spawn + connect + create/resume the provider's host in the
- * background so the first turn pays neither the startup nor the session
- * round trip (docs/adr/0002; in isolation mode the serve runner is the
- * pre-warm and these delegate to tui_runner_*, docs/adr/0053). */
-void tui_prewarm_start(tui *t); /* warm ctx->backend if it applies */
-/* Abandon whatever is pending. Waits out an in-flight create_or_resume, so
- * ctx fields it reads (model, tier, workspace dirs) are safe to mutate the
- * moment this returns. */
-void tui_prewarm_drop(tui *t);
-/* Internal seam, exposed for the unit tests: adopt an already-created
- * backend and run its connect() + create_or_resume() on the pre-warm
- * thread. resume_pointer may be NULL (new session). */
 
 /* tui_draw.c */
 void tui_size(tui *t);

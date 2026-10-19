@@ -53,11 +53,18 @@ previously took over two hours, so this change does not silently move it into
 a short native job. The macOS lane now explicitly requires ImageMagick 7 and
 runs the conversion suite, preserving coverage formerly supplied by Nix.
 
-The `lean-proofs` job builds the Lean 4 proofs of dictation normalization
-(`tests/formal/dictation`) and fails when regenerating their golden tables
-changes the committed copies; `make test` replays those tables against the C
-code on every lane ([ADR 0175](adr/0175-dictation-transcript-normalization.md)).
-It is part of the `ci` aggregate status.
+The `lean-proofs` job verifies dictation normalization, ACP admission/lifecycle,
+and the source-linked production C code-cell policies. Committed dictation and
+ACP tables are replayed by native tests; the proof gate checks that their
+generators still produce the same cases. The GUI workflow separately verifies
+its state-machine proofs. These specifications and their finite replays do not
+prove the entire application correct.
+
+Offline benchmark selection uses direct Python policy checks, threshold and
+truth-table coverage, archived evidence replay, and mutation controls through
+`make test-code-mode-language` ([ADR 0188](adr/0188-focused-verification-maintenance.md)).
+The production Lean and SMT gates remain in place. Nix retains Lean for
+`make verify-code-policy`.
 
 Runs on `main` are never cancelled by a newer push: the `ci` and `sdk`
 workflows only cancel superseded pull-request runs. Both must succeed on the

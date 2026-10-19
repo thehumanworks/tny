@@ -1,7 +1,35 @@
 # Formal contracts
 
-Two formalisms live here. `dictation/` and `acp/` are Lean 4 projects (below);
-the rest is SMT-LIB 2 with Z3.
+Two formalisms live here: Lean 4 for production code-cell gates, dictation and
+ACP contracts, and SMT-LIB 2 with Z3 for execution admission and shell/catalog
+abstractions. GUI state-machine proofs live in `gui/proofs/`.
+
+Benchmark-only decision proofs were replaced with direct offline tests by
+[ADR 0188](../../docs/adr/0188-focused-verification-maintenance.md). The original
+preregistered policies and measurement evidence are unchanged. The tests are
+finite checks, not replacements for the retained all-input production proofs.
+
+## Checking exported fixtures
+
+`check_lean_golden.py PROJECT` builds the complete Lean package, exports into
+a temporary directory and compares the exact file set and bytes against
+`PROJECT/golden/`. It fails for changed, missing or extra files, build/export
+failure and an empty committed fixture set. Verification never regenerates
+tracked fixtures in place. `test_lean_golden.py` checks these failure modes with
+a local fake exporter, without requiring Lean. To deliberately update fixtures
+after a specification change, run `lake exe export golden` in the package and
+review that diff with the proof and implementation changes.
+
+## Lean 4: production code-cell gates (`python_code_mode/`)
+
+[`check_code_policy.py`](check_code_policy.py) translates the actual typed Clang
+AST of `src/core/code_policy.c` to width-exact bit vectors and generates
+short-circuit overflow obligations. The independent contract covers nine gates:
+timeout/source/call/result bounds, output admission/capture, UTF-8 lead widths,
+heap accounting and parent frame admission. `make verify-code-policy` checks the
+proofs, GCC/Clang UBSan vectors and negative C mutations. See the
+[current checker guide](python_code_mode/README.md). This does not prove callers,
+the interpreter, OS process behavior or compiler code generation.
 
 ## Lean 4: ACP admission and lifecycle (`acp/`)
 
@@ -29,9 +57,12 @@ and `shell_mode_denies_unrecordable_command` in `tests/test_tui.c`. The
 request. It does not
 model the OS shell or prove the C implementation.
 
-`acp_catalog.smt2` models already-parsed select/legacy options. It does not
-model JSON parsing, malformed options, credentials or SDK availability. The
-linked concrete test is `test_acp_catalog_provenance_newer_and_stale_adapter`.
+`acp_catalog.smt2` models the provenance of already-parsed select/legacy catalog
+**listings**. It does not decide whether a requested model is admitted: ADR 0181
+requires unlisted IDs to reach the adapter, as checked by `acp/Model.lean` and
+`test_model_selection_matches_lean`. It does not model JSON parsing, malformed
+options, credentials or SDK availability. Its linked concrete test is
+`test_acp_catalog_provenance_newer_and_stale_adapter`.
 
 ## Lean 4: dictation normalization (`dictation/`)
 

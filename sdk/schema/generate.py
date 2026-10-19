@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
+import argparse
 import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+parser = argparse.ArgumentParser(
+    description="Generate the public event schema artifacts."
+)
+parser.add_argument("--output-dir", type=Path, default=ROOT / "sdk/schema")
+output = parser.parse_args().output_dir
 schema = json.loads((ROOT / "sdk/schema/events.json").read_text())
 events = schema["events"]
-out = ROOT / "sdk/schema/generated"
+out = output / "generated"
 out.mkdir(parents=True, exist_ok=True)
 
 FIELD_TS = {
@@ -101,6 +107,5 @@ fixture = {
         "payload": {"future": True},
     },
 }
-(ROOT / "sdk/schema/fixtures/events.json").write_text(
-    json.dumps(fixture, indent=2) + "\n"
-)
+(output / "fixtures").mkdir(parents=True, exist_ok=True)
+(output / "fixtures/events.json").write_text(json.dumps(fixture, indent=2) + "\n")

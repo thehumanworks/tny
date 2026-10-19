@@ -141,10 +141,10 @@ static yyjson_doc *conn_tools(mcp_conn *c) {
 
 extern char **environ;
 
-/* Build the child environment before fork(): warm-up threads fork
- * concurrently, so the child may only use async-signal-safe calls — setenv()
- * there can deadlock on the allocator lock. Entries at index >= *owned_from
- * are malloc'd; the rest borrow the parent's environ strings. */
+/* Build the child environment before fork(): embedders may have other threads,
+ * so the child may only use async-signal-safe calls — setenv() there can deadlock
+ * on the allocator lock. Entries at index >= *owned_from are malloc'd; the rest
+ * borrow the parent's environ strings. */
 static char **build_envp(const mcp_imported_server *srv, size_t *owned_from) {
     size_t base = 0;
     while (environ[base]) base++;

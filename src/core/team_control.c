@@ -51,11 +51,6 @@ const char *tny_team_permission_tool(tny_team_op op) {
                                         "team_review",   "team_review_read"};
     return op >= TNY_TEAM_START && op < TNY_TEAM_NONE ? names[op] : NULL;
 }
-bool tny_team_op_is_sensitive(tny_team_op op) {
-    return op == TNY_TEAM_START || op == TNY_TEAM_CANCEL || op == TNY_TEAM_VERIFY ||
-           op == TNY_TEAM_REVIEW;
-}
-
 /* Duplicate JSON keys are ambiguous permission identities. Reject recursively,
  * including nested job options, before delegating to the jobs validator. */
 static bool unique_keys(yyjson_val *value, unsigned depth) {

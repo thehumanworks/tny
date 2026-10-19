@@ -32,7 +32,6 @@ bool tny_task_source_valid(const char *source);
  * Invalid higher-precedence files remain visible and shadow lower sources. */
 int tny_task_list(tny_ctx *ctx, tny_task_info **out, size_t *count);
 void tny_task_list_free(tny_task_info *items, size_t count);
-char *tny_task_names_joined(tny_ctx *ctx);
 const char *tny_task_builtin_body(const char *name);
 
 /* Append the task instruction section. Callers place it after normal

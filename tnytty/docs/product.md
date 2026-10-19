@@ -62,8 +62,9 @@ Same principles as the tny harness:
 
 ## Success metrics
 
-- Stripped release binary **< 500 KiB** on Linux x86_64 (`wc -c`), well
-  under the harness's 2 MiB ceiling; growth needs an ADR.
+- Stripped release binary **< 500 KiB** on Linux x86_64 (`wc -c`);
+  growth needs an ADR. This sibling target is independent of the harness's
+  [measured-footprint policy](../../docs/adr/0150-agent-first-harness-and-measured-footprint.md).
 - `tnytty --help` and `--version` complete in **< 5 ms**.
 - `tnytty run` first prompt visibly interactive in **< 50 ms** over the
   spawned shell's own startup.

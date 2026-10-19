@@ -59,20 +59,6 @@ typedef struct {
     char *const *cmd; /* NULL = $SHELL */
 } opts;
 
-static int parse_listen(const char *spec, char *host, size_t hostlen, int *port) {
-    const char *colon = strrchr(spec, ':');
-    if (!colon || colon == spec) return -1;
-    size_t hl = (size_t)(colon - spec);
-    if (hl >= hostlen) return -1;
-    memcpy(host, spec, hl);
-    host[hl] = '\0';
-    char *end = NULL;
-    long p = strtol(colon + 1, &end, 10);
-    if (!end || *end || p < 1 || p > 65535) return -1;
-    *port = (int)p;
-    return 0;
-}
-
 static int parse_opts(int argc, char **argv, opts *o) {
     o->listen = NULL;
     o->token = getenv("TNYTTY_TOKEN");
@@ -96,20 +82,27 @@ static int parse_opts(int argc, char **argv, opts *o) {
     return 0;
 }
 
+/* Return failures to the caller, which owns any already-spawned sessions. */
 static tt_http *maybe_listen(tt_api *api, const opts *o, char *token_buf, size_t token_cap,
                              const char *dflt_spec) {
     const char *spec = o->listen ? o->listen : dflt_spec;
     if (!spec) return NULL;
     char host[128];
     int port = 0;
-    if (parse_listen(spec, host, sizeof host, &port) != 0) {
+    if (tt_parse_listen(spec, host, sizeof host, &port) != 0) {
         fprintf(stderr, "tnytty: bad --listen %s (want HOST:PORT)\n", spec);
-        exit(2);
+        return NULL;
     }
     bool loopback = strcmp(host, "127.0.0.1") == 0 || strcmp(host, "::1") == 0 ||
                     strcmp(host, "localhost") == 0;
     if (!loopback && (!api->token || !api->token[0])) {
-        tt_rand_hex(token_buf, token_cap - 1);
+        if (!tt_rand_hex(token_buf, token_cap - 1)) {
+            fprintf(stderr,
+                    "tnytty: cannot generate API token: %s; supply --token or "
+                    "restore access to OS randomness\n",
+                    strerror(errno));
+            return NULL;
+        }
         api->token = token_buf;
         fprintf(stderr, "tnytty: generated API token (docs/adr/0002): %s\n", token_buf);
     }
@@ -117,7 +110,7 @@ static tt_http *maybe_listen(tt_api *api, const opts *o, char *token_buf, size_t
     tt_http *h = tt_http_listen(api, host, port, err, sizeof err);
     if (!h) {
         fprintf(stderr, "tnytty: %s\n", err);
-        exit(2);
+        return NULL;
     }
     fprintf(stderr, "tnytty: HTTP API on http://%s:%d (auth: %s)\r\n", host, port,
             api->token && api->token[0] ? "bearer token" : "none, loopback");
@@ -195,6 +188,10 @@ static int cmd_run(int argc, char **argv) {
     char token_buf[33];
     tt_api api = {&reg, o.token, TNYTTY_VERSION};
     tt_http *http = maybe_listen(&api, &o, token_buf, sizeof token_buf, NULL);
+    if (o.listen && !http) {
+        tt_registry_free(&reg);
+        return 2;
+    }
 
     bool interactive = isatty(STDIN_FILENO);
     if (interactive) {
@@ -308,6 +305,7 @@ static int cmd_serve(int argc, char **argv) {
     char dflt[32];
     snprintf(dflt, sizeof dflt, "%s:%d", DEFAULT_HOST, DEFAULT_PORT);
     tt_http *http = maybe_listen(&api, &o, token_buf, sizeof token_buf, dflt);
+    if (!http) return 2;
     install_signals(false);
 
     char scratch[16384];

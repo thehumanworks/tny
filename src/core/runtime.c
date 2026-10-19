@@ -284,37 +284,6 @@ typedef struct {
     char reason[513];
 } extension_fold;
 
-static const char *event_kind_name(tny_event_kind kind) {
-    switch (kind) {
-    case TNY_EV_TEXT_DELTA: return "text_delta";
-    case TNY_EV_THINKING: return "thinking";
-    case TNY_EV_TOOL_START: return "tool_start";
-    case TNY_EV_TOOL_END: return "tool_end";
-    case TNY_EV_PERMISSION: return "permission_request";
-    case TNY_EV_PLAN: return "plan";
-    case TNY_EV_USAGE: return "usage";
-    case TNY_EV_TURN_END: return "turn_end";
-    case TNY_EV_ERROR: return "error";
-    case TNY_EV_STATUS: return "status";
-    case TNY_EV_STEER_REJECTED: return "steer_rejected";
-    case TNY_EV_CUSTOM_MESSAGE: return "custom_message";
-    case TNY_EV_USER_MESSAGE: return "user_message";
-    case TNY_EV_TOOL_PROGRESS: return "tool_progress";
-    }
-    return "unknown";
-}
-
-static const char *stop_reason_name(tny_stop_reason stop) {
-    switch (stop) {
-    case TNY_STOP_DONE: return "done";
-    case TNY_STOP_INTERRUPTED: return "interrupted";
-    case TNY_STOP_DENIED: return "denied";
-    case TNY_STOP_STEP_LIMIT: return "step_limit";
-    case TNY_STOP_ERROR: return "error";
-    }
-    return "error";
-}
-
 static const char *event_error_name(tny_event_error_kind code) {
     switch (code) {
     case TNY_EVENT_ERROR_IO: return "io";
@@ -350,7 +319,7 @@ static void event_json_begin(tny_engine *e, buf_t *b, const char *type) {
 static char *backend_event_json(tny_engine *e, const tny_backend_event *ev) {
     buf_t b;
     buf_init(&b);
-    event_json_begin(e, &b, event_kind_name(ev->kind));
+    event_json_begin(e, &b, tny_event_kind_name(ev->kind));
     switch (ev->kind) {
     case TNY_EV_TEXT_DELTA:
     case TNY_EV_THINKING:
@@ -406,7 +375,7 @@ static char *backend_event_json(tny_engine *e, const tny_backend_event *ev) {
         break;
     case TNY_EV_TURN_END:
         buf_appends(&b, "\"stop\":{\"reason\":");
-        jescape(&b, stop_reason_name(ev->stop));
+        jescape(&b, tny_stop_reason_name(ev->stop));
         buf_appends(&b, "}");
         break;
     case TNY_EV_ERROR:
@@ -440,7 +409,7 @@ static char *lifecycle_event_json(tny_engine *e, const char *type, const char *p
     if (terminal) {
         if (comma) buf_appends(&b, ",");
         buf_appends(&b, "\"stop\":{\"reason\":");
-        jescape(&b, stop_reason_name(terminal->stop));
+        jescape(&b, tny_stop_reason_name(terminal->stop));
         buf_appends(&b, "},\"output_text\":");
         jescape(&b, e->turn_text.data ? e->turn_text.data : "");
         buf_appends(&b, ",\"messages\":[{\"role\":\"assistant\",\"content\":");
@@ -966,7 +935,8 @@ static void process_queued_extension_hooks(tny_engine *e) {
             }
             continue;
         }
-        (void)invoke_extensions(e, event_kind_name(owned->ev.kind), json, EXT_PHASE_STREAM, NULL);
+        (void)invoke_extensions(e, tny_event_kind_name(owned->ev.kind), json, EXT_PHASE_STREAM,
+                                NULL);
         free(json);
         if (owned->ev.kind == TNY_EV_TEXT_DELTA && owned->ev.text && e->message_started) {
             json = message_event_json(e, "message_update", e->current_message_id, owned->ev.text);
@@ -2034,12 +2004,6 @@ void tny_engine_free(tny_engine *e) {
     free(e->current_message_id);
     tny_wake_close(&e->cancel_wake);
     free(e);
-}
-
-int tny_engine_background(tny_engine *e) {
-    if (!e || !e->active || !e->bk || e->bk->id != TNY_BK_OPENAI) return -1;
-    tny_backend_openai_background(e->bk);
-    return 0;
 }
 
 bool tny_engine_parked(tny_engine *e) {

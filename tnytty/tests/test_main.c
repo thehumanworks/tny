@@ -15,6 +15,8 @@ extern SUITE(tabs_suite);
 extern SUITE(workspace_suite);
 extern SUITE(selection_suite);
 extern SUITE(status_suite);
+extern SUITE(util_suite);
+extern SUITE(random_suite);
 
 int main(int argc, char **argv) {
     GREATEST_MAIN_BEGIN();
@@ -31,5 +33,7 @@ int main(int argc, char **argv) {
     RUN_SUITE(workspace_suite);
     RUN_SUITE(selection_suite);
     RUN_SUITE(status_suite);
+    RUN_SUITE(util_suite);
+    RUN_SUITE(random_suite);
     GREATEST_MAIN_END();
 }

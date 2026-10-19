@@ -76,8 +76,8 @@ runtime/session/event/error handles through a pull-driven C ABI. It does
 not expose `tny_ctx`, `tny_backend`, `tny_backend_event`, yyjson, or `pollfd`
 layouts.
 The public `next_event` operation and the CLI adapters drive the same private
-runtime engine. TUI prewarm remains an acceleration adapter over that engine,
-not a separate provider lifecycle.
+runtime engine. The TUI creates its session runner lazily and reconnects when
+its workspace or provider context changes.
 
 ## Process rules
 

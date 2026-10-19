@@ -1,10 +1,9 @@
-"""Offline guards for the benchmark, cohort, effect oracle, and Lean translator."""
+"""Offline guards for the benchmark gates, cohort, and effect oracle."""
 
 from __future__ import annotations
 
 import copy
 import hashlib
-import importlib.util
 import itertools
 import json
 import sys
@@ -19,41 +18,69 @@ from policy import accept, promote
 from run import generation_valid
 
 ROOT = HERE.parents[2]
-spec = importlib.util.spec_from_file_location(
-    "lean_check", ROOT / "tests/formal/check_code_mode_language.py"
-)
-lean_check = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(lean_check)
 
 
 class PolicyTests(unittest.TestCase):
-    def test_acceptance_truth_table(self):
+    def check_acceptance(self, acceptance):
         for flags in itertools.product((False, True), repeat=3):
-            self.assertEqual(accept(*flags), flags == (True, True, True))
+            self.assertIs(acceptance(*flags), flags == (True, True, True))
 
-    def test_promotion_boundaries(self):
+    def check_promotion(self, promotion):
         for flags in itertools.product((False, True), repeat=3):
             for counts in itertools.product((-1, 0, 1, 36), repeat=4):
                 a, b, c, d = counts
-                self.assertEqual(
-                    promote(*flags, *counts), all(flags) and a >= b and c >= d
+                self.assertIs(
+                    promotion(*flags, *counts), all(flags) and a >= b and c >= d
                 )
+            # Below/equal/above both thresholds at integer magnitudes that
+            # floating-point conversion would round to the same value.
+            for base in (2**53, 2**64, 10**100):
+                for first, final in itertools.product((-1, 0, 1), repeat=2):
+                    self.assertIs(
+                        promotion(*flags, base + first, base, base + final, base),
+                        all(flags) and first >= 0 and final >= 0,
+                    )
 
-    def test_exact_source_translation(self):
-        generated = lean_check.translate(lean_check.POLICY.read_text())
-        self.assertIn("decide (first_candidate ≥ first_baseline)", generated)
-        self.assertIn("execution_ok && output_ok && trace_ok", generated)
+    def test_acceptance_truth_table(self):
+        self.check_acceptance(accept)
 
-    def test_translator_rejects_unsupported_syntax(self):
-        source = lean_check.POLICY.read_text()
-        for mutant in (
-            source.replace("execution_ok and output_ok", "execution_ok or output_ok"),
-            source.replace("first_candidate >=", "first_candidate >"),
-            source + "\nprint('side effect')\n",
-            source.replace("return execution_ok", "pass\n    return execution_ok"),
-        ):
-            with self.assertRaises(ValueError):
-                lean_check.translate(mutant)
+    def test_promotion_boundaries(self):
+        self.check_promotion(promote)
+
+    def test_policy_mutations_are_rejected(self):
+        # Mutations run the same checks as the real policy, including a
+        # passing control, instead of testing a second implementation.
+        source = (HERE / "policy.py").read_text()
+        mutants = (
+            ("execution_ok and ", ""),
+            ("and output_ok ", ""),
+            (" and trace_ok", ""),
+            ("        complete\n        and ", "        "),
+            ("        and confirmed_gain\n", ""),
+            ("        and parity\n", ""),
+            ("first_candidate >= first_baseline", "first_candidate <= first_baseline"),
+            ("first_candidate >= first_baseline", "first_candidate > first_baseline"),
+            ("final_candidate >= final_baseline", "final_candidate <= final_baseline"),
+            ("final_candidate >= final_baseline", "final_candidate > final_baseline"),
+            (
+                "first_candidate >= first_baseline",
+                "float(first_candidate) >= first_baseline",
+            ),
+            ("return execution_ok and output_ok and trace_ok", "return False"),
+        )
+        self.check_acceptance(accept)
+        self.check_promotion(promote)
+        for before, after in mutants:
+            with self.subTest(mutation=(before, after)):
+                self.assertEqual(source.count(before), 1)
+                namespace = {}
+                exec(
+                    compile(source.replace(before, after), "policy-mutant", "exec"),
+                    namespace,
+                )
+                with self.assertRaises(AssertionError):
+                    self.check_acceptance(namespace["accept"])
+                    self.check_promotion(namespace["promote"])
 
 
 class OracleTests(unittest.TestCase):

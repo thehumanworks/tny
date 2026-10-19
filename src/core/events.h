@@ -38,6 +38,39 @@ typedef enum {
     TNY_STOP_ERROR
 } tny_stop_reason;
 
+/* Canonical public/extension names. The private runner wire keeps its own
+ * permission and turn-end aliases, but shares the stop-reason vocabulary. */
+static inline const char *tny_event_kind_name(tny_event_kind kind) {
+    switch (kind) {
+    case TNY_EV_TEXT_DELTA: return "text_delta";
+    case TNY_EV_THINKING: return "thinking";
+    case TNY_EV_TOOL_START: return "tool_start";
+    case TNY_EV_TOOL_END: return "tool_end";
+    case TNY_EV_PERMISSION: return "permission_request";
+    case TNY_EV_PLAN: return "plan";
+    case TNY_EV_USAGE: return "usage";
+    case TNY_EV_TURN_END: return "turn_end";
+    case TNY_EV_ERROR: return "error";
+    case TNY_EV_STATUS: return "status";
+    case TNY_EV_STEER_REJECTED: return "steer_rejected";
+    case TNY_EV_CUSTOM_MESSAGE: return "custom_message";
+    case TNY_EV_USER_MESSAGE: return "user_message";
+    case TNY_EV_TOOL_PROGRESS: return "tool_progress";
+    }
+    return "unknown";
+}
+
+static inline const char *tny_stop_reason_name(tny_stop_reason stop) {
+    switch (stop) {
+    case TNY_STOP_DONE: return "done";
+    case TNY_STOP_INTERRUPTED: return "interrupted";
+    case TNY_STOP_DENIED: return "denied";
+    case TNY_STOP_STEP_LIMIT: return "step_limit";
+    case TNY_STOP_ERROR: return "error";
+    }
+    return "error";
+}
+
 /* Keep the C enum layout at the mixed-language boundary. */
 // NOLINTNEXTLINE(performance-enum-size)
 typedef enum {

@@ -45,7 +45,6 @@ typedef struct {
     char last_error[256]; /* sanitized: never contains configured headers */
 } mcp_conn;
 
-void mcp_secret_free(char *s);
 void mcp_header_lines_free(char **headers, size_t nheaders);
 void mcp_conf_free(mcp_conf *conf);
 void mcp_conn_close(mcp_conn *c);
