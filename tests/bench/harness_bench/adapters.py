@@ -107,7 +107,13 @@ def isolated_env(run_dir, proxy_url):
     return env
 
 
-def invocation(name, run_dir, proxy_url, prompt, model, effort, tny_bin):
+def invocation(
+    name, run_dir, proxy_url, prompt, model, effort, tny_bin, route="legacy-codex"
+):
+    if route != "legacy-codex":
+        return current_invocation(
+            name, run_dir, proxy_url, prompt, model, effort, tny_bin, route
+        )
     env = isolated_env(run_dir, proxy_url)
     binary = (
         str(Path(tny_bin).resolve())
@@ -354,13 +360,75 @@ def invocation(name, run_dir, proxy_url, prompt, model, effort, tny_bin):
     raise RuntimeError(f"{name}: ChatGPT Responses proxy configuration unverified")
 
 
+def current_invocation(name, run_dir, proxy_url, prompt, model, effort, tny_bin, route):
+    """Only tny's current-route adapter is verified; never silently use Codex."""
+    from routes import ROUTES  # noqa: PLC0415
+
+    profile = ROUTES[route]
+    if name != "tny":
+        raise ValueError(f"{name}: current-route adapter is unverified")
+    env = isolated_env(run_dir, proxy_url)
+    env.pop("TNY_CODEX_BASE_URL", None)
+    # All harness-visible credentials are synthetic. Only the proxy reads real ones.
+    command = [str(Path(tny_bin).resolve()), "--provider", "openai"]
+    if profile.credential == "siwc":
+        env.pop("OPENAI_API_KEY", None)
+        home = Path(env["HOME"]) / ".tny"
+        home.mkdir(exist_ok=True)
+        store = home / "openai-auth.json"
+        store.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "issuer": proxy_url,
+                    "client_id": "oaiapp_benchmark_fixture",
+                    "subject": "benchmark",
+                    "access_token": "benchmark-plan-fixture",
+                    "refresh_token": "fixture",
+                    "token_type": "Bearer",
+                    "scopes": ["chatgpt.tokens.use.direct"],
+                    "plan_usage": True,
+                    "expires_at": time.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 86400)
+                    ),
+                }
+            )
+        )
+        store.chmod(0o600)
+        env.update(
+            TNY_OPENAI_OAUTH_ISSUER=proxy_url,
+            TNY_OPENAI_SIGNIN_BASE_URL=proxy_url + "/v1",
+        )
+    else:
+        env["OPENAI_API_KEY"] = "sk-benchmark-fixture"
+        command += [
+            "--base-url",
+            proxy_url + "/v1",
+            "--wire-api",
+            "chat" if profile.wire == "chat/completions" else "responses",
+        ]
+    command += ["--model", model]
+    if effort != "omit":
+        command += ["--effort", effort]
+    command += ["ask", "--json", prompt]
+    return Invocation(command, env)
+
+
 def session_invocation(
-    name, run_dir, proxy_url, prompt, model, effort, tny_bin, resume_id
+    name,
+    run_dir,
+    proxy_url,
+    prompt,
+    model,
+    effort,
+    tny_bin,
+    resume_id,
+    route="legacy-codex",
 ):
     """Use the same isolated HOME and resume the existing noninteractive session."""
     if name not in SESSION_ADAPTERS:
         raise ValueError(f"{name}: noninteractive session resume is unverified")
-    call = invocation(name, run_dir, proxy_url, prompt, model, effort, tny_bin)
+    call = invocation(name, run_dir, proxy_url, prompt, model, effort, tny_bin, route)
     if resume_id:
         verb = "--resume" if name == "tny" else "resume"
         call.command[-1:-1] = [verb, resume_id]

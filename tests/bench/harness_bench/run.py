@@ -3,6 +3,7 @@
 
 import argparse
 import gzip
+import hashlib
 import json
 import os
 import shutil
@@ -25,9 +26,10 @@ from adapters import (
 )
 from cost import request_cost
 from proxy import RecordingProxy, static_parts
+from routes import ROUTES
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_OUT = Path("/home/tomas/.cache/tny-opt/runs/bench")
+DEFAULT_OUT = Path.home() / ".cache" / "tny" / "harness-bench"
 
 
 def task_prompts(task):
@@ -247,9 +249,12 @@ def _wire_settings_valid(rows, run_dir, model, effort):
     for row in rows:
         raw = gzip.decompress((run_dir / "proxy" / row["body_file"]).read_bytes())
         body = json.loads(raw)
-        if (
-            body.get("model") != model
-            or (body.get("reasoning") or {}).get("effort") != effort
+        if body.get("model") != model or (
+            effort != "omit"
+            and body.get(
+                "reasoning_effort", (body.get("reasoning") or {}).get("effort")
+            )
+            != effort
         ):
             return False
     return True
@@ -264,7 +269,16 @@ def run_one(args, task_dir, harness, rep):
     run_dir = args.out / args.label / harness / task["id"] / f"rep-{rep:02d}"
     result_file = run_dir / "result.json"
     if result_file.exists():
-        return json.loads(result_file.read_text())
+        previous = json.loads(result_file.read_text())
+        if (
+            previous.get("route", "legacy-codex"),
+            previous.get("model"),
+            previous.get("effort"),
+        ) != (getattr(args, "route", "legacy-codex"), args.model, args.effort):
+            raise ValueError(
+                "existing result uses different route/model/effort; choose a fresh label"
+            )
+        return previous
     if run_dir.exists():
         shutil.rmtree(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -287,7 +301,8 @@ def run_one(args, task_dir, harness, rep):
     turns_completed = 0
     turn_records = []
     session_id = None
-    with RecordingProxy(run_dir / "proxy", args.auth_file) as proxy:
+    route = getattr(args, "route", "legacy-codex")
+    with RecordingProxy(run_dir / "proxy", args.auth_file, route, args.model) as proxy:
         for turn_index, prompt in enumerate(prompts, 1):
             if session_task:
                 proxy.begin_turn(turn_index)
@@ -306,6 +321,7 @@ def run_one(args, task_dir, harness, rep):
                         args.effort,
                         args.tny_bin,
                         session_id,
+                        route,
                     )
                 else:
                     call = invocation(
@@ -316,6 +332,7 @@ def run_one(args, task_dir, harness, rep):
                         args.model,
                         args.effort,
                         args.tny_bin,
+                        route,
                     )
                 completed = subprocess.run(
                     call.command,
@@ -426,7 +443,6 @@ def run_one(args, task_dir, harness, rep):
             "input_tokens",
             "cached_input_tokens",
             "output_tokens",
-            "reasoning_tokens",
         )
     )
     model_effort_valid = _wire_settings_valid(rows, run_dir, args.model, args.effort)
@@ -441,9 +457,9 @@ def run_one(args, task_dir, harness, rep):
     elif not rows:
         passed = False
         reason = "no proxy requests"
-    elif not measurement_valid:
+    elif not all(row.get("stream_complete") is True for row in rows):
         passed = False
-        reason = "provider usage missing from a recorded request"
+        reason = "provider stream incomplete or unsuccessful"
     elif not model_effort_valid:
         passed = False
         reason = "wire model or reasoning effort differs from requested setting"
@@ -455,7 +471,12 @@ def run_one(args, task_dir, harness, rep):
         else ("pass" if passed else "fail")
     )
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "route": route,
+        "cost_basis": "modeled_api_equivalent_not_subscription_billing"
+        if route in {"openai-siwc", "legacy-codex"}
+        else "dated_list_price_estimate",
+        "cache_write_cost_assumption": "unreported writes are priced as ordinary uncached input; write-token metric stays unknown",
         "label": args.label,
         "harness": harness,
         "task": task["id"],
@@ -485,8 +506,38 @@ def run_one(args, task_dir, harness, rep):
     return result
 
 
+def run_manifest(args, tasks, selected):
+    """A credential-free pairing contract; task contents, not just task names."""
+    digests = {}
+    for name in sorted(selected):
+        digest = hashlib.sha256()
+        for path in sorted(tasks[name].rglob("*")):
+            if path.is_file() and "__pycache__" not in path.parts:
+                digest.update(str(path.relative_to(tasks[name])).encode() + b"\0")
+                digest.update(path.read_bytes())
+        digests[name] = digest.hexdigest()
+    return {
+        "schema_version": 1,
+        "route": args.route,
+        "model": args.model,
+        "effort": args.effort,
+        "reps": args.reps,
+        "concurrency": args.concurrency,
+        "harnesses": args.harness
+        or (["tny", "codex"] if args.route == "legacy-codex" else ["tny"]),
+        "tasks_sha256": digests,
+        "method": "Pair task/rep identities on the same route/model/effort; alternate arm order. Retain failures and unknown usage. Offline fixtures establish harness behavior, not model quality.",
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="write paired-run manifest without credentials, subprocesses, or provider calls",
+    )
+    parser.add_argument("--route", choices=ROUTES, default="openai-siwc")
     parser.add_argument("--harness", action="append", choices=ADAPTERS)
     parser.add_argument("--task", action="append", default=[])
     parser.add_argument(
@@ -503,9 +554,21 @@ def main():
     parser.add_argument("--label", default="baseline")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument(
-        "--auth-file", type=Path, default=Path.home() / ".codex" / "auth.json"
+        "--auth-file",
+        type=Path,
+        help="existing SIWC or legacy auth store; never copied or refreshed",
     )
     args = parser.parse_args()
+    if args.auth_file is None:
+        args.auth_file = Path.home() / (
+            ".codex/auth.json"
+            if args.route == "legacy-codex"
+            else ".tny/openai-auth.json"
+        )
+    if args.route != "legacy-codex" and any(
+        name != "tny" for name in args.harness or []
+    ):
+        parser.error("current-route adapters are verified only for tny")
     if (
         args.reps < 1
         or args.concurrency < 1
@@ -533,9 +596,20 @@ def main():
     }
     for info in task_info.values():
         task_prompts(info)
+    manifest = run_manifest(args, tasks, selected)
+    manifest_path = args.out / args.label / "manifest.json"
+    if manifest_path.exists() and json.loads(manifest_path.read_text()) != manifest:
+        parser.error("existing label has a different manifest; choose a fresh label")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    if args.plan_only:
+        print(json.dumps(manifest))
+        return 0
     jobs = []
     for task in selected:
-        for harness in args.harness or ["tny", "codex"]:
+        for harness in args.harness or (
+            ["tny", "codex"] if args.route == "legacy-codex" else ["tny"]
+        ):
             for rep in range(1, args.reps + 1):
                 if "prompts" in task_info[task] and harness not in SESSION_ADAPTERS:
                     print(

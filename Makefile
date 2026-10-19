@@ -395,6 +395,7 @@ endif
 LEAN ?= lean
 .PHONY: test-code-mode-language bench-code-mode-language
 test-code-mode-language:
+	python3 -m unittest discover -s tests/bench/harness_bench -p 'test_*.py'
 	python3 tests/bench/code_mode/test_benchmark.py
 	python3 tests/build/test_code_cell_seams.py
 	python3 tests/bench/python_runtime/test_evidence.py

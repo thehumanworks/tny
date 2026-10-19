@@ -183,6 +183,32 @@ class ComparisonTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "environment error; rerun"):
             compare_runs(self.arm_a, self.arm_b)
 
+    def test_route_and_task_manifest_mismatch_fail_closed(self):
+        first = next(self.arm_b.glob("*/*/*/result.json"))
+        row = json.loads(first.read_text())
+        row["route"] = "openai-siwc"
+        first.write_text(json.dumps(row))
+        with self.assertRaisesRegex(ValueError, "same route"):
+            compare_runs(self.arm_a, self.arm_b)
+        row.pop("route")
+        first.write_text(json.dumps(row))
+        manifest = {
+            "route": "legacy-codex",
+            "model": "gpt-6-luna",
+            "effort": "low",
+            "reps": 2,
+            "concurrency": 1,
+            "tasks_sha256": {"x": "digest"},
+        }
+        (self.arm_a / "manifest.json").write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "both arms"):
+            compare_runs(self.arm_a, self.arm_b)
+        (self.arm_b / "manifest.json").write_text(
+            json.dumps(dict(manifest, tasks_sha256={"x": "different"}))
+        )
+        with self.assertRaisesRegex(ValueError, "tasks_sha256"):
+            compare_runs(self.arm_a, self.arm_b)
+
 
 if __name__ == "__main__":
     unittest.main()
