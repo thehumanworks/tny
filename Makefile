@@ -756,7 +756,6 @@ $(OPENAI_ERRORS_TEST): $(OPENAI_ERRORS_TEST_OBJ) $(call objects,$(OBJ_DBG),$(OPE
 .PHONY: test-openai-errors
 test-openai-errors: $(OPENAI_ERRORS_TEST)
 	./$(OPENAI_ERRORS_TEST)
-test: test-openai-errors
 -include $(OPENAI_ERRORS_TEST_OBJ:.o=.d)
 
 debug: $(TEST_BIN)
@@ -1232,7 +1231,7 @@ test-subagent-e2e: release
 verify-subagents-live: release
 	python3 tests/integration/live_subagent_check.py --live --tny '$(abspath $(BIN))' --output '$(BUILD)/subagents-live.json'
 
-test: test-code-mode-language verify-formal dictation-fixture test-unit test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
+test: test-code-mode-language verify-formal dictation-fixture test-unit test-openai-errors test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
 	tests/integration/run.sh
 
 size: release
