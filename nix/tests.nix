@@ -109,7 +109,8 @@ stdenv.mkDerivation {
     # The shared toolkit_provider.py fixture likewise needs only stdlib Python;
     # native ABI tests add no audio devices, provider keys, or new dependencies.
     # test_prompt_cache.py uses only stdlib loopback providers. The optional
-    # bench_prompt_cache.py and harness_bench/ require live inference and
+    # harness_bench/test_*.py runs offline with Python stdlib only. Its
+    # optional run.py benchmark and bench_prompt_cache.py require live inference and
     # external CLIs; their synthetic task fixture is in ../tests via source.nix,
     # but these optional benchmarks are never run in the sandbox. The
     # tasks-long/ and tasks-session/ fixtures live under ../tests and need only stdlib Python;

@@ -103,7 +103,7 @@ assert not list(w.parent.parent.glob('.harness-hidden.*'))
 """
 
         class FakeProxy:
-            def __init__(self, path, auth_file):
+            def __init__(self, path, auth_file, *args):
                 self.base_url = "http://127.0.0.1:1"
                 self.rows = []
 

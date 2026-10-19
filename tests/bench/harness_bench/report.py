@@ -64,18 +64,24 @@ def _section_tokens(result, count):
         totals["tools"] += count(
             json.dumps(tools, ensure_ascii=False, separators=(",", ":"))
         )
-        items = body.get("input") or []
+        items = body.get("input", body.get("messages")) or []
         if not isinstance(items, list):
             items = [items]
         for item in items:
             if isinstance(item, dict) and item.get("role") in {"developer", "system"}:
                 continue
-            if isinstance(item, dict) and item.get("type") in {
-                "function_call_output",
-                "custom_tool_call_output",
-            }:
+            if isinstance(item, dict) and (
+                item.get("role") == "tool"
+                or item.get("type")
+                in {
+                    "function_call_output",
+                    "custom_tool_call_output",
+                }
+            ):
                 totals["tool_outputs"] += count(
-                    json.dumps(item.get("output", ""), ensure_ascii=False)
+                    json.dumps(
+                        item.get("output", item.get("content", "")), ensure_ascii=False
+                    )
                 )
             else:
                 totals["history"] += count(json.dumps(item, ensure_ascii=False))
@@ -96,6 +102,11 @@ def _section_tokens(result, count):
 
 
 def aggregate(results):
+    routes = {row.get("route", "legacy-codex") for row in results}
+    if len(routes) > 1:
+        raise ValueError(
+            "report requires one route; do not pool subscription/API origins"
+        )
     count, token_method = _counter()
     by_harness = defaultdict(list)
     tasks = defaultdict(dict)
@@ -220,6 +231,7 @@ def aggregate(results):
         for task, harnesses in sorted(tasks.items())
     }
     return {
+        "route": next(iter(routes)) if routes else None,
         "token_method": token_method,
         "price_date": PRICE_DATE,
         "headline": headline,
@@ -233,7 +245,7 @@ def markdown(report):
     lines = [
         "# Cross-harness benchmark",
         "",
-        f"Token method: {report['token_method']}. Standard list prices as of {report['price_date']}; subscription dollars are comparison units, not a bill.",
+        f"Route: {report['route']}. Token method: {report['token_method']}. Standard list prices as of {report['price_date']}; subscription dollars are comparison units, not a bill.",
         "",
         "| Harness | Model | Pass rate (95% CI) | Errors | ITE/task (SD) | ITE/passed | USD/task | USD/passed | Requests/task | Turns completed/requested | Cache hit | Mean context tokens | Static prefix | p50 wall |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",

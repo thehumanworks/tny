@@ -69,6 +69,9 @@ def _read_arm(directory, harness):
 
 
 def _settings(rows):
+    routes = {row.get("route", "legacy-codex") for row in rows}
+    if len(routes) != 1:
+        raise ValueError("every run in an arm must use the same route")
     settings = {(row.get("model"), row.get("effort")) for row in rows}
     if len(settings) != 1 or any(value is None for value in next(iter(settings))):
         raise ValueError("every run in an arm must have the same model and effort")
@@ -304,6 +307,18 @@ def compare_runs(directory_a, directory_b, harness=None, margin=-8.0, fires=None
         raise ValueError("--margin must be percentage points between -100 and 100")
     rows_a, harness_a, path_a = _read_arm(directory_a, harness)
     rows_b, harness_b, path_b = _read_arm(directory_b, harness)
+    if {r.get("route", "legacy-codex") for r in rows_a} != {
+        r.get("route", "legacy-codex") for r in rows_b
+    }:
+        raise ValueError("arms must use the same route")
+    manifests = [path / "manifest.json" for path in (path_a, path_b)]
+    if any(path.exists() for path in manifests):
+        if not all(path.exists() for path in manifests):
+            raise ValueError("both arms require manifests when either has one")
+        a, b = [json.loads(path.read_text()) for path in manifests]
+        for key in ("route", "model", "effort", "reps", "concurrency", "tasks_sha256"):
+            if a.get(key) != b.get(key):
+                raise ValueError(f"paired manifest mismatch: {key}")
     if _settings(rows_a) != _settings(rows_b):
         raise ValueError("arms must use the same model and reasoning effort")
     model, effort = _settings(rows_a)
@@ -373,6 +388,7 @@ def compare_runs(directory_a, directory_b, harness=None, margin=-8.0, fires=None
     feature_b = _feature_counts(rows_b, patterns) if patterns else {}
     return {
         "mode": "comparison",
+        "route": rows_a[0].get("route", "legacy-codex"),
         "model": model,
         "effort": effort,
         "task_count": len(tasks),
@@ -437,7 +453,8 @@ def markdown(report):
         "",
         f"A: `{a['directory']}` ({a['harness']}); B: `{b['directory']}` ({b['harness']}).",
         f"Model `{report['model']}`, effort `{report['effort']}`; {report['task_count']} tasks, {report['paired_runs']} paired runs; {report['bootstrap_resamples']:,} task bootstrap resamples, seed {report['bootstrap_seed']}.",
-        "Model and effort are checked from run records. Keep timeout and upstream fixed in the run setup; those settings are not in result.json.",
+        f"Route `{report['route']}`. Route/model/effort are checked from run records; paired manifests also check task contents and concurrency when present. Keep timeout and binary provenance fixed and recorded separately.",
+        "USD values use dated API list-price estimates, not subscription bills. Unknown usage/cost stays unknown; unreported cache writes are priced as ordinary uncached input.",
         "",
         "## Success gate",
         "",

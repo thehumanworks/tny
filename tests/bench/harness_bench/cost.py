@@ -14,12 +14,14 @@ def request_cost(row, model):
     """Return (ITE, USD, uncached input) or nulls for unavailable usage/prices."""
     prices = PRICES.get(model)
     fields = ("input_tokens", "cached_input_tokens", "output_tokens")
-    if not prices or any(row.get(key) is None for key in fields):
+    if any(row.get(key) is None for key in fields):
         return None, None, None
     written = row.get("cache_write_tokens") or 0
     uncached = row["input_tokens"] - row["cached_input_tokens"] - written
     if uncached < 0:
         return None, None, None
+    if not prices:
+        return None, None, uncached
     multiplier = 2 if row["input_tokens"] > 272_000 else 1
     input_weight, cached_weight, write_weight, output_weight = prices
     ite_output_weight = 5 if model.startswith("gpt-6-") else 6
