@@ -1,0 +1,38 @@
+# Temporary evidence workflow for PR #201; this branch is not a merge candidate.
+name: Darwin shell cancellation diagnostic
+
+on:
+  push:
+    branches: [cleanup/darwin-shell-diagnostic-20261018]
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Record the stock runner and interpreters
+        run: |
+          uname -s -m
+          sw_vers
+          /bin/bash --version
+          /bin/zsh --version
+      - name: Compare original and final cancellation fixtures
+        env:
+          BASH: /bin/bash
+          ZSH: /bin/zsh
+          DIAGNOSTIC_OUTPUT: ${{ runner.temp }}/tny-shell-diagnostic
+        run: python3 .github/diagnostics/compare_shell_cancellation.py
+      - name: Retain comparison results and shell crash reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: darwin-shell-cancellation-${{ github.sha }}
+          path: ${{ runner.temp }}/tny-shell-diagnostic
+          retention-days: 7
