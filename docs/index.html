@@ -33,7 +33,7 @@
 <body>
 <header class="site-header">
   <a class="brand" href="index.html" aria-label="tny home"><svg class="brand-slash" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="m4.02 15.4.3-.7 6-14 .29-.68 1.37.59-.3.69-6 14-.29.68z" fill="var(--logo-divider)"></path></svg><span class="brand-word">tny</span></a>
-  <nav class="nav"><a href="docs/index.html">docs</a><a href="docs/cli.html">cli</a><a href="docs/tnytty.html">tnytty</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
+  <nav class="nav"><a href="docs/index.html">docs</a><a href="docs/cli.html">cli</a><a href="https://github.com/thehumanworks/tny" target="_blank" rel="noreferrer">source</a></nav>
   <button type="button" class="theme-cta" data-theme aria-label="Toggle color theme">theme</button>
   <button type="button" class="install-cta" data-site-install aria-label="Copy install command"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg><span data-copy-status>install</span></button>
 </header>
@@ -49,7 +49,7 @@
         </button>
       </p>
       <p class="meta">
-        <span>v0.27.0</span>
+        <span>v0.28.0</span>
         <span aria-hidden="true"> · </span>
         <span>agent-first</span>
         <span aria-hidden="true"> · </span>
@@ -78,12 +78,11 @@
       <p>The terminal on this page is the real <span class="name">tny</span> binary compiled to WebAssembly — the same sources and the same CI test suite as the native CLI. Pass <code>OPENAI_API_KEY</code> (and optionally <code>OPENAI_BASE_URL</code>) in the URL hash or paste them at the prompt. Keys stay in this tab and go only to the provider you set — never to GitHub. Your provider must allow browser (CORS) calls; <code>api.openai.com</code> does not.</p>
       <p>For end users, the form factor aims to be closer to a Unix shell than a heavy "IDE in the terminal" TUI.</p>
       <p>It's open source, model-agnostic, and suitable for local models, subscriptions, and cloud inference.</p>
-      <p>The same monorepo ships <a href="docs/tnytty.html">tnytty</a>, a tiny C11 terminal emulator: a headless VT core, a pty host, kitty graphics with bundled <code>icat</code>, and a REST API so every session is scriptable and shareable.</p>
     </div>
     <button type="button" class="scroll-hint" data-scroll="features" aria-label="Scroll to features">***</button>
   </div>
   <section class="features" id="features">
-    <div><h2>Small measured binary</h2><p>This build's stripped binary is 26.0 MiB. Size is reported, not a ceiling. Designed for instant installation and embedding in agent sandboxes.</p></div><div><h2>Instant time to prompt</h2><p>The interactive shell first-paints in <span class="hi">3–4ms</span> and does no backend I/O before accepting input. Host processes are pre-warmed after first paint so Enter is not a spawn.</p></div><div><h2>Four first-class backends</h2><p>One native OpenAI-compatible HTTP tool loop, with Responses and Chat Completions, ChatGPT subscriptions, and Grok.</p></div><div><h2>Minimal memory footprint</h2><p>About 2.1 MiB RSS for <code>--version</code>. Pack many instances on one machine without dragging a runtime along.</p></div><div><h2>Shell-like UI and ergonomics</h2><p>A Unix shell, not an IDE in the terminal. Append-only transcript, a pinned composer, slash commands, and sparing use of paints.</p></div><div><h2>Effective context</h2><p>The agent gets the instructions, tools and results the task needs. Lazy catalogs keep unused tools off the wire; required context is not stripped to save tokens.</p></div><div><h2>Host processes stay external</h2><p>Providers use HTTPS directly. Native Codex and Grok login and refresh need no vendor agent executable.</p></div><div><h2>Model and provider agnostic</h2><p>Local models, OpenRouter, AIProxy at your configured URL, Groq, Azure, Codex subscriptions, and Grok.</p></div>
+    <div><h2>Small measured binary</h2><p>This build's stripped binary is 25.7 MiB. Size is reported, not a ceiling. Designed for instant installation and embedding in agent sandboxes.</p></div><div><h2>Instant time to prompt</h2><p>The interactive shell first-paints in <span class="hi">3–4ms</span> and does no backend I/O before accepting input. Host processes are pre-warmed after first paint so Enter is not a spawn.</p></div><div><h2>Four first-class backends</h2><p>One native OpenAI-compatible HTTP tool loop, with Responses and Chat Completions, ChatGPT subscriptions, and Grok.</p></div><div><h2>Minimal memory footprint</h2><p>About 2.1 MiB RSS for <code>--version</code>. Pack many instances on one machine without dragging a runtime along.</p></div><div><h2>Shell-like UI and ergonomics</h2><p>A Unix shell, not an IDE in the terminal. Append-only transcript, a pinned composer, slash commands, and sparing use of paints.</p></div><div><h2>Effective context</h2><p>The agent gets the instructions, tools and results the task needs. Lazy catalogs keep unused tools off the wire; required context is not stripped to save tokens.</p></div><div><h2>Host processes stay external</h2><p>Providers use HTTPS directly. Native Codex and Grok login and refresh need no vendor agent executable.</p></div><div><h2>Model and provider agnostic</h2><p>Local models, OpenRouter, AIProxy at your configured URL, Groq, Azure, Codex subscriptions, and Grok.</p></div>
   </section>
 </main>
 <script src="assets/site.js"></script>

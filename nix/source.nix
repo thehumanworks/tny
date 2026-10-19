@@ -226,12 +226,6 @@ let
     ../tests/fixtures/mcp-import
     # The published settings schema, read by tests/integration/test_settings_schema.py.
     ../schemas
-    # Optional `make -C tnytty benchmark`: keep its product sources, helper,
-    # and JSON runner available in the hermetic test source without running
-    # the timing-sensitive benchmark as a routine Nix check.
-    ../tnytty/Makefile
-    ../tnytty/src
-    ../tnytty/tests/bench
   ];
 in
 {

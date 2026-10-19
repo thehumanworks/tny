@@ -1636,16 +1636,6 @@ ifeq ($(BUILD),build)
 	done
 endif
 
-# ---- monorepo siblings (docs/adr/0045) ----------------------------------
-# Each sibling app owns its own Makefile; these targets only delegate.
-tnytty:
-	$(MAKE) -C tnytty
-tnytty-test:
-	$(MAKE) -C tnytty test
-tnytty-clean:
-	$(MAKE) -C tnytty clean
-.PHONY: tnytty tnytty-test tnytty-clean
-
 # Header dependencies emitted by -MMD; a header edit rebuilds its users.
 -include $(REL_OBJS:.o=.d) $(LIB_PIC_OBJS:.o=.d) \
          $(FAULT_PIC_OBJS:.o=.d) $(FAULT_SAN_PIC_OBJS:.o=.d) \

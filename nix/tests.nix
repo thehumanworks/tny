@@ -81,9 +81,6 @@ stdenv.mkDerivation {
     clang # verify-execution-protocol translates and compiles the production predicate
     clang-tools # test_cpp_build.py runs real negative format/analyzer fixtures
     git # test_worktree.py uses temporary real repositories and linked worktrees
-    # Integration fixtures plus the optional stdlib-only
-    # tnytty/tests/bench/bench_tnytty.py runner. The performance benchmark is
-    # intentionally not part of buildPhase because shared CI timing is noisy.
     # test_image_service.py uses stdlib HTTP fixtures and embedded image bytes;
     # test_image_workflow.py generates its PNG/JPEG/WebP headers with stdlib
     # struct/zlib, so neither needs an image library or external asset.
