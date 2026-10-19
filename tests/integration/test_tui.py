@@ -482,7 +482,7 @@ def test_slash_palette(home, ws):
 
 
 class ShellRecordHandler(BaseHTTPRequestHandler):
-    """Capture the actual first provider request, not just the UI echo."""
+    """Capture provider requests to verify disclosure delivery and consumption."""
 
     protocol_version = "HTTP/1.1"
     requests = []
@@ -495,8 +495,8 @@ class ShellRecordHandler(BaseHTTPRequestHandler):
         self.requests.append(json.loads(body))
         event = (
             b'data: {"type":"response.output_text.delta",'
-            b'"output_index":0,"delta":"RECORD-OK"}\n\n'
-            b'data: {"type":"response.completed",'
+            + f'"output_index":0,"delta":"RECORD-OK-{len(self.requests)}"}}\n\n'.encode()
+            + b'data: {"type":"response.completed",'
             b'"response":{"status":"completed"}}\n\n'
         )
         self.send_response(200)
@@ -526,7 +526,7 @@ def test_shell_disclosure_reaches_provider(home, ws):
         t.expect_on_screen("\n>")
         t.send("inspect this\r")
         t.expect("› inspect this", 20.0)
-        t.expect("RECORD-OK", 20.0)
+        t.expect("RECORD-OK-1", 20.0)
         assert ShellRecordHandler.requests
         body = json.dumps(ShellRecordHandler.requests[0])
         for part in (
@@ -538,12 +538,31 @@ def test_shell_disclosure_reaches_provider(home, ws):
             "untrusted data",
         ):
             assert part in body, (part, body)
+        # Wait for the visible turn to settle, not merely its first delta;
+        # input during turn_active exercises steering/queueing instead.
+        t.expect_on_screen("RECORD-OK-1", 20.0)
+        t.expect_gone_from_screen("(esc cancels)", 20.0)
+        # Prior turns may legitimately retain the disclosure in conversation
+        # history. Only the new user message must be free of a second copy.
+        t.send("continue without another shell command\r")
+        t.expect("RECORD-OK-2", 20.0)
+        assert len(ShellRecordHandler.requests) == 2
+        users = [
+            item
+            for item in ShellRecordHandler.requests[-1]["input"]
+            if item.get("role") == "user"
+        ]
+        assert users, ShellRecordHandler.requests[-1]
+        latest = json.dumps(users[-1])
+        assert "continue without another shell command" in latest, latest
+        assert "local_shell_commands" not in latest, latest
+        assert "Command: printf local-output" not in latest, latest
         t.send("/quit\r")
         assert t.wait() == 0
     finally:
         t.close()
         srv.shutdown()
-    print("ok  next provider request discloses command, output, cwd and exit")
+    print("ok  shell disclosure reaches provider once; next prompt does not repeat it")
 
 
 class ApprovalHandler(BaseHTTPRequestHandler):

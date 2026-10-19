@@ -1312,8 +1312,9 @@ TEST saved_view_discards_stale_provider_wizard(void) {
     PASS();
 }
 
-/* Concrete fixture for tests/formal/shell_mode.smt2: local execution does
- * not submit a prompt; the next prompt carries every command and both streams. */
+/* Local execution does not submit a prompt; prompt formatting carries the
+ * command and both streams. Buffer reset here is a fixture action, not a
+ * verification of the production submission/consumption path. */
 TEST shell_mode_streams_and_discloses_only_once(void) {
     tui t;
     mk_tui(&t, 24);

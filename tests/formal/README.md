@@ -1,8 +1,8 @@
 # Formal contracts
 
 Two formalisms live here: Lean 4 for production code-cell gates, dictation and
-ACP contracts, and SMT-LIB 2 with Z3 for execution admission and shell/catalog
-abstractions. GUI state-machine proofs live in `gui/proofs/`.
+ACP contracts, and Z3 for source-linked execution admission. GUI state-machine
+proofs live in `gui/proofs/`.
 
 Benchmark-only decision proofs were replaced with direct offline tests by
 [ADR 0188](../../docs/adr/0188-focused-verification-maintenance.md). The original
@@ -41,28 +41,34 @@ Lean toolchain and checks golden-table drift; CI runs it in `lean-proofs`.
 `acp/golden/transitions.tsv` through the subprocess ACP fixture, without Lean.
 The general theorems prove the specification, not the C code or upstream adapter.
 
-## SMT-LIB 2 (Z3)
+## Z3: production execution admission
 
-Language: SMT-LIB 2, solver: Z3. Run `make verify-formal` (also in `make test`).
-Each `.smt2` file contains `check-sat` queries for **negated** invariants.
-The checker requires exactly one `unsat` per query, and fails closed on
-`unknown`, `sat`, missing Z3, parser diagnostics or timeouts. Use fresh files
-for independent boundaries. Explain abstractions and tie each contract to a
-fixture test of the actual implementation; this is not a C correctness proof.
+`make verify-execution-protocol` translates the production admission predicate
+from Clang's typed AST, checks it against an independent allowed-case contract
+with Z3, and cross-checks a compiled copy on representative values.
+`make verify-formal` retains this check and the golden-exporter negative controls.
+Unsupported source syntax or missing tools fails the check, never skips it.
+This proves the pure predicate, not its callers or the surrounding RPC lifecycle.
 
-`shell_mode.smt2` models local shell start, bounded disclosure and prompt
-delivery guards. Linked concrete fixtures are `shell_mode_streams_and_discloses_only_once`
-and `shell_mode_denies_unrecordable_command` in `tests/test_tui.c`. The
-`test_shell_disclosure_reaches_provider` PTY integration test checks the wire
-request. It does not
-model the OS shell or prove the C implementation.
+### Retired detached models (2026-10-19)
 
-`acp_catalog.smt2` models the provenance of already-parsed select/legacy catalog
-**listings**. It does not decide whether a requested model is admitted: ADR 0181
-requires unlisted IDs to reach the adapter, as checked by `acp/Model.lean` and
-`test_model_selection_matches_lean`. It does not model JSON parsing, malformed
-options, credentials or SDK availability. Its linked concrete test is
-`test_acp_catalog_provenance_newer_and_stale_adapter`.
+The shell-mode and ACP-catalog SMT models were removed: they restated their own
+transition equations or selector definitions, without extracting production code
+or comparing model output to it. Their green results could not detect a C
+regression. A fail-closed solver launcher did not repair that missing connection.
+
+Retained production coverage:
+- `tests/test_tui.c`: child execution, merged streams, EOF responsiveness,
+  built-in/blank prompt preservation and disclosure-budget refusal.
+- `tests/integration/test_tui.py::test_shell_disclosure_reaches_provider`: actual
+  outgoing request contains command, output, cwd and exit status, and a second
+  prompt does not repeat the disclosure in its new user message.
+- `tests/integration/test_acp_client.py::test_acp_catalog_provenance_newer_and_stale_adapter`:
+  actual subprocess output preserves advertised model IDs and names.
+
+These tests are bounded evidence, not all-input proofs. In particular the unit
+shell test clears the disclosure buffer itself; it must not be cited as proof
+that production prompt submission consumes it exactly once.
 
 ## Lean 4: dictation normalization (`dictation/`)
 

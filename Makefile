@@ -448,7 +448,6 @@ python-embed-bench: $(PYTHON_EMBED_BENCH)
 .PHONY: verify-formal verify-execution-protocol
 verify-formal: verify-execution-protocol
 	python3 tests/formal/test_lean_golden.py
-	python3 tests/formal/check.py
 
 # Lean 4 proofs of dictation normalization (ADR 0175): prove, regenerate the
 # golden tables the C unit suite replays, and fail if they changed. Needs

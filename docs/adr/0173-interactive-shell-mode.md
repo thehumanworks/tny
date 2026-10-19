@@ -25,11 +25,12 @@ JavaScript command runner or remote execution is added.
 
 ## Verification
 
-`tests/formal/shell_mode.smt2` proves the abstract transition guards and
-record-delivery properties with Z3. `tests/test_tui.c` exercises the real child,
-merged streams, cwd, exit status, nonblocking EOF, disclosure, consumption and
+The detached SMT model was retired on 2026-10-19: its equations had no
+mechanical link to production and could not detect an implementation regression.
+`tests/test_tui.c` exercises the real child,
+merged streams, cwd, exit status, nonblocking EOF, disclosure formatting and
 space guard. `tests/integration/test_tui.py` checks the actual next provider
 request and the local command path without credentials.
 `tests/integration/test_wasm_doctor.py` host-links the wasm seam to check the
 clean refusal; actual wasm link/runtime behavior remains a CI check.
-The SMT model does not prove the C implementation or the host shell itself.
+These checks do not prove the C implementation or the host shell itself.

@@ -65,6 +65,12 @@ jobs:
           set -eu
           if [ "$(uname -s)" = Linux ]; then export CC=gcc CXX=g++; fi
           if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
+          # Bound parallel compilation, including conformance adapters' later
+          # make debug calls. Keep every runtime/platform test lane unchanged.
+          jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+          if [ "$jobs" -gt 4 ]; then jobs=4; fi
+          export MAKEFLAGS="-j$jobs"
+          echo "MAKEFLAGS=$MAKEFLAGS" >> "$GITHUB_ENV"
           make lib-shared release
           python scripts/check_native_compat.py \
             "$PWD/build/lib/${{ runner.os == 'macOS' && 'libtny.1.dylib' || 'libtny.so.1' }}"
@@ -103,11 +109,8 @@ jobs:
             --report "$PWD/dist/conformance/reference-${{ matrix.name }}.json" \
             --timeout "$conformance_timeout" \
             -- python sdk/conformance/adapters/c_reference.py
-          python sdk/conformance/run.py \
-            --artifact "$TNY_TEST_LIBRARY" \
-            --report "$PWD/dist/conformance/python-${{ matrix.name }}.json" \
-            --timeout "$conformance_timeout" \
-            -- python sdk/python/conformance_adapter.py
+          # Python adapter conformance runs once against the clean installed
+          # wheel below, not again against the same SDK in the source tree.
       - name: Build discovery and bundled wheels
         run: |
           set -eu
@@ -222,27 +225,27 @@ jobs:
           set -eu
           if [ "$(uname -s)" = Linux ]; then export CC=gcc CXX=g++; fi
           if [ "$(uname -s)" = Darwin ]; then export MACOSX_DEPLOYMENT_TARGET=13.0; fi
+          # Bound parallel compilation, including conformance adapters' later
+          # make debug calls. Keep every runtime/platform test lane unchanged.
+          jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+          if [ "$jobs" -gt 4 ]; then jobs=4; fi
+          export MAKEFLAGS="-j$jobs"
+          echo "MAKEFLAGS=$MAKEFLAGS" >> "$GITHUB_ENV"
           make lib-shared release
           npm --prefix sdk/typescript run build
-      - name: Test, typecheck and run conformance
+      - name: Test and typecheck SDK source
         run: |
           set -eu
-          conformance_timeout=180
           if [ "$(uname -s)" = Darwin ]; then
             export MACOSX_DEPLOYMENT_TARGET=13.0
-            conformance_timeout=1200
             export MOCK_CHUNK_WIDTH=1048576 MOCK_CONNECTION_CLOSE=1 \
               TNY_TEST_MOCK_READY_TIMEOUT=60 TNY_TEST_TURN_TIMEOUT=60 \
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
           fi
           npm --prefix sdk/typescript test
-          mkdir -p "$PWD/dist/conformance"
-          python3 sdk/conformance/run.py \
-            --artifact "$PWD/sdk/typescript/build/Release/tny.node" \
-            --report "$PWD/dist/conformance/typescript-${{ matrix.name }}-node${{ matrix.node }}.json" \
-            --timeout "$conformance_timeout" \
-            -- node sdk/typescript/test/conformance-adapter.mjs
+          # Full adapter conformance runs against the packed, installed SDK
+          # below. Keep source-only tests and typechecking here.
           npm exec --yes --package=typescript -- \
             tsc --strict --noEmit --module nodenext --moduleResolution nodenext \
             --target es2022 --lib es2022,esnext.disposable,dom \
@@ -277,6 +280,7 @@ jobs:
               TNY_TEST_SUITE_TIMEOUT=900 \
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
           fi
+          mkdir -p "$PWD/dist/conformance"
           package_dir="$PWD/dist/node"
           mkdir -p "$package_dir"
           (cd sdk/typescript && npm pack --pack-destination "$package_dir")

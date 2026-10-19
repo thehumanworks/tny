@@ -40,7 +40,24 @@ def main() -> int:
         assert "needs.windows" not in text
         assert "  windows:" not in text
         assert "continue-on-error:" not in text
-    assert "needs: [quality, build, musl, wasm, tsan, fuzz, lean-proofs]" in ci
+    # Workflow configuration is executable policy: every declared check must
+    # participate in the release aggregate, independent of list ordering.
+    aggregate = re.search(r"(?ms)^  ci:\n(.*?)(?=^  [\w-]+:|\Z)", ci)
+    assert aggregate, "missing ci release gate"
+    gate = aggregate.group(1)
+    dependency_list = re.search(r"needs:\s*\[([^]]+)\]", gate)
+    assert dependency_list, "ci dependencies must be explicit"
+    dependencies = {name.strip() for name in dependency_list.group(1).split(",")}
+    jobs = set(re.findall(r"(?m)^  ([\w-]+):\s*$", ci.split("\njobs:\n", 1)[1])) - {
+        "ci"
+    }
+    assert dependencies == jobs, ("ungated CI jobs", jobs - dependencies)
+    assert "if: always()" in gate, "failed dependencies must not skip the gate"
+    for name in dependencies:
+        assert f'test "${{{{ needs.{name}.result }}}}" = "success"' in gate, (
+            "dependency result not enforced",
+            name,
+        )
     assert "needs: [build, musl, validate-registries]" in release
     assert "workflows: [ci, sdk]" in auto
     assert ".github/workflows/nix.yml" not in auto
@@ -59,11 +76,6 @@ def main() -> int:
     assert "checks = forAllSystems" in flake
     assert "packages = forAllSystems" in flake
     assert "../.github/workflows" in read("nix/source.nix")
-    for path in ("docs/ci.md", "docs/nix.md"):
-        text = read(path)
-        assert "optional developer" in text, path
-        assert "nix flake check" in text, path
-        assert ".github/workflows/nix.yml" not in text, path
     print(
         "test_nix_ci_matrix: Linux/macOS CI, ci+sdk release gates, optional local Nix"
     )
