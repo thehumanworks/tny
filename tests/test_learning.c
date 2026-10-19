@@ -84,6 +84,30 @@ TEST learning_promotion_and_demotion(void) {
     PASS();
 }
 
+TEST learning_same_policy_same_prompt(void) {
+    tny_learning l;
+    begin_memory(&l);
+    episode(&l, TNY_LEARN_READ, true);
+    episode(&l, TNY_LEARN_READ, true);
+    buf_t before, after;
+    buf_init(&before);
+    buf_init(&after);
+    tny_learning_collect(&l, &before);
+    for (int i = 0; i < 32; i++) episode(&l, TNY_LEARN_READ, true);
+    tny_learning_collect(&l, &after);
+    ASSERT_EQ(34, l.rules[0].successes);
+    ASSERT_STR_EQ(before.data, after.data);
+    buf_free(&after);
+    /* A changed eligible policy must still change the prompt. */
+    for (int i = 0; i < 17; i++) episode(&l, TNY_LEARN_READ, false);
+    buf_init(&after);
+    tny_learning_collect(&l, &after);
+    ASSERT_EQ(0, after.len);
+    buf_free(&before);
+    buf_free(&after);
+    PASS();
+}
+
 TEST learning_policies_and_bound(void) {
     tny_learning l;
     begin_memory(&l);
@@ -473,6 +497,7 @@ TEST learning_write_failure_is_retryable(void) {
 SUITE(learning_suite) {
     RUN_TEST(learning_crash_leftovers_do_not_block_save);
     RUN_TEST(learning_promotion_and_demotion);
+    RUN_TEST(learning_same_policy_same_prompt);
     RUN_TEST(learning_policies_and_bound);
     RUN_TEST(learning_no_invented_evidence);
     RUN_TEST(learning_episode_resets);

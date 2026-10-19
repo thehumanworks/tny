@@ -378,6 +378,16 @@ class DefaultLearningTests(unittest.TestCase):
                 self.assertFalse(second["guided_at_start"])
                 learned = f.run(3)
                 self.assertTrue(learned["guided_at_start"])
+                # A successful recovery changes evidence, not the eligible policy.
+                # Reuse the existing real-code-cell run to check both wire prefixes.
+                instructions = [
+                    request["instructions"]
+                    if wire == "responses"
+                    else request["messages"][0]["content"]
+                    for request in f.requests
+                ]
+                self.assertEqual(len(set(instructions)), 1)
+
                 self.assertEqual(
                     [r["tool_calls"] for r in (first, second, learned)], [4, 4, 3]
                 )

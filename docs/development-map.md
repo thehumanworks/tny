@@ -10,6 +10,7 @@ behavior is in the linked feature contract; ADRs explain decisions when needed.
 | ChatGPT sign-in | `src/core/openai_{login,auth}.c`, [contract](backends/openai-chatgpt.md) | `tests/integration/test_openai_signin.py` |
 | Claude connection | `src/backends/acp/`, [contract](backends/acp.md) | `test_acp_client.py`, `test_acp_managed.py` |
 | Add/change an extension | `python/tny_ext/`, [plugin guide](extensions.md) | `make test-extensions-python`; explicit-path plugin check |
+| Prompt reuse / context stability | `src/core/skills.c`, `learning.c`, native request builder | `skills_suite`, `learning_suite`, `tests/bench/bench_prefix_stability.py` |
 | Model-visible tool discovery | `src/core/tools.c`, `src/core/code_python.c` | `code_runtime_suite`, `test_execution_code_mode.py` |
 | Implement a nested tool | `src/core/tools_*.c`, [catalog](features/mcp-and-skills.md) | owning unit suite + real execution fixture |
 | Run/cancel a code cell | `execution*.c`, `code_runtime.c`, `util/execution_*.c` | `test_execution_code_mode.py`, `test_terminal_cancel.py` |

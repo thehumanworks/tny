@@ -39,6 +39,9 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#ifdef __linux__
+#include <sys/resource.h>
+#endif
 #include <unistd.h>
 
 /* MSYS2 on Windows refuses symlink(2) unless the user holds
@@ -880,6 +883,85 @@ TEST session_result_handles(void) {
     ASSERT(slice);
     ASSERT_EQ_FMT((size_t)0, n, "%zu");
     free(slice);
+    free(h);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* A slice must not allocate/read the whole spill. A sparse tail also checks
+ * offsets beyond the initial data without materializing a huge fixture. */
+TEST session_result_sparse_slices(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session_state *s = session_new(ctx);
+    char *h = session_store_result(s, "a\0b", 3);
+    ASSERT(h);
+    buf_t path;
+    buf_init(&path);
+    buf_appendf(&path, "%s/results/%s.txt", s->dir, h);
+    FILE *f = fopen(path.data, "r+b");
+    ASSERT(f);
+    const off_t tail = 256 * 1024 * 1024;
+    ASSERT_EQ(0, fseeko(f, tail, SEEK_SET));
+    ASSERT_EQ((size_t)4, fwrite("tail", 1, 4, f));
+    ASSERT_EQ(0, fclose(f));
+#ifdef __linux__
+    /* Budget above the existing address space, including ASan's shadow map.
+     * The old whole-file allocation cannot fit; a four-byte slice must fit. */
+    pid_t pid = fork();
+    ASSERT(pid >= 0);
+    if (pid == 0) {
+        FILE *statm = fopen("/proc/self/statm", "r");
+        unsigned long pages = 0;
+        if (!statm || fscanf(statm, "%lu", &pages) != 1) _exit(2);
+        fclose(statm);
+        long page_size = sysconf(_SC_PAGESIZE);
+        if (page_size <= 0) _exit(3);
+        rlim_t budget = (rlim_t)pages * (rlim_t)page_size + 64 * 1024 * 1024;
+        struct rlimit limit;
+        if (getrlimit(RLIMIT_AS, &limit) != 0) _exit(4);
+        if (limit.rlim_max != RLIM_INFINITY && budget > limit.rlim_max) budget = limit.rlim_max;
+        limit.rlim_cur = budget;
+        if (setrlimit(RLIMIT_AS, &limit) != 0) _exit(5);
+        size_t got = 0;
+        char *part = session_read_result(s, h, (size_t)tail, 4, &got);
+        bool ok = part && got == 4 && memcmp(part, "tail", 4) == 0;
+        free(part);
+        _exit(ok ? 0 : 6);
+    }
+    int status = 0;
+    ASSERT_EQ(pid, waitpid(pid, &status, 0));
+    ASSERT(WIFEXITED(status));
+    ASSERT_EQ(0, WEXITSTATUS(status));
+#endif
+    size_t n = 0;
+    char *slice = session_read_result(s, h, 0, 3, &n);
+    ASSERT(slice);
+    ASSERT_EQ((size_t)3, n);
+    ASSERT_EQ(0, memcmp(slice, "a\0b", 3));
+    free(slice);
+    slice = session_read_result(s, h, (size_t)tail - 1, 3, &n);
+    ASSERT(slice);
+    ASSERT_EQ((size_t)3, n);
+    ASSERT_EQ(0, memcmp(slice, "\0ta", 3));
+    free(slice);
+    slice = session_read_result(s, h, (size_t)tail, 16384, &n);
+    ASSERT(slice);
+    ASSERT_EQ((size_t)4, n);
+    ASSERT_STR_EQ("tail", slice);
+    free(slice);
+    slice = session_read_result(s, h, 0, 0, &n);
+    ASSERT(slice);
+    ASSERT_EQ((size_t)0, n);
+    free(slice);
+    slice = session_read_result(s, h, SIZE_MAX, 10, &n);
+    ASSERT(slice);
+    ASSERT_EQ((size_t)0, n);
+    free(slice);
+    ASSERT_EQ(0, unlink(path.data));
+    buf_free(&path);
     free(h);
     session_close(s);
     tny_ctx_free(ctx);
@@ -6741,6 +6823,7 @@ SUITE(core_suite) {
     RUN_TEST(session_task_snapshot_atomic_window_and_symlink_guards);
     RUN_TEST(session_tool_argument_rewrite_is_targeted_and_no_match_terminates);
     RUN_TEST(session_result_handles);
+    RUN_TEST(session_result_sparse_slices);
     RUN_TEST(session_compaction);
     RUN_TEST(session_recovery_roundtrip);
     RUN_TEST(image_mime_from_magic);

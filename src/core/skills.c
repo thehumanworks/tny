@@ -122,6 +122,11 @@ static void scan_root(const char *root, skill_meta **arr, int *n) {
     closedir(d);
 }
 
+static int compare_skill_names(const void *left, const void *right) {
+    const skill_meta *a = left, *b = right;
+    return strcmp(a->name, b->name);
+}
+
 skill_meta *skills_discover(tny_ctx *ctx, int *count) {
     skill_meta *arr = NULL;
     int n = 0;
@@ -167,6 +172,8 @@ skill_meta *skills_discover(tny_ctx *ctx, int *count) {
         *count = 0;
         return NULL;
     }
+    /* Resolve root precedence first; filesystem enumeration is not prompt order. */
+    if (n > 1) qsort(arr, (size_t)n, sizeof *arr, compare_skill_names);
     *count = n;
     return arr;
 }
