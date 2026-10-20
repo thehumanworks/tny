@@ -562,11 +562,12 @@ class JobsFixture(unittest.TestCase):
                 process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 pass
-        for pid in pids_matching("jobs _worker", self.home.name):
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
+        # Terminal records and cancellation acknowledgments precede the
+        # supervisor's final writes. Its owner lock is the completion barrier;
+        # HOME is not in worker argv, so process-name cleanup cannot establish it.
+        for job in self.job_dirs():
+            if (job / "owner.lock").is_file():
+                self.wait_owner(job, held=False)
         self.server.shutdown()
         self.server.server_close()
         self.tmp.cleanup()
@@ -772,6 +773,94 @@ class JobsFixture(unittest.TestCase):
             json.dumps({"kind": kind, "concurrency": concurrency, "items": items})
         )
         return str(path)
+
+
+class FixtureTeardown(unittest.TestCase):
+    def test_terminal_owner_finishes_writing_before_home_is_removed(self):
+        self.check_owner_barrier('{"state":"succeeded"}')
+
+    def test_corrupt_record_does_not_bypass_owner_barrier(self):
+        self.check_owner_barrier('{"state":')
+
+    def check_owner_barrier(self, record):
+        fixture = JobsFixture()
+        fixture.setUp()
+        cleanup = fixture.tmp.cleanup
+        cleanup_started = False
+        writer = None
+        released = False
+        try:
+            directory = fixture.jobs_root() / ("a" * 32)
+            directory.mkdir(parents=True)
+            (directory / "job.json").write_text(record)
+            owner = directory / "owner.lock"
+            owner.touch()
+            marker = directory / "final-write"
+            script = """
+import fcntl, sys
+from pathlib import Path
+with open(sys.argv[1], "r+b") as owner:
+    fcntl.flock(owner, fcntl.LOCK_EX)
+    if sys.stdin.buffer.read(1) != b"g":
+        raise SystemExit(1)
+    Path(sys.argv[2]).write_text("finished")
+"""
+            # The helper owns the same real lock as a detached supervisor,
+            # independently of the fixture's explicitly tracked processes.
+            writer = subprocess.Popen(
+                [sys.executable, "-c", script, str(owner), str(marker)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            fixture.wait_owner(directory, held=True)
+            wait_owner = fixture.wait_owner
+
+            def release_owner(job, *, held):
+                nonlocal released
+                self.assertEqual(job, directory)
+                self.assertFalse(held)
+                with owner.open("r+b") as probe:
+                    with self.assertRaises(BlockingIOError):
+                        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                writer.stdin.write(b"g")
+                writer.stdin.flush()
+                released = True
+                wait_owner(job, held=held)
+
+            def cleanup_after_owner():
+                nonlocal cleanup_started
+                self.assertTrue(
+                    marker.is_file(), "HOME cleanup preceded the owner's final write"
+                )
+                with owner.open("r+b") as probe:
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                cleanup_started = True
+                cleanup()
+
+            fixture.wait_owner = release_owner
+            fixture.tmp.cleanup = cleanup_after_owner
+            fixture.tearDown()
+            self.assertFalse(fixture.home.exists())
+        finally:
+            try:
+                if writer is not None:
+                    try:
+                        _, error = writer.communicate(
+                            None if released else b"g", timeout=10
+                        )
+                    except subprocess.TimeoutExpired:
+                        writer.kill()
+                        writer.communicate(timeout=10)
+                        raise
+                    self.assertEqual(writer.returncode, 0, error.decode())
+            finally:
+                fixture.server.shutdown()
+                fixture.server.server_close()
+                # A failed ordering assertion has not attempted deletion yet.
+                # Reap the writer first, then perform that cleanup exactly once.
+                if not cleanup_started:
+                    cleanup()
 
 
 class JobsStartupMailbox(JobsFixture):
