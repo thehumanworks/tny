@@ -624,3 +624,27 @@ captures can still exceed the transport bound. See
 [ADR 0207](../adr/0207-bounded-execution-session-projection.md). Native model tools require Linux/macOS
 generation-safe process-tree support; wasm and unsupported host seams fail
 without a direct fallback. See [ADR 0174](../adr/0174-execution-server-code-mode.md).
+
+### Scoped file search and coverage
+
+`grep_files` searches literal substrings (not regular expressions). `glob_files`
+finds relative paths; `semantic_search` is lexical top-ten ranking. All three
+accept `path`, `include`, `exclude`, `include_hidden` and `include_generated`.
+Path globs use `*` across `/` and `?` for one character. For example, grep with
+`{"pattern":"handler","include":"src/*","exclude":"*generated*"}` reads only
+matching regular-file candidates. Prefer a narrow `path` to avoid traversing
+unrelated trees as well.
+
+Hidden entries default on, generated directories off. Recursive walks skip VCS
+metadata, `.tny`, and `.env`/`.env.*`; explicit file or directory roots are still
+honored. These defaults are not a security boundary and do not implement
+`.gitignore`. Generated-directory filters can hide legitimate code named
+`build`, `target`, `dist`, `node_modules`, `__pycache__`, `.venv`, or `.cache`; use
+an explicit root or `include_generated:true` when needed.
+
+A first-line `[search {...}]` coverage record distinguishes intentional scope
+exclusions from partial results. Do not infer absence from `partial:true`:
+inspect `errors`, `skipped`, `file_limit`, `hit_limit` and `line_truncations`, then
+narrow scope or use `read_file`. `files` is selected candidates, `scanned` is
+content-read attempts, and `excluded` counts entries, not all descendants.
+Full details and bounds: [ADR 0208](../adr/0208-truthful-scoped-file-search.md).

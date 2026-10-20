@@ -11,6 +11,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <dirent.h>
+#include <errno.h>
 #include <stdatomic.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -22,29 +23,107 @@
  * the hit cap and the number of thread create/join rounds over a full walk. */
 #define GREP_BATCH 256
 
-static bool skip_dir(const char *name) {
-    return name[0] == '.' || strcmp(name, "node_modules") == 0 || strcmp(name, "build") == 0 ||
+typedef struct {
+    const char *include, *exclude;
+    bool hidden, generated;
+} search_scope;
+
+typedef struct {
+    size_t files, scanned, excluded, errors, skipped, line_truncations, entries;
+    bool file_limit, hit_limit;
+} search_coverage;
+
+static search_scope search_options(yyjson_val *args) {
+    return (search_scope){jget_str(args, "include"), jget_str(args, "exclude"),
+                          jget_bool(args, "include_hidden", true),
+                          jget_bool(args, "include_generated", false)};
+}
+
+static bool generated_dir(const char *name) {
+    return strcmp(name, "node_modules") == 0 || strcmp(name, "build") == 0 ||
            strcmp(name, "target") == 0 || strcmp(name, "dist") == 0 ||
-           strcmp(name, "__pycache__") == 0;
+           strcmp(name, "__pycache__") == 0 || strcmp(name, ".venv") == 0 ||
+           strcmp(name, ".cache") == 0;
+}
+
+static bool vcs_dir(const char *name) {
+    return strcmp(name, ".git") == 0 || strcmp(name, ".hg") == 0 || strcmp(name, ".svn") == 0 ||
+           strcmp(name, ".tny") == 0;
+}
+
+static bool search_excluded(const search_scope *scope, const char *name, const char *rel,
+                            bool directory) {
+    if ((!scope->hidden && name[0] == '.') || (scope->exclude && glob_match(scope->exclude, rel)))
+        return true;
+    if (vcs_dir(name)) return true;
+    if (directory) return !scope->generated && generated_dir(name);
+    return strcmp(name, ".env") == 0 || strncmp(name, ".env.", 5) == 0 ||
+           (scope->include && !glob_match(scope->include, rel));
+}
+
+static bool search_partial(const search_coverage *c) {
+    return c->errors || c->skipped || c->line_truncations || c->file_limit || c->hit_limit;
+}
+
+/* Coverage precedes rows so the ordinary result bounding cannot hide it. Intentional
+ * scope exclusions are not incomplete traversal. No matches is within this scope. */
+static char *search_result(tools_env *env, buf_t *rows, const search_coverage *c) {
+    buf_t out;
+    buf_init(&out);
+    buf_appendf(&out,
+                "[search {\"partial\":%s,\"files\":%zu,\"scanned\":%zu,\"excluded\":%zu,"
+                "\"errors\":%zu,\"skipped\":%zu,\"line_truncations\":%zu,"
+                "\"file_limit\":%s,\"hit_limit\":%s}]\n",
+                search_partial(c) ? "true" : "false", c->files, c->scanned, c->excluded, c->errors,
+                c->skipped, c->line_truncations, c->file_limit ? "true" : "false",
+                c->hit_limit ? "true" : "false");
+    if (rows->len) {
+        char *bounded = tool_bound_result(env, rows->data, rows->len);
+        if (!bounded) {
+            buf_free(&out);
+            return NULL;
+        }
+        buf_appends(&out, bounded);
+        free(bounded);
+    } else
+        buf_appends(&out, search_partial(c) ? "(no matches in searched portion)"
+                                            : "(no matches within scope)");
+    char *result = buf_detach(&out);
+    buf_free(&out);
+    return result;
 }
 
 typedef bool (*walk_cb)(const char *abs, const char *rel, void *ud);
 
-/* Return false after allocator exhaustion. The caller must propagate NULL so
- * the public next_event boundary can publish its reserved OOM terminal pair. */
-static bool walk(const char *root, const char *rel, int *budget, walk_cb cb, void *ud) {
-    if (*budget <= 0) return true;
+/* Return false only for allocator exhaustion. I/O failures make coverage partial. */
+static bool walk(const char *root, const char *rel, int *budget, walk_cb cb, void *ud,
+                 const search_scope *scope, search_coverage *coverage, unsigned depth) {
+    if (*budget <= 0 || depth > 128) {
+        coverage->file_limit = true;
+        return true;
+    }
     char *dir = rel[0] ? path_join(root, rel) : xstrdup(root);
     if (!dir) return false;
     DIR *d = opendir(dir);
     if (!d) {
+        coverage->errors++;
         free(dir);
         return true;
     }
     bool ok = true;
     struct dirent *e;
-    while ((e = readdir(d)) && *budget > 0) {
-        if (e->d_name[0] == '.') continue;
+    while (true) {
+        errno = 0;
+        e = readdir(d);
+        if (!e) {
+            if (errno) coverage->errors++;
+            break;
+        }
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        if (*budget <= 0 || ++coverage->entries > 100000) {
+            coverage->file_limit = true;
+            break;
+        }
         char *nrel = rel[0] ? path_join(rel, e->d_name) : xstrdup(e->d_name);
         if (!nrel) {
             ok = false;
@@ -57,21 +136,65 @@ static bool walk(const char *root, const char *rel, int *budget, walk_cb cb, voi
             break;
         }
         struct stat st;
-        if (lstat(nabs, &st) == 0) {
-            if (S_ISDIR(st.st_mode)) {
-                if (!skip_dir(e->d_name) && !walk(root, nrel, budget, cb, ud)) ok = false;
-            } else if (S_ISREG(st.st_mode)) {
-                (*budget)--;
-                if (!cb(nabs, nrel, ud)) ok = false;
-            }
-        }
+        if (lstat(nabs, &st) != 0) coverage->errors++;
+        else if (search_excluded(scope, e->d_name, nrel, S_ISDIR(st.st_mode))) coverage->excluded++;
+        else if (S_ISDIR(st.st_mode)) {
+            if (!walk(root, nrel, budget, cb, ud, scope, coverage, depth + 1)) ok = false;
+        } else if (S_ISREG(st.st_mode)) {
+            (*budget)--;
+            coverage->files++;
+            if (!cb(nabs, nrel, ud)) ok = false;
+        } else coverage->excluded++; /* Never follow recursive symlinks. */
         free(nrel);
         free(nabs);
         if (!ok) break;
     }
-    closedir(d);
+    if (closedir(d) != 0) coverage->errors++;
     free(dir);
     return ok;
+}
+
+/* Read at most the search bound, including one byte to detect growth after stat.
+ * Never allocate an unbounded file merely to discover that it is too large. */
+static char *search_read(const char *abs, size_t *len, search_coverage *coverage) {
+    coverage->scanned++;
+    FILE *f = fopen(abs, "rb");
+    if (!f) {
+        coverage->errors++;
+        return NULL;
+    }
+    struct stat st;
+    if (fstat(fileno(f), &st) != 0) {
+        coverage->errors++;
+        fclose(f);
+        return NULL;
+    }
+    if (!S_ISREG(st.st_mode) || st.st_size < 0 || (uint64_t)st.st_size > GREP_MAX_FILE) {
+        coverage->skipped++;
+        fclose(f);
+        return NULL;
+    }
+    buf_t data;
+    buf_init(&data);
+    char chunk[8192];
+    while (data.len <= GREP_MAX_FILE) {
+        size_t remaining = GREP_MAX_FILE + 1 - data.len;
+        size_t n = fread(chunk, 1, remaining < sizeof chunk ? remaining : sizeof chunk, f);
+        if (n) buf_append(&data, chunk, n);
+        if (buf_oom(&data) || n == 0 || ferror(f) || feof(f)) break;
+    }
+    bool io_error = ferror(f) != 0;
+    if (fclose(f) != 0) io_error = true;
+    if (io_error) coverage->errors++;
+    bool skip = data.len > GREP_MAX_FILE || (data.len && memchr(data.data, 0, data.len)) ||
+                (data.len && !utf8_valid_bytes(data.data, data.len));
+    if (skip) coverage->skipped++;
+    if (io_error || skip || buf_oom(&data)) {
+        buf_free(&data);
+        return NULL;
+    }
+    *len = data.len;
+    return buf_detach(&data);
 }
 
 /* Snapshot of a walk: its regular files in visiting order. Per-file work that
@@ -139,7 +262,9 @@ TNY_TOOLS_TEST_VISIBLE int tny_tools_test_walk(const char *root) {
     tny_alloc_scope_begin("tools_fs_walk");
     int budget = WALK_MAX_FILES;
     int files = 0;
-    if (!walk(root, "", &budget, walk_test_cb, &files)) return -1;
+    search_scope scope = {.hidden = true};
+    search_coverage coverage = {0};
+    if (!walk(root, "", &budget, walk_test_cb, &files, &scope, &coverage, 0)) return -1;
     return files;
 }
 #undef TNY_TOOLS_TEST_VISIBLE
@@ -258,12 +383,16 @@ struct glob_ud {
     const char *pattern;
     buf_t *out;
     int hits;
+    search_coverage *coverage;
 };
 
 static bool glob_cb(const char *abs, const char *rel, void *ud) {
     (void)abs;
     struct glob_ud *g = ud;
-    if (g->hits >= 1000) return true;
+    if (g->hits >= 1000) {
+        if (glob_match(g->pattern, rel)) g->coverage->hit_limit = true;
+        return true;
+    }
     /* support ** loosely: our glob's '*' already crosses '/' */
     if (glob_match(g->pattern, rel)) {
         buf_appendf(g->out, "%s\n", rel);
@@ -274,7 +403,7 @@ static bool glob_cb(const char *abs, const char *rel, void *ud) {
 
 static char *t_glob_files(tools_env *env, yyjson_val *args) {
     const char *pat = jget_str(args, "pattern");
-    if (!pat) return tool_err("missing pattern");
+    if (!pat || !*pat) return tool_err("missing or empty pattern");
     const char *p = jget_str(args, "path");
     char *err = NULL;
     char *abs = tool_resolve_path(env, p && *p ? p : ".", &err);
@@ -295,21 +424,18 @@ static char *t_glob_files(tools_env *env, yyjson_val *args) {
     }
     buf_t out;
     buf_init(&out);
-    struct glob_ud g = {np.data, &out, 0};
+    search_scope scope = search_options(args);
+    search_coverage coverage = {0};
+    struct glob_ud g = {np.data, &out, 0, &coverage};
     int budget = WALK_MAX_FILES;
-    bool walked = walk(abs, "", &budget, glob_cb, &g);
+    bool walked = walk(abs, "", &budget, glob_cb, &g, &scope, &coverage, 0);
     free(abs);
     buf_free(&np);
     if (!walked || buf_oom(&out) || tny_alloc_scope_failed()) {
         buf_free(&out);
         return NULL;
     }
-    if (!out.len) buf_appends(&out, "(no matches)");
-    if (buf_oom(&out)) {
-        buf_free(&out);
-        return NULL;
-    }
-    char *res = tool_bound_result(env, out.data, out.len);
+    char *res = search_result(env, &out, &coverage);
     buf_free(&out);
     return res;
 }
@@ -318,6 +444,7 @@ static char *t_glob_files(tools_env *env, yyjson_val *args) {
 struct grep_hits {
     buf_t out;
     int hits;
+    search_coverage coverage;
 };
 
 struct grep_job {
@@ -325,10 +452,8 @@ struct grep_job {
     const char *pat;
     bool ci;
     struct grep_hits *slots;
-    /* Hits from every finished scan. Indices are claimed in increasing order,
-     * so once this reaches the cap every unclaimed file sits behind enough
-     * earlier lines to fill the result, and skipping it changes nothing. */
     atomic_int found;
+    atomic_size_t last_completed;
 };
 
 static bool line_contains(const char *line, size_t len, const char *pat, bool ci) {
@@ -354,21 +479,27 @@ static bool line_contains(const char *line, size_t len, const char *pat, bool ci
 static void grep_scan(const char *abs, const char *rel, const char *pat, bool ci,
                       struct grep_hits *g) {
     size_t len = 0;
-    char *data = file_slurp(abs, &len);
+    char *data = search_read(abs, &len, &g->coverage);
     if (!data) return;
-    if (len > GREP_MAX_FILE || memchr(data, 0, len < 4096 ? len : 4096)) {
-        free(data);
-        return; /* binary or huge */
-    }
     size_t start = 0;
     int lineno = 1;
-    for (size_t i = 0; i <= len && g->hits < GREP_MAX_HITS; i++) {
+    for (size_t i = 0; i <= len; i++) {
         if (i == len || data[i] == '\n') {
             size_t ll = i - start;
             if (line_contains(data + start, ll, pat, ci)) {
-                if (ll > 300) ll = 300;
+                if (g->hits >= GREP_MAX_HITS) {
+                    g->coverage.hit_limit = true;
+                    break;
+                }
+                bool cut = ll > 300;
+                if (cut) {
+                    ll = 300;
+                    while (ll && ((unsigned char)data[start + ll] & 0xc0) == 0x80) ll--;
+                    g->coverage.line_truncations++;
+                }
                 buf_appendf(&g->out, "%s:%d:", rel, lineno);
                 buf_append(&g->out, data + start, ll);
+                if (cut) buf_appends(&g->out, " [line truncated; use read_file]");
                 buf_appends(&g->out, "\n");
                 g->hits++;
             }
@@ -379,11 +510,25 @@ static void grep_scan(const char *abs, const char *rel, const char *pat, bool ci
     free(data);
 }
 
+bool tools_search_can_skip(size_t index, int hits, int limit, size_t last_completed) {
+    return hits >= limit && index > last_completed;
+}
+
 static void grep_item(size_t i, void *ud) {
     struct grep_job *j = ud;
-    if (atomic_load_explicit(&j->found, memory_order_relaxed) >= GREP_MAX_HITS) return;
+    /* A claimed earlier index may be paused before this callback. Only skip
+     * indices beyond every completed contributor to the hit threshold. */
+    int found = atomic_load(&j->found);
+    size_t last_completed = atomic_load(&j->last_completed);
+    if (tools_search_can_skip(i, found, GREP_MAX_HITS, last_completed)) {
+        j->slots[i].coverage.hit_limit = true;
+        return;
+    }
     grep_scan(j->files[i].abs, j->files[i].rel, j->pat, j->ci, &j->slots[i]);
-    atomic_fetch_add_explicit(&j->found, j->slots[i].hits, memory_order_relaxed);
+    size_t completed = atomic_load(&j->last_completed);
+    while (completed < i && !atomic_compare_exchange_weak(&j->last_completed, &completed, i)) {}
+    /* Publish the index before its contribution, using sequential consistency. */
+    atomic_fetch_add(&j->found, j->slots[i].hits);
 }
 
 /* Append a slot's lines in scan order, stopping at the global hit cap. */
@@ -405,10 +550,11 @@ static void grep_fold(buf_t *out, const struct grep_hits *g, int *total) {
 
 /* Walk first, then scan the files in bounded rounds. Output order and the
  * GREP_MAX_HITS cap match a serial scan exactly; only the reads overlap. */
-static bool grep_tree(const char *root, const char *pat, bool ci, buf_t *out) {
+static bool grep_tree(const char *root, const char *pat, bool ci, buf_t *out,
+                      const search_scope *scope, search_coverage *coverage) {
     walk_list files = {0};
     int budget = WALK_MAX_FILES;
-    if (!walk(root, "", &budget, collect_cb, &files)) {
+    if (!walk(root, "", &budget, collect_cb, &files, scope, coverage, 0)) {
         walk_list_free(&files);
         return false;
     }
@@ -424,13 +570,21 @@ static bool grep_tree(const char *root, const char *pat, bool ci, buf_t *out) {
         for (size_t i = 0; i < n; i++) buf_init(&slots[i].out);
         struct grep_job job = {.files = files.items + done, .pat = pat, .ci = ci, .slots = slots};
         atomic_init(&job.found, 0);
+        atomic_init(&job.last_completed, 0);
         tny_parallel_for(n, grep_item, &job);
         for (size_t i = 0; i < n; i++) {
+            coverage->scanned += slots[i].coverage.scanned;
+            coverage->errors += slots[i].coverage.errors;
+            coverage->skipped += slots[i].coverage.skipped;
+            coverage->line_truncations += slots[i].coverage.line_truncations;
+            if (slots[i].coverage.hit_limit || total + slots[i].hits > GREP_MAX_HITS)
+                coverage->hit_limit = true;
             if (slots[i].out.oom) ok = false;
             else if (ok) grep_fold(out, &slots[i], &total);
             buf_free(&slots[i].out);
         }
         free(slots);
+        if (total >= GREP_MAX_HITS && done + n < files.n) coverage->hit_limit = true;
         if (tny_alloc_scope_failed()) ok = false;
     }
     walk_list_free(&files);
@@ -439,36 +593,39 @@ static bool grep_tree(const char *root, const char *pat, bool ci, buf_t *out) {
 
 static char *t_grep_files(tools_env *env, yyjson_val *args) {
     const char *pat = jget_str(args, "pattern");
-    if (!pat) return tool_err("missing pattern");
+    if (!pat || !*pat) return tool_err("missing or empty pattern");
     const char *p = jget_str(args, "path");
     char *err = NULL;
     char *abs = tool_resolve_path(env, p && *p ? p : ".", &err);
     if (!abs) return err;
     bool ci = jget_bool(args, "case_insensitive", false);
+    search_scope scope = search_options(args);
+    search_coverage coverage = {0};
     buf_t out;
     buf_init(&out);
     bool ok;
     struct stat st;
     if (stat(abs, &st) == 0 && S_ISREG(st.st_mode)) {
+        coverage.files = 1;
         struct grep_hits one = {.hits = 0};
         buf_init(&one.out);
         grep_scan(abs, p, pat, ci, &one);
         ok = !one.out.oom;
         int total = 0;
         if (ok) grep_fold(&out, &one, &total);
+        coverage.scanned += one.coverage.scanned;
+        coverage.errors += one.coverage.errors;
+        coverage.skipped += one.coverage.skipped;
+        coverage.line_truncations += one.coverage.line_truncations;
+        coverage.hit_limit = one.coverage.hit_limit;
         buf_free(&one.out);
-    } else ok = grep_tree(abs, pat, ci, &out);
+    } else ok = grep_tree(abs, pat, ci, &out, &scope, &coverage);
     free(abs);
     if (!ok || buf_oom(&out) || tny_alloc_scope_failed()) {
         buf_free(&out);
         return NULL;
     }
-    if (!out.len) buf_appends(&out, "(no matches)");
-    if (buf_oom(&out)) {
-        buf_free(&out);
-        return NULL;
-    }
-    char *res = tool_bound_result(env, out.data, out.len);
+    char *res = search_result(env, &out, &coverage);
     buf_free(&out);
     return res;
 }
@@ -684,18 +841,16 @@ struct sem_job {
     const walk_entry *files;
     const struct sem_terms *q;
     int *scores;
+    search_coverage *coverage;
 };
 
 /* Score one file. Unreadable, binary and huge files score 0, as does a file
  * whose read hit allocator exhaustion (the scope oracle reports that). */
-static int sem_score(const char *abs, const char *rel, const struct sem_terms *q) {
+static int sem_score(const char *abs, const char *rel, const struct sem_terms *q,
+                     search_coverage *coverage) {
     size_t len = 0;
-    char *data = file_slurp(abs, &len);
+    char *data = search_read(abs, &len, coverage);
     if (!data) return 0;
-    if (len > GREP_MAX_FILE || memchr(data, 0, len < 4096 ? len : 4096)) {
-        free(data);
-        return 0;
-    }
     for (size_t i = 0; i < len; i++) data[i] = (char)tolower((unsigned char)data[i]);
     int score = 0;
     for (int t = 0; t < q->nterms; t++) {
@@ -712,7 +867,7 @@ static int sem_score(const char *abs, const char *rel, const struct sem_terms *q
 
 static void sem_item(size_t i, void *ud) {
     struct sem_job *j = ud;
-    j->scores[i] = sem_score(j->files[i].abs, j->files[i].rel, j->q);
+    j->scores[i] = sem_score(j->files[i].abs, j->files[i].rel, j->q, &j->coverage[i]);
 }
 
 /* Insert into the top ten; an equal score keeps the earlier file. */
@@ -750,12 +905,21 @@ static char *t_semantic_search(tools_env *env, yyjson_val *args) {
     if (!s.nterms) return tool_err("query has no searchable terms");
     walk_list files = {0};
     int budget = WALK_MAX_FILES;
-    bool ok = walk(env->ctx->cwd, "", &budget, collect_cb, &files);
+    search_scope scope = search_options(args);
+    search_coverage coverage = {0};
+    const char *path = jget_str(args, "path");
+    char *err = NULL;
+    char *root = tool_resolve_path(env, path && *path ? path : ".", &err);
+    if (!root) return err;
+    bool ok = walk(root, "", &budget, collect_cb, &files, &scope, &coverage, 0);
+    free(root);
+    search_coverage *per_file = NULL;
     int *scores = NULL;
     if (ok && files.n) {
         scores = calloc(files.n, sizeof *scores);
-        if (scores) {
-            struct sem_job job = {files.items, &s, scores};
+        per_file = calloc(files.n, sizeof *per_file);
+        if (scores && per_file) {
+            struct sem_job job = {files.items, &s, scores, per_file};
             tny_parallel_for(files.n, sem_item, &job);
         } else ok = false;
     }
@@ -764,6 +928,14 @@ static char *t_semantic_search(tools_env *env, yyjson_val *args) {
     memset(best, 0, sizeof best);
     for (size_t i = 0; ok && i < files.n; i++)
         if (scores[i] > 0 && !sem_rank(best, files.items[i].rel, scores[i])) ok = false;
+    if (per_file) {
+        for (size_t i = 0; i < files.n; i++) {
+            coverage.scanned += per_file[i].scanned;
+            coverage.errors += per_file[i].errors;
+            coverage.skipped += per_file[i].skipped;
+        }
+    }
+    free(per_file);
     free(scores);
     walk_list_free(&files);
     if (!ok || tny_alloc_scope_failed()) {
@@ -777,8 +949,9 @@ static char *t_semantic_search(tools_env *env, yyjson_val *args) {
             buf_appendf(&out, "%s (score %d)\n", best[i].rel, best[i].score);
             free(best[i].rel);
         }
-    if (!out.len) buf_appends(&out, "(no relevant files found)");
-    return buf_detach(&out);
+    char *result = search_result(env, &out, &coverage);
+    buf_free(&out);
+    return result;
 }
 
 static char *t_open_file(tools_env *env, yyjson_val *args) {

@@ -6947,6 +6947,15 @@ static char *fanout_run(tools_env *env, const char *tool, const char *args, cons
     return res;
 }
 
+TEST grep_late_earlier_index_survives_hit_threshold(void) {
+    /* Index 0 was claimed then paused; index 1 finished with 500 hits. */
+    ASSERT(!tools_search_can_skip(0, 500, 500, 1));
+    ASSERT(!tools_search_can_skip(1, 500, 500, 1));
+    ASSERT(tools_search_can_skip(2, 500, 500, 1));
+    ASSERT(!tools_search_can_skip(2, 499, 500, 1));
+    PASS();
+}
+
 TEST grep_files_fanout_matches_serial_scan(void) {
     ensure_env();
     write_settings("{}");
@@ -6968,11 +6977,12 @@ TEST grep_files_fanout_matches_serial_scan(void) {
     char *serial = fanout_run(&env, "grep_files", args, "1");
     char *threaded = fanout_run(&env, "grep_files", args, NULL);
     ASSERT(serial && threaded);
-    ASSERT_STR_EQ(serial, threaded);
+    ASSERT(strchr(serial, '\n') && strchr(threaded, '\n'));
+    ASSERT_STR_EQ(strchr(serial, '\n') + 1, strchr(threaded, '\n') + 1);
     int lines = 0;
-    for (const char *c = serial; *c; c++) lines += *c == '\n';
-    ASSERT_EQ_FMT(500, lines, "%d");       /* 2700 hits, capped in walk order */
-    ASSERT(strstr(serial, "d") == serial); /* rel path, not absolute */
+    for (const char *c = strchr(serial, '\n') + 1; *c; c++) lines += *c == '\n';
+    ASSERT_EQ_FMT(500, lines, "%d");            /* 2700 hits, capped in walk order */
+    ASSERT(*(strchr(serial, '\n') + 1) == 'd'); /* rel path, not absolute */
     /* 166 whole files and the first two lines of the 167th, whatever order
      * readdir produced them in */
     int at2 = 0, at4 = 0, at6 = 0;
@@ -6992,16 +7002,19 @@ TEST grep_files_fanout_matches_serial_scan(void) {
     serial = fanout_run(&env, "grep_files", args, "1");
     threaded = fanout_run(&env, "grep_files", args, NULL);
     ASSERT(serial && threaded);
-    ASSERT_STR_EQ(serial, threaded);
+    ASSERT(strchr(serial, '\n') && strchr(threaded, '\n'));
+    ASSERT_STR_EQ(strchr(serial, '\n') + 1, strchr(threaded, '\n') + 1);
     ASSERT_STR_EQ("d07/f03.txt:2:needle 7-3\nd07/f03.txt:4:needle 7-3\nd07/f03.txt:6:needle 7-3\n",
-                  threaded);
+                  strchr(threaded, '\n') + 1);
     free(serial);
     free(threaded);
 
     snprintf(args, sizeof args, "{\"pattern\":\"absent-token\",\"path\":\"%s\"}", root);
     threaded = fanout_run(&env, "grep_files", args, NULL);
     ASSERT(threaded);
-    ASSERT_STR_EQ("(no matches)", threaded);
+    ASSERT(strstr(threaded, "\"partial\":false"));
+    ASSERT(strchr(threaded, '\n'));
+    ASSERT_STR_EQ("(no matches within scope)", strchr(threaded, '\n') + 1);
     free(threaded);
 
     perm_free(p);
@@ -7029,7 +7042,8 @@ TEST semantic_search_fanout_matches_serial_scan(void) {
     char *serial = fanout_run(&env, "semantic_search", args, "1");
     char *threaded = fanout_run(&env, "semantic_search", args, NULL);
     ASSERT(serial && threaded);
-    ASSERT_STR_EQ(serial, threaded);
+    ASSERT(strchr(serial, '\n') && strchr(threaded, '\n'));
+    ASSERT_STR_EQ(strchr(serial, '\n') + 1, strchr(threaded, '\n') + 1);
     ASSERT_STR_EQ("fanout/d07/f03.txt (score 33)\n"
                   "fanout/d09/f09.txt (score 13)\n"
                   "fanout/d08/f09.txt (score 12)\n"
@@ -7040,7 +7054,7 @@ TEST semantic_search_fanout_matches_serial_scan(void) {
                   "fanout/d03/f09.txt (score 7)\n"
                   "fanout/d02/f09.txt (score 6)\n"
                   "fanout/d01/f09.txt (score 5)\n",
-                  threaded);
+                  strchr(threaded, '\n') + 1);
     free(serial);
     free(threaded);
 
@@ -7349,6 +7363,7 @@ TEST oauth_callback_rules(void) {
 SUITE(core_suite) {
     RUN_TEST(edit_feedback_dispatch_preserves_failure_and_undo);
     RUN_TEST(edit_feedback_dispatch_bounds_utf8_snippet);
+    RUN_TEST(grep_late_earlier_index_survives_hit_threshold);
     RUN_TEST(grep_files_fanout_matches_serial_scan);
     RUN_TEST(semantic_search_fanout_matches_serial_scan);
     RUN_TEST(context_checkpoint_preserves_resolved_selection);

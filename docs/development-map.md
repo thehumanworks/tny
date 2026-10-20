@@ -12,6 +12,7 @@ behavior is in the linked feature contract; ADRs explain decisions when needed.
 | Add/change an extension | `python/tny_ext/`, [plugin guide](extensions.md) | `make test-extensions-python`; explicit-path plugin check |
 | Prompt reuse / context stability | `src/core/skills.c`, `learning.c`, native request builder | `skills_suite`, `learning_suite`, `tests/bench/bench_prefix_stability.py` |
 | Model-visible tool discovery | `src/core/tools.c`, `src/core/code_python.c` | `code_runtime_suite`, `test_execution_code_mode.py` |
+| Search scope / completeness | `core/tools_fs.c`, [contract](adr/0208-truthful-scoped-file-search.md) | `test_search_coverage.py`, `bench_search_coverage.py` |
 | Implement a nested tool | `src/core/tools_*.c`, [catalog](features/mcp-and-skills.md) | owning unit suite + real execution fixture |
 | Parallel independent reads | `execution_parallel.c`, `execution.c`, `code_python.c` | `test_execution_code_mode.py` (rendezvous, barriers, spill recovery, timeout) |
 | Recover execution output | `session.c` streaming results, `code_runtime.c`, `tools_shell.c` | `test_execution_code_mode.py` (middle diagnostics, resume, limits, binary ranges) |

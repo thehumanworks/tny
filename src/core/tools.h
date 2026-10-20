@@ -18,6 +18,10 @@
 extern "C" {
 #endif
 
+/* Internal search scheduling contract: a late-starting earlier file must not be
+ * skipped merely because a later file already filled the hit budget. */
+bool tools_search_can_skip(size_t index, int hits, int limit, size_t last_completed);
+
 struct mcp_client;    /* mcp/mcp.h */
 struct tny_intercept; /* core/intercept.h */
 struct tny_image_plan;
