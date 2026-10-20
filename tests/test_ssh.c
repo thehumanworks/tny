@@ -521,7 +521,8 @@ TEST intercepted_edit_follows_the_ssh_host(void) {
     env.perm = perm;
     char remote_file[700];
     snprintf(remote_file, sizeof remote_file, "%s/notes.txt", g_remote);
-    file_write_atomic(remote_file, "alpha\nold line\nomega\n", 22);
+    const char text[] = "alpha\nold line\nomega\n";
+    ASSERT_EQ(0, file_write_atomic(remote_file, text, sizeof text - 1));
 
     char *r = tools_execute(&env, "terminal",
                             "{\"command\":\"tny edit notes.txt <<'EOF'\\n*** SEARCH\\n"
@@ -555,6 +556,24 @@ TEST intercepted_edit_follows_the_ssh_host(void) {
     ASSERT(str_starts(r, "exit: 1\n"));
     ASSERT(strstr(r, "tny: edit: cannot read"));
     free(r);
+
+    /* Binary sources must never be streamed back with a silently lost suffix. */
+    const char binary[] = "old\0IMPORTANT_SUFFIX\n";
+    ASSERT_EQ(0, file_write_atomic(remote_file, binary, sizeof binary - 1));
+    r = tools_execute(&env, "terminal",
+                      "{\"command\":\"tny edit notes.txt --json <<'EOF'\\n"
+                      "{\\\"old\\\":\\\"old\\\",\\\"new\\\":\\\"new\\\"}\\nEOF\\n\"}");
+    ASSERT(str_starts(r, "exit: 1\n"));
+    ASSERT(strstr(r, "NUL"));
+    free(r);
+    data = file_slurp(remote_file, &n);
+    ASSERT(data);
+    ASSERT_EQ(sizeof binary - 1, n);
+    ASSERT_MEM_EQ(binary, data, n);
+    free(data);
+    log = slurp_log();
+    ASSERT(!strstr(log, "mv -f --"));
+    free(log);
 
     /* the permission detail is the remote path, as for the edit_file tool */
     tools_call call;

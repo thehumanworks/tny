@@ -456,7 +456,9 @@ Success writes one object on stdout:
 ```
 
 Without `--json`, success prints one human-readable result line. Progress and
-all diagnostics go to stderr. The target is built completely and installed by
+all diagnostics go to stderr. NUL-bearing source files or edit payloads are
+rejected with exit 1, without modifying the file. Exact edits operate on NUL-free
+text, not arbitrary binary data. The target is built completely and installed by
 atomic temp-file rename only after the match policy succeeds, so every failure
 leaves it untouched. Existing symlinks remain symlinks and their target is
 edited. On zero matches, stderr includes the single target line closest to the
@@ -467,7 +469,7 @@ count and require either a wider search or JSON `replace_all:true`.
 | Exit | Meaning |
 | ---: | --- |
 | 0 | One match replaced, or `replace_all:true` replaced one or more matches |
-| 1 | Usage, input parsing, allocation, or file I/O failure |
+| 1 | Usage, input parsing, NUL-bearing source, allocation, or file I/O failure |
 | 2 | Zero matches, or multiple matches without `replace_all:true` |
 | 130 | Interrupted; no partial write |
 

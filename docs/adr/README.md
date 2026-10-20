@@ -216,3 +216,5 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0207: Bounded execution session projection](0207-bounded-execution-session-projection.md) — keep historical transcripts out of fresh-execution transport while preserving exact owner state.
 
 - [0208: Truthful scoped file search](0208-truthful-scoped-file-search.md)
+
+- [0209: Exact-edit text integrity](0209-exact-edit-text-integrity.md) — reject NUL-bearing sources before writes or undo side effects.

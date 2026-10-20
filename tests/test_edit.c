@@ -285,6 +285,41 @@ static void count_edit_write(const char *path, void *userdata) {
     (*calls)++;
 }
 
+TEST edit_nul_at_every_byte_rejects_without_write_hooks(void) {
+    char *dir = edit_temp_dir();
+    char *path = edit_path(dir, "binary.txt");
+    const char original[] = "old / old / suffix\n";
+    int writes = 0;
+    tny_edit_hooks hooks = {.before_write = count_edit_write, .before_write_userdata = &writes};
+    for (size_t position = 0; position < sizeof original - 1; position++) {
+        char bytes[sizeof original];
+        memcpy(bytes, original, sizeof bytes);
+        bytes[position] = '\0';
+        for (int all = 0; all < 2; all++) {
+            ASSERT_EQ(0, file_write_atomic(path, bytes, sizeof bytes - 1));
+            tny_edit_result result = {0};
+            ASSERT_EQ(TNY_EDIT_BINARY,
+                      tny_edit_file_exact(path, "old", "new", all != 0, &hooks, &result));
+            ASSERT_EQ(0, writes);
+            ASSERT_EQ(0, result.matches);
+            ASSERT_EQ(0, result.replaced);
+            ASSERT_EQ(NULL, result.nearest_context);
+            size_t len = 0;
+            char *actual = file_slurp(path, &len);
+            ASSERT(actual);
+            ASSERT_EQ(sizeof bytes - 1, len);
+            ASSERT_MEM_EQ(bytes, actual, len);
+            free(actual);
+            tny_edit_result_free(&result);
+        }
+    }
+    unlink(path);
+    rmdir(dir);
+    free(path);
+    free(dir);
+    PASS();
+}
+
 TEST edit_diagnostics_never_authorize_write_hooks(void) {
     char *dir = edit_temp_dir();
     char *path = edit_path(dir, "advisory.txt");
@@ -325,6 +360,7 @@ TEST edit_diagnostics_never_authorize_write_hooks(void) {
 }
 
 SUITE(edit_suite) {
+    RUN_TEST(edit_nul_at_every_byte_rejects_without_write_hooks);
     RUN_TEST(edit_diagnostics_never_authorize_write_hooks);
     RUN_TEST(edit_preserves_permission_bits_under_restrictive_umask);
     RUN_TEST(edit_one_match);

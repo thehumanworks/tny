@@ -726,6 +726,11 @@ static char *t_edit_file(tools_env *env, yyjson_val *args) {
     tny_edit_hooks hooks = {.before_write = edit_record_undo, .before_write_userdata = env};
     tny_edit_status status = tny_edit_file_exact(abs, olds, news, all, &hooks, &result);
     tools_learning_edit_result(env, abs, news, all, status);
+    if (status == TNY_EDIT_BINARY) {
+        char *e = tool_err("%s contains NUL bytes; exact edits require NUL-free text", abs);
+        free(abs);
+        return e;
+    }
     if (status == TNY_EDIT_READ_ERROR) {
         char *e = tool_err("cannot read %s", abs);
         free(abs);

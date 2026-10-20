@@ -272,6 +272,52 @@ class ExecutionCodeMode(unittest.TestCase):
         self.assertEqual(len(self.server.outputs), 1, self.server.outputs)
         return self.server.outputs[0]
 
+    def test_exact_edit_rejects_nul_without_file_or_undo_changes(self):
+        path = self.workspace / "edit.txt"
+        for wire in ("responses", "chat"):
+            with self.subTest(wire=wire):
+                binary = b"old\0IMPORTANT_SUFFIX\n"
+                path.write_bytes(binary)
+                arguments = {
+                    "path": "edit.txt",
+                    "old_string": "old",
+                    "new_string": "new",
+                }
+                output = self.run_code(
+                    "print(tools.call('edit_file', "
+                    + python_string(json.dumps(arguments))
+                    + "))",
+                    wire=wire,
+                    no_save=False,
+                )
+                self.assertIn("error:", output)
+                self.assertIn("NUL", output)
+                self.assertEqual(path.read_bytes(), binary)
+                self.assertEqual(list(self.home.rglob("undo.*")), [])
+
+    def test_exact_edit_rejects_nul_arguments_before_path_resolution(self):
+        path = self.workspace / "edit.txt"
+        for wire in ("responses", "chat"):
+            for field in ("path", "old_string", "new_string"):
+                with self.subTest(wire=wire, field=field):
+                    path.write_bytes(b"old")
+                    arguments = {
+                        "path": "edit.txt",
+                        "old_string": "old",
+                        "new_string": "new",
+                    }
+                    arguments[field] += "\0ignored"
+                    output = self.run_code(
+                        "print(tools.call('edit_file', "
+                        + python_string(json.dumps(arguments))
+                        + "))",
+                        wire=wire,
+                        no_save=False,
+                    )
+                    self.assertIn("error:", output)
+                    self.assertEqual(path.read_bytes(), b"old")
+                    self.assertEqual(list(self.home.rglob("undo.*")), [])
+
     @staticmethod
     def output_handle(output):
         match = re.search(r'output stored as handle "([0-9a-f]+)"', output)

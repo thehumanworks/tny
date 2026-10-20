@@ -197,6 +197,12 @@ tny_edit_status tny_edit_file_exact(const char *path, const char *old_text, cons
         return TNY_EDIT_READ_ERROR;
     }
 
+    if (memchr(data, '\0', len)) {
+        free(data);
+        free(resolved);
+        return TNY_EDIT_BINARY;
+    }
+
     size_t old_len = strlen(old_text);
     for (char *p = data; (p = strstr(p, old_text)); p += old_len) {
         if (edit_is_interrupted(hooks)) {
@@ -445,6 +451,10 @@ int tny_edit_render(const char *path, bool json, tny_edit_status status,
     if (!path || !result || !out || !err) return 1;
     switch (status) {
     case TNY_EDIT_INTERRUPTED: return 130;
+    case TNY_EDIT_BINARY:
+        buf_appendf(err, "tny: edit: %s contains NUL bytes; exact edits require NUL-free text\n",
+                    path);
+        return 1;
     case TNY_EDIT_NOT_FOUND:
         buf_appendf(err, "tny: edit: 0 matches in %s\n", path);
         if (result->nearest_context)
