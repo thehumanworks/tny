@@ -1,6 +1,7 @@
 /* Harness/client and private execution server. The client handles decisions and
  * observations only; all tool preparation and effects occur in the server. */
 #include "core/execution.h"
+#include "core/execution_parallel.h"
 #include "core/checkpoint.h"
 #include "core/code_runtime.h"
 #include "core/execution_control.h"
@@ -258,11 +259,30 @@ static void server_subagent_control(execution_server *s, const tools_call *call,
     tny_execution_control_response_free(&response);
 }
 
-static char *server_tool(void *ud, const char *name, const char *args) {
-    execution_server *s = ud;
-    if (server_cancelled(s)) return tool_err("execution cancelled or deadline exceeded");
-    if (++s->calls > TNY_CODE_TOOL_CALLS || !name || strcmp(name, "run_code") == 0)
-        return tool_err("recursive code or nested tool limit exceeded");
+typedef struct {
+    const char *name;
+    char id[64];
+    tny_openai_control_request control;
+    tools_call call;
+    char *effective, *attribution, *reason, *result;
+    bool began;
+    tny_exec_host host;
+} execution_tool;
+
+static void server_tool_prepare(execution_server *s, const char *name, const char *args,
+                                execution_tool *t) {
+    memset(t, 0, sizeof *t);
+    t->host = (tny_exec_host){.fd = -1, .pid = -1};
+    t->name = name;
+    if (server_cancelled(s)) {
+        t->result = tool_err("execution cancelled or deadline exceeded");
+        return;
+    }
+    if (++s->calls > TNY_CODE_TOOL_CALLS || !name || strcmp(name, "run_code") == 0) {
+        t->result = tool_err("recursive code or nested tool limit exceeded");
+        return;
+    }
+    bool began = false;
     char id[64];
     snprintf(id, sizeof id, "code-%s-%u", s->cell_id, s->calls);
     tny_openai_control_request control = {.kind = TNY_OPENAI_CONTROL_PRE_TOOL,
@@ -285,7 +305,7 @@ static char *server_tool(void *ud, const char *name, const char *args) {
     tools_call call = {0};
     if (!effective || (!pre_allowed && !result)) {
         s->failed = true;
-        goto cleanup;
+        goto staged;
     }
     if (pre_allowed) {
         yyjson_doc *d = jparse(effective, strlen(effective));
@@ -295,7 +315,7 @@ static char *server_tool(void *ud, const char *name, const char *args) {
             result = call.error ? xstrdup(call.error) : tool_err("nested tool preparation failed");
             if (!result) {
                 s->failed = true;
-                goto cleanup;
+                goto staged;
             }
         }
     }
@@ -346,7 +366,6 @@ static char *server_tool(void *ud, const char *name, const char *args) {
             server_event(&status, s);
         }
     }
-    bool began = false;
     if (!result && !server_cancelled(s)) {
         began = true;
         tny_backend_event event = {.kind = TNY_EV_TOOL_START,
@@ -355,8 +374,28 @@ static char *server_tool(void *ud, const char *name, const char *args) {
                                    .tool_detail = effective};
         server_event(&event, s);
         if (!s->failed) server_subagent_control(s, &call, id, false, NULL);
-        if (!server_cancelled(s)) result = tools_call_execute(&s->env, &call);
     }
+staged:
+    memcpy(t->id, id, sizeof id);
+    t->control = control;
+    t->control.tool_id = t->id;
+    t->call = call;
+    t->effective = effective;
+    t->attribution = attribution;
+    t->reason = reason;
+    t->result = result;
+    t->began = began;
+}
+
+static char *server_tool_finish(execution_server *s, execution_tool *t) {
+    const char *id = t->id, *name = t->name;
+    tny_openai_control_request control = t->control;
+    tny_openai_control_response response = {0};
+    tools_call call = t->call;
+    char *effective = t->effective, *attribution = t->attribution;
+    char *reason = t->reason, *result = t->result;
+    bool began = t->began;
+    if (!effective) goto cleanup;
     if (!result) result = tool_err("nested tool interrupted; outcome unknown, do not replay");
     if (!result) {
         s->failed = true;
@@ -394,6 +433,116 @@ cleanup:
     free(attribution);
     free(reason);
     return result;
+}
+
+static char *server_parallel(execution_server *s, const char *args) {
+    yyjson_doc *d = jparse(args, strlen(args));
+    yyjson_val *calls = d ? jget(yyjson_doc_get_root(d), "calls") : NULL;
+    size_t count = yyjson_arr_size(calls);
+    if (!yyjson_is_arr(calls) || !count || count > TNY_CODE_TOOL_CALLS ||
+        s->calls > TNY_CODE_TOOL_CALLS || count > TNY_CODE_TOOL_CALLS - s->calls ||
+        !tny_exec_json_valid(calls)) {
+        yyjson_doc_free(d);
+        return tool_err("parallel calls must be a nonempty array within the remaining call budget");
+    }
+    /* Validate the entire batch before any call can have effects. */
+    for (size_t i = 0; i < count; i++) {
+        yyjson_val *v = yyjson_arr_get(calls, i);
+        const char *name = jget_str(v, "name");
+        if (!name || !*name || strlen(name) > TNY_CODE_NAME_BYTES ||
+            strcmp(name, "run_code") == 0 || strcmp(name, "__parallel") == 0 ||
+            !yyjson_is_obj(jget(v, "arguments")) || yyjson_obj_size(v) != 2) {
+            yyjson_doc_free(d);
+            return tool_err(
+                "parallel entries require name and arguments; recursive batches forbidden");
+        }
+    }
+    yyjson_mut_doc *out = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *results = out ? yyjson_mut_arr(out) : NULL;
+    if (out) yyjson_mut_doc_set_root(out, results);
+    if (!results) {
+        yyjson_doc_free(d);
+        return NULL;
+    }
+    size_t result_bytes = 0;
+    bool result_limit = false;
+    for (size_t i = 0; i < count;) {
+        execution_tool group[TNY_TOOL_PARALLELISM];
+        char *arguments[TNY_TOOL_PARALLELISM] = {0};
+        size_t n = 0;
+        bool parallel = true;
+        /* Explicit batches declare read independence. Stateful operations are
+         * barriers: their admission, effect and settlement precede the next. */
+        for (; i + n < count && n < TNY_TOOL_PARALLELISM; n++) {
+            yyjson_val *v = yyjson_arr_get(calls, i + n);
+            const char *name = jget_str(v, "name");
+            tools_call proposed = {.name = (char *)name};
+            bool safe = tny_execution_parallel_safe(&s->env, &proposed);
+            if (!safe && n) break;
+            arguments[n] = yyjson_val_write(jget(v, "arguments"), 0, NULL);
+            if (!arguments[n]) {
+                s->failed = true;
+                break;
+            }
+            server_tool_prepare(s, name, arguments[n], &group[n]);
+            if (!safe) {
+                parallel = false;
+                n++;
+                break;
+            }
+        }
+        /* Admission may pause the owner's deadline for human approval. Launch
+         * only after the entire group is admitted, with that final deadline;
+         * no read overlaps a later admission hook or permission prompt. */
+        for (size_t j = 0; j < n; j++) {
+            execution_tool *t = &group[j];
+            if (t->began && !server_cancelled(s)) {
+                if (parallel) {
+                    if (!tny_execution_parallel_safe(&s->env, &t->call))
+                        t->result = tool_err("tool capability changed; use tools.call serially");
+                    else if (tny_execution_parallel_start(&t->host, &s->env, &t->call, s->deadline))
+                        t->result = tool_err("parallel worker could not start; not replayed");
+                } else t->result = tools_call_execute(&s->env, &t->call);
+            }
+        }
+        for (size_t j = 0; j < n; j++) {
+            execution_tool *t = &group[j];
+            if (t->host.fd >= 0)
+                t->result = tny_execution_parallel_collect(&t->host, &s->env, s->deadline,
+                                                           server_cancelled, s);
+            char *result = server_tool_finish(s, t);
+            /* JSON may expand each byte sixfold; bound accumulation before
+             * allocating the array, including delimiters and the final frame. */
+            size_t len = result ? strlen(result) : 0;
+            if (len > TNY_CODE_TOOL_RESULT_BYTES / 6 - 128 - result_bytes) result_limit = true;
+            if (!result) s->failed = true;
+            else if (!result_limit) {
+                result_bytes += len;
+                if (!yyjson_mut_arr_add_strcpy(out, results, result)) s->failed = true;
+            }
+            free(result);
+            free(arguments[j]);
+        }
+        i += n;
+        if (!n || s->failed || result_limit) break;
+    }
+    char *result =
+        s->failed ? NULL
+        : result_limit
+            ? tool_err("parallel result limit exceeded; completed effects retained, not replayed")
+            : yyjson_mut_write(out, 0, NULL);
+    yyjson_mut_doc_free(out);
+    yyjson_doc_free(d);
+    return result;
+}
+
+static char *server_tool(void *ud, const char *name, const char *args) {
+    execution_server *s = ud;
+    if (name && strcmp(name, "__parallel") == 0) return server_parallel(s, args);
+    execution_tool t;
+    server_tool_prepare(s, name, args, &t);
+    if (t.began && !server_cancelled(s)) t.result = tools_call_execute(&s->env, &t.call);
+    return server_tool_finish(s, &t);
 }
 
 static bool client_cancelled(void *ud) {

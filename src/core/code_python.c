@@ -371,7 +371,59 @@ static PyObject *tools_describe(PyObject *self, PyObject *name_obj) {
     Py_RETURN_NONE;
 }
 
+/* One framed batch, rather than racing the uncorrelated tools.call channel
+ * from Python threads. Owner admission and per-call quotas still apply. */
+static PyObject *tools_parallel(PyObject *self, PyObject *arg) {
+    (void)self;
+    if (!PyUnicode_Check(arg)) {
+        PyErr_SetString(PyExc_TypeError, "tools.parallel(calls_json) takes JSON array text");
+        return NULL;
+    }
+    if (refuse_after_limit()) return NULL;
+    Py_ssize_t length = 0;
+    const char *text = PyUnicode_AsUTF8AndSize(arg, &length);
+    if (!text) return NULL;
+    if ((size_t)length > TNY_CODE_ARGUMENT_BYTES || memchr(text, 0, (size_t)length)) {
+        PyErr_SetString(PyExc_ValueError, "parallel arguments limit exceeded or contain NUL");
+        return NULL;
+    }
+    yyjson_doc *d = yyjson_read_opts((char *)text, (size_t)length, 0, &heap_json, NULL);
+    yyjson_val *calls = d ? yyjson_doc_get_root(d) : NULL;
+    size_t count = yyjson_arr_size(calls);
+    bool valid = yyjson_is_arr(calls) && count && count <= TNY_CODE_TOOL_CALLS;
+    yyjson_doc_free(d);
+    if (cell.fatal) return terminal(cell.fatal);
+    if (!valid) {
+        PyErr_SetString(PyExc_ValueError, "parallel calls must be a nonempty JSON array");
+        return NULL;
+    }
+    if (count > TNY_CODE_TOOL_CALLS - cell.calls) return terminal("tool call limit exceeded");
+    cell.calls += (unsigned)count;
+    char *arguments = malloc((size_t)length + 11);
+    if (!arguments) return PyErr_NoMemory();
+    strcpy(arguments, "{\"calls\":");
+    memcpy(arguments + 9, text, (size_t)length);
+    memcpy(arguments + 9 + length, "}", 2);
+    const tny_code_python_host *host = cell.host;
+    char *result = host && host->call ? host->call(host->userdata, "__parallel", arguments) : NULL;
+    free(arguments);
+    if (!result) {
+        const char *reason = host && host->failure ? host->failure(host->userdata) : NULL;
+        return terminal(reason ? reason : "parallel tool callback failed");
+    }
+    size_t len = strlen(result);
+    if (!tny_code_result_admit(len)) {
+        free(result);
+        return terminal("tool result limit exceeded");
+    }
+    PyObject *output = PyUnicode_DecodeUTF8(result, (Py_ssize_t)len, "replace");
+    free(result);
+    return output;
+}
+
 static PyMethodDef tools_methods[] = {
+    {"parallel", tools_parallel, METH_O,
+     "parallel(calls_json) -> str: ordered JSON results; independent reads overlap"},
     {"call", (PyCFunction)(void (*)(void))tools_call, METH_FASTCALL,
      "call(name, arguments_json) -> str: run a permitted nested tool"},
     {"list", tools_list, METH_NOARGS, "list() -> str: JSON catalog of permitted tools"},

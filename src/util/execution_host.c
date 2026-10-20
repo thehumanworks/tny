@@ -70,6 +70,8 @@ static int start_entry(tny_exec_host *host, const char *entry, int output_fd) {
     return rc;
 }
 
+int tny_exec_host_start_tool(tny_exec_host *host) { return start_entry(host, "--exec-tool", -1); }
+
 int tny_exec_host_start(tny_exec_host *host) { return start_entry(host, "--exec-server", -1); }
 
 /* Code cells act on the host as the OS user (docs/adr/0180): they inherit the
@@ -265,6 +267,7 @@ int tny_exec_host_start(tny_exec_host *host) {
     *host = (tny_exec_host){.fd = -1, .pid = -1};
     return ENOTSUP;
 }
+int tny_exec_host_start_tool(tny_exec_host *host) { return tny_exec_host_start(host); }
 int tny_exec_host_start_cell(tny_exec_host *host, int output_fd) {
     (void)output_fd;
     return tny_exec_host_start(host);

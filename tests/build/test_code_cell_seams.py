@@ -182,6 +182,8 @@ class CodeCellSeams(unittest.TestCase):
             "  tny_exec_host host;\n"
             "  if (tny_exec_host_start_cell(&host, 1) != ENOTSUP) return 1;\n"
             "  if (host.fd != -1 || host.pid != -1) return 2;\n"
+            "  if (tny_exec_host_start_tool(&host) != ENOTSUP) return 4;\n"
+            "  if (host.fd != -1 || host.pid != -1) return 5;\n"
             "  errno = 0;\n"
             "  if (tny_exec_host_receive_aux(3, NULL, 0, NULL, NULL) || errno != ENOTSUP) return 3;\n"
             "  return 0;\n}\n"
@@ -191,10 +193,10 @@ class CodeCellSeams(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             broken = mutant(
                 source,
-                "    *host = (tny_exec_host){.fd = -1, .pid = -1};\n    return ENOTSUP;\n}\n"
-                "int tny_exec_host_start_cell(",
-                "    *host = (tny_exec_host){.fd = -1, .pid = -1};\n    return 0;\n}\n"
-                "int tny_exec_host_start_cell(",
+                "int tny_exec_host_start(tny_exec_host *host) {\n"
+                "    *host = (tny_exec_host){.fd = -1, .pid = -1};\n    return ENOTSUP;\n}",
+                "int tny_exec_host_start(tny_exec_host *host) {\n"
+                "    *host = (tny_exec_host){.fd = -1, .pid = -1};\n    return 0;\n}",
                 Path(tmp),
             )
             rc, output = build_and_run([broken], probe, ["-D__EMSCRIPTEN__"])

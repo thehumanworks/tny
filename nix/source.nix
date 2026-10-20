@@ -1,3 +1,5 @@
+# Parallel read workers and their rendezvous/timeout tests use the existing
+# src/tests filesets, native process support and Python stdlib; no new inputs.
 # Offline harness benchmark route tests use the existing tests fileset and Python stdlib.
 # test-openai-errors links the private failure policy and existing JSON/util
 # sources only; src/tests filesets and the C compiler cover it without CPython,
