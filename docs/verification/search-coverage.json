@@ -1,0 +1,137 @@
+{
+  "baseline_identity": {
+    "binary_sha256": "7c699cbf485241f3420dddeb837bd169ba7e9e5c4a7ed55eeed77aeba9ddf04d",
+    "checkout_at_measurement": {
+      "commit": "3b92d1266815289ac6ec94d57561a5e3ab56532e",
+      "source_sha256": {
+        "src/core/tools.c": "886ec10016a20e7d552be3ccb961db609f8f5dad7a3f27dc35febe1473ddcd9d",
+        "src/core/tools_fs.c": "2c8e6d27ba16518c0f5d0cac2ecfa0133d3c5754bbf5f50cfdea67954fc98fed"
+      },
+      "tracked_src_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tracked_src_dirty": false
+    }
+  },
+  "candidate_identity": {
+    "binary_sha256": "73fa862dd883f8189d17566ea83d0eee6aa5acf112edac2c202f8da3b20b2009",
+    "checkout_at_measurement": {
+      "commit": "603dfd4b60950183985739bcb0c66ddec35d70d0",
+      "source_sha256": {
+        "src/core/tools.c": "82dafc578d1c86ca197c0eae97d7d0c829ebd1922809532740003683f1d36bf0",
+        "src/core/tools_fs.c": "43800a0c2939a96eb0a71b2bdda87db4f6d25dddc6c4bfcd682f56c47fccb289"
+      },
+      "tracked_src_diff_sha256": "4f81ad03ca2bfbd3ee043f76c574a91f246d3d034d00a4c154524ad94a7282b2",
+      "tracked_src_dirty": true
+    }
+  },
+  "fixture": "one hidden config, one scoped target, 100 distracting source files",
+  "metric_limits": "Result bytes are not tokenizer counts or task-quality measurements. Baseline scan count is unobservable.",
+  "provenance_limits": "Checkout identity is captured at measurement time; binary hashes identify the actual executables tested. Build evidence must establish their source provenance.",
+  "verification": {
+    "baseline_negative_control": "All seven cases fail on the baseline (8 subtest failures).",
+    "elapsed_seconds": 4.436,
+    "passed": 7,
+    "production_fixture_tests": 7
+  },
+  "wires": {
+    "chat": {
+      "baseline": {
+        "hidden": {
+          "coverage": null,
+          "distractor_rows": 0,
+          "result_bytes": 13,
+          "target_found": false
+        },
+        "scoped": {
+          "coverage": null,
+          "distractor_rows": 100,
+          "result_bytes": 24928,
+          "target_found": true
+        }
+      },
+      "candidate": {
+        "hidden": {
+          "coverage": {
+            "errors": 0,
+            "excluded": 0,
+            "file_limit": false,
+            "files": 102,
+            "hit_limit": false,
+            "line_truncations": 0,
+            "partial": false,
+            "scanned": 102,
+            "skipped": 0
+          },
+          "distractor_rows": 0,
+          "result_bytes": 199,
+          "target_found": true
+        },
+        "scoped": {
+          "coverage": {
+            "errors": 0,
+            "excluded": 101,
+            "file_limit": false,
+            "files": 1,
+            "hit_limit": false,
+            "line_truncations": 0,
+            "partial": false,
+            "scanned": 1,
+            "skipped": 0
+          },
+          "distractor_rows": 0,
+          "result_bytes": 173,
+          "target_found": true
+        }
+      }
+    },
+    "responses": {
+      "baseline": {
+        "hidden": {
+          "coverage": null,
+          "distractor_rows": 0,
+          "result_bytes": 13,
+          "target_found": false
+        },
+        "scoped": {
+          "coverage": null,
+          "distractor_rows": 100,
+          "result_bytes": 24928,
+          "target_found": true
+        }
+      },
+      "candidate": {
+        "hidden": {
+          "coverage": {
+            "errors": 0,
+            "excluded": 0,
+            "file_limit": false,
+            "files": 102,
+            "hit_limit": false,
+            "line_truncations": 0,
+            "partial": false,
+            "scanned": 102,
+            "skipped": 0
+          },
+          "distractor_rows": 0,
+          "result_bytes": 199,
+          "target_found": true
+        },
+        "scoped": {
+          "coverage": {
+            "errors": 0,
+            "excluded": 101,
+            "file_limit": false,
+            "files": 1,
+            "hit_limit": false,
+            "line_truncations": 0,
+            "partial": false,
+            "scanned": 1,
+            "skipped": 0
+          },
+          "distractor_rows": 0,
+          "result_bytes": 173,
+          "target_found": true
+        }
+      }
+    }
+  }
+}
