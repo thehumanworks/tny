@@ -37,6 +37,7 @@ ENUMS = (
     "TNY_EXEC_ASK",
     "TNY_EXEC_STATE",
     "TNY_EXEC_RESULT",
+    "TNY_EXEC_READ_RESULT",
 )
 FLAGS = [
     "-std=c11",
@@ -234,7 +235,7 @@ static bool specification(unsigned p, unsigned k, uint64_t id, uint64_t expected
     case TNY_EXEC_WAIT_RESULT:
         if (k == TNY_EXEC_RESULT) return id == 1;
         if (k != TNY_EXEC_CONTROL && k != TNY_EXEC_EVENT && k != TNY_EXEC_PROMPT &&
-            k != TNY_EXEC_ASK && k != TNY_EXEC_STATE) return false;
+            k != TNY_EXEC_ASK && k != TNY_EXEC_STATE && k != TNY_EXEC_READ_RESULT) return false;
         return expected >= 2 && id == expected;
     default: return false;
     }
@@ -246,7 +247,7 @@ int main(void) {
     const uint64_t ids[] = {0, 1, 2, 3, 4, 4294967295ULL, 4294967296ULL,
                            9223372036854775807ULL, 9223372036854775808ULL, UINT64_MAX};
     const unsigned states[] = {0, 1, 2, 3, 4, 2147483647U, 2147483648U, UINT_MAX};
-    const unsigned kinds[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 2147483647U, 2147483648U, UINT_MAX};
+    const unsigned kinds[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 2147483647U, 2147483648U, UINT_MAX};
     size_t count = 0;
     for (size_t p = 0; p < sizeof states / sizeof *states; ++p)
     for (size_t k = 0; k < sizeof kinds / sizeof *kinds; ++k)
@@ -327,7 +328,7 @@ def main(source_path: Path = SOURCE) -> None:
             "(or "
             + " ".join(
                 f"(= kind {enum(k)})"
-                for k in ("CONTROL", "EVENT", "PROMPT", "ASK", "STATE")
+                for k in ("CONTROL", "EVENT", "PROMPT", "ASK", "STATE", "READ_RESULT")
             )
             + ")"
         )

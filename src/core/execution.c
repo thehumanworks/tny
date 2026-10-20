@@ -222,6 +222,49 @@ static bool server_state(execution_server *s) {
  * commit context before acknowledging a mailbox/job handoff. */
 static int server_save(void *ud) { return server_state(ud) ? 0 : -1; }
 
+static char *server_read_result(void *ud, const char *handle, size_t offset, size_t length,
+                                size_t *out_len) {
+    execution_server *s = ud;
+    if (length > 65536 || !str_starts(handle, "transcript:")) return NULL;
+    yyjson_mut_doc *d = object_doc();
+    yyjson_mut_val *r = d ? yyjson_mut_doc_get_root(d) : NULL;
+    bool ok = r && yyjson_mut_obj_add_strcpy(d, r, "handle", handle) &&
+              yyjson_mut_obj_add_uint(d, r, "offset", offset) &&
+              yyjson_mut_obj_add_uint(d, r, "length", length);
+    yyjson_doc *reply = ok ? server_rpc(s, TNY_EXEC_READ_RESULT, d) : NULL;
+    yyjson_val *result = rpc_result(reply), *size = jget(result, "length"),
+               *data = jget(result, "data");
+    char *bytes = NULL;
+    if (!reply || yyjson_obj_size(result) != 2 || !yyjson_is_uint(size) ||
+        yyjson_get_uint(size) > length || (!yyjson_is_str(data) && !yyjson_is_null(data))) {
+        s->failed = true;
+    } else if (yyjson_is_str(data)) {
+        size_t len = (size_t)yyjson_get_uint(size);
+        const char *encoded = yyjson_get_str(data);
+        bytes = malloc(len + 1);
+        buf_t canonical;
+        buf_init(&canonical);
+        if (bytes && strlen(encoded) == ((len + 2) / 3) * 4) {
+            size_t got = b64_decode(encoded, (uint8_t *)bytes, len);
+            b64_encode((const uint8_t *)bytes, got, &canonical);
+            ok = got == len && !canonical.oom &&
+                 strcmp(encoded, canonical.data ? canonical.data : "") == 0;
+        } else ok = false;
+        buf_free(&canonical);
+        if (!ok) {
+            free(bytes);
+            bytes = NULL;
+            s->failed = true;
+        } else {
+            bytes[len] = 0;
+            *out_len = len;
+        }
+    } else if (yyjson_get_uint(size) != 0) s->failed = true;
+    yyjson_doc_free(reply);
+    yyjson_mut_doc_free(d);
+    return bytes;
+}
+
 static tny_image_preview_status server_preview(void *ud, const tny_image_preview_identity *id,
                                                tny_image_preview_result *result) {
     execution_server *s = ud;
@@ -481,7 +524,7 @@ static char *server_parallel(execution_server *s, const char *args) {
         for (; i + n < count && n < TNY_TOOL_PARALLELISM; n++) {
             yyjson_val *v = yyjson_arr_get(calls, i + n);
             const char *name = jget_str(v, "name");
-            tools_call proposed = {.name = (char *)name};
+            tools_call proposed = {.name = (char *)name, .args = jget(v, "arguments")};
             bool safe = tny_execution_parallel_safe(&s->env, &proposed);
             if (!safe && n) break;
             arguments[n] = yyjson_val_write(jget(v, "arguments"), 0, NULL);
@@ -632,6 +675,27 @@ static yyjson_mut_doc *client_callback(tools_env *env, tny_exec_kind kind, yyjso
             yyjson_mut_val *value = answer ? yyjson_mut_strcpy(d, answer) : yyjson_mut_null(d);
             ok = value && yyjson_mut_obj_add_val(d, r, "answer", value);
             free(answer);
+        }
+    } else if (ok && kind == TNY_EXEC_READ_RESULT) {
+        const char *handle = jget_str(body, "handle");
+        yyjson_val *offset = jget(body, "offset"), *length = jget(body, "length");
+        ok = env->session && handle && str_starts(handle, "transcript:") &&
+             yyjson_obj_size(body) == 3 && yyjson_is_uint(offset) &&
+             yyjson_get_uint(offset) <= SIZE_MAX && yyjson_is_uint(length) &&
+             yyjson_get_uint(length) <= 65536;
+        if (ok) {
+            size_t len = 0;
+            char *bytes = session_read_result(env->session, handle, (size_t)yyjson_get_uint(offset),
+                                              (size_t)yyjson_get_uint(length), &len);
+            buf_t encoded;
+            buf_init(&encoded);
+            if (bytes) b64_encode((const uint8_t *)bytes, len, &encoded);
+            yyjson_mut_val *data =
+                bytes ? yyjson_mut_strcpy(d, encoded.data ? encoded.data : "") : yyjson_mut_null(d);
+            ok = !encoded.oom && data && yyjson_mut_obj_add_val(d, r, "data", data) &&
+                 yyjson_mut_obj_add_uint(d, r, "length", bytes ? len : 0);
+            free(bytes);
+            buf_free(&encoded);
         }
     } else if (ok && (kind == TNY_EXEC_EVENT || kind == TNY_EXEC_STATE)) {
         ok = kind == TNY_EXEC_EVENT ? client_event(env, body)
@@ -883,6 +947,7 @@ int tny_execution_server_main(void) {
     if (s.env.session) {
         s.env.session->execution_save = server_save;
         s.env.session->execution_save_ud = &s;
+        s.env.session->execution_read_result = server_read_result;
     }
     char *catalog = !s.failed ? tools_catalog_json(&s.env) : NULL;
     /* Direct Python acts in the selected local workspace (ctx->cwd), also

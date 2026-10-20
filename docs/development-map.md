@@ -15,6 +15,7 @@ behavior is in the linked feature contract; ADRs explain decisions when needed.
 | Implement a nested tool | `src/core/tools_*.c`, [catalog](features/mcp-and-skills.md) | owning unit suite + real execution fixture |
 | Parallel independent reads | `execution_parallel.c`, `execution.c`, `code_python.c` | `test_execution_code_mode.py` (rendezvous, barriers, spill recovery, timeout) |
 | Recover execution output | `session.c` streaming results, `code_runtime.c`, `tools_shell.c` | `test_execution_code_mode.py` (middle diagnostics, resume, limits, binary ranges) |
+| Long-session execution transport | `execution_state.c`, `execution.c`, [projection contract](adr/0207-bounded-execution-session-projection.md) | `execution_state_suite`, `test_execution_snapshot.py`, encoder benchmark |
 | Run/cancel a code cell | `execution*.c`, `code_runtime.c`, `util/execution_*.c` | `test_execution_code_mode.py`, `test_terminal_cancel.py` |
 | Resume/crash recovery | `session.c`, `checkpoint.cpp`, `runner.cpp` | `runner_suite`, session/checkpoint fixtures |
 | Durable job records and transactions | `core/jobs_record.cpp`, private `jobs_record.hpp` | `make test-runner-ownership test-runner-mutation`; job corruption fixtures |

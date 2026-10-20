@@ -6,6 +6,16 @@
 #include <string.h>
 #include <unistd.h>
 
+static bool set_run(tny_session_state *s, const char *run) {
+    yyjson_mut_val *array = yyjson_mut_arr(s->doc);
+    return array && yyjson_mut_arr_add_strcpy(s->doc, array, run) &&
+           yyjson_mut_obj_put(yyjson_mut_doc_get_root(s->doc), yyjson_mut_str(s->doc, "team_runs"),
+                              array);
+}
+static const char *first_run(tny_session_state *s) {
+    return yyjson_mut_get_str(
+        yyjson_mut_arr_get(yyjson_mut_obj_get(yyjson_mut_doc_get_root(s->doc), "team_runs"), 0));
+}
 static tny_session_state *state_session(tny_ctx *ctx) {
     tny_session_state *s = calloc(1, sizeof(*s));
     if (!s) return NULL;
@@ -18,7 +28,7 @@ static tny_session_state *state_session(tny_ctx *ctx) {
     s->extension_agent_sequence = 7;
     s->extension_session_started = true;
     s->task_body = xstrdup("private task body");
-    const char *input = "{\"messages\":[],\"base\":1,\"removed\":true}";
+    const char *input = "{\"messages\":[],\"team_cursors\":{},\"swarm_cap\":1}";
     yyjson_doc *d = jparse(input, strlen(input));
     s->doc = d ? yyjson_doc_mut_copy(d, jallocator()) : NULL;
     yyjson_doc_free(d);
@@ -56,7 +66,9 @@ static int owner_save_rpc(void *userdata) {
     yyjson_doc_free(delta);
     if (!ok) return -1;
     yyjson_doc *disk = jparse_file(rpc->path);
-    const char *marker = disk ? jget_str(yyjson_doc_get_root(disk), "server_change") : NULL;
+    const char *marker =
+        disk ? yyjson_get_str(yyjson_arr_get(jget(yyjson_doc_get_root(disk), "team_runs"), 0))
+             : NULL;
     rpc->persisted_before_ack = marker && strcmp(marker, "merged-before-ack") == 0;
     yyjson_doc_free(disk);
     yyjson_doc *next = yyjson_mut_doc_imut_copy(rpc->snapshot->session->doc, jallocator());
@@ -111,8 +123,8 @@ TEST execution_state_initial_and_delta_preserve_parent(void) {
     yyjson_doc *baseline = yyjson_mut_doc_imut_copy(child.session->doc, jallocator());
     ASSERT(baseline);
     yyjson_mut_val *root = yyjson_mut_doc_get_root(child.session->doc);
-    ASSERT(yyjson_mut_obj_add_strcpy(child.session->doc, root, "undo", "server-change"));
-    yyjson_mut_obj_remove_key(root, "removed");
+    ASSERT(set_run(child.session, "server-change"));
+    yyjson_mut_obj_remove_key(root, "swarm_cap");
     ASSERT(yyjson_mut_obj_add_strcpy(parent.session->doc,
                                      yyjson_mut_doc_get_root(parent.session->doc), "callback",
                                      "parent-change"));
@@ -130,9 +142,9 @@ TEST execution_state_initial_and_delta_preserve_parent(void) {
     ASSERT(delta);
     ASSERT(tny_execution_state_apply(&parent, yyjson_doc_get_root(delta), false));
     root = yyjson_mut_doc_get_root(parent.session->doc);
-    ASSERT_STR_EQ("server-change", yyjson_mut_get_str(yyjson_mut_obj_get(root, "undo")));
+    ASSERT_STR_EQ("server-change", first_run(parent.session));
     ASSERT_STR_EQ("parent-change", yyjson_mut_get_str(yyjson_mut_obj_get(root, "callback")));
-    ASSERT(yyjson_mut_obj_get(root, "removed") == NULL);
+    ASSERT(yyjson_mut_obj_get(root, "swarm_cap") == NULL);
     ASSERT_EQ(1u, yyjson_mut_arr_size(yyjson_mut_obj_get(root, "messages")));
     ASSERT_EQ(3, parent.perm->n_grants);
     ASSERT_EQ(3, parent.session->n_mem_results);
@@ -164,8 +176,7 @@ TEST execution_state_failed_apply_is_atomic(void) {
     ASSERT(tny_execution_state_apply(&child, yyjson_doc_get_root(initial), true));
     yyjson_doc *baseline = yyjson_mut_doc_imut_copy(child.session->doc, jallocator());
     ASSERT(baseline);
-    ASSERT(yyjson_mut_obj_add_int(child.session->doc, yyjson_mut_doc_get_root(child.session->doc),
-                                  "changed", 5));
+    ASSERT(set_run(child.session, "changed"));
     perm_grant(child.perm, "read_file", "/new-grant");
     ASSERT(state_image(&child, "/never-reopened.png"));
     child.pending_capture[0].sha256[0] = child.pending_capture[0].sha256[0] == 'a' ? 'b' : 'a';
@@ -174,7 +185,7 @@ TEST execution_state_failed_apply_is_atomic(void) {
     yyjson_mut_doc *original_doc = parent.session->doc;
     ASSERT_FALSE(tny_execution_state_apply(&parent, yyjson_doc_get_root(delta), false));
     ASSERT(parent.session->doc == original_doc);
-    ASSERT(yyjson_mut_obj_get(yyjson_mut_doc_get_root(original_doc), "changed") == NULL);
+    ASSERT(yyjson_mut_obj_get(yyjson_mut_doc_get_root(original_doc), "team_runs") == NULL);
     ASSERT_EQ(0, parent.perm->n_grants);
     ASSERT_EQ(0, parent.n_pending_images);
     yyjson_doc_free(initial);
@@ -217,16 +228,14 @@ TEST execution_snapshot_defers_save_to_merged_owner(void) {
                                      yyjson_mut_doc_get_root(parent.session->doc), "owner_hook",
                                      "preserve-on-disk"));
     ASSERT_EQ(0, session_save(parent.session));
-    ASSERT(yyjson_mut_obj_add_strcpy(child.session->doc,
-                                     yyjson_mut_doc_get_root(child.session->doc), "server_change",
-                                     "merged-before-ack"));
+    ASSERT(set_run(child.session, "merged-before-ack"));
     ASSERT_EQ(-1, session_save(child.session));
     char *path = path_join(directory, "session.json");
     ASSERT(path);
     yyjson_doc *disk = jparse_file(path);
     ASSERT(disk);
     ASSERT_STR_EQ("preserve-on-disk", jget_str(yyjson_doc_get_root(disk), "owner_hook"));
-    ASSERT(jget(yyjson_doc_get_root(disk), "server_change") == NULL);
+    ASSERT(jget(yyjson_doc_get_root(disk), "team_runs") == NULL);
     yyjson_doc_free(disk);
     state_save_rpc rpc = {.owner = &parent, .snapshot = &child, .baseline = baseline, .path = path};
     child.session->execution_save = owner_save_rpc;
@@ -238,7 +247,8 @@ TEST execution_snapshot_defers_save_to_merged_owner(void) {
     disk = jparse_file(path);
     ASSERT(disk);
     ASSERT_STR_EQ("preserve-on-disk", jget_str(yyjson_doc_get_root(disk), "owner_hook"));
-    ASSERT_STR_EQ("merged-before-ack", jget_str(yyjson_doc_get_root(disk), "server_change"));
+    ASSERT_STR_EQ("merged-before-ack",
+                  yyjson_get_str(yyjson_arr_get(jget(yyjson_doc_get_root(disk), "team_runs"), 0)));
     yyjson_doc_free(disk);
     yyjson_doc_free(baseline);
     baseline = yyjson_mut_doc_imut_copy(child.session->doc, jallocator());
@@ -255,13 +265,14 @@ TEST execution_snapshot_defers_save_to_merged_owner(void) {
     ASSERT(delta);
     ASSERT(tny_execution_state_apply(&parent, yyjson_doc_get_root(delta), false));
     yyjson_doc_free(delta);
-    ASSERT(yyjson_mut_obj_add_bool(child.session->doc, yyjson_mut_doc_get_root(child.session->doc),
-                                   "late", true));
+    ASSERT(yyjson_mut_obj_put(yyjson_mut_doc_get_root(child.session->doc),
+                              yyjson_mut_str(child.session->doc, "swarm_cap"),
+                              yyjson_mut_int(child.session->doc, 2)));
     delta = state_snapshot(&child, yyjson_doc_get_root(baseline), false);
     ASSERT(delta);
     ASSERT_FALSE(tny_execution_state_apply(&parent, yyjson_doc_get_root(delta), false));
-    ASSERT(yyjson_mut_get_bool(
-        yyjson_mut_obj_get(yyjson_mut_doc_get_root(parent.session->doc), "late")));
+    ASSERT_EQ(2, yyjson_mut_get_int(yyjson_mut_obj_get(yyjson_mut_doc_get_root(parent.session->doc),
+                                                       "swarm_cap")));
     yyjson_doc_free(delta);
     yyjson_doc_free(baseline);
     yyjson_doc_free(initial);
@@ -338,7 +349,153 @@ TEST execution_state_appends_preserve_both_writers_exactly_once(void) {
     state_cleanup(&child);
     PASS();
 }
+TEST execution_snapshot_omits_history_and_preserves_large_owner(void) {
+    char directory[] = "/tmp/tny-large-execution-state-XXXXXX";
+    ASSERT(mkdtemp(directory));
+    tny_ctx ctx = {0};
+    tools_env parent = {.ctx = &ctx}, child = {.ctx = &ctx};
+    parent.session = state_session(&ctx);
+    ASSERT(parent.session);
+    free(parent.session->dir);
+    parent.session->dir = xstrdup(directory);
+    ASSERT(parent.session->dir);
+    yyjson_doc *small = state_snapshot(&parent, NULL, true);
+    ASSERT(small);
+    char *text = malloc(1024u * 1024u + 1);
+    ASSERT(text);
+    memset(text, 'x', 1024u * 1024u);
+    text[1024u * 1024u] = 0;
+    for (int i = 0; i < 12; ++i) session_add_text(parent.session, "user", text);
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(parent.session->doc);
+    ASSERT(yyjson_mut_obj_add_strcpy(parent.session->doc, root, "extension_audit", text));
+    ASSERT(yyjson_mut_obj_add_strcpy(parent.session->doc, root, "skill_injections", text));
+    free(text);
+    yyjson_doc *large = state_snapshot(&parent, NULL, true);
+    ASSERT(large);
+    ASSERT(yyjson_equals(yyjson_doc_get_root(small), yyjson_doc_get_root(large)));
+    ASSERT(tny_execution_state_apply(&child, yyjson_doc_get_root(large), true));
+    ASSERT_EQ(0u, yyjson_mut_arr_size(session_messages(child.session)));
+    yyjson_doc *baseline = yyjson_mut_doc_imut_copy(child.session->doc, jallocator());
+    ASSERT(baseline);
+    yyjson_doc *delta = state_snapshot(&child, yyjson_doc_get_root(baseline), false);
+    ASSERT(delta);
+    yyjson_mut_doc *original = parent.session->doc;
+    ASSERT(tny_execution_state_apply(&parent, yyjson_doc_get_root(delta), false));
+    ASSERT(parent.session->doc == original); /* No history copy on ordinary reads. */
+    yyjson_doc_free(delta);
+    session_add_text(child.session, "user", "new runtime context");
+    delta = state_snapshot(&child, yyjson_doc_get_root(baseline), false);
+    ASSERT(delta);
+    ASSERT(tny_execution_state_apply(&parent, yyjson_doc_get_root(delta), false));
+    ASSERT_EQ(13u, yyjson_mut_arr_size(session_messages(parent.session)));
+    for (size_t i = 0; i < 12; ++i) {
+        yyjson_mut_val *message = yyjson_mut_arr_get(session_messages(parent.session), i);
+        ASSERT_EQ(1024u * 1024u, yyjson_mut_get_len(yyjson_mut_obj_get(message, "content")));
+    }
+    ASSERT_STR_EQ("new runtime context",
+                  yyjson_mut_get_str(yyjson_mut_obj_get(
+                      yyjson_mut_arr_get(session_messages(parent.session), 12), "content")));
+    ASSERT(yyjson_mut_obj_get(yyjson_mut_doc_get_root(parent.session->doc), "extension_audit"));
+    char *path = path_join(directory, "session.json");
+    ASSERT(path);
+    yyjson_doc *saved = jparse_file(path);
+    ASSERT(saved);
+    ASSERT_EQ(13u, yyjson_arr_size(jget(yyjson_doc_get_root(saved), "messages")));
+    yyjson_doc_free(saved);
+    ASSERT_EQ(0, unlink(path));
+    ASSERT_EQ(0, rmdir(directory));
+    free(path);
+    yyjson_doc_free(delta);
+    yyjson_doc_free(baseline);
+    yyjson_doc_free(large);
+    yyjson_doc_free(small);
+    state_cleanup(&child);
+    state_cleanup(&parent);
+    PASS();
+}
+TEST execution_snapshot_rejects_unknown_or_historical_projection(void) {
+    tny_ctx ctx = {.no_save = true};
+    tools_env parent = {.ctx = &ctx};
+    parent.session = state_session(&ctx);
+    ASSERT(parent.session);
+    yyjson_doc *initial = state_snapshot(&parent, NULL, true);
+    ASSERT(initial);
+    const char *versions[] = {"null", "0", "2", "1.5"};
+    for (size_t i = 0; i < 7; ++i) {
+        yyjson_mut_doc *bad = yyjson_doc_mut_copy(initial, jallocator());
+        ASSERT(bad);
+        yyjson_mut_val *session = yyjson_mut_obj_get(yyjson_mut_doc_get_root(bad), "session");
+        yyjson_mut_val *doc = yyjson_mut_obj_get(session, "doc");
+        if (i < 4) {
+            yyjson_doc *version = jparse(versions[i], strlen(versions[i]));
+            ASSERT(version);
+            ASSERT(yyjson_mut_obj_put(session, yyjson_mut_str(bad, "projection"),
+                                      yyjson_val_mut_copy(bad, yyjson_doc_get_root(version))));
+            yyjson_doc_free(version);
+        } else if (i == 4) yyjson_mut_obj_remove_key(doc, "messages");
+        else if (i == 5)
+            ASSERT(yyjson_mut_arr_add_strcpy(bad, yyjson_mut_obj_get(doc, "messages"), "history"));
+        else ASSERT(yyjson_mut_obj_add_bool(bad, doc, "extension_audit", true));
+        yyjson_doc *wire = yyjson_mut_doc_imut_copy(bad, jallocator());
+        ASSERT(wire);
+        tools_env child = {.ctx = &ctx, .perm = perm_new(&ctx)};
+        ASSERT(child.perm);
+        perm_grant(child.perm, "read_file", "/keep");
+        ASSERT_FALSE(tny_execution_state_apply(&child, yyjson_doc_get_root(wire), true));
+        ASSERT(child.session == NULL);
+        ASSERT_EQ(1, child.perm->n_grants);
+        state_cleanup(&child);
+        yyjson_doc_free(wire);
+        yyjson_mut_doc_free(bad);
+    }
+    yyjson_doc_free(initial);
+    state_cleanup(&parent);
+    PASS();
+}
+TEST execution_snapshot_refuses_owner_history_mutation(void) {
+    tny_ctx ctx = {.no_save = true};
+    tools_env parent = {.ctx = &ctx}, child = {.ctx = &ctx};
+    parent.session = state_session(&ctx);
+    ASSERT(parent.session);
+    session_add_text(parent.session, "user", "retain me");
+    yyjson_doc *initial = state_snapshot(&parent, NULL, true);
+    ASSERT(initial);
+    ASSERT(tny_execution_state_apply(&child, yyjson_doc_get_root(initial), true));
+    yyjson_doc *baseline = yyjson_mut_doc_imut_copy(child.session->doc, jallocator());
+    ASSERT(baseline);
+    yyjson_doc *delta = state_snapshot(&child, yyjson_doc_get_root(baseline), false);
+    ASSERT(delta);
+    const char *changes[] = {"{\"set\":{\"messages\":[]},\"append\":{},\"remove\":[]}",
+                             "{\"set\":{},\"append\":{},\"remove\":[\"messages\"]}",
+                             "{\"set\":{\"extension_audit\":[]},\"append\":{},\"remove\":[]}",
+                             "{\"set\":{},\"append\":{\"extension_audit\":[]},\"remove\":[]}",
+                             "{\"set\":{},\"append\":{},\"remove\":[\"extension_audit\"]}"};
+    for (size_t i = 0; i < sizeof(changes) / sizeof(*changes); ++i) {
+        yyjson_mut_doc *bad = yyjson_doc_mut_copy(delta, jallocator());
+        yyjson_doc *change = jparse(changes[i], strlen(changes[i]));
+        ASSERT(bad && change);
+        ASSERT(yyjson_mut_obj_put(yyjson_mut_doc_get_root(bad), yyjson_mut_str(bad, "session"),
+                                  yyjson_val_mut_copy(bad, yyjson_doc_get_root(change))));
+        yyjson_doc *wire = yyjson_mut_doc_imut_copy(bad, jallocator());
+        ASSERT(wire);
+        yyjson_mut_doc *original = parent.session->doc;
+        ASSERT_FALSE(tny_execution_state_apply(&parent, yyjson_doc_get_root(wire), false));
+        ASSERT(parent.session->doc == original);
+        yyjson_doc_free(wire);
+        yyjson_doc_free(change);
+        yyjson_mut_doc_free(bad);
+    }
+    yyjson_doc_free(delta);
+    yyjson_doc_free(baseline);
+    yyjson_doc_free(initial);
+    state_cleanup(&child);
+    state_cleanup(&parent);
+    PASS();
+}
 SUITE(execution_state_suite) {
+    RUN_TEST(execution_snapshot_rejects_unknown_or_historical_projection);
+    RUN_TEST(execution_snapshot_omits_history_and_preserves_large_owner);
+    RUN_TEST(execution_snapshot_refuses_owner_history_mutation);
     RUN_TEST(execution_state_initial_and_delta_preserve_parent);
     RUN_TEST(execution_state_failed_apply_is_atomic);
     RUN_TEST(execution_state_null_session);

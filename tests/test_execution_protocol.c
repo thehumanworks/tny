@@ -7,7 +7,7 @@
 TEST execution_protocol_admission_truth_table(void) {
     const uint64_t ids[] = {0, 1, 2, 3, UINT64_MAX};
     for (int phase = -1; phase <= 4; ++phase) {
-        for (int kind = -1; kind <= 8; ++kind) {
+        for (int kind = -1; kind <= 9; ++kind) {
             for (size_t i = 0; i < sizeof(ids) / sizeof(*ids); ++i) {
                 for (size_t j = 0; j < sizeof(ids) / sizeof(*ids); ++j) {
                     uint64_t id = ids[i], expected = ids[j];
@@ -24,7 +24,7 @@ TEST execution_protocol_admission_truth_table(void) {
                             if (kind == TNY_EXEC_RESULT) allowed = id == 1;
                             else if (kind == TNY_EXEC_CONTROL || kind == TNY_EXEC_EVENT ||
                                      kind == TNY_EXEC_PROMPT || kind == TNY_EXEC_ASK ||
-                                     kind == TNY_EXEC_STATE)
+                                     kind == TNY_EXEC_STATE || kind == TNY_EXEC_READ_RESULT)
                                 allowed = expected > 1 && id == expected;
                             break;
                         default: break;
@@ -42,7 +42,7 @@ TEST execution_protocol_envelope_roundtrip(void) {
     const char *input = "{\"value\":[1,true,null]}";
     yyjson_doc *params = jparse(input, strlen(input));
     ASSERT(params);
-    for (int kind = TNY_EXEC_EXECUTE; kind <= TNY_EXEC_RESULT; ++kind) {
+    for (int kind = TNY_EXEC_EXECUTE; kind <= TNY_EXEC_READ_RESULT; ++kind) {
         char *encoded = tny_exec_message(27, (tny_exec_kind)kind, yyjson_doc_get_root(params));
         ASSERT(encoded);
         yyjson_doc *doc = jparse(encoded, strlen(encoded));

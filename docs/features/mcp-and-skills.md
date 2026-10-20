@@ -616,9 +616,11 @@ permit the request. No shell or local agent runtime is used. Failure is explicit
 
 ## Execution snapshot and host limits
 
-The code-mode RPC frame is capped at 8 MiB for the entire initial snapshot, not
-just the script. Stored history and captured state count toward that bound.
-Compaction retains old messages, so start a new session with a short handoff
-after an explicit snapshot-limit error. Native model tools require Linux/macOS
+The code-mode RPC frame is capped at 8 MiB for execution context, code, active
+tool metadata and captured state. Retained transcript/audit history stays in the
+owner and is not copied into each code cell. Compacted long sessions therefore
+remain executable without deleting history. Large active configuration or
+captures can still exceed the transport bound. See
+[ADR 0207](../adr/0207-bounded-execution-session-projection.md). Native model tools require Linux/macOS
 generation-safe process-tree support; wasm and unsupported host seams fail
 without a direct fallback. See [ADR 0174](../adr/0174-execution-server-code-mode.md).
