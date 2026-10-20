@@ -5,6 +5,8 @@
 #define TNY_CODE_RUNTIME_H
 
 #include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
 
 /* Metered interpreter heap (Python objects and the stdlib codecs that use
  * CPython's allocators), including its initialization baseline. It stops a
@@ -52,6 +54,14 @@ char *tny_code_run(const char *code, int timeout_ms, const char *catalog_json,
  * cwd is the cell's working directory (NULL: inherit this process's). */
 char *tny_code_run_with_deadline(const char *code, const char *cwd, const int64_t *deadline,
                                  const char *catalog_json, tny_code_call_fn call, void *userdata);
+
+/* The sink observes raw merged stdout/stderr in drain order, before preview
+ * truncation. It must not call into the runtime or block on the child. */
+typedef void (*tny_code_output_fn)(void *userdata, const char *data, size_t len);
+char *tny_code_run_with_output(const char *code, const char *cwd, const int64_t *deadline,
+                               const char *catalog_json, tny_code_call_fn call, void *userdata,
+                               tny_code_output_fn output, void *output_userdata,
+                               bool *recovery_needed);
 
 /* Private `--code-cell` entry point: fd 3 is the parent's socket. */
 int tny_code_cell_main(void);

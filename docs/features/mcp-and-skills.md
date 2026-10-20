@@ -70,7 +70,25 @@ program on the local host
 standard library imports, and `open`, `subprocess`, `socket`/`urllib`/`ssl` act
 with the OS user's authority in the local workspace directory with the host
 environment. Its stdout/stderr (print, tracebacks, inherited subprocess output)
-is the result, bounded to 64 KiB with the beginning and end kept. Direct Python
+is the result, bounded to 64 KiB with the beginning and end kept. Omitted or
+UTF-8-normalized output includes a session-local `read_tool_result` handle for
+its raw merged stdout/stderr, so diagnostic recovery does not rerun the cell.
+`read_tool_result` accepts byte `offset`/`length` and `encoding: "base64"` for
+exact binary data or ranges splitting a UTF-8 character; default `text` rejects
+such ranges with an actionable error instead of silently dropping bytes.
+Saved sessions stream up to 64 MiB per call to their existing `results/` store;
+ephemeral sessions use no disk and share a 1 MiB aggregate capture budget with
+existing in-memory results. Small unmodified output creates no artifact.
+Exceeding retention capacity or failing storage preserves execution and its
+preview but explicitly reports recovery unavailable; no partial handle or
+automatic retry is advertised. Ordinary nested `terminal` output uses this
+same capture before its 512 KiB preview cutoff. Shell-profile and background
+terminal output keep their existing contracts below. Capture ends when the
+owning process closes/stops the stream; timeout/cancellation handles contain
+only bytes observed before that point, not evidence of command completion.
+These artifacts follow session lifetime; there is no new retention manager.
+Native-only Python execution remains a clean unsupported-host error on wasm.
+See [ADR 0206](../adr/0206-recoverable-execution-output.md). Direct Python
 effects are **not** mediated by tny permissions, hooks, tool profiles, workspace
 policy or the command sandbox, and under `--ssh` they stay on the local machine;
 only nested `tools.call` operations are. Native cells run in a fresh execution
@@ -102,7 +120,7 @@ Keep tool names stable so task prompts and agent integrations transfer:
 | Speech | `speak` (text, optional voice): automatic ephemeral playback using the Codex login, independent of the chat provider; advertised only with credentials and a player. [Speech contract](../speech.md) |
 | Runtime | `ask_user_question`, `memory`, `read_tool_result` |
 
-Large results: bounded preview + session handle; `read_tool_result` reads a byte range or literal search. Background commands persist pid, cwd, log path, detected URL.
+Large results: bounded preview + session handle; `read_tool_result` reads a byte range. Background commands persist pid, cwd, log path, detected URL.
 
 ### Exact-edit recovery evidence
 

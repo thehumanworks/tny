@@ -60,9 +60,13 @@ typedef struct {
     char tail[CELL_OUTPUT_TAIL]; /* ring: the latest bytes of the whole stream */
     size_t tail_next;
     uint64_t total;
+    tny_code_output_fn sink;
+    void *sink_ud;
+    bool recovery_needed;
 } cell_output;
 
 static void output_append(cell_output *o, const char *data, size_t len) {
+    if (o->sink) o->sink(o->sink_ud, data, len);
     uint64_t take = tny_code_output_take(o->head_len, len);
     memcpy(o->head + o->head_len, data, (size_t)take);
     o->head_len += (size_t)take;
@@ -122,11 +126,12 @@ static void append_utf8(buf_t *b, const unsigned char *s, size_t n) {
 /* The captured text, at most `room` bytes: everything when it fits, otherwise
  * the first bytes, an omission marker and the last bytes. Head and tail
  * cannot overlap: together they are shorter than room < total. */
-static void output_text(const cell_output *o, buf_t *b, size_t room) {
+static void output_text(cell_output *o, buf_t *b, size_t room) {
     buf_t raw;
     buf_init(&raw);
     if (o->total <= room) buf_append(&raw, o->head, o->head_len);
     else {
+        o->recovery_needed = true;
         size_t ring = o->total < CELL_OUTPUT_TAIL ? (size_t)o->total : CELL_OUTPUT_TAIL;
         size_t keep_tail = ring < room / 4 ? ring : room / 4;
         size_t keep_head = room > keep_tail + 64 ? room - keep_tail - 64 : 0;
@@ -141,9 +146,13 @@ static void output_text(const cell_output *o, buf_t *b, size_t room) {
     }
     size_t start = b->len;
     if (raw.data) append_utf8(b, (const unsigned char *)raw.data, raw.len);
+    if (!b->oom &&
+        (b->len - start != raw.len || (raw.len && memcmp(b->data + start, raw.data, raw.len) != 0)))
+        o->recovery_needed = true;
     buf_free(&raw);
     /* Replacement characters can only grow invalid input; cut on a character. */
     if (b->len - start > room && !b->oom) {
+        o->recovery_needed = true;
         size_t cut = start + room;
         while (cut > start && ((unsigned char)b->data[cut] & 0xC0) == 0x80) --cut;
         b->len = cut;
@@ -154,7 +163,7 @@ static void output_text(const cell_output *o, buf_t *b, size_t room) {
 /* The cell result: output alone, or the error line with the output that
  * preceded it (so the model sees which effects already happened). The error
  * line comes first so "error:" classification of the whole result holds. */
-static char *cell_result(const cell_output *o, const char *error) {
+static char *cell_result(cell_output *o, const char *error) {
     static const char separator[] = "\n[output before the error]\n";
     buf_t b;
     buf_init(&b);
@@ -174,7 +183,7 @@ static char *cell_result(const cell_output *o, const char *error) {
             buf_appends(&b, separator);
             size_t room = TNY_CODE_RESULT_TEXT_BYTES - used;
             output_text(o, &b, room < TNY_CODE_OUTPUT_BYTES ? room : TNY_CODE_OUTPUT_BYTES);
-        }
+        } else if (o->total) o->recovery_needed = true;
     }
     return buf_detach(&b);
 }
@@ -356,8 +365,10 @@ static char *run_cell(cell_output *out, const char *code, const char *cwd, const
     return text;
 }
 
-char *tny_code_run_with_deadline(const char *code, const char *cwd, const int64_t *deadline,
-                                 const char *catalog_json, tny_code_call_fn call, void *userdata) {
+char *tny_code_run_with_output(const char *code, const char *cwd, const int64_t *deadline,
+                               const char *catalog_json, tny_code_call_fn call, void *userdata,
+                               tny_code_output_fn output, void *output_userdata,
+                               bool *recovery_needed) {
     if (!code || !tny_code_source_admit(strlen(code))) return cell_error("source limit exceeded");
     if (!deadline) return cell_error("missing host deadline");
     if (cwd && (!*cwd || strlen(cwd) > TNY_CODE_SOURCE_BYTES))
@@ -365,10 +376,19 @@ char *tny_code_run_with_deadline(const char *code, const char *cwd, const int64_
     cell_output *out = calloc(1, sizeof *out);
     if (!out) return NULL;
     out->aux.fd = -1;
+    out->sink = output;
+    out->sink_ud = output_userdata;
     char *text =
         run_cell(out, code, cwd, deadline, catalog_json ? catalog_json : "[]", call, userdata);
+    if (recovery_needed) *recovery_needed = out->recovery_needed;
     free(out);
     return text;
+}
+
+char *tny_code_run_with_deadline(const char *code, const char *cwd, const int64_t *deadline,
+                                 const char *catalog_json, tny_code_call_fn call, void *userdata) {
+    return tny_code_run_with_output(code, cwd, deadline, catalog_json, call, userdata, NULL, NULL,
+                                    NULL);
 }
 
 char *tny_code_run(const char *code, int timeout_ms, const char *catalog_json,

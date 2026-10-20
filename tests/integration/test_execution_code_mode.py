@@ -8,8 +8,11 @@ rejection checks. No live inference, external account, or executor mock.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
+import re
+import shlex
 import shutil
 import signal
 import socket
@@ -153,10 +156,13 @@ class Provider(BaseHTTPRequestHandler):
             ]
         self.server.outputs = output
         if self.server.sequence is not None and len(output) < len(self.server.sequence):
+            arguments = self.server.sequence[len(output)]
+            if callable(arguments):
+                arguments = arguments(output)
             data = events(
                 wire,
                 "run_code",
-                self.server.sequence[len(output)],
+                arguments,
                 f"execution_{len(output) + 1}",
             )
         else:
@@ -227,6 +233,7 @@ class ExecutionCodeMode(unittest.TestCase):
         arguments=None,
         env=None,
         flags=(),
+        no_save=True,
     ):
         self.server.bodies.clear()
         self.server.outputs.clear()
@@ -244,7 +251,7 @@ class ExecutionCodeMode(unittest.TestCase):
                 *flags,
                 "ask",
                 "--json",
-                "--no-save",
+                *(["--no-save"] if no_save else []),
                 "execution fixture",
             ],
             env=dict(self.env, **(env or {})),
@@ -264,6 +271,324 @@ class ExecutionCodeMode(unittest.TestCase):
         self.assertIn("EXEC-OK", json.loads(stdout)["output"])
         self.assertEqual(len(self.server.outputs), 1, self.server.outputs)
         return self.server.outputs[0]
+
+    @staticmethod
+    def output_handle(output):
+        match = re.search(r'output stored as handle "([0-9a-f]+)"', output)
+        if not match:
+            raise AssertionError(f"missing recoverable output handle: {output[-600:]}")
+        return match.group(1)
+
+    def finish_sequence(self, **kwargs):
+        process = self.start(**kwargs)
+        try:
+            stdout, stderr = process.communicate(timeout=20)
+        except BaseException:
+            process.kill()
+            process.wait(timeout=5)
+            raise
+        self.assertEqual(process.returncode, 0, (stdout, stderr))
+        result = json.loads(stdout)
+        self.assertIn("EXEC-OK", result["output"])
+        return result
+
+    def test_large_output_recovers_middle_without_reexecution_on_both_wires(self):
+        # The diagnostic is outside both preview windows. Recovering it must
+        # not require rerunning a command that may have already changed files.
+        marker = "MIDDLE_FAILURE_SENTINEL"
+        payload = "A" * 70000 + "\n" + marker + "\n" + "B" * 70000 + "\n"
+        for wire in ("responses", "chat"):
+            for saved in (False, True):
+                with self.subTest(wire=wire, saved=saved):
+                    counter = self.workspace / f"counter-{wire}-{saved}"
+                    code = (
+                        "from pathlib import Path\nimport os\n"
+                        f"counter = Path({str(counter)!r})\n"
+                        "counter.write_text(str(int(counter.read_text()) + 1) "
+                        "if counter.exists() else '1')\n"
+                        "os.write(1, b'A' * 70000 + b'\\n')\n"
+                        f"os.write(2, {marker.encode()!r} + b'\\n')\n"
+                        "os.write(1, b'B' * 70000 + b'\\n')\n"
+                    )
+
+                    def recover(outputs):
+                        match = re.search(
+                            r'output stored as handle "([0-9a-f]+)"', outputs[0]
+                        )
+                        if not match:
+                            return {"code": "print('missing output handle')"}
+                        handle = match.group(1)
+                        arguments = dict(
+                            handle=handle, offset=70001, length=len(marker)
+                        )
+                        return {
+                            "code": f"print(tools.call('read_tool_result', {json.dumps(arguments)!r}))"
+                        }
+
+                    self.server.sequence = [{"code": code}, recover]
+                    result = self.finish_sequence(wire=wire, no_save=not saved)
+                    self.assertEqual(len(self.server.outputs), 2)
+                    preview, recovered = self.server.outputs
+                    self.assertNotIn(marker, preview)
+                    self.assertLessEqual(len(preview.encode()), 65536 + 1024)
+                    self.assertEqual(recovered, marker + "\n")
+                    self.assertEqual(counter.read_text(), "1")
+                    handle = self.output_handle(preview)
+                    files = list(
+                        (self.home / ".tny").glob(f"sessions/*/*/results/{handle}.txt")
+                    )
+                    if not saved:
+                        self.assertEqual(
+                            files, [], "no-save must not persist captured output"
+                        )
+                        continue
+                    self.assertEqual(len(files), 1)
+                    self.assertEqual(files[0].read_bytes(), payload.encode())
+                    self.assertEqual(files[0].stat().st_mode & 0o777, 0o600)
+                    # A second tny process recovers the same bytes after resume.
+                    self.server.sequence = [None, None, recover]
+                    self.finish_sequence(
+                        wire=wire,
+                        no_save=False,
+                        flags=("--resume", result["session_id"]),
+                    )
+                    self.assertEqual(self.server.outputs[-1], marker + "\n")
+                    self.assertEqual(counter.read_text(), "1")
+        self.server.sequence = None
+
+    def test_short_output_stays_exact_without_result_artifact(self):
+        for wire in ("responses", "chat"):
+            with self.subTest(wire=wire):
+                self.assertEqual(
+                    self.run_code("print('small output')", wire=wire, no_save=False),
+                    "small output\n",
+                )
+        self.assertEqual(list((self.home / ".tny").glob("sessions/*/*/results/*")), [])
+
+    def test_failed_and_timed_out_cells_keep_recoverable_prior_output(self):
+        marker = "BEFORE_FAILURE"
+        for wire in ("responses", "chat"):
+            for failure in ("raise ValueError('fixture failure')", "time.sleep(30)"):
+                with self.subTest(wire=wire, failure=failure):
+                    code = (
+                        "import os, time\n"
+                        "os.write(1, b'A' * 70000)\n"
+                        f"os.write(2, {marker.encode()!r})\n"
+                        "os.write(1, b'B' * 70000)\n" + failure
+                    )
+
+                    def recover(outputs):
+                        match = re.search(
+                            r'output stored as handle "([0-9a-f]+)"', outputs[0]
+                        )
+                        if not match:
+                            return {"code": "print('missing output handle')"}
+                        handle = match.group(1)
+                        args = dict(handle=handle, offset=70000, length=len(marker))
+                        return {
+                            "code": f"print(tools.call('read_tool_result', {json.dumps(args)!r}))"
+                        }
+
+                    self.server.sequence = [{"code": code, "timeout_ms": 1500}, recover]
+                    self.finish_sequence(wire=wire)
+                    self.assertTrue(self.server.outputs[0].startswith("error:"))
+                    self.assertNotIn(marker, self.server.outputs[0])
+                    self.assertEqual(self.server.outputs[-1], marker + "\n")
+        self.server.sequence = None
+
+    def test_large_nested_terminal_output_recovers_without_rerun(self):
+        marker = "NESTED_BUILD_FAILURE"
+        for wire in ("responses", "chat"):
+            with self.subTest(wire=wire):
+                counter = self.workspace / f"nested-counter-{wire}"
+                script = (
+                    "from pathlib import Path; import os; "
+                    f"p = Path({str(counter)!r}); "
+                    "p.write_text(str(int(p.read_text()) + 1) if p.exists() else '1'); "
+                    "os.write(1, b'A' * 350000); "
+                    f"os.write(2, {marker.encode()!r}); "
+                    "os.write(1, b'B' * 350000)"
+                )
+                command = "python3 -c " + shlex.quote(script)
+                arguments = json.dumps({"command": command})
+
+                def recover(outputs):
+                    match = re.search(
+                        r'output stored as handle "([0-9a-f]+)"', outputs[0]
+                    )
+                    if not match:
+                        return {"code": "print('missing output handle')"}
+                    args = dict(
+                        handle=match.group(1), offset=350000, length=len(marker)
+                    )
+                    return {
+                        "code": f"print(tools.call('read_tool_result', {json.dumps(args)!r}))"
+                    }
+
+                self.server.sequence = [
+                    {"code": f"print(tools.call('terminal', {arguments!r}))"},
+                    recover,
+                ]
+                self.finish_sequence(wire=wire)
+                self.assertEqual(self.server.outputs[-1], marker + "\n")
+                self.assertEqual(counter.read_text(), "1")
+        self.server.sequence = None
+
+    def test_capture_storage_failure_is_explicit_without_false_handle(self):
+        # Block only results storage, not transcript persistence or execution.
+        output = self.run_code(
+            "from pathlib import Path\nimport os\n"
+            "sessions = list((Path.home() / '.tny/sessions').glob('*/*/session.json'))\n"
+            "assert len(sessions) == 1\n"
+            "(sessions[0].parent / 'results').write_text('storage blocked')\n"
+            "os.write(1, b'A' * 140000)\nprint('still executed')\n",
+            no_save=False,
+        )
+        self.assertIn("full-output recovery unavailable", output)
+        self.assertNotIn('output stored as handle "', output)
+        self.assertIn("still executed", output)
+        self.assertEqual(
+            list((self.home / ".tny").glob("sessions/*/*/results/*.txt")), []
+        )
+
+    def test_ephemeral_capture_budget_does_not_write_or_stop_execution(self):
+        output = self.run_code(
+            "import os\nos.write(1, b'A' * (1024 * 1024 + 1))\n"
+            "print('after retention limit')\n"
+        )
+        self.assertIn("full-output recovery unavailable", output)
+        self.assertNotIn('output stored as handle "', output)
+        self.assertIn("after retention limit", output)
+        self.assertLessEqual(len(output.encode()), 65536 + 1024)
+        self.assertEqual(list((self.home / ".tny").glob("sessions/*/*/results/*")), [])
+
+    def test_saved_capture_limit_is_explicit_and_cleans_partial_artifact(self):
+        output = self.run_code(
+            "import os\nchunk = b'A' * 65536\n"
+            "for _ in range(1024):\n    os.write(1, chunk)\n"
+            "print('after saved retention limit', flush=True)\n",
+            no_save=False,
+        )
+        self.assertIn("full-output recovery unavailable", output)
+        self.assertNotIn('output stored as handle "', output)
+        self.assertIn("after saved retention limit", output)
+        self.assertLessEqual(len(output.encode()), 65536 + 1024)
+        self.assertEqual(list((self.home / ".tny").glob("sessions/*/*/results/*")), [])
+
+    def test_ephemeral_capture_budget_is_aggregate_and_preserves_prior_handle(self):
+        marker = "FIRST_CAPTURE_SURVIVES"
+        handles = []
+
+        def second(outputs):
+            match = re.search(r'output stored as handle "([0-9a-f]+)"', outputs[0])
+            if match:
+                handles.append(match.group(1))
+            return {
+                "code": "import os\nos.write(1, b'C' * 700000)\nprint('second completed')"
+            }
+
+        def recover(_outputs):
+            if not handles:
+                return {"code": "print('missing output handle')"}
+            args = dict(handle=handles[0], offset=350000, length=len(marker))
+            return {
+                "code": f"print(tools.call('read_tool_result', {json.dumps(args)!r}))"
+            }
+
+        self.server.sequence = [
+            {
+                "code": "import os\nos.write(1, b'A' * 350000)\n"
+                f"os.write(2, {marker.encode()!r})\n"
+                "os.write(1, b'B' * 350000)"
+            },
+            second,
+            recover,
+        ]
+        self.finish_sequence()
+        self.assertIn("full-output recovery unavailable", self.server.outputs[-2])
+        self.assertNotIn('output stored as handle "', self.server.outputs[-2])
+        self.assertIn("second completed", self.server.outputs[-2])
+        self.assertEqual(self.server.outputs[-1], marker + "\n")
+        self.assertEqual(list((self.home / ".tny").glob("sessions/*/*/results/*")), [])
+        self.server.sequence = None
+
+    def test_error_summary_cannot_hide_unrecoverable_subthreshold_output(self):
+        # The raw stream is below64KiB, but the long error summary consumes
+        # preview space and omits a diagnostic in the middle of that stream.
+        marker = "NEAR_BOUNDARY_FAILURE"
+
+        def recover(outputs):
+            match = re.search(r'output stored as handle "([0-9a-f]+)"', outputs[0])
+            if not match:
+                return {"code": "print('missing output handle')"}
+            args = dict(handle=match.group(1), offset=44000, length=len(marker))
+            return {
+                "code": f"print(tools.call('read_tool_result', {json.dumps(args)!r}))"
+            }
+
+        self.server.sequence = [
+            {
+                "code": "import os\nos.write(1, b'A' * 44000)\n"
+                f"os.write(2, {marker.encode()!r})\n"
+                "os.write(1, b'B' * 6000)\nraise ValueError('E' * 10000)"
+            },
+            recover,
+        ]
+        self.finish_sequence(no_save=False)
+        preview = self.server.outputs[0]
+        self.assertTrue(preview.startswith("error: code: ValueError:"))
+        self.assertNotIn(marker, preview)
+        self.assertEqual(self.server.outputs[-1], marker + "\n")
+        handle = self.output_handle(preview)
+        files = list((self.home / ".tny").glob(f"sessions/*/*/results/{handle}.txt"))
+        self.assertEqual(len(files), 1)
+        self.assertLess(files[0].stat().st_size, 65536)
+        self.server.sequence = None
+
+    def test_saved_capture_conserves_raw_bytes_outside_text_preview(self):
+        for raw, source, offset in (
+            (bytes(range(256)) * 600, "bytes(range(256)) * 600", 70000),
+            (b"\0" * 30000, "b'\\0' * 30000", 7000),
+        ):
+            with self.subTest(bytes=len(raw)):
+
+                def recover(outputs):
+                    match = re.search(
+                        r'output stored as handle "([0-9a-f]+)"', outputs[0]
+                    )
+                    if not match:
+                        return {"code": "print('missing output handle')"}
+                    args = dict(
+                        handle=match.group(1),
+                        offset=offset,
+                        length=512,
+                        encoding="base64",
+                    )
+                    text_args = dict(args, encoding="text")
+                    return {
+                        "code": f"print(tools.call('read_tool_result', {json.dumps(args)!r}))\n"
+                        f"print(tools.call('read_tool_result', {json.dumps(text_args)!r}))"
+                    }
+
+                self.server.sequence = [
+                    {"code": f"import os\nos.write(1, {source})\n"},
+                    recover,
+                ]
+                self.finish_sequence(no_save=False)
+                handle = self.output_handle(self.server.outputs[0])
+                files = list(
+                    (self.home / ".tny").glob(f"sessions/*/*/results/{handle}.txt")
+                )
+                self.assertEqual(len(files), 1)
+                self.assertEqual(files[0].read_bytes(), raw)
+                encoded, text_error = self.server.outputs[-1].splitlines()
+                self.assertEqual(
+                    base64.b64decode(encoded, validate=True), raw[offset : offset + 512]
+                )
+                self.assertIn("range contains binary or incomplete UTF-8", text_error)
+                self.assertIn("encoding base64", text_error)
+                self.server.outputs[0].encode("utf-8", errors="strict")
+        self.server.sequence = None
 
     @unittest.skipIf(WASM, "fresh-exec parallel workers require native processes")
     def test_parallel_reads_overlap_and_keep_result_order_on_both_wires(self):
@@ -583,7 +908,8 @@ class ExecutionCodeMode(unittest.TestCase):
                 output = self.run_code(
                     f"import os\nos.write(1, {wire_bytes!r})\n", wire=wire
                 )
-                self.assertEqual(output, "".join(expected))
+                self.assertTrue(output.startswith("".join(expected)))
+                self.output_handle(output)
                 error = self.run_code("raise ValueError('\u20ac' * 12000)\n", wire=wire)
                 self.assertTrue(
                     error.startswith("error: code: ValueError:"), error[:160]
@@ -856,7 +1182,7 @@ with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
         output = self.run_code('print("x" * 70000)\nprint("after")')
         self.assertLess(len(output.encode()), 70000)
         self.assertIn("bytes of output omitted", output)
-        self.assertTrue(output.endswith("after\n"), output[-200:])
+        self.assertIn("after\n", output)
 
     def test_nested_permission_and_pretool_hooks_use_owner(self):
         directory = self.home / ".tny/extensions"

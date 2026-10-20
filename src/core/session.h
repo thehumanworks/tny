@@ -128,6 +128,16 @@ const char *session_message_display(tny_session_state *s, int message_index);
 /* Large tool results: store blob, return malloc'd handle id. Ephemeral
  * sessions retain the blob only until session_close(). */
 char *session_store_result(tny_session_state *s, const char *data, size_t len);
+/* Streaming capture for code/terminal stdout. Small output stays in the caller's
+ * preview: no artifact is created until preview_bytes is exceeded. Saved output
+ * is capped at 64 MiB per call; ephemeral capture shares a 1 MiB memory budget.
+ * Finish consumes the stream and returns a malloc-owned recovery notice (empty
+ * for small output). Incomplete captures are discarded and reported explicitly. */
+typedef struct session_result_stream session_result_stream;
+session_result_stream *session_result_stream_new(tny_session_state *s, size_t preview_bytes);
+void session_result_stream_append(void *stream, const char *data, size_t len);
+char *session_result_stream_finish(session_result_stream *stream, bool needed);
+
 /* Read a byte range from a stored blob; malloc'd or NULL. */
 char *session_read_result(tny_session_state *s, const char *handle, size_t off, size_t maxlen,
                           size_t *out_len);

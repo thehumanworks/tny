@@ -887,9 +887,26 @@ int tny_execution_server_main(void) {
     char *catalog = !s.failed ? tools_catalog_json(&s.env) : NULL;
     /* Direct Python acts in the selected local workspace (ctx->cwd), also
      * under --ssh, where only nested tools reach the remote host. */
-    char *output = catalog ? tny_code_run_with_deadline(code, s.env.ctx->cwd, &s.deadline, catalog,
-                                                        server_tool, &s)
+    session_result_stream *capture =
+        session_result_stream_new(s.env.session, TNY_CODE_OUTPUT_BYTES);
+    bool recovery_needed = false;
+    char *output = catalog ? tny_code_run_with_output(code, s.env.ctx->cwd, &s.deadline, catalog,
+                                                      server_tool, &s, session_result_stream_append,
+                                                      capture, &recovery_needed)
                            : NULL;
+    char *notice = session_result_stream_finish(capture, recovery_needed);
+    if (!notice) {
+        free(output);
+        output = NULL;
+    } else if (output && *notice) {
+        buf_t recovered;
+        buf_init(&recovered);
+        buf_appends(&recovered, output);
+        buf_appends(&recovered, notice);
+        free(output);
+        output = buf_detach(&recovered);
+    }
+    free(notice);
     free(catalog);
     if (!output) output = tool_err("execution runtime allocation failure");
     if (s.stopped || monotonic_ms() >= s.deadline) {

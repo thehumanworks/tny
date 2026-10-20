@@ -888,6 +888,39 @@ TEST session_tool_argument_rewrite_is_targeted_and_no_match_terminates(void) {
     PASS();
 }
 
+TEST session_stream_preserves_chunked_bytes_and_handles_missing_session(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session_state *session = session_new(ctx);
+    static const char bytes[] = "a\0\xffz";
+    for (size_t split = 0; split <= sizeof bytes - 1; ++split) {
+        session_result_stream *stream = session_result_stream_new(session, 64);
+        ASSERT(stream);
+        session_result_stream_append(stream, bytes, split);
+        session_result_stream_append(stream, bytes + split, sizeof bytes - 1 - split);
+        char *notice = session_result_stream_finish(stream, true);
+        ASSERT(notice);
+        char handle[17] = {0};
+        ASSERT_EQ(1, sscanf(notice, "\nFull output stored as handle \"%16[0-9a-f]", handle));
+        size_t got = 0;
+        char *raw = session_read_result(session, handle, 0, 64, &got);
+        ASSERT(raw);
+        ASSERT_EQ(sizeof bytes - 1, got);
+        ASSERT_EQ(0, memcmp(bytes, raw, got));
+        free(raw);
+        free(notice);
+    }
+    session_result_stream *missing = session_result_stream_new(NULL, 64);
+    ASSERT(missing);
+    char *notice = session_result_stream_finish(missing, true);
+    ASSERT(notice && strstr(notice, "recovery unavailable"));
+    free(notice);
+    session_close(session);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST session_result_handles(void) {
     ensure_env();
     write_settings("{}");
@@ -7394,6 +7427,7 @@ SUITE(core_suite) {
     RUN_TEST(session_task_snapshot_roundtrip_and_resume_guards);
     RUN_TEST(session_task_snapshot_atomic_window_and_symlink_guards);
     RUN_TEST(session_tool_argument_rewrite_is_targeted_and_no_match_terminates);
+    RUN_TEST(session_stream_preserves_chunked_bytes_and_handles_missing_session);
     RUN_TEST(session_result_handles);
     RUN_TEST(session_result_sparse_slices);
     RUN_TEST(session_compaction);
