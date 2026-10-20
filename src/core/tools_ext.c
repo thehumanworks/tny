@@ -87,6 +87,22 @@ static char *t_read_tool_result(tools_env *env, yyjson_val *args) {
     size_t got = 0;
     char *data = session_read_result(env->session, handle, (size_t)off, (size_t)len, &got);
     if (!data) return tool_err("unknown handle %s", handle);
+    const char *encoding = jget_str(args, "encoding");
+    if (encoding && strcmp(encoding, "base64") == 0) {
+        buf_t encoded;
+        buf_init(&encoded);
+        b64_encode((const uint8_t *)data, got, &encoded);
+        free(data);
+        return buf_detach(&encoded);
+    }
+    if (encoding && strcmp(encoding, "text") != 0) {
+        free(data);
+        return tool_err("encoding must be text or base64");
+    }
+    if (memchr(data, 0, got) || !utf8_valid_bytes(data, got)) {
+        free(data);
+        return tool_err("range contains binary or incomplete UTF-8; retry with encoding base64");
+    }
     return data;
 }
 

@@ -307,6 +307,8 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     buf_t out;
     buf_init(&out);
     bool shell_profile = tny_tool_profile_is_shell(env->ctx);
+    session_result_stream *capture =
+        shell_profile ? NULL : session_result_stream_new(env->session, SHELL_MAX_OUT);
     size_t preview_max = env->ctx->max_tool_result_bytes;
     if (preview_max > SHELL_PROFILE_PREVIEW_MAX) preview_max = SHELL_PROFILE_PREVIEW_MAX;
     int result_fd = -1;
@@ -363,10 +365,11 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
             output_bytes += keep;
             if (output_bytes > out.len) truncated = true;
             if (output_limited) break;
-        } else if (out.len < SHELL_MAX_OUT) {
-            buf_append(&out, tmp, got);
         } else {
-            truncated = true;
+            session_result_stream_append(capture, tmp, got);
+            size_t keep = got < SHELL_MAX_OUT - out.len ? got : SHELL_MAX_OUT - out.len;
+            buf_append(&out, tmp, keep);
+            if (keep < got) truncated = true;
         }
     }
     close(pipefd[0]);
@@ -489,7 +492,25 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     free(denied_path);
     free(result_path);
     buf_free(&out);
-    char *bounded = tool_bound_result(env, res.data, res.len);
+    /* Never advertise a spill of the already-truncated preview as the complete
+     * command log. The streaming capture owns recovery once the local cap hit. */
+    size_t shown = env->ctx->max_tool_result_bytes / 2;
+    if (shown > res.len) shown = res.len;
+    char *bounded =
+        truncated ? xstrndup(res.data, shown) : tool_bound_result(env, res.data, res.len);
+    char *notice = session_result_stream_finish(capture, truncated);
     buf_free(&res);
+    if (!notice) {
+        free(bounded);
+        bounded = NULL;
+    } else if (truncated && bounded) {
+        buf_init(&res);
+        buf_appends(&res, bounded);
+        buf_appends(&res, "\n…(output truncated)");
+        if (notice) buf_appends(&res, notice);
+        free(bounded);
+        bounded = buf_detach(&res);
+    }
+    free(notice);
     return bounded;
 }

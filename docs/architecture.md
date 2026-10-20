@@ -52,7 +52,8 @@ Each cell starts a fresh native execution process with a trusted context
 snapshot. Each cell's Python runs in a further fresh child with the host
 environment, the local workspace as working directory and the OS user's
 authority: files, sockets, subprocesses and the bundled standard library. The
-execution server captures its stdout/stderr (bounded) and answers its nested
+execution server keeps a bounded stdout/stderr preview and streams recoverable
+raw output into the existing session result store (ADR 0206), then answers its nested
 calls. Nested operations keep existing permissions, hooks and workspace policy;
 direct Python effects are not mediated by them, including under `--ssh` (where
 Python stays local) and restrictive modes or profiles. Direct provider tool

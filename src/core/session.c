@@ -1267,6 +1267,136 @@ char *session_store_result(tny_session_state *s, const char *data, size_t len) {
     return handle;
 }
 
+#define RESULT_STREAM_DISK_BYTES   (64u * 1024u * 1024u)
+#define RESULT_STREAM_MEMORY_BYTES (1024u * 1024u)
+
+struct session_result_stream {
+    tny_session_state *session;
+    buf_t memory;
+    size_t preview;
+    uint64_t total;
+    int fd;
+    char *handle, *temporary, *path;
+    bool failed;
+};
+
+static size_t result_memory_available(const tny_session_state *s) {
+    size_t available = RESULT_STREAM_MEMORY_BYTES;
+    for (int i = 0; i < s->n_mem_results; ++i) {
+        if (s->mem_results[i].len >= available) return 0;
+        available -= s->mem_results[i].len;
+    }
+    return available;
+}
+
+session_result_stream *session_result_stream_new(tny_session_state *s, size_t preview_bytes) {
+    session_result_stream *out = calloc(1, sizeof *out);
+    if (!out) return NULL;
+    out->session = s;
+    out->preview = preview_bytes;
+    out->fd = -1;
+    buf_init(&out->memory);
+    return out;
+}
+
+static bool result_stream_write(int fd, const char *data, size_t len) {
+    while (len) {
+        ssize_t n = write(fd, data, len);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return false;
+        data += n;
+        len -= (size_t)n;
+    }
+    return true;
+}
+
+static bool result_stream_open(session_result_stream *out) {
+    out->handle = gen_id();
+    char *dir = path_join(out->session->dir, "results");
+    bool ok = out->handle && dir && mkdir_p(dir) == 0;
+    buf_t path;
+    buf_init(&path);
+    if (ok) buf_appendf(&path, "%s/%s.txt", dir, out->handle);
+    free(dir);
+    out->path = buf_detach(&path);
+    if (!ok || !out->path) return false;
+    buf_init(&path);
+    buf_appendf(&path, "%s.tmp.XXXXXX", out->path);
+    out->temporary = buf_detach(&path);
+    if (!out->temporary) return false;
+    out->fd = mkstemp(out->temporary);
+    return out->fd >= 0 && fcntl(out->fd, F_SETFD, FD_CLOEXEC) == 0 &&
+           result_stream_write(out->fd, out->memory.data, out->memory.len);
+}
+
+void session_result_stream_append(void *stream, const char *data, size_t len) {
+    session_result_stream *out = stream;
+    if (!out) return;
+    if (len > UINT64_MAX - out->total) {
+        out->failed = true;
+        out->total = UINT64_MAX;
+        return;
+    }
+    out->total += len;
+    if (out->failed) return;
+    tny_session_state *s = out->session;
+    size_t limit = s && s->ctx->no_save ? result_memory_available(s) : RESULT_STREAM_DISK_BYTES;
+    if (!s || out->total > limit) {
+        out->failed = true;
+        return;
+    }
+    if (s->ctx->no_save || out->total <= out->preview) {
+        buf_append(&out->memory, data, len);
+        out->failed = out->memory.oom;
+        return;
+    }
+    if (out->fd < 0) {
+        if (!result_stream_open(out)) out->failed = true;
+        buf_free(&out->memory);
+    }
+    if (!out->failed && !result_stream_write(out->fd, data, len)) out->failed = true;
+}
+
+char *session_result_stream_finish(session_result_stream *out, bool needed) {
+    if (!out)
+        return xstrdup("\n[tny: full-output recovery unavailable: capture allocation failed]\n");
+    bool large = needed || out->total > out->preview;
+    if (large && !out->failed && out->session && !out->session->ctx->no_save && out->fd < 0)
+        out->failed = !result_stream_open(out);
+    if (large && !out->failed && out->session && out->session->ctx->no_save) {
+        if (out->memory.len > result_memory_available(out->session)) out->failed = true;
+        else out->handle = session_store_result(out->session, out->memory.data, out->memory.len);
+        if (!out->handle) out->failed = true;
+    }
+    if (out->fd >= 0) {
+        if (fsync(out->fd) != 0) out->failed = true;
+        if (close(out->fd) != 0) out->failed = true;
+        out->fd = -1;
+        if (!out->failed && rename(out->temporary, out->path) != 0) out->failed = true;
+    }
+    if (out->temporary) unlink(out->temporary);
+    buf_t notice;
+    buf_init(&notice);
+    if (large) {
+        if (!out->failed && out->handle)
+            buf_appendf(&notice,
+                        "\nFull output stored as handle \"%s\" (%llu bytes, raw stdout/stderr). "
+                        "Read with read_tool_result(handle, offset, length).\n",
+                        out->handle, (unsigned long long)out->total);
+        else
+            buf_appendf(&notice,
+                        "\n[tny: full-output recovery unavailable for %llu bytes: capture storage "
+                        "failed or retention limit exceeded; preview only]\n",
+                        (unsigned long long)out->total);
+    }
+    buf_free(&out->memory);
+    free(out->handle);
+    free(out->temporary);
+    free(out->path);
+    free(out);
+    return buf_detach(&notice);
+}
+
 char *session_read_result(tny_session_state *s, const char *handle, size_t off, size_t maxlen,
                           size_t *out_len) {
     if (!s || !handle || !out_len) return NULL;

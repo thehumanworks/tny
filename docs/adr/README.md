@@ -211,3 +211,5 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0194: Direct Inception Chat Completions default](0194-inception-chat-completions-default.md)
 
 - [0197: Subagent failure recovery](0197-subagent-failure-recovery.md) — preserve unlimited budgets, report safe failure classes and inspect partial work before continuation.
+
+- [0206: Recoverable execution output](0206-recoverable-execution-output.md) — bounded previews with retained raw diagnostics, without rerunning effects.
