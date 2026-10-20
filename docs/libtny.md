@@ -127,7 +127,7 @@ vocabulary. `python3 sdk/schema/check.py` verifies the C numeric constants and
 compares the committed TypeScript/Python type fixtures with isolated, deterministic
 generation. It reports missing or stale files without changing the checkout;
 run `python3 sdk/schema/generate.py` to update them deliberately. The
-compatibility contract is [ADR 0030](adr/0030-public-event-schema.md): new
+compatibility contract is [ADR 0030](adr/0196-public-event-schema.md): new
 optional fields are additive, consumers ignore unknown fields, and language
 SDKs preserve unknown future event kinds instead of failing the stream.
 

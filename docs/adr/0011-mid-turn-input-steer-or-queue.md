@@ -25,7 +25,7 @@ pinned protocol sources (`docs/sources.md`):
   host echoes the steered text as a `userMessage` item, which tny already
   suppresses on render.
 - **Cursor bridge** — a second `Send` on an agent with a live run is
-  rejected with `sdk_error_code = AGENT_BUSY` (`docs/errors.md`). There is
+  rejected with `sdk_error_code = AGENT_BUSY` (`AGENT_BUSY` = the agent session is busy, cannot accept another prompt). There is
   no steer RPC; the only options are `CancelRun` or waiting.
 - **ACP v1** — one `session/prompt` pending per connection, and it stays
   pending for the whole turn. No steer.

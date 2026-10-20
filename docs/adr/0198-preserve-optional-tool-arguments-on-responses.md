@@ -1,6 +1,10 @@
-# ADR 0136: Preserve optional tool arguments on Responses
+# ADR 0198: Preserve optional tool arguments on Responses
+
+
+Status: accepted
 
 Date: 2026-09-18. Status: accepted.
+Renumbered from ADR 0136 (serial collision with the repository-scoped-agent-discovery and terminal-background-completion ADRs) on 2026-10-19.
 
 ## Context and reproduction
 

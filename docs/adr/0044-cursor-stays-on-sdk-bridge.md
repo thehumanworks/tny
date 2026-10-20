@@ -1,7 +1,9 @@
 # 0044 — Cursor stays on the `sdk.v1` bridge; the private `agent.v1` route is rejected
 
 Date: 2026-08-28
-Status: accepted
+Status: superseded by ADR 0152; retained as historical context
+
+Historical note: The Cursor SDK Bridge implementation described here was retired with ADR 0152 (native OpenAI-compatible HTTP providers only). The bridge files no longer exist in the tree.
 
 ## Context
 

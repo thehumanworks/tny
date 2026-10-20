@@ -1,7 +1,7 @@
 # 0168 — Desktop companion: composer model picker and a flat visual language
 
 Date: 2026-09-23
-Status: experimental; extends [0166](0166-slint-desktop-companion.md)
+Status: experimental; extends [0166](historical-feature-adr0166.md)
 
 ## Context
 

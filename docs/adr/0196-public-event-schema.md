@@ -1,7 +1,8 @@
-# 0030 — One canonical public event schema for libtny and language SDKs
+# ADR 0196: One canonical public event schema for libtny and language SDKs
 
 Date: 2026-08-26
 Status: accepted
+Renumbered from ADR 0030 (serial collision with the settings-schema ADR) on 2026-10-19.
 
 ## Context
 

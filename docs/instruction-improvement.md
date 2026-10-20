@@ -65,7 +65,7 @@ and standalone tools do not run this loop. Help/version do not load learner
 state. Opt-out follows detached runners, subagents, nested terminal commands and
 job launches.
 
-See [ADR 0154](adr/0154-default-automatic-workflow-learning.md) and the
+See [ADR 0154](adr/0201-default-automatic-workflow-learning.md) and the
 [automatic-learning evidence](verification/automatic-learning/README.md).
 
 ## Optional: broader instruction experiments
@@ -76,7 +76,7 @@ Fixed external checks, a finite candidate budget, archived evidence and separate
 promotion bound the loop. It is an element of recursive self-improvement, not
 open-ended autonomous self-modification.
 
-The [research and decision](adr/0153-bounded-instruction-evolution.md) draw on
+The [research and decision](adr/0200-bounded-instruction-evolution.md) draw on
 SoL-Pi, GEPA, Darwin Gödel Machine and ACE. No result from those systems is a tny
 benchmark result.
 

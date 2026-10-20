@@ -58,13 +58,12 @@ files in this directory are the complete record.
 | [0041](0041-session-wait.md) | `tny session <id> --wait [--timeout SECS]` blocks on the 0031 writer-lock probe until a background turn finalizes and exits with the turn's `exit_code` (124 on timeout) |
 | [0042](0042-help-flag-alignment.md) | CLI parser flags and rendered help are checked in both directions, and root help must list every dispatched subcommand |
 | [0043](0043-macho-version-floor.md) | Mach-O current_version floors at 1.0.0 for every pre-1.0 product version so 0.y.z release tags build libtny on macOS |
-| [0044](0044-cursor-stays-on-sdk-bridge.md) | Cursor stays on the `sdk.v1` bridge; the private `agent.v1` HTTP/2 route measured slower per warm turn (2.2–2.6 s vs 1.3–1.4 s) and would cost HTTP/2, protobuf, and a CLI-pinned executor protocol |
+| [0044](0044-cursor-stays-on-sdk-bridge.md) | Cursor stays on the `sdk.v1` bridge; the private `agent.v1` HTTP/2 route measured slower per warm turn (2.2–2.6 s vs 1.3–1.4 s) and would cost HTTP/2, protobuf, and a CLI-pinned executor protocol. *(superseded by ADR 0152; retained as historical context)* |
 | [0045](0045-system-prompt-flag.md) | `--system-prompt` rides the openai system/instructions field natively; cursor, codex and ACP pin no such schema field, so the engine prepends the text to the first user message of a fresh session |
-| [0045](0045-monorepo-and-tnytty.md) | The repo is a monorepo by addition: the harness keeps the root (Pages/release/packaging pin root paths), sibling apps like `tnytty/` are self-contained top-level dirs sharing `third_party/` and the quality gates |
 | [0047](0047-scriptable-workflow-dags.md) | Shell, Python and TypeScript expose one validated dependency DAG: bounded parallel tasks, ordered direct-output fan-in, blocked descendants, independent branch completion, and explicit cancellation |
 | [0048](0048-runtime-task-presets.md) | Runtime-owned task presets with deterministic discovery, source-safe metadata, ABI 1.1 embedding, workflow isolation, and session-scoped resume semantics |
 | [0049](0049-mcp-background-warmup.md) | Native sessions warm `~/.tny/mcp.json` servers on background threads at session start and inject a capped cached `server/tool` catalog into the system prompt; calls stay on `mcp_select_tool`, failures stay silent until a call, wasm stays lazy |
-| [0050](0050-complete-cursor-sdk-v1.md) | Implement the complete public Cursor SDK Bridge v1.0.30 contract while retaining the external host and rejecting private agent.v1 |
+| [0050](0050-complete-cursor-sdk-v1.md) | Implement the complete public Cursor SDK Bridge v1.0.30 contract while retaining the external host and rejecting private agent.v1. *(superseded by ADR 0152; retained as historical context)* |
 | [0051](0051-mcp-streamable-http.md) | Remote MCP uses POST-only Streamable HTTP with legacy sessions and stateless 2026-07-28 negotiation; GET/SSE and SSE responses fail actionably; wasm is remote-only |
 | [0052](0052-mcp-import-from-harnesses.md) | Opt-in `mcp.import_from` reads documented user/project MCP configs from Codex, Claude Code, Grok Build, and cursor-agent; `~/.tny/mcp.json` wins; remote entries are skipped behind a transport capability seam; TOML uses a bounded subset parser |
 | [0053](0053-forked-turn-isolation.md) | Every turn runs in a detached session-runner process (no tmux): the caller renders an NDJSON stream from `<session>/sock`, caller death detaches instead of killing the agent, `session attach` watches live runs; wasm/`--ephemeral`/`TNY_ISOLATE=0` stay in-process. The Linux 1 MiB size gate named here is historical ([0150](0150-agent-first-harness-and-measured-footprint.md)). |
@@ -140,7 +139,8 @@ files in this directory are the complete record.
 - [0133 — Owned sub-agent launch snapshots](0133-owned-subagent-launch-snapshots.md)
 - [0134 — Preserve edit permissions and require integration tests](0134-preserve-edit-permissions-and-require-integration-tests.md)
 - [0135 — Clean disposable build variants](0135-clean-build-variants.md)
-- [0136 — Preserve optional tool arguments on Responses](0136-preserve-optional-tool-arguments-on-responses.md)
+- [0198 — Preserve optional tool arguments on Responses](0198-preserve-optional-tool-arguments-on-responses.md)
+- [0199 — Repository-scoped background-agent discovery](0199-repository-scoped-background-agent-discovery.md)
 - [0137 — Linux/macOS CI and optional developer Nix](0137-linux-macos-ci-and-optional-nix.md)
 - [0138 — Full-screen agents dashboard](0138-full-screen-agents-dashboard.md)
 - [0139 — Subagent provider, model and reasoning effort](0139-subagent-provider-model-and-effort.md)
@@ -175,7 +175,7 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0163: Explicit reasoning effort for embedded runtimes](0163-sdk-reasoning-effort.md) — ABI 1.3 `tny_runtime_options_v3`, `reasoning_effort` / `reasoningEffort` in both SDKs.
 
 - [0164: Optional ACP clients with an owning-runtime MCP bridge](0164-optional-acp-clients.md)
-- [0166: Experimental Slint desktop companion](0166-slint-desktop-companion.md) — CLI-backed Linux desktop UI; iOS and full runner control deferred.
+- [0166: Experimental Slint desktop companion (retired)](historical-feature-adr0166.md) — CLI-backed Linux desktop UI; retired by ADR 0195.
 - [0168: Desktop model picker and visual language](0168-desktop-model-picker-and-visual-language.md) — composer provider/model picker with lazy catalogs; flat, shadow-elevated UI with tooltips.
 - [0169: Desktop effort picker, working folder, Markdown replies and proven turn status](0169-desktop-effort-folder-markdown-and-verified-turn-status.md) — Lean 4 proofs of the GUI state machines, replayed by Rust tests.
 - [0170: Codex catalog discovery version](0170-codex-catalog-discovery-version.md) — live model queries avoid Codex CLI minimum-version filtering.
@@ -200,6 +200,10 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 
 - [0191 — Metadata-driven releases](0191-metadata-driven-releases.md)
 - [0192: Budgeted recoverable working context](0192-budgeted-recoverable-working-context.md) — reversible old tool-output references at native request boundaries; preserve exact user constraints and latest batches instead of automatic lossy turn summaries.
+- [0200 — Bounded instruction evolution](0200-bounded-instruction-evolution.md)
+- [0201 — Default automatic workflow learning](0201-default-automatic-workflow-learning.md)
+- [0202 — Verification value density](0202-verification-value-density.md)
+- [0203 — Explicit current-route benchmark profiles](0203-current-route-benchmarks.md)
 - [0193: Strict owned command checks](0193-strict-owned-command-checks.md) — opt-in Linux guardian adoption and drainage without changing ordinary shell semantics.
 
 - [0195: Retire unused desktop interfaces](0195-retire-unused-desktop-interfaces.md) — remove Slint and the independent terminal emulator; preserve harness durability.

@@ -333,10 +333,10 @@ timing or pass-rate gate. They are run deliberately, and their numbers are
 recorded in the ADR that motivated them.
 
 `tests/bench/bench_ttft.py` measures time-to-first-token against the strict
-openai mock ([ADR 0004](adr/0004-ttft.md)).
+openai mock ([ADR 0004](adr/0004-time-to-first-token.md)).
 
 `tests/bench/bench_tools.py` is the three-arm A/B of the native tool profiles
-`all`, `terminal+edit` and `terminal` ([ADR 0062](adr/0062-tool-profiles.md)),
+`all`, `terminal+edit` and `terminal` ([ADR 0062](adr/0062-native-tool-profiles-advertise-and-enforce.md)),
 whose result is recorded in the Measurement section of
 [ADR 0057](adr/0057-shell-first-native-loop.md). Every run copies one frozen
 fixture from `tests/bench/fixtures/tools/<task>/` into a fresh scratch
