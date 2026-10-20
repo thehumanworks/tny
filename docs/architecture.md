@@ -66,7 +66,7 @@ Wasm returns an unsupported-execution error because it cannot spawn this server.
 Independent nested reads can use `tools.parallel(calls_json)`: up to four
 fresh-exec workers, ordered owner-side admission/settlement and serial barriers
 for stateful tools. Provider-level Python cells remain serial. See
-[ADR 0196](adr/0196-parallel-read-tool-batches.md).
+[ADR 0204](adr/0204-parallel-read-tool-batches.md).
 
 ## Embedding boundary
 

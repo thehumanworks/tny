@@ -1,4 +1,4 @@
-# 0196 — Parallel read-tool batches
+# 0204 — Parallel read-tool batches
 
 Date: 2026-10-19
 Status: accepted
