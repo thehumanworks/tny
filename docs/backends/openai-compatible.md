@@ -50,7 +50,7 @@ format; old sessions resume unchanged). The responses wire translates at
 request time (`src/backends/openai/responses.cpp`).
 
 Function tools explicitly use `strict: false` unless their source definition
-sets a boolean strict value ([ADR 0136](../adr/0136-preserve-optional-tool-arguments-on-responses.md)).
+sets a boolean strict value ([ADR 0136](../adr/0198-preserve-optional-tool-arguments-on-responses.md)).
 An absent or null strict setting therefore retains Chat Completions' non-strict
 semantics instead of letting Responses promote optional properties to required
 ones. Parameter schemas are unchanged; local tool validation and permission

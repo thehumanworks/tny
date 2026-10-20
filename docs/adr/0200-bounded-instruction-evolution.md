@@ -1,9 +1,12 @@
-# ADR 0153: Bounded, evidence-gated instruction evolution
+# ADR 0200: Bounded instruction evolution
+
+Status: accepted
 
 - Status: accepted
 - Date: 2026-09-19
-- Extended by [ADR 0154](0154-default-automatic-workflow-learning.md): automatic
+- Extended by [ADR 0154](0201-default-automatic-workflow-learning.md): automatic
   native recovery learning is now default-on; the controller below stays optional.
+- Renumbered from ADR 0153 (serial collision with the environment-keys-and-oauth-credentials ADR) on 2026-10-19.
 
 ## Context and research
 

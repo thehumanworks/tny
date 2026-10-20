@@ -1,5 +1,8 @@
 # ADR 0114: Private C++20 streaming parser ownership
 
+Status: Historical — superseded by ADR 0114 (private C++20 ownership boundaries).
+
+- Status: Historical — superseded by ADR 0114 (private C++20 ownership boundaries).
 - Status at creation: accepted
 - Date: 2026-09-16
 - Requirements: P1-I1 through P1-I5 in [phase 1](../verification/cpp-phase-1/contract.md)

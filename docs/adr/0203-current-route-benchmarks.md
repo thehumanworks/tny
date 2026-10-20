@@ -1,6 +1,7 @@
-# ADR 0192: Explicit current-route benchmark profiles
+# ADR 0203: Explicit current-route benchmark profiles
 
 Status: accepted. Date: 2026-10-19.
+Renumbered from ADR 0192 (serial collision with the budgeted-recoverable-working-context ADR) on 2026-10-19.
 
 ## Decision
 

@@ -435,7 +435,7 @@ it. In the TUI a builtin slash command always wins over a same-named skill.
 
 ## Subagents
 
-Durable child sessions ([ADR 0087](../adr/0087-explicit-subagent-contract-and-private-launch.md)). Each child is an ordinary workspace session run by a separate `tny ask` process; the parent receives only the child's final answer, never its transcript. The tool is owned by the native parent loop. A child may select any configured native HTTP profile. See [ADR 0139](../adr/0139-subagent-provider-model-and-effort.md).
+Durable child sessions ([ADR 0087](../adr/0197-explicit-subagent-contract-and-private-launch.md)). Each child is an ordinary workspace session run by a separate `tny ask` process; the parent receives only the child's final answer, never its transcript. The tool is owned by the native parent loop. A child may select any configured native HTTP profile. See [ADR 0139](../adr/0139-subagent-provider-model-and-effort.md).
 
 `create` and `message` wait synchronously for the complete child turn and consume
 the enclosing `run_code` budget. Its default is ten minutes; an explicit shorter
@@ -500,7 +500,7 @@ All supplied selectors must be nonempty UTF-8 strings without embedded NULs;
 null and empty strings are invalid. `inspect` and `lifecycle` accept none.
 
 On the Responses wire (including Codex), function definitions explicitly retain
-non-strict optional arguments ([ADR 0136](../adr/0136-preserve-optional-tool-arguments-on-responses.md)).
+non-strict optional arguments ([ADR 0136](../adr/0198-preserve-optional-tool-arguments-on-responses.md)).
 Without this setting, provider strict normalization can force `id` on every
 `create` and `prompt` on every `inspect`/`lifecycle`, contradicting the tool's
 contract even after a steer. The fix is in request translation, not a relaxation

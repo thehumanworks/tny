@@ -30,7 +30,7 @@ Noul, not the separate ordinal Score primitive. See [tnyjev](tnyjev.md).
 ## Bounded instruction evolution (2026-09-19)
 
 Primary-source snapshots and applicability are recorded in
-[ADR 0153](adr/0153-bounded-instruction-evolution.md):
+[ADR 0153](adr/0200-bounded-instruction-evolution.md):
 
 - SoL-Pi: https://github.com/NVlabs/SoL-Pi/tree/bd005888b9b8a3fcdb511feb91fc27d3dfa8f2b1
   and https://arxiv.org/html/2609.20519v1

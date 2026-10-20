@@ -1,5 +1,6 @@
 # ADR 0117: Runner and durable job resource ownership
 
+Status: Historical — superseded by ADR 0118 (runner and durable job resource ownership).
 Date: 2026-09-16. Status: implemented; full contract verification incomplete.
 Scope: issue #139, P3-I1 through P3-I6.
 

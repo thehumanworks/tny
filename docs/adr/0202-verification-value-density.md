@@ -1,6 +1,7 @@
-# ADR 0190: Verification must earn its maintenance and execution cost
+# ADR 0202: Verification value density
 
 Status: accepted, 2026-10-19.
+Renumbered from ADR 0190 (serial collision with the cache-stable-context-and-bounded-discovery ADR) on 2026-10-19.
 
 A proof of an independent model is useful design guidance, but only a
 source-derived check or explicit production correspondence detects code drift.

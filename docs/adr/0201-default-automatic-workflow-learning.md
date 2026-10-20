@@ -1,8 +1,11 @@
-# ADR 0154: Automatic workflow learning is on by default
+# ADR 0201: Default automatic workflow learning
+
+Status: accepted
 
 - Status: accepted
 - Date: 2026-09-19
-- Extends [ADR 0153](0153-bounded-instruction-evolution.md)
+- Extends [ADR 0153](0200-bounded-instruction-evolution.md)
+- Renumbered from ADR 0154 (serial collision with the agents-session-inspection-and-continuation ADR) on 2026-10-19.
 
 ## Context
 

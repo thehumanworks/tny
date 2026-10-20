@@ -1,8 +1,7 @@
 # ADR 0118: Allocation-free provider OOM settlement
 
+Status: Historical — superseded by ADR 0117 (allocation-free provider OOM settlement).
 Date: 2026-09-16
-Status: accepted
-
 ## Context
 
 ADR 0116 reserves the runtime ERROR/TURN_END pair, but ordinary provider cancel

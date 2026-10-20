@@ -1,7 +1,9 @@
 # 0050 — Implement the complete public Cursor SDK Bridge v1 contract
 
 Date: 2026-08-31
-Status: accepted
+Status: superseded by ADR 0152; retained as historical context
+
+Historical note: The Cursor SDK Bridge implementation described here was retired with ADR 0152 (native OpenAI-compatible HTTP providers only). The bridge files no longer exist in the tree.
 
 ## Context
 

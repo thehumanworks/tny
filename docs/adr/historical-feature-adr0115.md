@@ -1,5 +1,6 @@
 # ADR 0115: Startup and size reporting for the mixed-language series
 
+Status: Historical — superseded by ADR 0115 (owned stream decoding and failure boundaries).
 Date: 2026-09-16. Status: accepted; reporting policy `0115-v1` frozen before
 migration candidate evaluation. Scope: issue #137 item 6 and the cumulative
 series performance comparison. Language policy is allocated ADR 0114.

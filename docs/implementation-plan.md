@@ -17,7 +17,7 @@ OAuth, and Grok public/subscription HTTP. No agent executable or ACP server.
    artifact size/dependencies in the verification directory.
 
 Automatic recovery-policy learning is default-on in the native workflow
-([ADR 0154](adr/0154-default-automatic-workflow-learning.md)). Use typed execution
+([ADR 0154](adr/0201-default-automatic-workflow-learning.md)). Use typed execution
 facts and bounded workspace evidence; preserve task and permission authority.
 The optional broader instruction experiment remains separate (ADR 0153), with
 independent evaluation, explicit promotion and held-out reporting.

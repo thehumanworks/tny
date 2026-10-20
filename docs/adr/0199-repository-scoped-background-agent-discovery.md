@@ -1,6 +1,7 @@
-# 0136 — Repository-scoped background-agent discovery
+# ADR 0199: Repository-scoped background-agent discovery
 
 Status: Accepted — 2026-09-18.
+Renumbered from ADR 0136 (serial collision with the preserve-optional-tool-arguments and terminal-background-completion ADRs) on 2026-10-19.
 Amends ADR 0107's workspace-local dashboard scope.
 
 ## Root cause

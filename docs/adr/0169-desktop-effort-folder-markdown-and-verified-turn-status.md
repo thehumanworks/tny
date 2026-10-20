@@ -1,7 +1,7 @@
 # 0169 — Desktop companion: effort picker, working folder, Markdown replies and a proven turn status
 
 Date: 2026-09-23
-Status: experimental; extends [0166](0166-slint-desktop-companion.md) and [0168](0168-desktop-model-picker-and-visual-language.md)
+Status: experimental; extends [0166](historical-feature-adr0166.md) and [0168](0168-desktop-model-picker-and-visual-language.md)
 
 ## Context
 

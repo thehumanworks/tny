@@ -3,6 +3,8 @@
 Date: 2026-08-22
 Status: accepted
 
+Note: The Cursor-bridge section below is historical. The Cursor backend was removed when ADR 0152 restricted providers to the native HTTP backend; the files it cites (`src/backends/cursor/cursor.c`, `tests/integration/mock_bridge.py`, `test_cursor.sh`) no longer exist in the tree.
+
 ## Context
 
 Several providers sell a paid low-latency tier, each under its own name and
@@ -14,14 +16,14 @@ in its own place on the wire:
   accepts `priority`.
 - **Codex app-server** — `thread/start.serviceTier` (`priority`), fixed for
   the thread's lifetime, so changing it means a new thread.
-- **Cursor bridge** — not a request field at all: a per-model
-  `ModelSelection.params` entry `{"id":"fast","value":"true"|"false"}`. A
-  model's *default* variant may already be the fast one; omitting the param
-  keeps that default.
+- *(historical — superseded by ADR 0152)* **Cursor bridge** — not a request
+  field at all: a per-model `ModelSelection.params` entry
+  `{"id":"fast","value":"true"|"false"}`. A model' *default* variant could
+  already be the fast one; omitting the param kept that default.
 - **ACP** — `session/new` has no tier field.
 
 Before #9, `/fast` existed only as the codex service tier. #7 (ADR 0009)
-added reasoning effort, which on cursor also rides `ModelSelection.params`.
+added reasoning effort, which on cursor also rode `ModelSelection.params`.
 The two landed in parallel and had to be merged.
 
 ## Decision
@@ -36,17 +38,19 @@ capable providers) rather than silently dropping it.**
   (the paid tier — both spellings, `tny_tier_is_fast`), or `default`
   (explicitly the standard tier). It is process memory only, like effort.
 - Wire: openai `"service_tier":"priority"`; codex `serviceTier:"priority"`;
-  cursor `{"id":"fast","value":"true"}` (`"false"` for `default`).
-- **Cursor composes effort and fast into one `params` array**
-  (`append_model_selection`, `src/backends/cursor/cursor.c`). The bridge
-  drops unknown ids silently, so the integration mock
-  (`tests/integration/mock_bridge.py`) asserts each param independently and
-  rejects any other id; `test_cursor.sh` run 5 sends both flags together.
+  cursor *(historical — superseded by ADR 0152)* `{"id":"fast","value":"true"}`
+  (`"false"` for `default`).
+- *(historical — superseded by ADR 0152)* **Cursor composed effort and fast into
+  one `params` array** (`append_model_selection`,
+  `src/backends/cursor/cursor.c`). The bridge dropped unknown ids silently, so
+  the integration mock (`tests/integration/mock_bridge.py`) asserted each param
+  independently and rejected any other id; `test_cursor.sh` run 5 sent both
+  flags together.
 - `SendOptions.model` is sent only when effort or tier is set, so runs
   without either keep the model's own default variant.
 - TUI `/fast [fast|priority|default]` mirrors the flag. On codex it rebinds
-  (the tier lives on `thread/start`); on openai and cursor it applies from
-  the next turn.
+  (the tier lives on `thread/start`); on openai it applies from the next turn;
+  on cursor *(historical — superseded by ADR 0152)* the same applied.
 
 ## Consequences
 

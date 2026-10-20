@@ -1,7 +1,8 @@
-# 0087 — Explicit subagent contract and private child launch
+# ADR 0197: Explicit subagent contract and private launch
 
 Date: 2026-09-11
-Status: proposed; implementation and behavioral verification pending
+Status: accepted
+Renumbered from ADR 0087 (serial collision with the stream-completion-and-continuation ADR) on 2026-10-19.
 Requirements: R123.1–R123.5; verification contract docs/verification/open-issues-2026-09-11/contract.md, amendment A1.
 Relates to ADRs 0031, 0058, 0063 and 0081. Existing finalized ADRs and index remain unchanged.
 

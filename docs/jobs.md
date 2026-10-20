@@ -385,7 +385,7 @@ identity and verifier under the job state lock before granting member operations
 | --- | --- |
 | Shell | `tny jobs …` (`tny jobs --help`) |
 | Agent tools | `job_submit`, `job_control`, `job_status` |
-| Terminal tool | `tny jobs …` typed into `terminal` is intercepted into the tools above ([ADR 0063](adr/0063-tny-verb-interception.md)) |
+| Terminal tool | `tny jobs …` typed into `terminal` is intercepted into the tools above ([ADR 0063](adr/0063-in-process-intercept-of-first-party-verbs.md)) |
 
 All three go through one service: the same validation, the same records and
 the same permission identities. A `tny jobs` command the interceptor cannot

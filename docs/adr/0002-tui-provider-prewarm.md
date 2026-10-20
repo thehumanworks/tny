@@ -1,7 +1,9 @@
 # 0002 — The TUI pre-warms the provider's host at startup
 
 Date: 2026-08-20
-Status: accepted (amends the "no backend spawn until a turn starts" invariant). Codex references are historical: [ADR 0065](0065-codex-chatgpt-responses-backend.md) turned `codex` into a builtin profile of the native loop (no host process).
+Status: accepted (mechanism superseded by ADRs 0053 and 0166; retained as historical context)
+
+(amends the "no backend spawn until a turn starts" invariant). Codex references are historical: [ADR 0065](0065-codex-chatgpt-responses-backend.md) turned `codex` into a builtin profile of the native loop (no host process).
 
 ## Context
 
@@ -17,37 +19,7 @@ dead air on what should feel like a chat.
 **The interactive TUI starts the host and initializes it as soon as the shell
 paints. One-shot CLI commands stay fully lazy.**
 
-Mechanics (`src/tui/tui_prewarm.c`):
-
-- Right after the banner (and again after `/provider`, `/model`, `/fast`,
-  `/resume`, `/new` drop the bound backend), the TUI calls
-  `tui_prewarm_start`, which creates the backend object and runs its
-  `connect()` — spawn + ready-wait + handshake — on a detached pthread.
-- The first turn *adopts* the connected backend (`tui_prewarm_take`). If the
-  warm-up is still mid-connect, take blocks on a condvar — worst case equals
-  the old lazy behavior.
-- **Amended 2026-08-20 (docs/adr/0004):** the thread also runs
-  `create_or_resume` (thread/start, CreateAgent, session/new) against a
-  resume pointer frozen at `tui_prewarm_start` — for cursor this removes a
-  ~300 ms cloud round trip from the Enter path. This is safe because every
-  ctx mutation that `create_or_resume` reads (model, tier, workspace dirs,
-  provider, session) already drops-and-rewarms; those command paths now call
-  `tui_prewarm_drop` *before* mutating, and drop waits out only the
-  create_or_resume window (connect stays fully async). A pending warm-up is
-  also invalidated when the resume pointer no longer matches the session.
-  Backends must not *write* ctx from `create_or_resume` (cursor's model
-  write-back moved to `send`).
-- If the adopted host died while the shell sat idle, that now surfaces at
-  `send()` instead of at `create_or_resume`: the first send on a
-  freshly-adopted backend retries once through the ordinary lazy path.
-- A pre-warm failure is **silent**; the error resurfaces on the lazy path at
-  first prompt, exactly where it appeared before.
-- Abandonment (provider switch, quit) flags the warm-up; whoever finishes
-  last — the thread or the main loop — disconnects and destroys the backend.
-- Applicability: codex always (spawn or `--codex-ws` attach), cursor only if
-  `CURSOR_API_KEY` is set, ACP only with an `--agent` argv, openai never
-  (plain per-turn HTTPS, nothing to warm). Missing-credential providers must
-  fail at the first prompt with today's error, not spawn doomed processes.
+The original mechanism (a `src/tui/tui_prewarm.c` module with `tui_prewarm_start`/`tui_prewarm_take` called after the banner and after `/provider`, `/model`, `/fast`, `/resume`, `/new` dropped the bound backend) was removed. Interactive and one-shot turns now run in detached session runners ([ADR 0053](0053-forked-turn-isolation.md) and [ADR 0166](0166-global-sessions-and-immediate-backgrounding.md)); see those ADRs for the current startup model.
 
 ## Why a thread, given the one-event-loop rule
 
