@@ -144,7 +144,7 @@ struct tny_subagent_plan_owner {
             arg(effort);
         }
         char steps[16];
-        if (ctx.max_steps > 0) {
+        if (ctx.max_steps >= 0) {
             std::snprintf(steps, sizeof steps, "%d", ctx.max_steps);
             arg("--max-steps");
             arg(steps);

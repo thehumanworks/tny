@@ -1055,8 +1055,8 @@ def scenario_permission_ceiling(provider, home, workspace):
         check(
             result
             == f"error: SUBAGENT_CHILD_FAILED: child {sid} failed (exit 2); its session "
-            "keeps the details. Check "
-            f'{{"action":"lifecycle","id":"{sid}"}} and retry with action=message',
+            "keeps the details. Reason: unknown failure; inspect the child before continuing. Check "
+            f'{{"action":"inspect","id":"{sid}"}} before continuing with action=message; do not recreate completed work',
             result,
         )
         doc = session_doc(home, sid)
@@ -1086,7 +1086,11 @@ def scenario_step_ceiling(provider, home, workspace):
     requests = provider.child_requests("stepcap")
     check(len(requests) == 3, f"child exceeded or ignored inherited cap: {requests}")
     assert_child_argv(provider, "stepcap", present=("--max-steps 3",))
-    check("SUBAGENT_CHILD_FAILED" in provider.results[scenario][0], payload)
+    check(
+        "Reason: step limit reached; increase --max-steps"
+        in provider.results[scenario][0],
+        payload,
+    )
 
     resumed = "step-ceiling-resume"
     provider.plan(
@@ -1119,6 +1123,35 @@ def scenario_step_ceiling(provider, home, workspace):
         present=("--max-steps 3", f"--resume-id {provider.created_id(resumed)}"),
     )
     check("SUBAGENT_CHILD_FAILED" in provider.results[resumed][1], payload)
+
+
+def scenario_unlimited_ceiling(provider, home, workspace):
+    """An explicit unlimited parent must not reload a repo cap in its child."""
+    config = os.path.join(workspace, ".tny.json")
+    with open(config, "w", encoding="utf-8") as f:
+        json.dump({"steps": 2}, f)
+    try:
+        for wire in ("chat", "responses"):
+            scenario = "unlimited-" + wire
+            tag = "stepcap-unlimited-" + wire
+            provider.plan(
+                scenario,
+                ("subagent", {"action": "create", "prompt": f"child-task:{tag} x"}),
+            )
+            payload = run_parent(
+                base_env(home, provider),
+                workspace,
+                scenario,
+                flags=(*DEFAULT_FLAGS, "--wire-api", wire, "--max-steps", "0"),
+            )
+            check(statuses(payload) == [("subagent", "success")], payload)
+            check(
+                len(provider.child_requests(tag)) == 6,
+                "unlimited child inherited repo step cap",
+            )
+            assert_child_argv(provider, tag, present=("--max-steps 0",))
+    finally:
+        os.unlink(config)
 
 
 def scenario_in_process(provider, home, workspace):
@@ -1208,6 +1241,7 @@ def run():
             scenario_chatgpt_flag(provider, home, workspace)
             scenario_permission_ceiling(provider, home, workspace)
             scenario_step_ceiling(provider, home, workspace)
+            scenario_unlimited_ceiling(provider, home, workspace)
             scenario_in_process(provider, home, workspace)
             scenario_ephemeral(provider, home)
     finally:

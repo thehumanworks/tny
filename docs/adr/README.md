@@ -209,15 +209,4 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0195: Retire unused desktop interfaces](0195-retire-unused-desktop-interfaces.md) — remove Slint and the independent terminal emulator; preserve harness durability.
 - [0194: Direct Inception Chat Completions default](0194-inception-chat-completions-default.md)
 
-## Historical records
-
-Records retained under the `historical-feature-adrNNNN.md` convention (ADR 0123)
-are superseded or were draft duplicates; they are preserved verbatim for
-history and do not claim an active serial.
-
-- [0045 — Monorepo and tnytty](historical-feature-adr0045.md) — superseded by ADR 0195.
-- [0114 — Private C++20 parser ownership](historical-feature-adr0114.md) — superseded by ADR 0114 (ownership boundaries).
-- [0115 — Startup size reporting](historical-feature-adr0115.md) — superseded by ADR 0115 (owned stream decoding).
-- [0117 — Runner and durable job resource ownership](historical-feature-adr0117.md) — superseded by ADR 0118.
-- [0118 — Allocation-free provider OOM settlement](historical-feature-adr0118.md) — superseded by ADR 0117.
-- [0166 — Experimental Slint desktop companion](historical-feature-adr0166.md) — superseded by ADR 0195.
+- [0197: Subagent failure recovery](0197-subagent-failure-recovery.md) — preserve unlimited budgets, report safe failure classes and inspect partial work before continuation.

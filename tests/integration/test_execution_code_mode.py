@@ -265,6 +265,258 @@ class ExecutionCodeMode(unittest.TestCase):
         self.assertEqual(len(self.server.outputs), 1, self.server.outputs)
         return self.server.outputs[0]
 
+    @unittest.skipIf(WASM, "fresh-exec parallel workers require native processes")
+    def test_parallel_reads_overlap_and_keep_result_order_on_both_wires(self):
+        # A serial implementation cannot pass this rendezvous: no HTTP
+        # response is sent until four independent effects have arrived.
+        barrier = threading.Barrier(4)
+        observations = []
+
+        class Rendezvous(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_GET(self):
+                observations.append(self.path)
+                try:
+                    barrier.wait(timeout=5)
+                    body = self.path.encode()
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                except threading.BrokenBarrierError:
+                    self.send_error(500, "calls did not overlap")
+
+        web = ThreadingHTTPServer(("127.0.0.1", 0), Rendezvous)
+        thread = threading.Thread(target=web.serve_forever, daemon=True)
+        thread.start()
+        try:
+            for wire in ("responses", "chat"):
+                with self.subTest(wire=wire):
+                    calls = [
+                        {
+                            "name": "web_fetch",
+                            "arguments": {
+                                "url": f"http://127.0.0.1:{web.server_port}/{index}"
+                            },
+                        }
+                        for index in range(8)
+                    ]
+                    output = self.run_code(
+                        f"print(tools.parallel({json.dumps(calls)!r}))", wire=wire
+                    )
+                    results = json.loads(output)
+                    self.assertEqual(len(results), 8)
+                    for index, result in enumerate(results):
+                        self.assertTrue(result.startswith("HTTP 200"), result)
+                        self.assertTrue(result.endswith(f"/{index}"), result)
+                    self.assertNotIn("error:", output)
+            self.assertEqual(len(observations), 16)
+        finally:
+            web.shutdown()
+            thread.join(timeout=3)
+            web.server_close()
+
+    @unittest.skipIf(WASM, "fresh-exec parallel workers require native processes")
+    def test_parallel_stateful_barriers_and_failure_results(self):
+        calls = [
+            {
+                "name": "write_file",
+                "arguments": {"path": "ordered.txt", "content": "first"},
+            },
+            {"name": "read_file", "arguments": {"path": "ordered.txt"}},
+            {"name": "read_file", "arguments": {"path": "missing.txt"}},
+            {
+                "name": "write_file",
+                "arguments": {"path": "ordered.txt", "content": "last"},
+            },
+            {"name": "read_file", "arguments": {"path": "ordered.txt"}},
+        ]
+        output = self.run_code(f"print(tools.parallel({json.dumps(calls)!r}))")
+        results = json.loads(output)
+        self.assertEqual(len(results), len(calls))
+        self.assertEqual(results[1], "first")
+        self.assertTrue(results[2].startswith("error:"), results[2])
+        self.assertEqual(results[4], "last")
+        self.assertEqual((self.workspace / "ordered.txt").read_text(), "last")
+
+    @unittest.skipIf(WASM, "fresh-exec parallel workers require native processes")
+    def test_parallel_rejects_malformed_batch_before_effects(self):
+        calls = [
+            {
+                "name": "write_file",
+                "arguments": {"path": "must-not-exist", "content": "x"},
+            },
+            {"name": "__parallel", "arguments": {}},
+        ]
+        output = self.run_code(f"print(tools.parallel({json.dumps(calls)!r}))")
+        self.assertIn("recursive batches forbidden", output)
+        self.assertFalse((self.workspace / "must-not-exist").exists())
+
+    @unittest.skipIf(WASM, "fresh-exec parallel workers require native processes")
+    def test_parallel_spills_remain_readable_and_profile_is_not_widened(self):
+        (self.workspace / "large-a").write_text("a" * 40000)
+        (self.workspace / "large-b").write_text("b" * 40000)
+        calls = [
+            {"name": "read_file", "arguments": {"path": path}}
+            for path in ("large-a", "large-b")
+        ]
+        output = self.run_code(
+            f"results = json.loads(tools.parallel({json.dumps(calls)!r}))\n"
+            "import re\n"
+            "for result in results:\n"
+            '    handle = re.search(r\'handle "([^"]+)"\', result).group(1)\n'
+            "    print(tools.call('read_tool_result', json.dumps({'handle': handle, 'offset': 39998, 'length': 2})))\n"
+        )
+        self.assertIn("aa", output)
+        self.assertIn("bb", output)
+        denied = self.run_code(
+            f"print(tools.parallel({json.dumps(calls)!r}))",
+            env={"TNY_TOOLS": "terminal"},
+        )
+        self.assertIn("error:", denied)
+        self.assertNotIn("aaaa", denied)
+
+    @unittest.skipIf(WASM, "fresh-exec parallel workers require native processes")
+    def test_parallel_owner_stop_cancels_outstanding_read_and_later_write(self):
+        entered = threading.Event()
+        release = threading.Event()
+
+        class Reads(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_GET(self):
+                if self.path == "/slow":
+                    entered.set()
+                    release.wait(timeout=8)
+                    return
+                if not entered.wait(timeout=3):
+                    self.send_error(500, "second worker never entered")
+                    return
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+        web = ThreadingHTTPServer(("127.0.0.1", 0), Reads)
+        thread = threading.Thread(target=web.serve_forever, daemon=True)
+        thread.start()
+        try:
+            calls = [
+                {
+                    "name": "web_fetch",
+                    "arguments": {"url": f"http://127.0.0.1:{web.server_port}/{path}"},
+                }
+                for path in ("fast", "slow")
+            ] + [
+                {
+                    "name": "write_file",
+                    "arguments": {"path": "after-stop.txt", "content": "forbidden"},
+                }
+            ]
+            started = time.monotonic()
+            output, _ = self.private_cell(
+                f"print(tools.parallel({json.dumps(calls)!r}))",
+                timeout=5000,
+                stop_control=3,
+            )
+            self.assertTrue(entered.is_set())
+            self.assertIn("cancelled by owner policy", output)
+            self.assertNotIn("timeout", output)
+            self.assertLess(time.monotonic() - started, 4)
+            self.assertFalse((self.workspace / "after-stop.txt").exists())
+        finally:
+            release.set()
+            web.shutdown()
+            thread.join(timeout=3)
+            web.server_close()
+
+    @unittest.skipIf(WASM, "fresh-exec parallel workers require native processes")
+    def test_parallel_approval_pause_precedes_all_worker_deadlines(self):
+        approved = threading.Event()
+
+        class AfterApproval(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_GET(self):
+                if not approved.wait(timeout=4):
+                    self.send_error(500, "approval never completed")
+                    return
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+        web = ThreadingHTTPServer(("127.0.0.1", 0), AfterApproval)
+        thread = threading.Thread(target=web.serve_forever, daemon=True)
+        thread.start()
+        try:
+            calls = [
+                {
+                    "name": "web_fetch",
+                    "arguments": {"url": f"http://127.0.0.1:{web.server_port}/{i}"},
+                }
+                for i in range(2)
+            ]
+            output, observed = self.private_cell(
+                f"print(tools.parallel({json.dumps(calls)!r}))",
+                timeout=1200,
+                permission=0,
+                prompt_gate=approved,
+            )
+            self.assertEqual(observed.count("prompt"), 2)
+            results = json.loads(output)
+            self.assertEqual(len(results), 2)
+            for result in results:
+                self.assertTrue(result.startswith("HTTP 200"), result)
+        finally:
+            approved.set()
+            web.shutdown()
+            thread.join(timeout=3)
+            web.server_close()
+
+    @unittest.skipIf(WASM, "fresh-exec parallel workers require native processes")
+    def test_parallel_timeout_does_not_run_later_barrier(self):
+        class Slow(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_GET(self):
+                self.server.entered.set()
+                self.server.release.wait(timeout=8)
+                self.close_connection = True
+
+        web = ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+        web.entered = threading.Event()
+        web.release = threading.Event()
+        thread = threading.Thread(target=web.serve_forever, daemon=True)
+        thread.start()
+        calls = [
+            {
+                "name": "web_fetch",
+                "arguments": {"url": f"http://127.0.0.1:{web.server_port}/"},
+            },
+            {"name": "write_file", "arguments": {"path": "too-late", "content": "x"}},
+        ]
+        try:
+            output = self.run_code(
+                arguments={
+                    "code": f"print(tools.parallel({json.dumps(calls)!r}))",
+                    "timeout_ms": 1200,
+                }
+            )
+            self.assertTrue(web.entered.is_set(), output)
+            self.assertIn("timeout", output)
+            self.assertFalse((self.workspace / "too-late").exists())
+        finally:
+            web.release.set()
+            web.shutdown()
+            thread.join(timeout=3)
+            web.server_close()
+
     def assert_schema(self, wire):
         for body in self.server.bodies:
             entries = [t["function"] if wire == "chat" else t for t in body["tools"]]
@@ -594,6 +846,7 @@ with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
         delay_state=0,
         delay_seconds=0.25,
         stop_control=0,
+        prompt_gate=None,
     ):
         """Real exec-server with a trusted owner fixture delaying durable ACKs."""
         owner, peer = socket.socketpair()
@@ -638,7 +891,7 @@ with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
             },
             "state": state,
             "arguments": {"code": code, "timeout_ms": timeout},
-            "prompt": False,
+            "prompt": prompt_gate is not None,
             "ask": False,
             "control": bool(stop_control),
             "pending_bytes": 0,
@@ -664,6 +917,7 @@ with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
 
         observed = []
         states = 0
+        prompts = 0
         try:
             send({"id": 1, "method": "execute", "params": params})
             while True:
@@ -687,7 +941,13 @@ with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
                         )
                         time.sleep(delay_seconds)
                 elif kind == "prompt":
-                    reply = {"decision": 2}
+                    prompts += 1
+                    if prompt_gate is not None and prompts == 2:
+                        time.sleep(
+                            1.5
+                        )  # Human time exceeds the original cell deadline.
+                        prompt_gate.set()
+                    reply = {"decision": 0 if prompt_gate is not None else 2}
                 elif kind == "control":
                     reply = {
                         "arguments_json": None,
@@ -788,7 +1048,7 @@ with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
 
     def test_private_entry_requires_connected_unix_stream(self):
         def reject(descriptor):
-            for option in ("--exec-server", "--exec-command"):
+            for option in ("--exec-server", "--exec-command", "--exec-tool"):
                 with self.subTest(option=option, descriptor=descriptor):
                     process = subprocess.run(
                         [
@@ -807,7 +1067,7 @@ with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
                         capture_output=True,
                         timeout=3,
                     )
-                    expected = 2 if option == "--exec-server" else 125
+                    expected = 125 if option == "--exec-command" else 2
                     self.assertEqual(process.returncode, expected, process.stderr)
                     self.assertEqual(process.stdout, b"")
 

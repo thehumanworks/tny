@@ -57,8 +57,14 @@ MUTANTS = (
     (
         "missing-step-ceiling",
         SOURCE,
-        "if (ctx.max_steps > 0) {",
+        "if (ctx.max_steps >= 0) {",
         "if (false) {",
+    ),
+    (
+        "unlimited-budget-reloaded",
+        SOURCE,
+        "if (ctx.max_steps >= 0) {",
+        "if (ctx.max_steps > 0) {",
     ),
     (
         "wrong-provider",

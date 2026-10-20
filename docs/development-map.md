@@ -13,6 +13,7 @@ behavior is in the linked feature contract; ADRs explain decisions when needed.
 | Prompt reuse / context stability | `src/core/skills.c`, `learning.c`, native request builder | `skills_suite`, `learning_suite`, `tests/bench/bench_prefix_stability.py` |
 | Model-visible tool discovery | `src/core/tools.c`, `src/core/code_python.c` | `code_runtime_suite`, `test_execution_code_mode.py` |
 | Implement a nested tool | `src/core/tools_*.c`, [catalog](features/mcp-and-skills.md) | owning unit suite + real execution fixture |
+| Parallel independent reads | `execution_parallel.c`, `execution.c`, `code_python.c` | `test_execution_code_mode.py` (rendezvous, barriers, spill recovery, timeout) |
 | Run/cancel a code cell | `execution*.c`, `code_runtime.c`, `util/execution_*.c` | `test_execution_code_mode.py`, `test_terminal_cancel.py` |
 | Resume/crash recovery | `session.c`, `checkpoint.cpp`, `runner.cpp` | `runner_suite`, session/checkpoint fixtures |
 | Durable job records and transactions | `core/jobs_record.cpp`, private `jobs_record.hpp` | `make test-runner-ownership test-runner-mutation`; job corruption fixtures |

@@ -21,6 +21,7 @@ typedef struct {
     void *ud;
 } tny_exec_aux;
 int tny_exec_host_start(tny_exec_host *host);
+int tny_exec_host_start_tool(tny_exec_host *host);
 /* Same channel for a `--code-cell` child: the parent's environment minus
  * tny's reserved process-scope fields, stdin on /dev/null, and stdout and
  * stderr both on output_fd. */
