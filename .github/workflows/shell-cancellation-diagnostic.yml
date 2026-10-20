@@ -23,7 +23,7 @@ jobs:
           sw_vers
           /bin/bash --version
           /bin/zsh --version
-      - name: Exercise identical pre/post-216 cancellation fixtures
+      - name: Compare original and deferred-trap cancellation
         env:
           BASH: /bin/bash
           ZSH: /bin/zsh
@@ -31,8 +31,8 @@ jobs:
         run: >-
           python3 .github/diagnostics/compare_shell_cancellation.py
           --baseline 7b5190e60b42e81532e643fe73e20da9fc2fdf71
-          --candidate fea4f5eb8db163b3d6786c19a8bb41a6cbd19727
-          --repeats 20
+          --candidate 9c5cac0dd1ff44384c09407925e25fe97e61025c
+          --repeats 30
       - name: Retain comparison results and shell crash reports
         if: always()
         uses: actions/upload-artifact@v7
