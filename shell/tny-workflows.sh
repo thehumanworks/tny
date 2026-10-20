@@ -567,8 +567,9 @@ _tny_workflow_execute_task() {
     cancelled=0
     # The worker owns the launch-to-publication gap: cancellation can arrive
     # before the scheduler can read child_pid, or even before $! is assigned.
-    # Defer only that assignment gap; once known, settle and reap the child.
-    trap 'cancelled=1; if [ -n "${child:-}" ]; then trap "" HUP INT TERM; _tny_workflow_cancel_child "$run_dir" "$child"; exit 143; fi' HUP INT TERM
+    # Signal traps only record intent: running test/cleanup from a trap can
+    # re-enter Zsh's condition parser. Settle at the next ownership boundary.
+    trap 'cancelled=1' HUP INT TERM
 
     if ! _tny_workflow_compose_context "$task" "$composed" 2> "$error_tmp"; then
         : > "$output_tmp"
@@ -641,6 +642,12 @@ _tny_workflow_execute_task() {
         rc=0
     else
         rc=$?
+    fi
+    # Seal completion before reading the latched signal intent.
+    trap '' HUP INT TERM
+    if [ "$cancelled" -eq 1 ]; then
+        _tny_workflow_cancel_child "$run_dir" "$child"
+        exit 143
     fi
     trap - HUP INT TERM
 
@@ -849,6 +856,15 @@ _tny_workflow_unfinished_count() {
     printf '%s\n' "$count"
 }
 
+# Run shutdown in ordinary shell control flow, never inside a signal trap.
+_tny_workflow_exit_if_cancelled() {
+    [ "$1" -eq 1 ] || return 0
+    trap - EXIT
+    trap '' HUP INT TERM
+    _tny_workflow_cancel_running
+    exit 130
+}
+
 _tny_workflow_run_impl() {
     local jobs quiet task run_dir task_status running pid scheduled reaped unfinished
     local maximum failed cancelled
@@ -895,13 +911,12 @@ _tny_workflow_run_impl() {
         printf '%s\n' pending > "$run_dir/status" || return
     done < "$TNY_WORKFLOW_DIR/tasks.list"
 
+    cancelled=0
     trap '_tny_workflow_cancel_running' EXIT
-    # Zsh function-local EXIT traps are not guaranteed to run when a signal
-    # trap exits the function. Cancel explicitly, then disarm the fallback so
-    # Bash and Zsh both perform the bounded group shutdown exactly once.
-    trap 'trap - EXIT; trap "" HUP INT TERM; _tny_workflow_cancel_running; exit 130' HUP INT TERM
+    trap 'cancelled=1' HUP INT TERM
 
     while :; do
+        _tny_workflow_exit_if_cancelled "$cancelled"
         scheduled=0
         _tny_workflow_reap_workers "$quiet"
         reaped=$_TNY_WORKFLOW_REAPED
@@ -914,6 +929,7 @@ _tny_workflow_run_impl() {
             scheduled=0
             while IFS= read -r task || [ -n "$task" ]; do
                 [ -n "$task" ] || continue
+                _tny_workflow_exit_if_cancelled "$cancelled"
                 task_status=$(_tny_workflow_read_status "$task")
                 [ "$task_status" = pending ] || continue
                 _tny_workflow_ready "$task" || continue
@@ -921,18 +937,10 @@ _tny_workflow_run_impl() {
                 [ "$quiet" -eq 1 ] || printf 'tny workflow: start %s\n' "$task" >&2
                 # Publish the worker before acting on a signal. Otherwise
                 # cleanup could miss the new owner and return while it runs.
-                cancelled=0
-                trap 'cancelled=1' HUP INT TERM
                 (_tny_workflow_execute_task "$task") &
                 pid=$!
                 printf '%s\n' "$pid" > "$TNY_WORKFLOW_DIR/run/$task/pid"
-                trap 'trap - EXIT; trap "" HUP INT TERM; _tny_workflow_cancel_running; exit 130' HUP INT TERM
-                if [ "$cancelled" -eq 1 ]; then
-                    trap - EXIT
-                    trap '' HUP INT TERM
-                    _tny_workflow_cancel_running
-                    exit 130
-                fi
+                _tny_workflow_exit_if_cancelled "$cancelled"
                 running=$((running + 1))
                 scheduled=1
                 [ "$running" -lt "$jobs" ] || break
@@ -948,6 +956,7 @@ _tny_workflow_run_impl() {
 
         unfinished=$(_tny_workflow_unfinished_count)
         running=$(_tny_workflow_active_worker_count)
+        _tny_workflow_exit_if_cancelled "$cancelled"
         if [ "$unfinished" -eq 0 ] && [ "$running" -eq 0 ]; then
             break
         fi
@@ -958,6 +967,9 @@ _tny_workflow_run_impl() {
         sleep 0.05
     done
 
+    # Signals before this cutoff remain cancellation, never success.
+    trap '' HUP INT TERM
+    _tny_workflow_exit_if_cancelled "$cancelled"
     trap - EXIT HUP INT TERM
     failed=0
     while IFS= read -r task || [ -n "$task" ]; do

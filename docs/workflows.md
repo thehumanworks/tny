@@ -251,7 +251,10 @@ across launch/PID-publication races: an interrupt cannot skip a just-launched
 process or leave a worker waiting on an unsignalled child. A task receives one
 initial `TERM`, so cooperative cleanup is not interrupted by duplicate requests;
 surviving groups still receive bounded escalation. It does not replace traps
-owned by the calling script.
+owned by the calling script. Signal handlers only latch cancellation; shutdown
+runs at normal ownership checkpoints, not recursively inside the shell's
+condition parser. Completion masks further signals before checking that latch,
+so a recorded cancellation cannot become success.
 
 ### Environment
 
