@@ -1417,6 +1417,18 @@ bool tny_settings_ui_alternate_screen(tny_ctx *ctx) {
     return jget_bool(settings_ui(ctx), "alternate_screen", true);
 }
 
+bool tny_settings_ui_inline_mouse(tny_ctx *ctx) {
+    return jget_bool(settings_ui(ctx), "inline_mouse", false);
+}
+
+bool tny_settings_ui_tool_calls_expanded(tny_ctx *ctx) {
+    return jget_bool(settings_ui(ctx), "tool_calls_expanded", false);
+}
+
+bool tny_settings_ui_tool_call_reasons(tny_ctx *ctx) {
+    return jget_bool(settings_ui(ctx), "tool_call_reasons", true);
+}
+
 size_t tny_settings_ui_scrollback_lines(tny_ctx *ctx) {
     yyjson_val *v = jget(settings_ui(ctx), "scrollback_lines");
     uint64_t lines = yyjson_is_uint(v) ? yyjson_get_uint(v) : 0;
@@ -1443,10 +1455,12 @@ int tny_settings_set_ui(tny_ctx *ctx, const char *key, const char *value) {
     if (!ctx->settings && file_exists(ctx->settings_path)) return -1;
     bool mode = strcmp(key, "mode") == 0;
     bool scrollback = strcmp(key, "scrollback_lines") == 0;
-    if (mode         ? strcmp(value, "inline") != 0 && strcmp(value, "fullscreen") != 0
-        : scrollback ? !tny_settings_ui_scrollback_lines_valid(value)
-                     : strcmp(key, "alternate_screen") != 0 ||
-                           (strcmp(value, "true") != 0 && strcmp(value, "false") != 0))
+    if (mode ? strcmp(value, "inline") != 0 && strcmp(value, "fullscreen") != 0
+        : scrollback
+            ? !tny_settings_ui_scrollback_lines_valid(value)
+            : (strcmp(key, "alternate_screen") != 0 && strcmp(key, "inline_mouse") != 0 &&
+               strcmp(key, "tool_calls_expanded") != 0 && strcmp(key, "tool_call_reasons") != 0) ||
+                  (strcmp(value, "true") != 0 && strcmp(value, "false") != 0))
         return -1;
     if (ctx->settings && !yyjson_is_obj(yyjson_doc_get_root(ctx->settings))) return -1;
     yyjson_mut_doc *doc =

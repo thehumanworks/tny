@@ -75,6 +75,40 @@ enables mouse reporting for wheel navigation and restores terminal modes on
 exit. Inline uses the terminal's own scrollback; plain mode streams output.
 See [ADR 0183](adr/0183-fullscreen-scrollback.md).
 
+## Tool-call details
+
+Tool calls start collapsed, showing a numbered heading and a short purpose when
+provided. Fullscreen: click either the argument or result heading to toggle the
+whole call. Full retained arguments and output appear when expanded; collapsing
+does not discard them or execute the tool again.
+
+Inline history belongs to the terminal and cannot be rewritten. By default,
+inline mouse capture is off, preserving native wheel scrolling and selection.
+Opt in with `ui.inline_mouse: true` (or `i` in `/settings`) to click visible
+headings and open a temporary full-detail inspector. Mouse capture also captures
+wheel/selection; Shift bypass works only in terminals that support it. Inline
+clicks require cursor-position reporting; `/tools` opens the latest retained call
+without a mouse, and `/tools N` selects its displayed number. Enter or clicking
+the inspector heading toggles details, Left/Right selects another call,
+Up/Down/PageUp/PageDown scroll, Home/End jump, and Esc closes. The draft and
+conversation remain intact; the running turn continues. The inspector itself
+supports mouse scrolling and clicking its heading, even without inline capture.
+
+In `/settings`, `t` toggles `ui.tool_calls_expanded` (default false), and `r`
+toggles `ui.tool_call_reasons` (default true). Both can also be changed through
+`tny settings set`, `/settings ui.NAME true|false`, or the global `settings.json`
+`ui` object. The expansion default applies immediately to calls without a
+manual override and to future calls. In inline mode, already printed history
+stays unchanged; new expanded calls print their retained content in full.
+
+Reasons are optional tool metadata. When enabled, the system prompt asks for a
+1–10-word purpose; disabling it removes that request for the next runner turn
+(or the next provider request in explicit in-process/wasm mode). A missing
+reason never breaks tool execution. Display expansion exposes retained content,
+not bytes discarded by upstream tool limits. The display history is bounded by
+`ui.scrollback_lines`; `/transcript` replays saved top-level calls, and `/tools`
+can load their details on resume. See [ADR 0205](adr/0205-reversible-tool-display-and-reasons.md).
+
 ## Colors and attributes
 
 SGR output splits into *colors* and *attributes* (bold, dim, reverse video),
@@ -318,7 +352,7 @@ Changing effort updates the native HTTP request parameters for the next iteratio
 0024](adr/0024-unlimited-steps-default.md)). The value is read at step
 boundaries, so it applies immediately with no backend rebind.
 
-Tools: `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace` `/ssh`
+Tools: `/tools [N]` `/mcp` `/skills` `/workspace` `/image` `/undo` `/copy` `/trace` `/ssh`
 
 Workspace: `/worktree [NAME]` creates or enters a Git checkout in
 `~/.tny/worktrees`, starts a fresh session there, and offers merge/remove/keep

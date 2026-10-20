@@ -183,12 +183,20 @@ static bool json_object_text(const char *text, size_t len) {
     return object;
 }
 
-static PyObject *tools_call(PyObject *self, PyObject *const *args, Py_ssize_t nargs) {
+static PyObject *tools_call(PyObject *self, PyObject *positional, PyObject *keywords) {
     (void)self;
-    if (nargs != 2 || !PyUnicode_Check(args[0]) || !PyUnicode_Check(args[1])) {
-        PyErr_SetString(PyExc_TypeError,
-                        "tools.call(name, arguments_json) takes two strings: a tool name and "
-                        "JSON object text such as json.dumps({...})");
+    PyObject *args[3] = {NULL, NULL, NULL};
+    static char name_key[] = "name", arguments_key[] = "arguments_json", reason_key[] = "reason";
+    static char *names[] = {name_key, arguments_key, reason_key, NULL};
+    if (!PyArg_ParseTupleAndKeywords(positional, keywords, "OO|O:call", names, &args[0], &args[1],
+                                     &args[2]))
+        return NULL;
+    if (!PyUnicode_Check(args[0]) || !PyUnicode_Check(args[1]) ||
+        (args[2] && !PyUnicode_Check(args[2]))) {
+        PyErr_SetString(
+            PyExc_TypeError,
+            "tools.call(name, arguments_json[, reason]) takes a tool name, optional reason and "
+            "JSON object text such as json.dumps({...})");
         return NULL;
     }
     if (refuse_after_limit()) return NULL;
@@ -200,7 +208,8 @@ static PyObject *tools_call(PyObject *self, PyObject *const *args, Py_ssize_t na
         PyErr_SetString(PyExc_ValueError, "tool name and arguments cannot contain NUL");
         return NULL;
     }
-    bool recursive = strcmp(name, "run_code") == 0;
+    bool recursive = strcmp(name, "run_code") == 0 || strcmp(name, TNY_CODE_METADATA_CALL) == 0 ||
+                     strcmp(name, "__parallel") == 0;
     if (!name_len || name_len > TNY_CODE_NAME_BYTES) {
         PyErr_SetString(PyExc_ValueError, "invalid tool name");
         return NULL;
@@ -222,8 +231,33 @@ static PyObject *tools_call(PyObject *self, PyObject *const *args, Py_ssize_t na
     if (!tny_code_call_admit(cell.calls, (uint64_t)name_len, recursive, (uint64_t)args_len, object))
         return terminal("tool call limit exceeded");
     ++cell.calls;
+    /* Keep display metadata outside business arguments, including MCP/plugin schemas. */
+    char *envelope = NULL;
+    if (args[2]) {
+        Py_ssize_t length = 0;
+        const char *reason = PyUnicode_AsUTF8AndSize(args[2], &length);
+        if (!reason) return NULL;
+        if (length > 256 || memchr(reason, 0, (size_t)length)) {
+            PyErr_SetString(PyExc_ValueError,
+                            "reason must be short text (at most 256 bytes), without NUL");
+            return NULL;
+        }
+        yyjson_mut_doc *d = yyjson_mut_doc_new(&heap_json);
+        yyjson_mut_val *r = d ? yyjson_mut_obj(d) : NULL;
+        if (r) yyjson_mut_doc_set_root(d, r);
+        bool ok = r && yyjson_mut_obj_add_strcpy(d, r, "name", name) &&
+                  yyjson_mut_obj_add_strcpy(d, r, "arguments_json", arguments) &&
+                  yyjson_mut_obj_add_strncpy(d, r, "reason", reason, (size_t)length);
+        envelope = ok ? yyjson_mut_write(d, 0, NULL) : NULL;
+        yyjson_mut_doc_free(d);
+        if (!envelope) return PyErr_NoMemory();
+    }
     const tny_code_python_host *host = cell.host;
-    char *result = host && host->call ? host->call(host->userdata, name, arguments) : NULL;
+    char *result = host && host->call
+                       ? host->call(host->userdata, envelope ? TNY_CODE_METADATA_CALL : name,
+                                    envelope ? envelope : arguments)
+                       : NULL;
+    free(envelope);
     if (!result) {
         const char *reason = host && host->failure ? host->failure(host->userdata) : NULL;
         return terminal(reason ? reason : "tool callback failed");
@@ -424,7 +458,7 @@ static PyObject *tools_parallel(PyObject *self, PyObject *arg) {
 static PyMethodDef tools_methods[] = {
     {"parallel", tools_parallel, METH_O,
      "parallel(calls_json) -> str: ordered JSON results; independent reads overlap"},
-    {"call", (PyCFunction)(void (*)(void))tools_call, METH_FASTCALL,
+    {"call", (PyCFunction)(void (*)(void))tools_call, METH_VARARGS | METH_KEYWORDS,
      "call(name, arguments_json) -> str: run a permitted nested tool"},
     {"list", tools_list, METH_NOARGS, "list() -> str: JSON catalog of permitted tools"},
     {"search", (PyCFunction)(void (*)(void))tools_search, METH_VARARGS | METH_KEYWORDS,

@@ -91,6 +91,7 @@ static void free_tui(tui *t) {
     buf_free(&t->scrollback_visual);
     buf_free(&t->scrollback_starts);
     buf_free(&t->scrollback_partial);
+    tui_tools_free(t);
     tui_shell_stop(t);
     buf_free(&t->input);
     buf_free(&t->shell_pending);
@@ -727,8 +728,8 @@ TEST decode_scroll_controls_survive_every_split_boundary(void) {
         {"\x1b[7;5~", TUI_K_SCROLL_HOME},   {"\x1b[8;5~", TUI_K_SCROLL_END},
         {"\x1b[<64;12;9M", TUI_K_WHEEL_UP}, {"\x1b[<65;12;9M", TUI_K_WHEEL_DOWN},
         {"\x1b[<92;12;9M", TUI_K_WHEEL_UP}, {"\x1b[M`!!", TUI_K_WHEEL_UP},
-        {"\x1b[Ma!!", TUI_K_WHEEL_DOWN},    {"\x1b[M !!", TUI_K_NONE},
-        {"\x1b[<64;12;9m", TUI_K_NONE},     {"\x1b[<0;12;9M", TUI_K_NONE},
+        {"\x1b[Ma!!", TUI_K_WHEEL_DOWN},    {"\x1b[M !!", TUI_K_CLICK},
+        {"\x1b[<64;12;9m", TUI_K_NONE},     {"\x1b[<0;12;9M", TUI_K_CLICK},
         {"\x1b[<66;12;9M", TUI_K_NONE},
     };
     for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
@@ -1716,13 +1717,18 @@ static char *terminal_capture(tui *t) {
 }
 
 TEST terminal_generated_modes_restore_once_and_non_tty_is_plain(void) {
-    for (unsigned choices = 0; choices < 16; choices++) {
+    for (unsigned choices = 0; choices < 32; choices++) {
         tui t;
         mk_tui(&t, 24);
         t.tty = (choices & 1) != 0;
         t.fullscreen = (choices & 2) != 0;
         t.alternate_screen = (choices & 4) != 0;
         t.attr = (choices & 8) != 0;
+        tny_ctx ctx = {0};
+        const char *settings = "{\"ui\":{\"inline_mouse\":true}}";
+        if (choices & 16) ctx.settings = jparse(settings, strlen(settings));
+        t.ctx = &ctx;
+        bool mouse = t.fullscreen || (choices & 16);
         char *out = terminal_capture(&t);
         ASSERT(out);
         if (!t.tty) ASSERT_STR_EQ("", out);
@@ -1733,21 +1739,260 @@ TEST terminal_generated_modes_restore_once_and_non_tty_is_plain(void) {
             ASSERT_EQ(alternate, strstr(out, "\x1b[?1049h") != NULL);
             ASSERT_EQ(alternate, strstr(out, "\x1b[?1049l") != NULL);
             ASSERT_EQ(t.fullscreen, strstr(out, "\x1b[H\x1b[2J") != NULL);
-            ASSERT_EQ(t.fullscreen, strstr(out, "\x1b[?1000h\x1b[?1006h") != NULL);
-            ASSERT_EQ(t.fullscreen, strstr(out, "\x1b[?1000l\x1b[?1006l") != NULL);
-            ASSERT_EQ(t.fullscreen, strstr(out, "\x1b[?1000;1006;1007r") != NULL);
+            ASSERT_EQ(mouse, strstr(out, "\x1b[?1000h\x1b[?1006h") != NULL);
+            ASSERT_EQ(mouse, strstr(out, "\x1b[?1000l\x1b[?1006l") != NULL);
+            ASSERT_EQ(t.tty, strstr(out, "\x1b[?1000;1006;1007r") != NULL);
             ASSERT_EQ(t.attr, strstr(out, "\x1b[0m") != NULL);
             const char *begin = strstr(out, "\x1b[?2004h");
             ASSERT_FALSE(strstr(begin + 1, "\x1b[?2004h"));
             if (t.fullscreen) ASSERT(strstr(out, "\x1b[H\x1b[2J") < begin);
         }
         free(out);
+        yyjson_doc_free(ctx.settings);
         free_tui(&t);
     }
     PASS();
 }
 
+static void tool_event(tui *t, bool done, const char *id, const char *detail) {
+    tny_backend_event event = {.kind = done ? TNY_EV_TOOL_END : TNY_EV_TOOL_START,
+                               .tool_name = "run_code",
+                               .tool_id = id,
+                               .tool_detail = detail,
+                               .tool_reason = "Check the complete output",
+                               .tool_ok = true};
+    tui_handle_backend_event(t, &event);
+}
+
+TEST tool_cards_retain_full_content_and_toggle_paired_spans(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.fullscreen = true;
+    char args[600], result[900];
+    memset(args, 'a', sizeof args - 1);
+    args[sizeof args - 1] = 0;
+    memset(result, 'r', sizeof result - 1);
+    result[sizeof result - 1] = 0;
+    tool_event(&t, false, "outer", args);
+    tui_tool_call *outer = t.tool_calls;
+    tool_event(&t, false, "inner", "inner arguments");
+    tool_event(&t, true, "inner", "inner output");
+    tool_event(&t, true, "outer", result);
+    ASSERT_STR_EQ(args, outer->args);
+    ASSERT_STR_EQ(result, outer->result);
+    ASSERT_FALSE(strstr(t.transcript.data, args));
+    tui_tools_toggle(&t, outer);
+    ASSERT(strstr(t.transcript.data, args));
+    ASSERT(strstr(t.transcript.data, result));
+    ASSERT(strstr(t.transcript.data + outer->next->start_at, "#2"));
+    tui_tools_toggle(&t, outer);
+    ASSERT_FALSE(strstr(t.transcript.data, args));
+    ASSERT_FALSE(strstr(t.transcript.data, result));
+    ASSERT(outer->overridden);
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_cards_click_mapping_survives_wrap_resize_and_streaming(void) {
+    tui t;
+    mk_tui(&t, 24);
+    tny_ctx ctx = {.cwd = "/tmp", .model = "fixture"};
+    t.ctx = &ctx;
+    t.fullscreen = true;
+    t.cols = 35;
+    tool_event(&t, false, "a", "alpha\nbeta\ngamma");
+    buf_t frame = {0};
+    tui_fullscreen_frame(&t, &frame);
+    tui_tools_click(&t, 1, 1);
+    ASSERT(t.tool_calls->expanded);
+    tool_event(&t, true, "a", "full result tail");
+    tui_write(&t, "streaming", 9);
+    t.cols = 24;
+    buf_clear(&frame);
+    tui_fullscreen_frame(&t, &frame);
+    ASSERT(strstr(t.scrollback_visual.data, "full result tail"));
+    tui_scrollback_home(&t);
+    tui_tools_click(&t, 1, 1);
+    ASSERT_FALSE(t.tool_calls->expanded);
+    ASSERT_STR_EQ("streaming", t.partial.data);
+    buf_free(&frame);
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_defaults_preserve_explicit_overrides(void) {
+    tui t;
+    mk_tui(&t, 24);
+    tny_ctx ctx = {0};
+    t.ctx = &ctx;
+    t.fullscreen = true;
+    tool_event(&t, false, "one", "one");
+    tool_event(&t, false, "two", "two");
+    tui_tools_toggle(&t, t.tool_calls);
+    const char *settings = "{\"ui\":{\"tool_calls_expanded\":true}}";
+    ctx.settings = jparse(settings, strlen(settings));
+    tui_tools_default_changed(&t);
+    ASSERT(t.tool_calls->expanded);
+    ASSERT(t.tool_calls->next->expanded);
+    yyjson_doc_free(ctx.settings);
+    ctx.settings = NULL;
+    tui_tools_default_changed(&t);
+    ASSERT(t.tool_calls->expanded);
+    ASSERT_FALSE(t.tool_calls->next->expanded);
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_view_reuses_full_output_cache_and_strips_controls(void) {
+    tui t;
+    mk_tui(&t, 12);
+    t.fullscreen = true;
+    tool_event(&t, false, "a", "full arguments");
+    tool_event(&t, true, "a", "before\x1b[2Jafter\nlast line\x9b\xc2\x9d café");
+    t.tool_view = t.tool_calls;
+    tui_tools_toggle(&t, t.tool_view);
+    buf_t frame = {0};
+    tui_tools_view_frame(&t, &frame);
+    ASSERT(strstr(t.tool_view_visual.data, "beforeafter"));
+    ASSERT_FALSE(strchr(t.tool_view_visual.data, '\x1b'));
+    ASSERT_FALSE(strchr(t.tool_view_visual.data, '\x9b'));
+    ASSERT_FALSE(strchr(t.tool_view_visual.data, '\x9d'));
+    ASSERT(strstr(t.tool_view_visual.data, "café"));
+    char *cache = t.tool_view_visual.data;
+    tui_tools_key(&t, TUI_K_DOWN);
+    buf_clear(&frame);
+    tui_tools_view_frame(&t, &frame);
+    ASSERT_EQ(cache, t.tool_view_visual.data);
+    tui_tools_key(&t, TUI_K_ENTER);
+    buf_clear(&frame);
+    tui_tools_view_frame(&t, &frame);
+    ASSERT(strstr(t.tool_view_visual.data, "Collapsed"));
+    ASSERT_STR_EQ("before\x1b[2Jafter\nlast line\x9b\xc2\x9d café", t.tool_calls->result);
+    buf_free(&frame);
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_click_decode_and_stale_cursor_reports(void) {
+    tui_decoded d = {0};
+    const char *click = "\x1b[<0;12;9M";
+    ASSERT_EQ(strlen(click), tui_decode_one(click, strlen(click), true, &d));
+    ASSERT_EQ(TUI_K_CLICK, d.key);
+    ASSERT_EQ(9, d.mouse_row);
+    ASSERT_EQ(12, d.mouse_col);
+    tui t;
+    mk_tui(&t, 24);
+    t.inline_query_pending = true;
+    t.inline_query_version = 1;
+    t.inline_frame_version = 2;
+    tui_cursor_report(&t, 20, 3);
+    ASSERT_EQ(0, t.inline_cursor_row);
+    t.inline_query_pending = true;
+    t.inline_query_version = 2;
+    t.inline_query_cur_row = 1;
+    tui_cursor_report(&t, 20, 3);
+    ASSERT_EQ(19, t.inline_cursor_row);
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_late_result_survives_evicted_heading(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.fullscreen = true;
+    t.scrollback_lines = 2;
+    tool_event(&t, false, "late", "retained arguments");
+    tui_linef(&t, "line one\nline two\nline three");
+    tui_transcript_commit(&t);
+    ASSERT_EQ(SIZE_MAX, t.tool_calls->start_at);
+    tui_linef(&t, "more pending output");
+    tool_event(&t, true, "late", "late result");
+    ASSERT(t.tool_calls && t.tool_calls->done);
+    ASSERT_STR_EQ("late result", t.tool_calls->result);
+    ASSERT_STR_EQ("retained arguments", t.tool_calls->args);
+    tui_tools_toggle(&t, t.tool_calls);
+    ASSERT(strstr(t.transcript.data, "late result"));
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_inspector_yields_to_questions_and_drains_cursor_report(void) {
+    tui t;
+    mk_tui(&t, 24);
+    tny_ctx ctx = {.cwd = "/tmp", .model = "fixture", .perm_mode = TNY_MODE_ASK};
+    t.ctx = &ctx;
+    t.fullscreen = true;
+    tool_event(&t, false, "a", "arguments");
+    t.tool_view = t.tool_calls;
+    t.inline_query_pending = true;
+    int input[2];
+    ASSERT_EQ(0, pipe(input));
+    const char *answer = "\x1b[20;3Ryes\r";
+    ASSERT_EQ((ssize_t)strlen(answer), write(input[1], answer, strlen(answer)));
+    close(input[1]);
+    int saved = dup(STDIN_FILENO);
+    ASSERT(saved >= 0);
+    ASSERT(dup2(input[0], STDIN_FILENO) >= 0);
+    close(input[0]);
+    char *response = tui_ask_user(&t, "A visible question");
+    ASSERT(dup2(saved, STDIN_FILENO) >= 0);
+    close(saved);
+    ASSERT_STR_EQ("yes", response);
+    free(response);
+    ASSERT_EQ(NULL, t.tool_view);
+    ASSERT_FALSE(t.inline_query_pending);
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_large_output_inspection_keeps_tail_across_resize(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.fullscreen = true;
+    size_t len = 2u * 1024u * 1024u;
+    char *result = malloc(len + 32);
+    ASSERT(result);
+    memset(result, 'x', len);
+    for (size_t i = 99; i < len; i += 100) result[i] = '\n';
+    strcpy(result + len, "\nEXACT-FULL-OUTPUT-END");
+    tool_event(&t, false, "large", "inspect large output");
+    tool_event(&t, true, "large", result);
+    free(result);
+    t.tool_view = t.tool_calls;
+    tui_tools_toggle(&t, t.tool_view);
+    buf_t frame = {0};
+    tui_tools_view_frame(&t, &frame);
+    tui_tools_key(&t, TUI_K_END);
+    buf_clear(&frame);
+    tui_tools_view_frame(&t, &frame);
+    ASSERT(strstr(frame.data, "EXACT-FULL-OUTPUT-END"));
+    t.cols = 43;
+    tui_tools_key(&t, TUI_K_END);
+    buf_clear(&frame);
+    tui_tools_view_frame(&t, &frame);
+    ASSERT(strstr(frame.data, "EXACT-FULL-OUTPUT-END"));
+    ASSERT(frame.len < 5000); /* only the viewport goes to the terminal */
+    char *cached = t.tool_view_visual.data;
+    for (int i = 0; i < 10; i++) {
+        tui_tools_key(&t, TUI_K_UP);
+        buf_clear(&frame);
+        tui_tools_view_frame(&t, &frame);
+        ASSERT_EQ(cached, t.tool_view_visual.data);
+    }
+    buf_free(&frame);
+    free_tui(&t);
+    PASS();
+}
+
 SUITE(tui_suite) {
+    RUN_TEST(tool_large_output_inspection_keeps_tail_across_resize);
+    RUN_TEST(tool_late_result_survives_evicted_heading);
+    RUN_TEST(tool_inspector_yields_to_questions_and_drains_cursor_report);
+    RUN_TEST(tool_cards_retain_full_content_and_toggle_paired_spans);
+    RUN_TEST(tool_cards_click_mapping_survives_wrap_resize_and_streaming);
+    RUN_TEST(tool_defaults_preserve_explicit_overrides);
+    RUN_TEST(tool_view_reuses_full_output_cache_and_strips_controls);
+    RUN_TEST(tool_click_decode_and_stale_cursor_reports);
     RUN_TEST(fullscreen_generated_layout_stays_within_terminal);
     RUN_TEST(fullscreen_redraw_keeps_tail_and_bottom_composer);
     RUN_TEST(fullscreen_wraps_wide_and_combining_transcript_cells);

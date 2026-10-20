@@ -289,6 +289,21 @@
           "maximum": 1000000,
           "default": 50000,
           "description": "Maximum logical transcript lines retained for fullscreen scrolling. Applies on the next TUI launch."
+        },
+        "tool_calls_expanded": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show tool calls expanded by default; individual calls can be toggled."
+        },
+        "tool_call_reasons": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask agents for a short 1–10 word tool-call reason. Missing reasons never prevent execution."
+        },
+        "inline_mouse": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt in to inline mouse reporting for clickable tool headings. Default false preserves native terminal wheel scrolling and selection."
         }
       },
       "additionalProperties": false

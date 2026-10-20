@@ -156,6 +156,7 @@ char *tools_schema_json(tools_env *env);
 char *tools_catalog_json(tools_env *env);
 /* Shared native/ACP instructions for the code execution interface. */
 const char *tools_code_instructions(void);
+const char *tools_reason_instructions(tny_ctx *ctx);
 
 /* Execute one call. Returns a malloc'd string for the role:"tool" message.
  * `all` bounds large output behind a session handle; shell profiles give

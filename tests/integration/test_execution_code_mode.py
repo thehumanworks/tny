@@ -636,6 +636,69 @@ class ExecutionCodeMode(unittest.TestCase):
                 )
                 self.assert_schema(wire)
 
+    def test_optional_reasons_do_not_leak_into_nested_arguments(self):
+        directory = self.home / ".tny/extensions"
+        directory.mkdir(parents=True)
+        log = self.home / "arguments.jsonl"
+        (directory / "observe.py").write_text(
+            "import json\nfrom tny_ext import PreToolUseEvent, ToolStartEvent\n"
+            "def setup(api):\n"
+            "    @api.on(PreToolUseEvent)\n"
+            "    def before(event):\n"
+            f"        with open({str(log)!r}, 'a') as out: out.write(json.dumps(dict(name=event.tool_name, arguments=event.arguments)) + '\\n')\n"
+            "    @api.on(ToolStartEvent)\n"
+            "    def started(event):\n"
+            f"        with open({str(log)!r}, 'a') as out: out.write(json.dumps(dict(start=event.tool_name, reason=event.payload.get('reason'), detail=event.detail)) + '\\n')\n"
+        )
+        (self.workspace / "fixture").write_text("reason-fixture")
+        for wire in ("responses", "chat"):
+            for enabled in (True, False):
+                with self.subTest(wire=wire, enabled=enabled):
+                    (self.home / ".tny/settings.json").write_text(
+                        json.dumps({"ui": {"tool_call_reasons": enabled}})
+                    )
+                    code = (
+                        'print(tools.call("read_file", json.dumps({"path":"fixture"}), reason="Read fixture"))\n'
+                        'print(tools.call("read_file", json.dumps({"path":"fixture"})))\n'
+                        'print(tools.parallel(json.dumps([{"name":"read_file", "arguments":{"path":"fixture"}, "reason":"Read independently"}])))'
+                    )
+                    output = self.run_code(
+                        arguments={"code": code, "reason": "Inspect fixtures"},
+                        wire=wire,
+                    )
+                    self.assertIn("reason-fixture", output)
+                    body = self.server.bodies[0]
+                    tool = body["tools"][0]
+                    schema = (tool["function"] if wire == "chat" else tool)[
+                        "parameters"
+                    ]
+                    self.assertEqual("reason" in schema["properties"], enabled)
+                    self.assertEqual(schema["required"], ["code"])
+                    prompt = (
+                        body["messages"][0]["content"]
+                        if wire == "chat"
+                        else body["instructions"]
+                    )
+                    self.assertEqual("For each tool call, include" in prompt, enabled)
+        observed = [json.loads(line) for line in log.read_text().splitlines()]
+        nested = [
+            entry["arguments"] for entry in observed if entry.get("name") == "read_file"
+        ]
+        self.assertEqual(len(nested), 12)
+        self.assertTrue(all(args == {"path": "fixture"} for args in nested), nested)
+        starts = [entry for entry in observed if "start" in entry]
+        self.assertEqual(
+            [entry["reason"] for entry in starts],
+            ["Inspect fixtures", "Read fixture", None, "Read independently"] * 4,
+        )
+        self.assertTrue(
+            all(
+                json.loads(entry["detail"]) == {"path": "fixture"}
+                for entry in starts
+                if entry["start"] == "read_file"
+            )
+        )
+
     def test_direct_calls_fail_closed_on_both_wires(self):
         for wire in ("responses", "chat"):
             for tool in ("write_file", "terminal", "unknown_tool"):

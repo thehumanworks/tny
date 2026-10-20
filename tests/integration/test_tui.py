@@ -873,6 +873,9 @@ def test_ui_settings_cli(_home, ws):
             "mode": "inline",
             "alternate_screen": True,
             "scrollback_lines": 50000,
+            "tool_calls_expanded": False,
+            "tool_call_reasons": True,
+            "inline_mouse": False,
         }
         assert settings("get", "ui.mode")["value"] == "inline"
         assert settings("get", "ui.alternate_screen")["value"] is True
@@ -903,6 +906,9 @@ def test_ui_settings_cli(_home, ws):
                 "mode": mode,
                 "alternate_screen": alternate,
                 "scrollback_lines": 50000,
+                "tool_calls_expanded": False,
+                "tool_call_reasons": True,
+                "inline_mouse": False,
             }
             with open(path) as f:
                 saved = json.load(f)
@@ -1270,10 +1276,26 @@ def test_interactive_ui_settings(_home, ws):
             expect_saved("fullscreen", False)
             assert "\x1b[?1049h" not in t.buf, "settings applied before next launch"
             t.send("\x1b")
+            t.expect_gone_from_screen("tool display applies")
             t.send("/settings ui.mode inline\r")
             expect_saved("inline", False)
             t.send("/settings ui.alternate_screen true\r")
             expect_saved("inline", True)
+            t.send("/settings\r")
+            t.expect_on_screen("ui.tool_calls_expanded")
+            assert "\x1b[?1000h" not in t.buf, (
+                "inline must preserve terminal wheel by default"
+            )
+            t.send("tri")
+            t.pump(0.3)
+            with open(path) as f:
+                ui = json.load(f)["ui"]
+            assert ui["tool_calls_expanded"] is True, ui
+            assert ui["tool_call_reasons"] is False, ui
+            assert ui["inline_mouse"] is True, ui
+            assert "\x1b[?1000h" in t.buf, "inline mouse opt-in did not apply"
+            t.send("\x1b")
+            t.expect_gone_from_screen("tool display applies")
             t.send("/quit\r")
             assert t.wait() == 0, clean(t.buf)
         finally:

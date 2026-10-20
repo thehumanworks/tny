@@ -38,6 +38,13 @@ typedef struct {
     bool current;
 } tui_agent_row;
 
+typedef struct tui_tool_call {
+    struct tui_tool_call *next;
+    size_t number, start_at, start_len, end_at, end_len;
+    char *id, *name, *reason, *args, *result;
+    bool expanded, overridden, done, ok, pinned, restored;
+} tui_tool_call;
+
 typedef struct tui {
     tny_ctx *ctx;
     const cli_globals *g;
@@ -57,6 +64,8 @@ typedef struct tui {
     buf_t transcript; /* bounded fullscreen display tail; session is authoritative */
     buf_t scrollback_visual, scrollback_starts, scrollback_partial;
     size_t transcript_version, scrollback_version;
+    size_t transcript_generation, scrollback_generation;
+    size_t scrollback_source_len, scrollback_committed_visual, scrollback_committed_rows;
     int scrollback_width;
     bool scrollback_attr;
     size_t scrollback_lines, transcript_lines;
@@ -64,6 +73,16 @@ typedef struct tui {
     size_t scrollback_total;
     int scrollback_height;
     bool dirty;
+    size_t out_committed;
+    tui_tool_call *tool_calls, *tool_calls_tail, *tool_view;
+    size_t tool_sequence, tool_view_offset;
+    buf_t tool_view_text, tool_view_rows, tool_view_visual;
+    int tool_view_width;
+    bool tool_view_changed, tool_restoring;
+    int inline_cursor_row;
+    size_t inline_query_version, inline_frame_version, inline_map_from;
+    int inline_query_cur_row;
+    bool size_query_pending, inline_query_pending, size_query_deferred;
 
     bool shell_mode; /* ! at the start of an empty composer */
     int shell_fd;    /* -1 when no local command is running */
@@ -171,6 +190,7 @@ typedef enum {
     TUI_K_PAGE_DOWN,
     TUI_K_SCROLL_HOME,
     TUI_K_SCROLL_END,
+    TUI_K_CLICK,
     TUI_K_WHEEL_UP,
     TUI_K_WHEEL_DOWN,
     TUI_K_HOME,
@@ -197,6 +217,7 @@ typedef struct {
     tui_key key;
     const char *ch;
     size_t chlen;
+    int mouse_row, mouse_col;
     int cpr_row, cpr_col; /* TUI_K_CPR only, 1-based */
 } tui_decoded;
 
@@ -231,9 +252,27 @@ bool tui_agents_continue(tui *t, bool prompt);
 void tui_background_arm(tui *t);
 bool tui_runner_attach(tui *t, tny_session_state *session);
 
+/* Tool cards keep full event content separately from their display spans. */
+void tui_tool_literal(buf_t *out, const char *s, bool line);
+void tui_tools_event(tui *t, const tny_backend_event *ev);
+void tui_tools_free(tui *t);
+bool tui_tools_replay_message(tui *t, yyjson_mut_val *message);
+void tui_tools_trim(tui *t, size_t cut);
+void tui_tools_toggle(tui *t, tui_tool_call *call);
+void tui_tools_default_changed(tui *t);
+void tui_tools_command(tui *t, const char *arg);
+void tui_tools_view_close(tui *t);
+bool tui_tools_key(tui *t, tui_key key);
+void tui_tools_click(tui *t, int row, int col);
+void tui_tools_view_frame(tui *t, buf_t *frame);
+void tui_transcript_commit(tui *t);
+void tui_cursor_report(tui *t, int row, int col);
+
 /* tui.c */
 void tui_terminal_begin(tui *t);
-void tui_terminal_end(void);           /* restore modes and alternate screen, idempotently */
+void tui_terminal_detail(bool enabled);
+void tui_terminal_end(void); /* restore modes and alternate screen, idempotently */
+void tui_terminal_mouse_update(tui *t);
 void tui_terminal_mouse(bool enabled); /* suspend during direct terminal prompts */
 void tui_submit(tui *t, const char *text);
 bool tui_shell_start(tui *t, const char *command);

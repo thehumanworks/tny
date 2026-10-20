@@ -101,7 +101,8 @@ typedef struct {
     /* TOOL_START / TOOL_END */
     const char *tool_name;
     const char *tool_id;
-    const char *tool_detail; /* short human line: args summary or result summary */
+    const char *tool_detail; /* full arguments on start; result on end */
+    const char *tool_reason; /* optional short intent, separate from tool arguments */
     bool tool_ok;            /* TOOL_END */
     /* PERMISSION */
     const char *perm_id;      /* opaque id to pass to respond_permission */

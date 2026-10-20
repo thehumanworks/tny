@@ -123,7 +123,13 @@ void tui_size(tui *t) {
  * never scrolls), request a report, restore. The answer arrives on stdin as
  * ESC[rows;colsR and lands in tui_size_report via the key decoder. */
 void tui_size_probe(tui *t) {
-    if (!t->tty) return;
+    if (!t->tty || t->size_query_pending) return;
+    if (t->inline_query_pending) {
+        t->size_query_deferred = true;
+        return;
+    }
+    t->size_query_pending = true;
+    t->inline_cursor_row = 0;
     /* octal ESC: "\x1b7" would read as one hex escape */
     static const char probe[] = "\0337\x1b[999;999H\x1b[6n\0338";
     wout(probe, sizeof probe - 1);
@@ -399,14 +405,16 @@ static void composer_rows(tui *t, buf_t *b, int *rows, int maxw, int limit, int 
 
 /* Retain display text only. Durable session history has its own lifecycle;
  * the renderer needs a bounded tail to rebuild after a resize or overlay. */
-static void transcript_commit(tui *t) {
-    if (!t->out.len) return;
-    buf_append(&t->transcript, t->out.data, t->out.len);
+void tui_transcript_commit(tui *t) {
+    if (t->out_committed > t->out.len) t->out_committed = 0;
+    if (t->out_committed == t->out.len) return;
+    size_t pending = t->out_committed;
+    buf_append(&t->transcript, t->out.data + pending, t->out.len - pending);
     if (t->transcript.oom) return;
     t->transcript_version++;
-    for (size_t i = 0; i < t->out.len; i++)
+    for (size_t i = pending; i < t->out.len; i++)
         if (t->out.data[i] == '\n') t->transcript_lines++;
-    buf_clear(&t->out);
+    t->out_committed = t->out.len;
     size_t limit = t->scrollback_lines ? t->scrollback_lines : TNY_UI_SCROLLBACK_LINES_DEFAULT;
     size_t cut = 0;
     while (t->transcript_lines > limit) {
@@ -416,6 +424,9 @@ static void transcript_commit(tui *t) {
         t->transcript_lines--;
     }
     if (cut) {
+        t->transcript_generation++;
+        t->inline_map_from = t->inline_map_from > cut ? t->inline_map_from - cut : 0;
+        tui_tools_trim(t, cut);
         buf_consume(&t->transcript, cut);
         t->scrollback_anchor = t->scrollback_anchor > cut ? t->scrollback_anchor - cut : 0;
     }
@@ -457,10 +468,9 @@ typedef struct {
     size_t source, visual, sgr;
 } scrollback_row;
 
-static void transcript_wrap(buf_t *b, const char *s, size_t n, int width, bool attr,
-                            buf_t *starts) {
-    scrollback_row start = {0, 0, SIZE_MAX};
-    size_t sgr = SIZE_MAX;
+static void transcript_wrap(buf_t *b, const char *s, size_t n, int width, bool attr, buf_t *starts,
+                            size_t base, size_t sgr) {
+    scrollback_row start = {base, b->len, sgr};
     buf_append(starts, &start, sizeof start);
     int col = 0;
     for (size_t i = 0; i < n;) {
@@ -488,7 +498,7 @@ static void transcript_wrap(buf_t *b, const char *s, size_t n, int width, bool a
             buf_appends(b, "\n");
             col = 0;
             i++;
-            start = (scrollback_row){i, b->len, sgr};
+            start = (scrollback_row){base + i, b->len, sgr};
             buf_append(starts, &start, sizeof start);
             continue;
         }
@@ -497,12 +507,18 @@ static void transcript_wrap(buf_t *b, const char *s, size_t n, int width, bool a
             continue;
         }
         size_t j = i + 1;
-        while (j < n && ((unsigned char)s[j] & 0xc0) == 0x80) j++;
+        while (ch >= 0xc0 && j < n && ((unsigned char)s[j] & 0xc0) == 0x80) j++;
+        /* Raw or UTF-8 C1 controls must not become terminal instructions. */
+        if (ch >= 0x80 && (!utf8_valid_bytes(s + i, j - i) ||
+                           (ch == 0xc2 && j - i == 2 && (unsigned char)s[i + 1] < 0xa0))) {
+            i = j;
+            continue;
+        }
         int cells = ch == '\t' ? 1 : transcript_cell_width(s + i, j - i);
         if (cells && col + cells > width) {
             buf_appends(b, "\n");
             col = 0;
-            start = (scrollback_row){i, b->len, sgr};
+            start = (scrollback_row){base + i, b->len, sgr};
             buf_append(starts, &start, sizeof start);
         }
         if (ch == '\t') buf_appends(b, " ");
@@ -520,19 +536,36 @@ static bool scrollback_reflow(tui *t, int width) {
         t->scrollback_partial.len != t->partial.len ||
         (t->partial.len &&
          memcmp(t->scrollback_partial.data, t->partial.data, t->partial.len) != 0)) {
-        buf_t source;
-        buf_init(&source);
-        buf_append(&source, t->transcript.data, t->transcript.len);
-        buf_append(&source, t->partial.data, t->partial.len);
-        if (source.oom) {
-            buf_free(&source);
-            return false;
+        bool reset = t->scrollback_width != width || t->scrollback_attr != t->attr ||
+                     t->scrollback_generation != t->transcript_generation ||
+                     t->scrollback_source_len > t->transcript.len;
+        if (reset) {
+            t->scrollback_source_len = t->scrollback_committed_visual =
+                t->scrollback_committed_rows = 0;
         }
-        buf_clear(&t->scrollback_visual);
-        buf_clear(&t->scrollback_starts);
-        transcript_wrap(&t->scrollback_visual, source.data, source.len, width, t->attr,
-                        &t->scrollback_starts);
-        buf_free(&source);
+        t->scrollback_visual.len = t->scrollback_committed_visual;
+        if (t->scrollback_visual.data) t->scrollback_visual.data[t->scrollback_visual.len] = 0;
+        t->scrollback_starts.len = t->scrollback_committed_rows;
+        size_t sgr = SIZE_MAX;
+        if (t->scrollback_starts.len >= sizeof(scrollback_row)) {
+            scrollback_row *rows = (scrollback_row *)t->scrollback_starts.data;
+            sgr = rows[t->scrollback_starts.len / sizeof *rows - 1].sgr;
+            t->scrollback_starts.len -= sizeof *rows; /* replace final empty row */
+        }
+        size_t base = t->scrollback_source_len;
+        transcript_wrap(&t->scrollback_visual, t->transcript.data ? t->transcript.data + base : "",
+                        t->transcript.len - base, width, t->attr, &t->scrollback_starts, base, sgr);
+        t->scrollback_source_len = t->transcript.len;
+        t->scrollback_committed_visual = t->scrollback_visual.len;
+        t->scrollback_committed_rows = t->scrollback_starts.len;
+        t->scrollback_generation = t->transcript_generation;
+        if (t->partial.len && t->scrollback_starts.len >= sizeof(scrollback_row)) {
+            scrollback_row *rows = (scrollback_row *)t->scrollback_starts.data;
+            sgr = rows[t->scrollback_starts.len / sizeof *rows - 1].sgr;
+            t->scrollback_starts.len -= sizeof *rows;
+            transcript_wrap(&t->scrollback_visual, t->partial.data, t->partial.len, width, t->attr,
+                            &t->scrollback_starts, t->transcript.len, sgr);
+        }
         buf_clear(&t->scrollback_partial);
         buf_append(&t->scrollback_partial, t->partial.data, t->partial.len);
         if (t->scrollback_starts.oom || t->scrollback_visual.oom || t->scrollback_partial.oom)
@@ -597,7 +630,7 @@ int tui_scrollback_page_rows(const tui *t) {
 
 void tui_scrollback_scroll(tui *t, int lines) {
     if (!t->fullscreen || !lines) return;
-    transcript_commit(t);
+    tui_transcript_commit(t);
     if (!scrollback_reflow(t, t->cols > 3 ? t->cols - 1 : 3)) return;
     size_t total = t->scrollback_total;
     size_t height = t->scrollback_height > 0 ? (size_t)t->scrollback_height : 1;
@@ -618,7 +651,9 @@ void tui_scrollback_home(tui *t) { tui_scrollback_scroll(t, INT32_MAX); }
 void tui_scrollback_end(tui *t) { tui_scrollback_scroll(t, -INT32_MAX); }
 
 void tui_fullscreen_frame(tui *t, buf_t *frame) {
-    transcript_commit(t);
+    tui_transcript_commit(t);
+    buf_clear(&t->out);
+    t->out_committed = 0;
     int height = t->rows > 0 ? t->rows : 1;
     int width = t->cols > 3 ? t->cols - 1 : 3;
     /* Reserve transcript space whenever the terminal can fit all three
@@ -676,6 +711,11 @@ void tui_clear_screen(tui *t) {
     buf_clear(&t->out);
     buf_clear(&t->partial);
     buf_clear(&t->transcript);
+    t->out_committed = 0;
+    t->inline_map_from = 0;
+    tui_tools_view_close(t);
+    tui_tools_free(t);
+    t->transcript_generation++;
     t->transcript_version++;
     t->transcript_lines = t->scrollback_offset = t->scrollback_anchor = t->scrollback_total = 0;
     if (!t->fullscreen) buf_appends(&t->out, "\x1b[H\x1b[2J\x1b[3J");
@@ -693,12 +733,22 @@ void tui_render(tui *t) {
         if (t->out.len) {
             wout(t->out.data, t->out.len);
             buf_clear(&t->out);
+            t->out_committed = 0;
             fflush(stdout);
         }
         t->dirty = false;
         return;
     }
     if (!t->dirty) return;
+    if (t->tool_view) {
+        buf_t frame = {0};
+        tui_tools_view_frame(t, &frame);
+        wout(frame.data, frame.len);
+        buf_free(&frame);
+        t->dirty = false;
+        fflush(stdout);
+        return;
+    }
 
     if (t->fullscreen) {
         buf_t frame;
@@ -711,10 +761,15 @@ void tui_render(tui *t) {
         return;
     }
 
+    t->inline_frame_version++;
+    t->inline_cursor_row = 0;
     erase_block(t);
+    tui_transcript_commit(t);
     if (t->out.len) {
         wout(t->out.data, t->out.len);
         buf_clear(&t->out);
+        t->out_committed = 0;
+        t->inline_cursor_row = 0;
     }
 
     int maxw = t->cols - 1;
@@ -763,10 +818,18 @@ void tui_render(tui *t) {
     t->block_rows = rows;
     t->cur_row = cur_row;
     t->dirty = false;
+    if (tny_settings_ui_inline_mouse(t->ctx) && !t->size_query_pending &&
+        !t->inline_query_pending) {
+        t->inline_query_pending = true;
+        t->inline_query_version = t->inline_frame_version;
+        t->inline_query_cur_row = t->cur_row;
+        wout("\x1b[6n", 4);
+    }
     fflush(stdout);
 }
 
 void tui_raw_begin(tui *t) {
+    tui_tools_view_close(t);
     tui_terminal_mouse(false);
     if (t->tty && t->fullscreen) {
         tui_bol(t);
@@ -782,11 +845,18 @@ void tui_raw_begin(tui *t) {
         fflush(stdout);
         return;
     }
+    t->inline_frame_version++;
+    t->inline_cursor_row = 0;
     erase_block(t);
+    tui_transcript_commit(t);
     if (t->out.len) {
         wout(t->out.data, t->out.len);
         buf_clear(&t->out);
+        t->out_committed = 0;
     }
+    /* A direct terminal command may print bytes the retained transcript does
+     * not own. Only later tracked rows are eligible for inline clicks. */
+    t->inline_map_from = t->transcript.len;
     if (t->partial.len) {
         wout(t->partial.data, t->partial.len);
         wout("\n", 1);
@@ -796,7 +866,7 @@ void tui_raw_begin(tui *t) {
 }
 
 void tui_raw_end(tui *t) {
-    tui_terminal_mouse(true);
+    tui_terminal_mouse_update(t);
     fflush(stdout);
     t->dirty = true;
 }
@@ -918,4 +988,128 @@ void tui_note(tui *t, const char *fmt, ...) {
     buf_clear(&t->note);
     buf_appends(&t->note, line);
     t->dirty = true;
+}
+
+/* Cursor-position replies distinguish a terminal-size probe from the inline
+ * caret query. Only a reply for unchanged output is eligible for hit testing. */
+void tui_cursor_report(tui *t, int row, int col) {
+    if (t->size_query_pending) {
+        t->size_query_pending = false;
+        tui_size_report(t, row, col);
+        t->dirty = true;
+    } else if (t->inline_query_pending) {
+        t->inline_query_pending = false;
+        if (t->inline_query_version == t->inline_frame_version && !t->tool_view)
+            t->inline_cursor_row = row - t->inline_query_cur_row;
+        else t->dirty = true;
+        if (t->size_query_deferred) {
+            t->size_query_deferred = false;
+            tui_size_probe(t);
+        }
+    }
+}
+
+void tui_tools_click(tui *t, int row, int col) {
+    if (col < 1 || row < 1 || t->approval || t->agents_dashboard) return;
+    if (t->tool_view) {
+        if (row == 1) tui_tools_toggle(t, t->tool_view);
+        return;
+    }
+    if (!t->fullscreen && !tny_settings_ui_inline_mouse(t->ctx)) return;
+    tui_transcript_commit(t);
+    if (!scrollback_reflow(t, t->fullscreen ? (t->cols > 3 ? t->cols - 1 : 3) : t->cols)) return;
+    size_t index;
+    if (t->fullscreen) {
+        if (row > t->scrollback_height) return;
+        size_t maximum = t->scrollback_total > (size_t)t->scrollback_height
+                             ? t->scrollback_total - (size_t)t->scrollback_height
+                             : 0;
+        index = scrollback_first(t, maximum) + (size_t)row - 1;
+    } else {
+        if (!t->inline_cursor_row || row >= t->inline_cursor_row) return;
+        size_t distance = (size_t)(t->inline_cursor_row - row);
+        /* The partial streaming row belongs to the composer block, not the
+         * committed terminal history. */
+        size_t total = t->scrollback_total;
+        if (t->partial.len) {
+            const scrollback_row *rows = (const scrollback_row *)t->scrollback_starts.data;
+            while (total && rows[total - 1].source >= t->transcript.len) total--;
+        }
+        if (distance > total) return;
+        index = total - distance;
+    }
+    if (index >= t->scrollback_total) return;
+    size_t source = ((scrollback_row *)t->scrollback_starts.data)[index].source;
+    if (!t->fullscreen && source < t->inline_map_from) return;
+    for (tui_tool_call *c = t->tool_calls; c; c = c->next) {
+        size_t at[2] = {c->start_at, c->end_at};
+        for (size_t i = 0; i < 2; i++) {
+            if (at[i] == SIZE_MAX || at[i] >= t->transcript.len) continue;
+            const char *nl = memchr(t->transcript.data + at[i], '\n', t->transcript.len - at[i]);
+            size_t end = nl ? (size_t)(nl - t->transcript.data) : t->transcript.len;
+            if (source < at[i] || source > end) continue;
+            if (t->fullscreen) tui_tools_toggle(t, c);
+            else {
+                /* Inline scrollback is terminal-owned. Open a reversible
+                 * inspector rather than overwriting unrelated shell history. */
+                char number[32];
+                snprintf(number, sizeof number, "%zu", c->number);
+                tui_tools_command(t, number);
+                if (!c->expanded) tui_tools_toggle(t, c);
+            }
+            return;
+        }
+    }
+}
+
+void tui_tools_view_frame(tui *t, buf_t *frame) {
+    tui_tool_call *c = t->tool_view;
+    if (!c) return;
+    int width = t->cols > 3 ? t->cols - 1 : 3;
+    if (t->tool_view_changed || t->tool_view_width != width) {
+        buf_clear(&t->tool_view_text);
+        buf_clear(&t->tool_view_rows);
+        buf_clear(&t->tool_view_visual);
+        if (c->expanded) {
+            buf_appends(&t->tool_view_text, "Arguments:\n");
+            buf_appends(&t->tool_view_text, c->args ? c->args : "(unavailable)");
+            buf_appends(&t->tool_view_text, c->done ? "\n\nResult:\n" : "\n\nRunning…\n");
+            if (c->done) buf_appends(&t->tool_view_text, c->result ? c->result : "");
+        } else
+            buf_appends(&t->tool_view_text, "Collapsed. Enter or click the heading to expand.\n");
+        /* No tool-controlled styling or cursor sequences survive the viewer. */
+        transcript_wrap(&t->tool_view_visual, t->tool_view_text.data, t->tool_view_text.len, width,
+                        false, &t->tool_view_rows, 0, SIZE_MAX);
+        t->tool_view_width = width;
+        t->tool_view_changed = false;
+    }
+    size_t total = t->tool_view_rows.len / sizeof(scrollback_row);
+    size_t height = t->rows > 2 ? (size_t)t->rows - 2 : 0;
+    size_t maximum = total > height ? total - height : 0;
+    if (t->tool_view_offset > maximum) t->tool_view_offset = maximum;
+    buf_appends(frame, "\x1b[?25l\x1b[?7l\x1b[H\x1b[2J");
+    buf_t heading = {0};
+    buf_appendf(&heading, "%s Tool #%zu: %s%s%s", c->expanded ? "▾" : "▸", c->number,
+                c->name ? c->name : "tool", c->reason && *c->reason ? " · " : "",
+                c->reason ? c->reason : "");
+    buf_t safe = {0};
+    tui_tool_literal(&safe, heading.data, true);
+    push_trunc(frame, safe.data, safe.len, width);
+    buf_free(&safe);
+    buf_free(&heading);
+    const scrollback_row *rows = (const scrollback_row *)t->tool_view_rows.data;
+    for (size_t i = 0; i < height && t->tool_view_offset + i < total; i++) {
+        size_t n = t->tool_view_offset + i;
+        size_t start = rows[n].visual;
+        size_t end = n + 1 < total ? rows[n + 1].visual : t->tool_view_visual.len;
+        if (end > start && t->tool_view_visual.data[end - 1] == '\n') end--;
+        buf_appendf(frame, "\x1b[%zu;1H", i + 2);
+        buf_append(frame, t->tool_view_visual.data + start, end - start);
+    }
+    if (t->rows > 1) {
+        buf_appendf(frame, "\x1b[%d;1H", t->rows);
+        const char *help = "Enter toggle · ←/→ call · ↑/↓ scroll · Esc close";
+        push_trunc(frame, help, strlen(help), width);
+    }
+    buf_appends(frame, "\x1b[?7h");
 }

@@ -60,6 +60,7 @@ static const struct {
     {"undo", "undo the last file change"},
     {"copy", "copy the last reply to the clipboard"},
     {"trace", "toggle raw event tracing"},
+    {"tools", "inspect retained tool calls: /tools [number]"},
     {"transcript", "print the whole session transcript"},
     {"login", "auth for the active provider"},
     {"logout", "drop provider auth"},
@@ -463,6 +464,8 @@ static void cmd_transcript(tui *t) {
         const char *role = r ? yyjson_mut_get_str(r) : NULL;
         const char *txt = c ? yyjson_mut_get_str(c) : NULL;
         if (!role) continue;
+        bool tool = tui_tools_replay_message(t, m);
+        if (tool && (!txt || !*txt || strcmp(role, "tool") == 0)) continue;
         const char *typed = session_message_display(t->session, (int)idx);
         if (typed) txt = typed; /* skill blocks were injected; show the typed text */
         tui_linef(t, "%s[%s]%s %s", tui_attr(t, "\x1b[2m"), role, tui_attr(t, "\x1b[0m"),
@@ -547,6 +550,8 @@ static void cmd_resume_id(tui *t, const char *id) {
     if (t->engine) tny_engine_end_session(t->engine, "resume");
     tui_drop_backend(t); /* old engine still owns the old session until here */
     if (t->session) session_close(t->session);
+    tui_tools_view_close(t);
+    tui_tools_free(t);
     t->session = s;
     session_set_extension_start(s, "resume", previous);
     free(previous);
@@ -563,14 +568,20 @@ static void cmd_resume_id(tui *t, const char *id) {
 
 void tui_settings_show(tui *t) {
     tui_overlay_clear(t);
-    tui_overlay_linef(t, "Settings — display defaults (next launch)");
+    tui_overlay_linef(t, "Settings — tool display applies now; layout next launch");
     tui_overlay_linef(t, "  [m] ui.mode: %s", tny_settings_ui_mode(t->ctx));
     tui_overlay_linef(t, "  [a] ui.alternate_screen: %s",
                       tny_settings_ui_alternate_screen(t->ctx) ? "true" : "false");
     tui_overlay_linef(t, "      ui.scrollback_lines: %zu",
                       tny_settings_ui_scrollback_lines(t->ctx));
     tui_overlay_linef(t, "  /settings ui.scrollback_lines 1..1000000");
-    if (t->tty) tui_overlay_linef(t, "  m / a toggle · Enter / Esc close");
+    tui_overlay_linef(t, "  [t] ui.tool_calls_expanded: %s",
+                      tny_settings_ui_tool_calls_expanded(t->ctx) ? "true" : "false");
+    tui_overlay_linef(t, "  [r] ui.tool_call_reasons: %s",
+                      tny_settings_ui_tool_call_reasons(t->ctx) ? "true" : "false");
+    tui_overlay_linef(t, "  [i] ui.inline_mouse: %s (captures wheel/selection)",
+                      tny_settings_ui_inline_mouse(t->ctx) ? "true" : "false");
+    if (t->tty) tui_overlay_linef(t, "  m / a / t / r / i toggle · Enter / Esc close");
     else {
         tui_overlay_linef(t, "  /settings ui.mode inline|fullscreen");
         tui_overlay_linef(t, "  /settings ui.alternate_screen true|false");
@@ -593,21 +604,37 @@ void tui_settings_command(tui *t, const char *arg) {
     const char *key = ac == 2 && strncmp(av[0], "ui.", 3) == 0 ? av[0] + 3 : NULL;
     if (!key ||
         (strcmp(key, "mode") != 0 && strcmp(key, "alternate_screen") != 0 &&
-         strcmp(key, "scrollback_lines") != 0) ||
+         strcmp(key, "scrollback_lines") != 0 && strcmp(key, "tool_calls_expanded") != 0 &&
+         strcmp(key, "tool_call_reasons") != 0 && strcmp(key, "inline_mouse") != 0) ||
         (strcmp(key, "mode") == 0 && strcmp(av[1], "inline") != 0 &&
          strcmp(av[1], "fullscreen") != 0) ||
-        (strcmp(key, "alternate_screen") == 0 && strcmp(av[1], "true") != 0 &&
-         strcmp(av[1], "false") != 0) ||
+        ((strcmp(key, "alternate_screen") == 0 || strcmp(key, "tool_calls_expanded") == 0 ||
+          strcmp(key, "tool_call_reasons") == 0 || strcmp(key, "inline_mouse") == 0) &&
+         strcmp(av[1], "true") != 0 && strcmp(av[1], "false") != 0) ||
         (strcmp(key, "scrollback_lines") == 0 && !tny_settings_ui_scrollback_lines_valid(av[1]))) {
         tui_err(t, "usage: /settings ui.mode inline|fullscreen | "
                    "/settings ui.alternate_screen true|false | "
-                   "/settings ui.scrollback_lines 1..1000000");
+                   "/settings ui.scrollback_lines 1..1000000 | "
+                   "/settings ui.tool_calls_expanded true|false | /settings ui.tool_call_reasons "
+                   "true|false | /settings ui.inline_mouse true|false");
     } else if (tny_settings_set_ui(t->ctx, key, av[1]) != 0) {
         tui_err(t, "could not save display settings");
     } else {
+        bool tools = strcmp(key, "tool_calls_expanded") == 0;
+        bool reasons = strcmp(key, "tool_call_reasons") == 0;
+        bool mouse = strcmp(key, "inline_mouse") == 0;
+        if (mouse) tui_terminal_mouse_update(t);
+        if (tools) tui_tools_default_changed(t);
+        if (reasons) tui_runner_invalidate(t);
         if (t->settings_open) tui_settings_show(t);
-        else tui_linef(t, "  saved ui.%s = %s (next launch)", key, av[1]);
-        tui_note(t, "saved; applies to the next TUI launch");
+        else tui_linef(t, "  saved ui.%s = %s", key, av[1]);
+        tui_note(
+            t,
+            tools ? "saved; call-specific overrides preserved"
+            : mouse
+                ? "saved; inline mouse captures wheel/selection; Shift bypass depends on terminal"
+            : reasons ? "saved; reason preference updated"
+                      : "saved; applies to the next TUI launch");
     }
     free(copy);
 }
@@ -647,9 +674,9 @@ void tui_command(tui *t, const char *line) {
     /* A background replica is never a local writer, even while attached.
      * Keep a small read-only allowlist: future mutating commands fail closed. */
     if (t->session_readonly || t->background_view) {
-        static const char *READ_COMMANDS[] = {"",     "help",     "clear",  "transcript",
-                                              "copy", "trace",    "agents", "quit",
-                                              "exit", "continue", NULL};
+        static const char *READ_COMMANDS[] = {"",     "help",  "clear",    "transcript",
+                                              "copy", "tools", "trace",    "agents",
+                                              "quit", "exit",  "continue", NULL};
         bool allowed = t->rc && strcmp(c, "cancel") == 0;
         for (const char **r = READ_COMMANDS; *r; r++)
             if (strcmp(c, *r) == 0) allowed = true;
@@ -1085,6 +1112,8 @@ void tui_command(tui *t, const char *line) {
     } else if (strcmp(c, "trace") == 0) {
         t->trace = !t->trace;
         tui_linef(t, "  trace: %s", t->trace ? "on" : "off");
+    } else if (strcmp(c, "tools") == 0) {
+        tui_tools_command(t, arg);
     } else if (strcmp(c, "transcript") == 0) {
         cmd_transcript(t);
     } else {

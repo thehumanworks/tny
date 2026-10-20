@@ -194,6 +194,10 @@ static void rn_event_line(buf_t *b, const tny_backend_event *ev) {
         jescape(b, ev->tool_id ? ev->tool_id : "");
         buf_appends(b, ",\"detail\":");
         jescape(b, ev->tool_detail ? ev->tool_detail : "");
+        if (ev->tool_reason) {
+            buf_appends(b, ",\"reason\":");
+            jescape(b, ev->tool_reason);
+        }
         if (ev->kind == TNY_EV_TOOL_END)
             buf_appendf(b, ",\"ok\":%s", ev->tool_ok ? "true" : "false");
         break;
@@ -2289,6 +2293,7 @@ static void rc_parse_line(tny_runner_client *c, const char *line, size_t len) {
         e->tool_name = jget_str(root, "tool_name");
         e->tool_id = jget_str(root, "tool_id");
         e->tool_detail = jget_str(root, "detail");
+        e->tool_reason = jget_str(root, "reason");
         e->tool_ok = jget_bool(root, "ok", false);
         e->perm_id = jget_str(root, "id");
         e->perm_summary = jget_str(root, "summary");
