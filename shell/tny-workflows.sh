@@ -643,8 +643,9 @@ _tny_workflow_execute_task() {
     else
         rc=$?
     fi
+    # Seal completion before reading the latched signal intent.
+    trap '' HUP INT TERM
     if [ "$cancelled" -eq 1 ]; then
-        trap '' HUP INT TERM
         _tny_workflow_cancel_child "$run_dir" "$child"
         exit 143
     fi
@@ -966,6 +967,8 @@ _tny_workflow_run_impl() {
         sleep 0.05
     done
 
+    # Signals before this cutoff remain cancellation, never success.
+    trap '' HUP INT TERM
     _tny_workflow_exit_if_cancelled "$cancelled"
     trap - EXIT HUP INT TERM
     failed=0

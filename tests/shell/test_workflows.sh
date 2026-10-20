@@ -637,9 +637,38 @@ case ${ZSH_VERSION:-} in
     '') current_shell=${BASH:-bash} ;;
     *) current_shell=${ZSH:-zsh} ;;
 esac
+# Deterministic regression check: signal handlers must not re-enter the
+# condition builtin. Existing cancellation cases still verify
+# status 130, publication gaps, repeated signals and complete child cleanup.
+TNY_SHELL_TEST_HOOK="$temporary/signal-hook"
+TNY_SIGNAL_CONDITION_LOG="$temporary/signal-condition"
+export TNY_SHELL_TEST_HOOK TNY_SIGNAL_CONDITION_LOG
+cat > "$TNY_SHELL_TEST_HOOK" << 'SIGNAL_HOOK'
+trap() {
+    case $* in
+        *HUP*INT*TERM*)
+            case $1 in
+                '' | -) builtin trap "$@" ;;
+                *)
+                    handler=$1
+                    shift
+                    builtin trap "TNY_TEST_SIGNAL_ACTIVE=1; $handler; TNY_TEST_SIGNAL_ACTIVE=0" "$@"
+                    ;;
+            esac
+            ;;
+        *) builtin trap "$@" ;;
+    esac
+}
+[() {
+    case ${TNY_TEST_SIGNAL_ACTIVE:-0} in
+        1) builtin printf '%s\n' 'condition re-entered from signal trap' >> "$TNY_SIGNAL_CONDITION_LOG" ;;
+    esac
+    builtin [ "$@"
+}
+SIGNAL_HOOK
 # Expanded by the child scheduler shell, not this test process.
 # shellcheck disable=SC2016
-scheduler_program='. "$1"; TNY_WORKFLOW_DIR=$2; export TNY_WORKFLOW_DIR; if [ -n "${TNY_PUBLICATION_GATE:-}" ]; then . "$TNY_PUBLICATION_GATE/hook"; fi; _tny_workflow_run_impl --quiet'
+scheduler_program='. "$1"; . "$TNY_SHELL_TEST_HOOK"; TNY_WORKFLOW_DIR=$2; export TNY_WORKFLOW_DIR; if [ -n "${TNY_PUBLICATION_GATE:-}" ]; then . "$TNY_PUBLICATION_GATE/hook"; fi; _tny_workflow_run_impl --quiet'
 start_scheduler() {
     local pid_file attempt
     pid_file=$1
@@ -680,6 +709,7 @@ wait_scheduler() {
     done
     if wait "$scheduler_launcher_pid"; then scheduler_rc=0; else scheduler_rc=$?; fi
     assert_eq "$scheduler_rc" "$(cat "$scheduler_status_file")" "scheduler completion receipt"
+    [ ! -s "$TNY_SIGNAL_CONDITION_LOG" ] || fail "signal handler re-entered a condition builtin"
 }
 
 start_scheduler "$temporary/signal-scheduler.pid"
