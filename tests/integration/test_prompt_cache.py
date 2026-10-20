@@ -468,8 +468,13 @@ class CacheTests(unittest.TestCase):
         self.server.RequestHandlerClass = WorkingContextProvider
         settings = self.home / ".tny" / "settings.json"
         settings.parent.mkdir(exist_ok=True)
-        for wire in ("chat", "responses"):
-            with self.subTest(wire=wire):
+        for wire, no_save in (
+            ("chat", False),
+            ("responses", False),
+            ("chat", True),
+            ("responses", True),
+        ):
+            with self.subTest(wire=wire, no_save=no_save):
                 self.server.requests.clear()
                 self.server.folded = self.server.recovered = False
                 settings.write_text(
@@ -484,6 +489,7 @@ class CacheTests(unittest.TestCase):
                     )
                 )
                 self.ask(
+                    *(["--no-save"] if no_save else []),
                     provider="compat",
                     prompt="Preserve this exact goal and all constraints.",
                 )

@@ -133,13 +133,11 @@ platform limitation rather than native/wasm execution parity.
 
 ## Bounded operating envelope
 
-The 8 MiB frame limit applies to the **whole initial context snapshot**, including
-stored session history, code, permission state and any encoded captures. A
-session can therefore be valid for storage yet too large for tool execution.
-Compaction currently keeps historical messages and does not remove this ceiling;
-start a new session with a concise handoff when the snapshot limit is reached.
-The error is explicit and does not fall back to in-harness execution. A future
-bounded history projection or chunked snapshot protocol would be a separate change.
+The 8 MiB frame limit applies to execution context, code, active tool metadata,
+permission state and encoded captures, not retained transcript history. The
+[versioned execution projection](0207-bounded-execution-session-projection.md)
+keeps owner history outside child snapshots. Large active configuration or
+captures can still exceed the frame bound; there is no in-harness fallback.
 
 Native execution also requires the existing generation-safe process-tree host
 seam. Supported Linux hosts need working pidfd operations, and supported macOS

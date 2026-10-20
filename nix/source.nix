@@ -1,3 +1,5 @@
+# Execution snapshot regressions and optional encoder benchmark use existing
+# src/tests filesets, the C compiler and Python stdlib; no new dependencies.
 # Parallel read workers and their rendezvous/timeout tests use the existing
 # src/tests filesets, native process support and Python stdlib; no new inputs.
 # Offline harness benchmark route tests use the existing tests fileset and Python stdlib.

@@ -14,6 +14,9 @@ bool tny_execution_parallel_safe(const tools_env *env, const tools_call *call) {
     if (!env || !env->ctx || env->ctx->ssh_host || env->ctx->custom_tools ||
         env->ctx->host_services || !call || !call->name || call->custom || call->intercept)
         return false;
+    const char *handle = jget_str(call->args, "handle");
+    if (strcmp(call->name, "read_tool_result") == 0 && handle && str_starts(handle, "transcript:"))
+        return false; /* Only the owner retains the referenced transcript. */
     const char *names[] = {"read_file", "list_files",       "glob_files", "grep_files",
                            "file_info", "read_tool_result", "web_fetch"};
     for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)

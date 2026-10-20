@@ -1403,6 +1403,10 @@ char *session_read_result(tny_session_state *s, const char *handle, size_t off, 
     /* Session-local immutable transcript references. No filesystem path is
      * accepted, and the digest rejects stale/edited references. */
     if (str_starts(handle, "transcript:")) {
+        if (s->execution_snapshot)
+            return s->execution_read_result ? s->execution_read_result(s->execution_save_ud, handle,
+                                                                       off, maxlen, out_len)
+                                            : NULL;
         const char *number = handle + strlen("transcript:");
         if (*number < '0' || *number > '9') return NULL;
         char *end = NULL;

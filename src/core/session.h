@@ -37,6 +37,9 @@ typedef struct {
      * report save success before its owner has merged and persisted state. */
     int (*execution_save)(void *ud);
     void *execution_save_ud;
+    /* Lazy owner transcript reads keep historical messages outside snapshots. */
+    char *(*execution_read_result)(void *ud, const char *handle, size_t offset, size_t length,
+                                   size_t *out_len);
     /* Exact resolved task instructions are persisted in the private
      * <session>/task.md sidecar. Public session JSON carries metadata only. */
     char *task_body;

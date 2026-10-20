@@ -1,0 +1,60 @@
+{
+  "metric": "Session-state JSON bytes and encoder CPU ms; not full-cell latency or tokens",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "compiler": "cc (Debian 14.2.0-19) 14.2.0",
+  "flags": [
+    "-O2",
+    "-std=c11",
+    "-D_GNU_SOURCE",
+    "-ffunction-sections",
+    "-fdata-sections"
+  ],
+  "baseline_revision": "60c429e62822b5db1692af88cdb7b518f244ba58",
+  "shared_source_sha256": {
+    "tests/bench/bench_execution_snapshot.c": "bbd019a024d1a62d6dcece4d66380fe4997de235cd14d6a3eddeeb21ec5bb183",
+    "src/util/util.c": "83740c9296d5e5206ae102df37d5d83243e7e19c0fb9a744ace1c2bff572d618",
+    "src/util/alloc.c": "2649a134ad37d07d879928224d3819cd3a2284ed0f2d51a34c84ea46c7a58cf5",
+    "src/json/json.c": "f2aadf67523808a1ad94555458e80a4ba8490af4a1ecc38a1f46ef23aa889477",
+    "third_party/yyjson/yyjson.c": "ac2e9bbb2e2d9149d90878d40506a1d624fa0b33c979a11b61075c54782c6d6a"
+  },
+  "baseline": {
+    "encoder_sha256": "c12048a8a3d6a65531e3dd4c478ee09583c07dcc409eb48744ae6c87cf2136c0",
+    "samples": [
+      {
+        "turns": 10,
+        "snapshot_bytes": 164543,
+        "encode_cpu_ms": 0.1539
+      },
+      {
+        "turns": 100,
+        "snapshot_bytes": 1641713,
+        "encode_cpu_ms": 1.83813
+      },
+      {
+        "turns": 1000,
+        "snapshot_bytes": 16413413,
+        "encode_cpu_ms": 27.48977
+      }
+    ]
+  },
+  "candidate": {
+    "encoder_sha256": "ca3c25026b2fe4c4338667ffc82e29b45c9d592377a0d9cf9ba97df39a11b78a",
+    "samples": [
+      {
+        "turns": 10,
+        "snapshot_bytes": 429,
+        "encode_cpu_ms": 0.00047
+      },
+      {
+        "turns": 100,
+        "snapshot_bytes": 429,
+        "encode_cpu_ms": 0.00107
+      },
+      {
+        "turns": 1000,
+        "snapshot_bytes": 429,
+        "encode_cpu_ms": 0.00074
+      }
+    ]
+  }
+}

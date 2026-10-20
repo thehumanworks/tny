@@ -36,18 +36,47 @@ static bool array_prefix(yyjson_val *before, yyjson_val *after) {
         if (!yyjson_equals(item, yyjson_arr_iter_next(&current))) return false;
     return true;
 }
+/* Version 1 is the nested-tool session contract, not a transcript snapshot.
+ * Team delivery needs dedup/cursor state and the bounded ACP forwarding queue.
+ * Task/swarm metadata remains available; owner history and audit stay private.
+ * messages starts empty and is an append-only delivery outbox. */
+static bool session_field(const char *key) {
+    if (!key) return false;
+    static const char *fields[] = {
+        "task",          "swarm_cap",    "swarm_definition",   "team_runs",
+        "team_receipts", "team_cursors", "acp_pending_context"};
+    for (size_t i = 0; i < sizeof(fields) / sizeof(*fields); ++i)
+        if (strcmp(key, fields[i]) == 0) return true;
+    return false;
+}
+static yyjson_mut_val *session_projection(yyjson_mut_doc *d, tny_session_state *s) {
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(s->doc), *out = yyjson_mut_obj(d);
+    if (!yyjson_mut_is_obj(root) || !out || !add(d, out, "messages", yyjson_mut_arr(d)))
+        return NULL;
+    size_t i, n;
+    yyjson_mut_val *key, *value;
+    yyjson_mut_obj_foreach(root, i, n, key, value) {
+        if (!key || !value) return NULL;
+        const char *name = yyjson_mut_get_str(key);
+        if (!name) return NULL;
+        if (session_field(name) && !add(d, out, name, yyjson_mut_val_mut_copy(d, value)))
+            return NULL;
+    }
+    return out;
+}
 static yyjson_mut_val *encode_session(yyjson_mut_doc *d, tools_env *env, yyjson_val *baseline,
                                       bool initial) {
     tny_session_state *s = env->session;
     if (!s) return yyjson_mut_null(d);
-    yyjson_doc *snapshot = yyjson_mut_doc_imut_copy(s->doc, jallocator());
-    if (!snapshot) return NULL;
-    yyjson_val *root = yyjson_doc_get_root(snapshot);
+    yyjson_doc *snapshot = initial ? NULL : yyjson_mut_doc_imut_copy(s->doc, jallocator());
+    if (!initial && !snapshot) return NULL;
+    yyjson_val *root = snapshot ? yyjson_doc_get_root(snapshot) : NULL;
     yyjson_mut_val *out = yyjson_mut_obj(d);
-    bool ok = out && yyjson_is_obj(root);
+    bool ok = out && (initial || yyjson_is_obj(root));
     if (initial) {
         ok = ok && add_optional(d, out, "id", s->id) && add_optional(d, out, "dir", s->dir) &&
-             add(d, out, "doc", yyjson_val_mut_copy(d, root)) &&
+             yyjson_mut_obj_add_uint(d, out, "projection", 1) &&
+             add(d, out, "doc", session_projection(d, s)) &&
              add_optional(d, out, "task_body", s->task_body) &&
              add_optional(d, out, "extension_start_reason", s->extension_start_reason) &&
              add_optional(d, out, "extension_previous_session_id",
@@ -69,6 +98,10 @@ static yyjson_mut_val *encode_session(yyjson_mut_doc *d, tools_env *env, yyjson_
             yyjson_val *k, *v;
             yyjson_obj_foreach(root, i, n, k, v) {
                 const char *key = yyjson_get_str(k);
+                if (!key || (!session_field(key) && strcmp(key, "messages") != 0)) {
+                    ok = false;
+                    break;
+                }
                 yyjson_val *previous = yyjson_obj_get(baseline, key);
                 if (yyjson_equals(v, previous)) continue;
                 if (array_prefix(previous, v)) {
@@ -82,13 +115,15 @@ static yyjson_mut_val *encode_session(yyjson_mut_doc *d, tools_env *env, yyjson_
                         ok = copy && yyjson_mut_arr_append(suffix, copy);
                     }
                     ok = ok && add(d, append, key, suffix);
-                } else ok = ok && add(d, set, key, yyjson_val_mut_copy(d, v));
+                } else
+                    ok = ok && strcmp(key, "messages") != 0 &&
+                         add(d, set, key, yyjson_val_mut_copy(d, v));
             }
             yyjson_obj_foreach(baseline, i, n, k, v) {
                 (void)v;
                 const char *key = yyjson_get_str(k);
                 if (!yyjson_obj_get(root, key))
-                    ok = ok && yyjson_mut_arr_add_strcpy(d, remove, key);
+                    ok = ok && session_field(key) && yyjson_mut_arr_add_strcpy(d, remove, key);
             }
         }
     }
@@ -186,9 +221,18 @@ static tny_session_state *restore_session(tny_ctx *ctx, yyjson_val *v) {
     yyjson_val *doc = jget(v, "doc"), *event = jget(v, "extension_event_sequence"),
                *agent = jget(v, "extension_agent_sequence"),
                *started = jget(v, "extension_session_started"), *persisted = jget(v, "persisted");
-    if (!id || !dir || !yyjson_is_obj(doc) || !yyjson_is_uint(event) || !yyjson_is_uint(agent) ||
+    if (!yyjson_is_uint(jget(v, "projection")) || yyjson_get_uint(jget(v, "projection")) != 1 ||
+        !id || !dir || !yyjson_is_obj(doc) || !yyjson_is_uint(event) || !yyjson_is_uint(agent) ||
         !yyjson_is_bool(started) || !yyjson_is_bool(persisted))
         return NULL;
+    size_t i, n;
+    yyjson_val *key, *value;
+    yyjson_obj_foreach(doc, i, n, key, value) {
+        const char *name = yyjson_get_str(key);
+        if (!name || (!session_field(name) && strcmp(name, "messages") != 0)) return NULL;
+    }
+    yyjson_val *messages = jget(doc, "messages");
+    if (!yyjson_is_arr(messages) || yyjson_arr_size(messages)) return NULL;
     tny_session_state *s = calloc(1, sizeof(*s));
     if (!s) return NULL;
     s->ctx = ctx;
@@ -212,6 +256,36 @@ static tny_session_state *restore_session(tny_ctx *ctx, yyjson_val *v) {
     s->extension_session_started = yyjson_get_bool(started);
     s->persisted = yyjson_get_bool(persisted);
     return s;
+}
+static bool session_delta_valid(yyjson_val *delta) {
+    yyjson_val *set = jget(delta, "set"), *remove = jget(delta, "remove"),
+               *append = jget(delta, "append");
+    if (yyjson_obj_size(delta) != 3 || !yyjson_is_obj(set) || !yyjson_is_arr(remove) ||
+        !yyjson_is_obj(append))
+        return false;
+    size_t i, n;
+    yyjson_val *key, *value;
+    yyjson_obj_foreach(set, i, n, key, value) {
+        (void)value;
+        if (!session_field(yyjson_get_str(key))) return false;
+    }
+    yyjson_obj_foreach(append, i, n, key, value) {
+        const char *name = yyjson_get_str(key);
+        if (!name || (!session_field(name) && strcmp(name, "messages") != 0) ||
+            !yyjson_is_arr(value) || yyjson_obj_get(set, name))
+            return false;
+    }
+    yyjson_arr_foreach(remove, i, n, key) {
+        const char *name = yyjson_get_str(key);
+        if (!name || !session_field(name) || yyjson_obj_get(set, name) ||
+            yyjson_obj_get(append, name))
+            return false;
+    }
+    return true;
+}
+static bool session_delta_changed(yyjson_val *delta) {
+    return yyjson_obj_size(jget(delta, "set")) || yyjson_arr_size(jget(delta, "remove")) ||
+           yyjson_obj_size(jget(delta, "append"));
 }
 static yyjson_mut_doc *merge_doc(tny_session_state *s, yyjson_val *delta) {
     yyjson_val *set = jget(delta, "set"), *remove = jget(delta, "remove"),
@@ -271,14 +345,6 @@ static yyjson_mut_doc *merge_doc(tny_session_state *s, yyjson_val *delta) {
         }
         yyjson_mut_obj_remove_key(root, yyjson_get_str(key));
     }
-    size_t encoded_len = 0;
-    char *encoded = yyjson_mut_write_opts(d, 0, jallocator(), &encoded_len, NULL);
-    bool bounded = encoded && encoded_len <= TNY_EXEC_FRAME_MAX;
-    free(encoded);
-    if (!bounded) {
-        yyjson_mut_doc_free(d);
-        return NULL;
-    }
     return d;
 }
 static void free_results(session_mem_result *r, int count) {
@@ -325,8 +391,11 @@ bool tny_execution_state_apply(tools_env *env, yyjson_val *state, bool initial) 
             fresh = restore_session(env->ctx, session);
             if (!fresh) goto done;
         } else {
-            merged = merge_doc(env->session, session);
-            if (!merged) goto done;
+            if (!env->session || !session_delta_valid(session)) goto done;
+            if (session_delta_changed(session)) {
+                merged = merge_doc(env->session, session);
+                if (!merged) goto done;
+            }
         }
     } else if (!initial && env->session) goto done;
     tny_session_state *target = initial ? fresh : env->session;
@@ -431,9 +500,7 @@ bool tny_execution_state_apply(tools_env *env, yyjson_val *state, bool initial) 
             goto done;
     }
     bool publish_session =
-        !initial && env->session && yyjson_is_obj(session) &&
-        (yyjson_obj_size(jget(session, "set")) || yyjson_arr_size(jget(session, "remove")) ||
-         yyjson_obj_size(jget(session, "append")));
+        !initial && env->session && yyjson_is_obj(session) && session_delta_changed(session);
     /* Commit memory atomically. The final owner-only durable save may fail;
      * retain committed memory and report failure so the caller cannot ACK it. */
     if (initial) {
