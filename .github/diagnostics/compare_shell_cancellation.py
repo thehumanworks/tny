@@ -104,14 +104,14 @@ def focused_fixture(source):
     return source[:begin] + source[end:]
 
 
-def run_fixture(shell, fixture, log, timeout):
+def run_fixture(shell, fixture, log, timeout, trace=False):
     env = os.environ.copy()
     env.update(BASH="/bin/bash", ZSH=shell)
     started = time.monotonic()
     timed_out = False
     with log.open("wb") as output:
         process = subprocess.Popen(
-            [shell, str(fixture)],
+            [shell, *(["-x"] if trace else []), str(fixture)],
             stdout=output,
             stderr=subprocess.STDOUT,
             env=env,
@@ -207,6 +207,10 @@ def main():
     }
     if len(focused_hashes) != 1:
         raise ValueError("baseline and candidate focused fixtures differ")
+    metadata["identical_libraries"] = (
+        len({revision["library_sha256"] for revision in metadata["revisions"].values()})
+        == 1
+    )
     print(
         json.dumps({key: value for key, value in metadata.items() if key != "results"}),
         flush=True,
@@ -220,6 +224,7 @@ def main():
                 fixtures[label, kind],
                 output / f"{label}-{kind}-{iteration:02d}.log",
                 timeout,
+                trace=kind == "full",
             )
         )
         metadata["results"].append(result)

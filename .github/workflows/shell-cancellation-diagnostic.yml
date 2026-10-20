@@ -1,4 +1,4 @@
-# Temporary evidence workflow for PR #201; this branch is not a merge candidate.
+# Temporary evidence workflow for post-216 cancellation; not a merge candidate.
 name: Darwin shell cancellation diagnostic
 
 on:
@@ -23,12 +23,16 @@ jobs:
           sw_vers
           /bin/bash --version
           /bin/zsh --version
-      - name: Compare original and final cancellation fixtures
+      - name: Exercise identical pre/post-216 cancellation fixtures
         env:
           BASH: /bin/bash
           ZSH: /bin/zsh
           DIAGNOSTIC_OUTPUT: ${{ runner.temp }}/tny-shell-diagnostic
-        run: python3 .github/diagnostics/compare_shell_cancellation.py
+        run: >-
+          python3 .github/diagnostics/compare_shell_cancellation.py
+          --baseline 7b5190e60b42e81532e643fe73e20da9fc2fdf71
+          --candidate fea4f5eb8db163b3d6786c19a8bb41a6cbd19727
+          --repeats 20
       - name: Retain comparison results and shell crash reports
         if: always()
         uses: actions/upload-artifact@v7
