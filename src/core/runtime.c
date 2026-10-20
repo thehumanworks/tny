@@ -348,6 +348,10 @@ static char *backend_event_json(tny_engine *e, const tny_backend_event *ev) {
         jescape(&b, ev->tool_id ? ev->tool_id : "");
         buf_appends(&b, ",\"detail\":");
         jescape(&b, ev->tool_detail ? ev->tool_detail : "");
+        if (ev->tool_reason) {
+            buf_appends(&b, ",\"reason\":");
+            jescape(&b, ev->tool_reason);
+        }
         if (ev->kind == TNY_EV_TOOL_END)
             buf_appendf(&b, ",\"ok\":%s", ev->tool_ok ? "true" : "false");
         break;

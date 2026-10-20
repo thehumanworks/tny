@@ -371,6 +371,9 @@ int tny_settings_set_str(tny_ctx *ctx, const char *key, const char *value);
 #define TNY_UI_SCROLLBACK_LINES_MAX     1000000u
 const char *tny_settings_ui_mode(tny_ctx *ctx);
 bool tny_settings_ui_alternate_screen(tny_ctx *ctx);
+bool tny_settings_ui_inline_mouse(tny_ctx *ctx);
+bool tny_settings_ui_tool_calls_expanded(tny_ctx *ctx);
+bool tny_settings_ui_tool_call_reasons(tny_ctx *ctx);
 size_t tny_settings_ui_scrollback_lines(tny_ctx *ctx);
 /* Digit-only positive integer, at most TNY_UI_SCROLLBACK_LINES_MAX. */
 bool tny_settings_ui_scrollback_lines_valid(const char *value);

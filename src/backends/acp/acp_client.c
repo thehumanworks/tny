@@ -574,6 +574,7 @@ static int ac_send(tny_backend *b, const char *prompt, const char **images, tny_
                     o->ctx->ssh_cwd);
     tny_swarm_policy(o->ctx, &context);
     buf_appends(&context, tools_code_instructions());
+    buf_appends(&context, tools_reason_instructions(o->ctx));
     instructions_collect(o->ctx, &context);
     if (o->ctx->task_instructions && *o->ctx->task_instructions) tny_task_collect(o->ctx, &context);
     if (o->ctx->system_prompt && *o->ctx->system_prompt) {

@@ -15,9 +15,12 @@
 /* A final result: captured output, or an error line plus bounded output. */
 #define TNY_CODE_RESULT_TEXT_BYTES (TNY_CODE_OUTPUT_BYTES + 512u)
 #define TNY_CODE_SOURCE_BYTES      (256u * 1024u)
-#define TNY_CODE_ARGUMENT_BYTES    (256u * 1024u)
-#define TNY_CODE_NAME_BYTES        256u
-#define TNY_CODE_TOOL_CALLS        64u
+/* Private transport discriminator: cannot collide with custom names (alnum/_/-)
+ * or MCP names (server/tool). It is not a discoverable tool. */
+#define TNY_CODE_METADATA_CALL  "@tny:call"
+#define TNY_CODE_ARGUMENT_BYTES (256u * 1024u)
+#define TNY_CODE_NAME_BYTES     256u
+#define TNY_CODE_TOOL_CALLS     64u
 /* One nested result must fit a single private cell frame. */
 #define TNY_CODE_TOOL_RESULT_BYTES (8u * 1024u * 1024u - 16u)
 /* The terminal tool's ceiling also covers synchronous delegated inference.

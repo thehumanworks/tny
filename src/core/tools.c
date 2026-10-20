@@ -630,13 +630,36 @@ static const char RUN_CODE_SCHEMA[] =
     "tools.call(name, arguments_json) with JSON object text such as json.dumps({...}).\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{"
     "\"code\":{\"type\":\"string\",\"minLength\":1},"
+    "\"reason\":{\"type\":\"string\",\"description\":\"Very short 1–10 word intent for this "
+    "call.\"},"
     "\"timeout_ms\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":" CODE_MAX_TIMEOUT_TEXT
     ",\"default\":" CODE_DEFAULT_TIMEOUT_TEXT "}},"
     "\"required\":[\"code\"],\"additionalProperties\":false}}}]";
 
 char *tools_schema_json(tools_env *env) {
-    (void)env;
-    return xstrdup(RUN_CODE_SCHEMA);
+    if (tny_settings_ui_tool_call_reasons(env ? env->ctx : NULL)) return xstrdup(RUN_CODE_SCHEMA);
+    yyjson_doc *doc = jparse(RUN_CODE_SCHEMA, strlen(RUN_CODE_SCHEMA));
+    yyjson_mut_doc *out = doc ? yyjson_doc_mut_copy(doc, NULL) : NULL;
+    yyjson_doc_free(doc);
+    if (!out) return NULL;
+    yyjson_mut_val *fn =
+        yyjson_mut_obj_get(yyjson_mut_arr_get_first(yyjson_mut_doc_get_root(out)), "function");
+    yyjson_mut_val *params = yyjson_mut_obj_get(fn, "parameters");
+    yyjson_mut_obj_remove_key(yyjson_mut_obj_get(params, "properties"), "reason");
+    char *json = jwrite(out);
+    yyjson_mut_doc_free(out);
+    return json;
+}
+
+const char *tools_reason_instructions(tny_ctx *ctx) {
+    return tny_settings_ui_tool_call_reasons(ctx)
+               ? "\nFor each tool call, include a very short 1–10 word reason describing its "
+                 "intent, "
+                 "not internal reasoning. Set run_code.reason; for nested calls use "
+                 "tools.call(name, arguments_json, reason), or a reason field beside name and "
+                 "arguments in each tools.parallel entry. Reason is display metadata, never a "
+                 "tool argument. Do not make an extra model or tool call to generate it.\n"
+               : "";
 }
 
 const char *tools_code_instructions(void) {

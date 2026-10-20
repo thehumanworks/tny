@@ -23,11 +23,27 @@ Native loop only, unless noted.
 
 ## Code-only agent interface
 
-Agents receive exactly `run_code({code, timeout_ms?})`. A Python 3.14 script
+Agents receive exactly `run_code({code, timeout_ms?, reason?})`. A Python 3.14 script
 (timeout 600 s by default, up to 600 s) composes the tools below through
 `tools.call(name, arguments_json)`, with progressive discovery via `tools.search(query)` and
 `tools.describe(name)`. Results are strings; the pre-bound stdlib `json` module
 converts explicitly ([ADR 0179](../adr/0179-python-code-mode-cpython.md)).
+
+Tool intent is optional display metadata. By default the system prompt asks for a
+very short **1–10 word reason** for each call: `run_code.reason`,
+`tools.call(name, arguments_json, reason="Read configuration")`, or a `reason`
+field beside `name` and `arguments` in each `tools.parallel` entry. Existing
+calls without reasons still execute. Nested reasons are bounded to 256 UTF-8
+bytes and travel separately from business arguments, so MCP/plugin schemas
+(including tools that already have their own `reason` argument) do not change.
+No extra inference is performed.
+
+Set global `ui.tool_call_reasons` to `false` in `~/.tny/settings.json` or use
+`tny settings set ui.tool_call_reasons false` to omit the instruction and the
+provider-facing schema field. Explicit optional reasons remain accepted for
+backward-compatible saved workflows. The normal detached runner snapshots the setting for its turn; explicit
+in-process/wasm mode applies changes on the next provider request. Native Chat, Responses and
+verified ACP share this contract; wasm retains its explicit execution error.
 
 `tools.search(query="", limit=10)` returns a JSON object with `tools` (name and
 description summaries only), `total` matching entries, and `truncated`. Matching

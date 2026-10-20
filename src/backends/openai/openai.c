@@ -516,6 +516,7 @@ static const char *model_of(oa_impl *o) {
 static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *request) {
     if (o->ctx->prompt_optimisation) {
         buf_appends(sys, tools_code_instructions());
+        buf_appends(sys, tools_reason_instructions(o->ctx));
         buf_appends(sys, o->ctx->system_prompt);
         buf_appendf(sys, "\nWorkspace: %s\n", o->ctx->ssh_host ? o->ctx->ssh_cwd : o->ctx->cwd);
         for (int i = 0; i < o->ctx->n_extra_dirs; i++)
@@ -526,6 +527,7 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
         return;
     }
     buf_appends(sys, tools_code_instructions());
+    buf_appends(sys, tools_reason_instructions(o->ctx));
     tny_swarm_policy(o->ctx, sys);
     buf_appends(
         sys,
@@ -1310,10 +1312,10 @@ static int execute_call(oa_impl *o, const char *cid, const char *original_args,
     start.kind = TNY_EV_TOOL_START;
     start.tool_name = call->name;
     start.tool_id = cid;
-    /* An intercepted first-party verb shows itself, not the shell blob it
-     * arrived as (docs/adr/0063). */
-    const char *label = tools_call_label(call);
-    start.tool_detail = label ? label : effective_args;
+    /* Preserve complete arguments; short intent/first-party labels are metadata. */
+    start.tool_detail = effective_args;
+    start.tool_reason = strcmp(call->name, "run_code") == 0 ? jget_str(call->args, "reason")
+                                                            : tools_call_label(call);
     emit(o, &start);
     if (provider_oom()) return -1;
     subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_START, cid, call, NULL, false);

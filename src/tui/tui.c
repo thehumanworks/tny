@@ -24,13 +24,24 @@ EM_JS(int, js_tui_page, (void), { return Module.tnyOut ? 1 : 0; });
 
 static struct termios g_saved;
 static bool g_raw, g_restore_sgr, g_terminal_active, g_alternate_screen;
-static bool g_fullscreen_mouse, g_mouse_enabled;
+static bool g_fullscreen_mouse, g_mouse_enabled, g_detail_screen;
 static volatile sig_atomic_t g_winch, g_sigint, g_exit_signal;
 
 void tui_terminal_mouse(bool enabled) {
     if (!g_fullscreen_mouse || g_mouse_enabled == enabled) return;
     fputs(enabled ? "\x1b[?1000h\x1b[?1006h" : "\x1b[?1000l\x1b[?1006l", stdout);
     g_mouse_enabled = enabled;
+}
+
+void tui_terminal_mouse_update(tui *t) {
+    tui_terminal_mouse(t->tty &&
+                       (t->fullscreen || t->tool_view || tny_settings_ui_inline_mouse(t->ctx)));
+}
+
+void tui_terminal_detail(bool enabled) {
+    if (g_detail_screen == enabled) return;
+    fputs(enabled ? "\x1b[?1049h" : "\x1b[?1049l", stdout);
+    g_detail_screen = enabled;
 }
 
 static void mouse_restore(void) {
@@ -46,6 +57,7 @@ static void term_restore(void) {
     bool raw = g_raw;
     g_raw = false;
     if (g_terminal_active) {
+        tui_terminal_detail(false);
         mouse_restore();
         fputs("\x1b[?2004l\x1b[?7h\x1b[r", stdout);
         if (g_restore_sgr) fputs("\x1b[0m", stdout);
@@ -62,11 +74,11 @@ void tui_terminal_begin(tui *t) {
     g_terminal_active = true;
     g_restore_sgr = t->attr;
     g_alternate_screen = t->fullscreen && t->alternate_screen;
-    if (t->fullscreen) {
+    if (t->tty) {
         /* Disable alternate-scroll arrow synthesis: the chat owns wheel input. */
         fputs("\x1b[?1000;1006;1007s\x1b[?1007l", stdout);
         g_fullscreen_mouse = true;
-        tui_terminal_mouse(true);
+        tui_terminal_mouse_update(t);
     }
     if (g_alternate_screen) fputs("\x1b[?1049h", stdout);
     /* Fullscreen owns every visible row, including when the user elects to
@@ -177,6 +189,7 @@ static void maybe_gap(tui *t, bool for_text) {
 
 tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
     if (t->ctx->perm_mode == TNY_MODE_YOLO) return TNY_PERM_DECISION_ALLOW;
+    tui_tools_view_close(t);
     if (t->dictation) {
         tny_dictation_cancel(t->dictation);
         tui_dictation_step(t);
@@ -225,6 +238,7 @@ tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
             tui_decoded key;
             size_t used = tui_decode_one(keys.data, keys.len, final, &key);
             if (!used) break;
+            if (key.key == TUI_K_CPR) tui_cursor_report(t, key.cpr_row, key.cpr_col);
             tui_scrollback_key(t, key.key);
             int value = key.key == TUI_K_CHAR && key.chlen == 1 ? key.ch[0]
                         : key.key == TUI_K_ESC                  ? 27
@@ -276,6 +290,7 @@ static tny_perm_decision perm_hook(const char *tool, const char *summary, void *
 }
 
 char *tui_ask_user(tui *t, const char *question) {
+    tui_tools_view_close(t);
     if (!t || !t->tty) return NULL;
     if (t->dictation) {
         tny_dictation_cancel(t->dictation);
@@ -323,6 +338,7 @@ char *tui_ask_user(tui *t, const char *question) {
             tui_decoded key;
             size_t used = tui_decode_one(keys.data, keys.len, final, &key);
             if (!used) break;
+            if (key.key == TUI_K_CPR) tui_cursor_report(t, key.cpr_row, key.cpr_col);
             tui_scrollback_key(t, key.key);
             if (key.key == TUI_K_ENTER) done = true;
             else if (key.key == TUI_K_ESC || key.key == TUI_K_CTRLC || key.key == TUI_K_CTRLD) {
@@ -434,14 +450,10 @@ void tui_handle_backend_event(tui *t, const tny_backend_event *ev) {
     }
     case TNY_EV_TOOL_START:
         maybe_gap(t, false);
-        oneline(line, sizeof line, ev->tool_detail);
-        tui_linef(t, "%s⏺ %s%s %.100s", tui_c(t, "\x1b[36m"), ev->tool_name, tui_attr(t, "\x1b[0m"),
-                  line);
+        tui_tools_event(t, ev);
         break;
     case TNY_EV_TOOL_END:
-        oneline(line, sizeof line, ev->tool_detail);
-        tui_linef(t, "  %s%s%s %s %.80s", tui_c(t, ev->tool_ok ? "\x1b[32m" : "\x1b[31m"),
-                  ev->tool_ok ? "✓" : "✗", tui_attr(t, "\x1b[0m"), ev->tool_name, line);
+        tui_tools_event(t, ev);
         t->gap = 2; /* next model text starts a new iteration */
         break;
     case TNY_EV_TOOL_PROGRESS:
@@ -579,6 +591,8 @@ void tui_new_session(tui *t, bool clear_screen) {
         session_close(t->session);
         t->session = NULL;
     }
+    tui_tools_view_close(t);
+    tui_tools_free(t);
     t->session = session_new(t->ctx);
     if (t->session)
         session_set_extension_start(t->session, clear_screen ? "clear" : "new", previous);
@@ -1056,6 +1070,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         drain_engine_events(&t);
     }
     if (t.turn_active && t.rc && !t.background_view && !tui_runner_stop(&t, false)) t.exit_code = 1;
+    tui_tools_view_close(&t);
     tui_raw_begin(&t);
     mouse_restore();
     /* Worktree exit prompts still use raw keyboard input, but must appear
@@ -1095,6 +1110,7 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     tui_items_clear(&t);
     tui_files_free(&t);
     tui_hist_free(&t);
+    tui_tools_free(&t);
     tui_wizard_cancel(&t);
     for (int i = 0; i < t.n_images; i++) free(t.images[i]);
     tui_queue_clear(&t);

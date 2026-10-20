@@ -552,6 +552,7 @@ TEST runtime_owned_event_allocation_sweep(void) {
     ev.tool_name = "tool";
     ev.tool_id = "id";
     ev.tool_detail = "detail";
+    ev.tool_reason = "Inspect fixture state";
     ev.perm_id = "permission";
     ev.perm_summary = "summary";
     ev.message_type = "";
@@ -579,6 +580,8 @@ TEST runtime_owned_event_allocation_sweep(void) {
         o = tny_owned_event_copy(&ev, "provider", "session", "turn", 0);
         ASSERT(o);
         ASSERT_MEM_EQ("a\0b", o->ev.text, 3);
+        ASSERT_STR_EQ("Inspect fixture state", o->ev.tool_reason);
+        ASSERT(o->ev.tool_reason != ev.tool_reason);
         tny_owned_event_free(o);
         ASSERT_EQ(live, tny_alloc_test_owned_live());
     }
@@ -600,6 +603,7 @@ TEST runtime_all_payloads_survive_queue_transfer_and_teardown(void) {
     strcpy(payload + 96, "detail");
     strcpy(payload + 128, "permission");
     strcpy(payload + 160, "summary");
+    strcpy(payload + 224, "Inspect fixture state");
     /* Offset 192 stays an explicitly present empty string. Copy the complete
      * known-size payload; GCC's instrumented-build object-size analysis can
      * misdiagnose individual field writes through the allocator wrapper. */
@@ -615,6 +619,7 @@ TEST runtime_all_payloads_survive_queue_transfer_and_teardown(void) {
         ev.tool_name = input + 32;
         ev.tool_id = input + 64;
         ev.tool_detail = input + 96;
+        ev.tool_reason = input + 224;
         ev.perm_id = input + 128;
         ev.perm_summary = input + 160;
         ev.message_type = input + 192;
@@ -643,6 +648,8 @@ TEST runtime_all_payloads_survive_queue_transfer_and_teardown(void) {
         ASSERT_EQ(views[i], o->ev.text);
         ASSERT_EQ(3, o->ev.text_len);
         ASSERT_MEM_EQ("a\0b", o->ev.text, 3);
+        ASSERT_STR_EQ("Inspect fixture state", o->ev.tool_reason);
+
         ASSERT_STR_EQ("message", o->ev.message_id);
         ASSERT_STR_EQ("tool", o->ev.tool_name);
         ASSERT_STR_EQ("id", o->ev.tool_id);

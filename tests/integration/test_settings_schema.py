@@ -109,7 +109,14 @@ class UiSettingsTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 json.loads(result.stdout)["ui"],
-                {"mode": "inline", "alternate_screen": True, "scrollback_lines": 50000},
+                {
+                    "mode": "inline",
+                    "alternate_screen": True,
+                    "scrollback_lines": 50000,
+                    "tool_calls_expanded": False,
+                    "inline_mouse": False,
+                    "tool_call_reasons": True,
+                },
             )
             self.assertFalse(settings.exists())
             settings.parent.mkdir()
@@ -127,6 +134,9 @@ class UiSettingsTests(unittest.TestCase):
                 for key, value in (
                     ("ui.mode", mode),
                     ("ui.alternate_screen", str(alternate).lower()),
+                    ("ui.tool_calls_expanded", str(alternate).lower()),
+                    ("ui.inline_mouse", str(alternate).lower()),
+                    ("ui.tool_call_reasons", str(alternate).lower()),
                     ("ui.scrollback_lines", str(lines)),
                 ):
                     result = run("settings", "set", key, value, "--json")
@@ -140,6 +150,9 @@ class UiSettingsTests(unittest.TestCase):
                     {
                         "mode": mode,
                         "alternate_screen": alternate,
+                        "tool_calls_expanded": alternate,
+                        "inline_mouse": alternate,
+                        "tool_call_reasons": alternate,
                         "scrollback_lines": lines,
                     },
                 )
@@ -147,6 +160,9 @@ class UiSettingsTests(unittest.TestCase):
                 for key, expected in (
                     ("ui.mode", mode),
                     ("ui.alternate_screen", alternate),
+                    ("ui.tool_calls_expanded", alternate),
+                    ("ui.inline_mouse", alternate),
+                    ("ui.tool_call_reasons", alternate),
                     ("ui.scrollback_lines", lines),
                 ):
                     result = run("--json", "settings", "get", key)

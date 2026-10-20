@@ -37,7 +37,7 @@ static const char *WIRE =
     "{\"ev\":\"text_delta\",\"text\":\"hi ✓ there\\n\"}\n"
     "this line is not json and must be skipped\n"
     "{\"ev\":\"tool_start\",\"tool_name\":\"list_files\",\"tool_id\":\"t1\","
-    "\"detail\":\"{\\\"path\\\": \\\".\\\"}\"}\n"
+    "\"detail\":\"{\\\"path\\\": \\\".\\\"}\",\"reason\":\"List workspace files\"}\n"
     "{\"ev\":\"tool_end\",\"tool_name\":\"list_files\",\"tool_id\":\"t1\","
     "\"detail\":\"3 entries\",\"ok\":true}\n"
     "{\"ev\":\"permission\",\"id\":\"p9\",\"summary\":\"run rm -rf\",\"options\":5}\n"
@@ -131,6 +131,8 @@ static enum greatest_test_res wire_assert_sequence(wire_env *w) {
     ASSERT_EQ(TNY_EV_TOOL_START, ms[3]->ev.kind);
     ASSERT_STR_EQ("list_files", ms[3]->ev.tool_name);
     ASSERT_STR_EQ("{\"path\": \".\"}", ms[3]->ev.tool_detail);
+    ASSERT_STR_EQ("List workspace files", ms[3]->ev.tool_reason);
+    ASSERT_EQ(NULL, ms[4]->ev.tool_reason);
 
     ASSERT_EQ(TNY_EV_TOOL_END, ms[4]->ev.kind);
     ASSERT(ms[4]->ev.tool_ok);

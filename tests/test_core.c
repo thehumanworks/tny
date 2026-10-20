@@ -4393,9 +4393,30 @@ TEST provider_schema_is_only_bounded_code(void) {
     ASSERT_EQ(1, yyjson_arr_size(jget(params, "required")));
     ASSERT_STR_EQ("code", yyjson_get_str(yyjson_arr_get(jget(params, "required"), 0)));
     yyjson_val *properties = jget(params, "properties");
-    ASSERT_EQ(2, yyjson_obj_size(properties));
+    ASSERT_EQ(3, yyjson_obj_size(properties));
     ASSERT_STR_EQ("string", jget_str(jget(properties, "code"), "type"));
     ASSERT_STR_EQ("integer", jget_str(jget(properties, "timeout_ms"), "type"));
+    ASSERT_STR_EQ("string", jget_str(jget(properties, "reason"), "type"));
+    ASSERT(strstr(tools_reason_instructions(NULL), "1–10 word"));
+    yyjson_doc_free(doc);
+    free(schema);
+    tny_ctx ctx = {0};
+    ctx.settings = jparse("{\"ui\":{\"tool_call_reasons\":false}}",
+                          strlen("{\"ui\":{\"tool_call_reasons\":false}}"));
+    env.ctx = &ctx;
+    ASSERT_STR_EQ("", tools_reason_instructions(&ctx));
+    schema = tools_schema_json(&env);
+    ASSERT(schema);
+    doc = jparse(schema, strlen(schema));
+    fn = jget(yyjson_arr_get_first(yyjson_doc_get_root(doc)), "function");
+    ASSERT(!jget(jget(jget(fn, "parameters"), "properties"), "reason"));
+    tools_call call = {0};
+    ASSERT_EQ(0, tools_call_prepare(&env, "run_code", "{\"code\":\"print(1)\"}", &call));
+    tools_call_free(&call);
+    ASSERT_EQ(0, tools_call_prepare(&env, "run_code",
+                                    "{\"code\":\"print(1)\",\"reason\":\"Inspect state\"}", &call));
+    tools_call_free(&call);
+    yyjson_doc_free(ctx.settings);
     yyjson_doc_free(doc);
     free(schema);
     PASS();
@@ -5944,6 +5965,9 @@ TEST ui_settings_defaults_and_generated_roundtrips(void) {
         ASSERT(ctx);
         ASSERT_STR_EQ("inline", tny_settings_ui_mode(ctx));
         ASSERT(tny_settings_ui_alternate_screen(ctx));
+        ASSERT(!tny_settings_ui_tool_calls_expanded(ctx));
+        ASSERT(!tny_settings_ui_inline_mouse(ctx));
+        ASSERT(tny_settings_ui_tool_call_reasons(ctx));
         ASSERT_EQ(50000, tny_settings_ui_scrollback_lines(ctx));
         if (i == 1 || i == 2) {
             ASSERT_EQ(-1, tny_settings_set_ui(ctx, "mode", "fullscreen"));
@@ -5981,10 +6005,16 @@ TEST ui_settings_defaults_and_generated_roundtrips(void) {
         ASSERT(ctx);
         ASSERT_EQ(0, tny_settings_set_ui(ctx, "mode", mode));
         ASSERT_EQ(0, tny_settings_set_ui(ctx, "alternate_screen", alternate));
+        ASSERT_EQ(0, tny_settings_set_ui(ctx, "tool_calls_expanded", alternate));
+        ASSERT_EQ(0, tny_settings_set_ui(ctx, "inline_mouse", alternate));
+        ASSERT_EQ(0, tny_settings_set_ui(ctx, "tool_call_reasons", alternate));
         ASSERT_EQ(0, tny_settings_set_ui(ctx, "scrollback_lines", lines));
         ASSERT_EQ(strtoul(lines, NULL, 10), tny_settings_ui_scrollback_lines(ctx));
         ASSERT_STR_EQ(mode, tny_settings_ui_mode(ctx));
         ASSERT_EQ(strcmp(alternate, "true") == 0, tny_settings_ui_alternate_screen(ctx));
+        ASSERT_EQ(strcmp(alternate, "true") == 0, tny_settings_ui_tool_calls_expanded(ctx));
+        ASSERT_EQ(strcmp(alternate, "true") == 0, tny_settings_ui_inline_mouse(ctx));
+        ASSERT_EQ(strcmp(alternate, "true") == 0, tny_settings_ui_tool_call_reasons(ctx));
         yyjson_val *root = yyjson_doc_get_root(ctx->settings);
         ASSERT_EQ(i, jget_int(jget(root, "ui"), "other", -1));
         ASSERT_STR_EQ("deny", jget_str(jget(jget(root, "permission"), "edit"), "*"));
@@ -6008,6 +6038,9 @@ TEST ui_settings_defaults_and_generated_roundtrips(void) {
         ASSERT_EQ(strtoul(lines, NULL, 10), tny_settings_ui_scrollback_lines(ctx));
         ASSERT_STR_EQ(mode, tny_settings_ui_mode(ctx));
         ASSERT_EQ(strcmp(alternate, "true") == 0, tny_settings_ui_alternate_screen(ctx));
+        ASSERT_EQ(strcmp(alternate, "true") == 0, tny_settings_ui_tool_calls_expanded(ctx));
+        ASSERT_EQ(strcmp(alternate, "true") == 0, tny_settings_ui_inline_mouse(ctx));
+        ASSERT_EQ(strcmp(alternate, "true") == 0, tny_settings_ui_tool_call_reasons(ctx));
         tny_ctx_free(ctx);
     }
     write_settings("{}");

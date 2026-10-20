@@ -390,6 +390,8 @@ void tui_agents_select(tui *t) {
     if (t->session) session_close(t->session);
     t->session = NULL;
     agents_context(t, ctx);
+    tui_tools_view_close(t);
+    tui_tools_free(t);
     t->session = session;
     t->background_view = true;
     t->session_readonly = true;

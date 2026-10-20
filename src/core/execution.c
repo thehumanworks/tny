@@ -175,9 +175,10 @@ static void server_event(const tny_backend_event *event, void *ud) {
     yyjson_mut_val *r = d ? yyjson_mut_doc_get_root(d) : NULL;
     bool ok = r && yyjson_mut_obj_add_int(d, r, "kind", event->kind) &&
               yyjson_mut_obj_add_bool(d, r, "ok", event->tool_ok);
-    const char *names[] = {"text", "tool", "id", "detail"};
-    const char *values[] = {event->text, event->tool_name, event->tool_id, event->tool_detail};
-    for (size_t i = 0; i < 4 && ok; i++) {
+    const char *names[] = {"text", "tool", "id", "detail", "reason"};
+    const char *values[] = {event->text, event->tool_name, event->tool_id, event->tool_detail,
+                            event->tool_reason};
+    for (size_t i = 0; i < 5 && ok; i++) {
         yyjson_mut_val *v = !values[i] ? yyjson_mut_null(d)
                             : i == 0   ? yyjson_mut_strncpy(d, values[i], event->text_len)
                                        : yyjson_mut_strcpy(d, values[i]);
@@ -270,7 +271,7 @@ typedef struct {
 } execution_tool;
 
 static void server_tool_prepare(execution_server *s, const char *name, const char *args,
-                                execution_tool *t) {
+                                const char *intent, execution_tool *t) {
     memset(t, 0, sizeof *t);
     t->host = (tny_exec_host){.fd = -1, .pid = -1};
     t->name = name;
@@ -371,7 +372,8 @@ static void server_tool_prepare(execution_server *s, const char *name, const cha
         tny_backend_event event = {.kind = TNY_EV_TOOL_START,
                                    .tool_id = id,
                                    .tool_name = call.name,
-                                   .tool_detail = effective};
+                                   .tool_detail = effective,
+                                   .tool_reason = intent ? intent : tools_call_label(&call)};
         server_event(&event, s);
         if (!s->failed) server_subagent_control(s, &call, id, false, NULL);
     }
@@ -451,7 +453,10 @@ static char *server_parallel(execution_server *s, const char *args) {
         const char *name = jget_str(v, "name");
         if (!name || !*name || strlen(name) > TNY_CODE_NAME_BYTES ||
             strcmp(name, "run_code") == 0 || strcmp(name, "__parallel") == 0 ||
-            !yyjson_is_obj(jget(v, "arguments")) || yyjson_obj_size(v) != 2) {
+            strcmp(name, TNY_CODE_METADATA_CALL) == 0 || !yyjson_is_obj(jget(v, "arguments")) ||
+            (jget(v, "reason") &&
+             (!yyjson_is_str(jget(v, "reason")) || yyjson_get_len(jget(v, "reason")) > 256)) ||
+            yyjson_obj_size(v) != (jget(v, "reason") ? 3u : 2u)) {
             yyjson_doc_free(d);
             return tool_err(
                 "parallel entries require name and arguments; recursive batches forbidden");
@@ -484,7 +489,7 @@ static char *server_parallel(execution_server *s, const char *args) {
                 s->failed = true;
                 break;
             }
-            server_tool_prepare(s, name, arguments[n], &group[n]);
+            server_tool_prepare(s, name, arguments[n], jget_str(v, "reason"), &group[n]);
             if (!safe) {
                 parallel = false;
                 n++;
@@ -539,10 +544,27 @@ static char *server_parallel(execution_server *s, const char *args) {
 static char *server_tool(void *ud, const char *name, const char *args) {
     execution_server *s = ud;
     if (name && strcmp(name, "__parallel") == 0) return server_parallel(s, args);
+    yyjson_doc *d = NULL;
+    const char *intent = NULL;
+    if (name && strcmp(name, TNY_CODE_METADATA_CALL) == 0) {
+        d = jparse(args, strlen(args));
+        yyjson_val *r = d ? yyjson_doc_get_root(d) : NULL;
+        name = jget_str(r, "name");
+        args = jget_str(r, "arguments_json");
+        intent = jget_str(r, "reason");
+        if (!name || !*name || strlen(name) > TNY_CODE_NAME_BYTES || !args || !intent ||
+            strlen(intent) > 256 || !tny_exec_json_valid(r) || yyjson_obj_size(r) != 3 ||
+            strcmp(name, TNY_CODE_METADATA_CALL) == 0 || strcmp(name, "__parallel") == 0) {
+            yyjson_doc_free(d);
+            return tool_err("invalid tool call metadata");
+        }
+    }
     execution_tool t;
-    server_tool_prepare(s, name, args, &t);
+    server_tool_prepare(s, name, args, intent, &t);
     if (t.began && !server_cancelled(s)) t.result = tools_call_execute(&s->env, &t.call);
-    return server_tool_finish(s, &t);
+    char *result = server_tool_finish(s, &t);
+    yyjson_doc_free(d);
+    return result;
 }
 
 static bool client_cancelled(void *ud) {
@@ -553,10 +575,10 @@ static bool client_cancelled(void *ud) {
 
 static bool client_event(tools_env *env, yyjson_val *body) {
     yyjson_val *k = jget(body, "kind");
-    if (!yyjson_is_uint(k) || yyjson_obj_size(body) != 6 || !yyjson_is_bool(jget(body, "ok")))
+    if (!yyjson_is_uint(k) || yyjson_obj_size(body) != 7 || !yyjson_is_bool(jget(body, "ok")))
         return false;
-    const char *names[] = {"text", "tool", "id", "detail"};
-    for (size_t i = 0; i < 4; i++) {
+    const char *names[] = {"text", "tool", "id", "detail", "reason"};
+    for (size_t i = 0; i < 5; i++) {
         yyjson_val *v = jget(body, names[i]);
         if (!v || (!yyjson_is_str(v) && !yyjson_is_null(v))) return false;
     }
@@ -569,6 +591,7 @@ static bool client_event(tools_env *env, yyjson_val *body) {
                                .tool_name = jget_str(body, "tool"),
                                .tool_id = jget_str(body, "id"),
                                .tool_detail = jget_str(body, "detail"),
+                               .tool_reason = jget_str(body, "reason"),
                                .tool_ok = jget_bool(body, "ok", false)};
     event.text_len = event.text ? strlen(event.text) : 0;
     if (env->ev_cb) env->ev_cb(&event, env->ev_ud);

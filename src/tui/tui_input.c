@@ -470,6 +470,7 @@ bool tui_scrollback_key(tui *t, tui_key key) {
 }
 
 static void do_key(tui *t, int k, const char *ch, size_t chlen) {
+    if (tui_tools_key(t, (tui_key)k)) return;
     if (tui_scrollback_key(t, (tui_key)k)) return;
     /* Keep the existing modified-arrow editing behavior outside fullscreen. */
     if (k == TUI_K_SCROLL_UP) k = TUI_K_UP;
@@ -509,6 +510,17 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
             tui_settings_command(t, tny_settings_ui_alternate_screen(t->ctx)
                                         ? "ui.alternate_screen false"
                                         : "ui.alternate_screen true");
+        else if (k == TUI_K_CHAR && chlen == 1 && ch[0] == 't')
+            tui_settings_command(t, tny_settings_ui_tool_calls_expanded(t->ctx)
+                                        ? "ui.tool_calls_expanded false"
+                                        : "ui.tool_calls_expanded true");
+        else if (k == TUI_K_CHAR && chlen == 1 && ch[0] == 'i')
+            tui_settings_command(t, tny_settings_ui_inline_mouse(t->ctx) ? "ui.inline_mouse false"
+                                                                         : "ui.inline_mouse true");
+        else if (k == TUI_K_CHAR && chlen == 1 && ch[0] == 'r')
+            tui_settings_command(t, tny_settings_ui_tool_call_reasons(t->ctx)
+                                        ? "ui.tool_call_reasons false"
+                                        : "ui.tool_call_reasons true");
         return;
     }
 
@@ -772,10 +784,11 @@ static void set_key(tui_decoded *out, tui_key k) {
 }
 
 static void mouse_key(tui_decoded *out, unsigned button) {
-    /* Shift/Alt/Ctrl modifiers do not change wheel direction. Clicks, motion,
-     * releases and horizontal wheel events are consumed without editing. */
+    /* Modifiers preserve wheel direction. Left press selects a tool heading;
+     * motion, releases and horizontal wheel events never edit the composer. */
     button &= ~28u;
-    if (button == 64) set_key(out, TUI_K_WHEEL_UP);
+    if (button == 0) set_key(out, TUI_K_CLICK);
+    else if (button == 64) set_key(out, TUI_K_WHEEL_UP);
     else if (button == 65) set_key(out, TUI_K_WHEEL_DOWN);
 }
 
@@ -794,7 +807,13 @@ static void sgr_mouse_key(const char *p, size_t end, tui_decoded *out) {
             digit = false;
         } else return;
     }
-    if (slot == 2 && digit && values[1] && values[2] && p[end] == 'M') mouse_key(out, values[0]);
+    if (slot == 2 && digit && values[1] && values[2] && p[end] == 'M') {
+        mouse_key(out, values[0]);
+        if (out) {
+            out->mouse_col = (int)values[1];
+            out->mouse_row = (int)values[2];
+        }
+    }
 }
 
 /* Decode one key from p[0..n). Returns bytes consumed, 0 if it needs more. */
@@ -857,8 +876,14 @@ size_t tui_decode_one(const char *p, size_t n, bool final, tui_decoded *out) {
          * printable bytes which must never leak into the composer. */
         if (n >= 3 && p[2] == 'M') {
             if (n < 6) return final ? n : 0;
-            if ((unsigned char)p[3] >= 32 && (unsigned char)p[4] >= 33 && (unsigned char)p[5] >= 33)
+            if ((unsigned char)p[3] >= 32 && (unsigned char)p[4] >= 33 &&
+                (unsigned char)p[5] >= 33) {
                 mouse_key(out, (unsigned char)p[3] - 32u);
+                if (out) {
+                    out->mouse_col = (unsigned char)p[4] - 32;
+                    out->mouse_row = (unsigned char)p[5] - 32;
+                }
+            }
             return 6;
         }
         size_t i = 2;
@@ -974,7 +999,8 @@ static size_t decode_one(tui *t, const char *p, size_t n, bool final) {
     tui_decoded d = {0};
     size_t used = tui_decode_one(p, n, final, &d);
     if (!used) return 0;
-    if (d.key == TUI_K_CPR) tui_size_report(t, d.cpr_row, d.cpr_col);
+    if (d.key == TUI_K_CPR) tui_cursor_report(t, d.cpr_row, d.cpr_col);
+    else if (d.key == TUI_K_CLICK) tui_tools_click(t, d.mouse_row, d.mouse_col);
     else if (d.key != TUI_K_NONE) do_key(t, (int)d.key, d.ch, d.chlen);
     return used;
 }

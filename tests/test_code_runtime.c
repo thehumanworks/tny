@@ -114,6 +114,32 @@ static char *fake_tool(void *userdata, const char *name, const char *args) {
     return xstrdup(args);
 }
 
+TEST code_reason_metadata_preserves_business_reason(void) {
+    unsigned calls = 0;
+    char *out = tny_code_run(
+        "arguments = json.dumps({'reason': 'business argument'})\n"
+        "for intent in ('Inspect plugin state', 'Read remote state'):\n"
+        "    packet = json.loads(tools.call('echo', arguments, intent))\n"
+        "    assert packet['name'] == 'echo'\n"
+        "    assert json.loads(packet['arguments_json']) == {'reason': 'business argument'}\n"
+        "    assert packet['reason'] == intent\n"
+        "assert json.loads(tools.call('echo', arguments)) == {'reason': 'business argument'}\n"
+        "assert json.loads(tools.call('__call', arguments)) == {'reason': 'business argument'}\n"
+        "try:\n"
+        "    tools.call('@tny:call', arguments)\n"
+        "except ValueError:\n"
+        "    pass\n"
+        "else:\n"
+        "    raise AssertionError('private transport marker became a tool')\n"
+        "print('metadata-isolated')\n",
+        5000, NULL, fake_tool, &calls);
+    ASSERT(out);
+    ASSERT_STR_EQ("metadata-isolated\n", out);
+    ASSERT_EQ(4u, calls);
+    free(out);
+    PASS();
+}
+
 TEST code_composes_calls_and_json(void) {
     unsigned calls = 0;
     char *out = tny_code_run("def twice(n):\n    return n * 2\n"
@@ -855,6 +881,7 @@ SUITE(code_runtime_suite) {
     RUN_TEST(code_json_error_metadata_and_describe_boundaries);
     RUN_TEST(code_fatal_quota_does_not_run_finally_or_following_bytecode);
     RUN_TEST(code_composes_calls_and_json);
+    RUN_TEST(code_reason_metadata_preserves_business_reason);
     RUN_TEST(code_state_is_fresh_and_builtins_present);
     RUN_TEST(code_limits_are_enforced);
     RUN_TEST(code_limits_are_sticky);

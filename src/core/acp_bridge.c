@@ -124,15 +124,16 @@ static tny_openai_control_response control(tny_acp_bridge *b, bridge_client *c,
 static void emit(tny_acp_bridge *b, bridge_client *c, tny_event_kind kind, const char *detail,
                  bool ok) {
     if (!b->env.ev_cb || tny_alloc_scope_failed()) return;
-    tny_backend_event ev = {.kind = kind,
-                            .tool_id = c->tool_id,
-                            .tool_name = c->call.name,
-                            .tool_detail = detail,
-                            .tool_ok = ok,
-                            .perm_id = c->tool_id,
-                            .perm_summary = detail,
-                            .perm_options =
-                                TNY_PERM_ALLOW_ONCE | TNY_PERM_ALLOW_ALWAYS | TNY_PERM_DENY};
+    tny_backend_event ev = {
+        .kind = kind,
+        .tool_id = c->tool_id,
+        .tool_name = c->call.name,
+        .tool_detail = detail,
+        .tool_reason = kind == TNY_EV_TOOL_START ? jget_str(c->call.args, "reason") : NULL,
+        .tool_ok = ok,
+        .perm_id = c->tool_id,
+        .perm_summary = detail,
+        .perm_options = TNY_PERM_ALLOW_ONCE | TNY_PERM_ALLOW_ALWAYS | TNY_PERM_DENY};
     b->env.ev_cb(&ev, b->env.ev_ud);
 }
 
@@ -242,8 +243,7 @@ static int execute(tny_acp_bridge *b, bridge_client *c) {
     /* Human approval (either a parked event or a blocking prompt) consumes no
      * execution budget. Every approved call starts its deadline here. */
     c->deadline = monotonic_ms() + BRIDGE_TIMEOUT_MS;
-    emit(b, c, TNY_EV_TOOL_START, tools_call_label(&c->call) ? tools_call_label(&c->call) : c->args,
-         true);
+    emit(b, c, TNY_EV_TOOL_START, c->args, true);
     if (tny_alloc_scope_failed()) return -1;
     subagent_control(b, c, TNY_OPENAI_CONTROL_SUBAGENT_START, NULL, false);
     if (b->stop_requested) return complete(b, c, "error: extension stopped subagent", true);
