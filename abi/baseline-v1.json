@@ -3,9 +3,9 @@
   "state": "active",
   "abi": {
     "major": 1,
-    "minor": 4,
-    "encoded": 65540,
-    "elf_version_node": "LIBTNY_1.4"
+    "minor": 5,
+    "encoded": 65541,
+    "elf_version_node": "LIBTNY_1.5"
   },
   "data_model": {
     "name": "LP64-little-endian",
@@ -22,8 +22,8 @@
   },
   "constants": {
     "TNY_ABI_MAJOR": 1,
-    "TNY_ABI_MINOR": 4,
-    "TNY_ABI_VERSION": 65540,
+    "TNY_ABI_MINOR": 5,
+    "TNY_ABI_VERSION": 65541,
     "TNY_CANCEL_CROSS_THREAD_ASYNC_WAKE": 2,
     "TNY_CANCEL_OWNER_THREAD_ASYNC": 1,
     "TNY_CAPABILITY_SCHEMA_VERSION": 1,
@@ -33,6 +33,7 @@
     "TNY_CAP_FEATURE_HOST_SERVICES": 2048,
     "TNY_CAP_FEATURE_TASK_PRESETS": 4096,
     "TNY_CAP_FEATURE_REASONING_EFFORT": 8192,
+    "TNY_CAP_FEATURE_CODE_EXECUTION": 16384,
     "TNY_CAP_FEATURE_MCP": 16,
     "TNY_CAP_FEATURE_PERSISTENCE": 2,
     "TNY_CAP_FEATURE_SHARED_LIBRARY": 4,
@@ -416,6 +417,7 @@
     "tny_runtime_options_v3_init": "LIBTNY_1.3",
     "tny_runtime_register_tool": "LIBTNY_1.0",
     "tny_runtime_set_acp_command": "LIBTNY_1.4",
+    "tny_runtime_set_execution_helper": "LIBTNY_1.5",
     "tny_session_cancel": "LIBTNY_1.0",
     "tny_session_create": "LIBTNY_1.0",
     "tny_session_destroy": "LIBTNY_1.0",
@@ -462,14 +464,14 @@
   },
   "signature_manifest": {
     "path": "abi/signatures-v1.json",
-    "sha256": "2eeff14bab24406958e387ba8fd0fa01bcbef6bda3c197d08acffd026075b94a"
+    "sha256": "37af8a4df153cd351f5c2025a465a04002b78bc530d8ed7a24c081ccc1c78f69"
   },
   "artifacts": {
     "linux-glibc": {
       "architectures": ["aarch64", "x86_64"],
       "soname": "libtny.so.1",
       "linker_name": "libtny.so",
-      "elf_version_nodes": ["LIBTNY_1.0", "LIBTNY_1.1", "LIBTNY_1.2", "LIBTNY_1.3", "LIBTNY_1.4"]
+      "elf_version_nodes": ["LIBTNY_1.0", "LIBTNY_1.1", "LIBTNY_1.2", "LIBTNY_1.3", "LIBTNY_1.4", "LIBTNY_1.5"]
     },
     "macos": {
       "architectures": ["arm64"],

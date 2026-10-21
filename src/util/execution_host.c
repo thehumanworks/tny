@@ -1,4 +1,5 @@
 #include "util/execution_host.h"
+#include "tny_version.h"
 #include "core/execution_protocol.h"
 #include "util/process.h"
 #include "util/tny_poll.h"
@@ -30,11 +31,12 @@ static int configure(int fd) {
     return 0;
 }
 
-static int start_entry(tny_exec_host *host, const char *entry, int output_fd) {
+static int start_entry_at(tny_exec_host *host, const char *entry, int output_fd,
+                          const char *executable) {
     *host = (tny_exec_host){.fd = -1, .pid = -1};
     /* Exact process identity is required for cancellation, not best-effort groups. */
     if (!tny_process_tree_supported()) return ENOTSUP;
-    char *exe = tny_process_self_path();
+    char *exe = executable ? xstrdup(executable) : tny_process_self_path();
     if (!exe) return ENOTSUP;
     int fds[2];
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds)) {
@@ -68,6 +70,26 @@ static int start_entry(tny_exec_host *host, const char *entry, int output_fd) {
     if (rc) close(fds[0]);
     else host->fd = fds[0];
     return rc;
+}
+
+static int start_entry(tny_exec_host *host, const char *entry, int output_fd) {
+    return start_entry_at(host, entry, output_fd, NULL);
+}
+
+int tny_exec_host_start_embedded(tny_exec_host *host, const char *executable,
+                                 tny_exec_cancel_fn cancel, void *ud) {
+    if (!executable || executable[0] != '/') return EINVAL;
+    int rc = start_entry_at(host, "--exec-server", -1, executable);
+    if (rc) return rc;
+    char *identity = tny_exec_host_receive(host->fd, monotonic_ms() + 5000, cancel, ud);
+    const char *expected = "{\"tny_sdk_executor\":1,\"version\":\"" TNY_VERSION "\"}";
+    bool valid = identity && strcmp(identity, expected) == 0;
+    free(identity);
+    if (!valid) {
+        (void)tny_exec_host_close(host, false);
+        return EPROTO;
+    }
+    return 0;
 }
 
 int tny_exec_host_start_tool(tny_exec_host *host) { return start_entry(host, "--exec-tool", -1); }
@@ -266,6 +288,13 @@ int tny_exec_host_close(tny_exec_host *host, bool completed) {
 int tny_exec_host_start(tny_exec_host *host) {
     *host = (tny_exec_host){.fd = -1, .pid = -1};
     return ENOTSUP;
+}
+int tny_exec_host_start_embedded(tny_exec_host *host, const char *executable,
+                                 tny_exec_cancel_fn cancel, void *ud) {
+    (void)executable;
+    (void)cancel;
+    (void)ud;
+    return tny_exec_host_start(host);
 }
 int tny_exec_host_start_tool(tny_exec_host *host) { return tny_exec_host_start(host); }
 int tny_exec_host_start_cell(tny_exec_host *host, int output_fd) {

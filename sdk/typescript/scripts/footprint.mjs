@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,5 +33,7 @@ process.stdout.write(`${JSON.stringify({
   platform: `${process.platform}-${process.arch}`,
   addon: describe(join(release, "tny.node")),
   library: describe(join(release, libraryName)),
+  ...(existsSync(join(release, "tny-executor"))
+    ? { executor: describe(join(release, "tny-executor")) } : {}),
   package: describe(archive),
 })}\n`);

@@ -9,6 +9,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { targetForTriple, targets } from "./platform.mjs";
+import { verifyNativeExecutor } from "./native-loader.mjs";
 import { versionsFromTag } from "./release-version.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -139,6 +140,7 @@ try {
       `but release tag ${versions.tag} requires ${versions.npm}`,
     );
   }
+  const executor = verifyNativeExecutor(buildRoot, sourceManifest, target);
   const metaStage = join(scratch, "meta", "package");
   mkdirSync(metaStage, { recursive: true });
   for (const relative of [
@@ -176,6 +178,7 @@ try {
   mkdirSync(prebuilds, { recursive: true });
   copyFileSync(addon, join(prebuilds, "tny.node"));
   copyFileSync(library, join(prebuilds, target.library));
+  if (executor) copyFileSync(executor, join(prebuilds, "tny-executor"));
   const nativeManifest = {
     ...sourceManifest,
     schemaVersion: 3,
@@ -209,6 +212,7 @@ try {
     { name: basename(nativePack.path), sha256: sha256(nativePack.path), role: "npm-native-package" },
     { name: "tny.node", packagePath: "package/prebuilds/tny.node", sha256: sha256(addon), role: "node-api-addon" },
     { name: target.library, packagePath: `package/prebuilds/${target.library}`, sha256: sha256(library), role: "libtny-shared-library" },
+    ...(executor ? [{ name: "tny-executor", packagePath: "package/prebuilds/tny-executor", sha256: sha256(executor), role: "native-tool-executor" }] : []),
     { name: basename(stagedWheel), sha256: sha256(stagedWheel), role: "python-platform-wheel" },
   ];
   const descriptor = {
@@ -221,8 +225,8 @@ try {
     pythonVersion: versions.python,
     target,
     packages: artifacts.slice(0, 2),
-    nativeArtifacts: artifacts.slice(2, 4),
-    pythonWheel: artifacts[4],
+    nativeArtifacts: artifacts.slice(2, -1),
+    pythonWheel: artifacts.at(-1),
     commitSha: commit,
     buildTools: { node: process.version, npm: npmTool.stdout.trim() },
     contents: { meta: metaPack.files, native: nativePack.files, wheel: wheelContents },

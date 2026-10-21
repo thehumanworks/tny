@@ -7,6 +7,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
+import { verifyNativeExecutor } from "./native-loader.mjs";
+
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const inferredRoot = resolve(packageRoot, "../..");
 const sourceCheckout = existsSync(join(inferredRoot, "Makefile")) &&
@@ -38,6 +40,7 @@ if (!supported) {
 const sourceFiles = [
   "native/addon.c", "native/addon_internal.h", "native/copy.c", "native/events.c",
   "native/options.c", "native/owner.c", "native/probe.c", "native/toolkit.c", "scripts/build.mjs",
+  "scripts/native-loader.mjs",
 ];
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const fileHash = (path) => digest(readFileSync(path));
@@ -165,6 +168,7 @@ async function validatePrebuilt() {
     throw new Error(`prebuilt libtny ABI ${manifest.abiMajor}.${manifest.abiMinor} is unsupported`);
   if (manifest.addonSha256 !== fileHash(output) || manifest.librarySha256 !== fileHash(bundledLibrary))
     throw new Error("prebuilt artifact hash mismatch");
+  verifyNativeExecutor(outputDir, manifest, { platform: process.platform, architecture: process.arch });
   validateLibraryProvenance(bundledLibrary);
   validateBinary(output, process.arch);
   validateBinary(bundledLibrary, process.arch);
@@ -208,7 +212,7 @@ if (!existsSync(header)) {
   );
 }
 if (!process.env.TNY_LIB_DIR && existsSync(join(tnyRoot, "Makefile"))) {
-  const made = spawnSync("make", ["lib-shared"], { cwd: tnyRoot, stdio: "inherit" });
+  const made = spawnSync("make", ["lib-shared", "sdk-executor"], { cwd: tnyRoot, stdio: "inherit" });
   if (made.status !== 0) process.exit(made.status ?? 1);
 }
 if (!existsSync(library)) {
@@ -251,12 +255,29 @@ if (probedMajor !== requiredAbiMajor || probedMinor < minAbiMinor || probe.capab
   throw new Error(`@thehumanworks/tny: built artifact failed ABI/capability validation`);
 if (provenance.library_version && probe.libraryVersion !== provenance.library_version)
   throw new Error("built addon library version does not match release provenance");
+let executor;
+const bundledExecutor = join(outputDir, "tny-executor");
+if (probedMinor >= 5) {
+  const executorSource = resolve(process.env.TNY_EXECUTOR_PATH || join(libDir, "tny-executor"));
+  if (!existsSync(executorSource))
+    throw new Error(`@thehumanworks/tny: native executor not found at ${executorSource}; build sdk-executor or set TNY_EXECUTOR_PATH`);
+  copyFileSync(executorSource, bundledExecutor);
+  executor = {
+    filename: "tny-executor", sha256: fileHash(bundledExecutor), protocolVersion: 1,
+    libraryVersion: probe.libraryVersion,
+  };
+  verifyNativeExecutor(outputDir, { abiMinor: probedMinor, libraryVersion: probe.libraryVersion, executor },
+    { platform: process.platform, architecture: process.arch });
+} else {
+  rmSync(bundledExecutor, { force: true });
+}
+const nativeArtifacts = [output, bundledLibrary, ...(executor ? [bundledExecutor] : [])];
 const minimumOs = process.platform === "darwin"
-  ? [binaryMacMinimum(output), binaryMacMinimum(bundledLibrary)].filter(Boolean)
+  ? nativeArtifacts.map(binaryMacMinimum).filter(Boolean)
       .sort(compareVersions).at(-1)
   : undefined;
 const minimumGlibc = process.platform === "linux"
-  ? binaryGlibcFloor([output, bundledLibrary])
+  ? binaryGlibcFloor(nativeArtifacts)
   : undefined;
 if (minimumGlibc && !versionAtLeast("2.34", minimumGlibc))
   throw new Error(`derived glibc floor ${minimumGlibc} exceeds release maximum 2.34`);
@@ -271,6 +292,7 @@ const manifest = {
   addonSha256: fileHash(output),
   librarySha256: fileHash(bundledLibrary),
   sourceSha256: sourceHash(),
+  ...(executor ? { executor } : {}),
   minimumOs,
   minimumGlibc,
   linkage: "shared-loader-relative",

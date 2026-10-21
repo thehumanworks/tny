@@ -63,6 +63,7 @@ let
     ../scripts/install_licenses.sh # `make install` ships the embedded licenses
     ../THIRD_PARTY_NOTICES.md # `make install` ships notices with the CPython license
     ../shell # installed workflows and the Zsh quick-ask widget
+    ../sdk/native # private native execution worker, no CLI frontend
     ../src
     ../third_party
   ];

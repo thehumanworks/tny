@@ -146,6 +146,43 @@ def validate_npm(
             "librarySha256"
         ) != digest(library_data):
             raise SystemExit(f"{path}: native payload hash mismatch")
+        abi_minor = manifest.get("abiMinor")
+        if not isinstance(abi_minor, int) or abi_minor < 0:
+            raise SystemExit(f"{path}: native ABI minor is invalid")
+        executor = manifest.get("executor")
+        if abi_minor >= 5 or executor is not None:
+            if (
+                abi_minor < 5
+                or not isinstance(executor, dict)
+                or executor.get("filename") != "tny-executor"
+                or executor.get("protocolVersion") != 1
+                or executor.get("libraryVersion") != npm_version
+            ):
+                raise SystemExit(f"{path}: native executor identity is inconsistent")
+            try:
+                member = archive.getmember("package/prebuilds/tny-executor")
+            except KeyError:
+                raise SystemExit(f"{path}: native executor is missing") from None
+            if not member.isfile() or not member.mode & 0o111:
+                raise SystemExit(f"{path}: native executor is not a regular executable")
+            executor_data = tar_member(archive, member.name)
+            if executor.get("sha256") != digest(executor_data):
+                raise SystemExit(f"{path}: native executor hash mismatch")
+            if os_name == "darwin":
+                valid_target = (
+                    len(executor_data) >= 12
+                    and executor_data[:4] == bytes.fromhex("cffaedfe")
+                    and int.from_bytes(executor_data[4:8], "little") == 0x0100000C
+                )
+            else:
+                valid_target = (
+                    len(executor_data) >= 20
+                    and executor_data[:6] == b"\x7fELF\x02\x01"
+                    and int.from_bytes(executor_data[18:20], "little")
+                    == (62 if architecture == "x64" else 183)
+                )
+            if not valid_target:
+                raise SystemExit(f"{path}: native executor architecture mismatch")
         if package.get("os") != [os_name] or package.get("cpu") != [architecture]:
             raise SystemExit(f"{path}: npm platform constraints are inconsistent")
         if os_name == "linux" and package.get("libc") != ["glibc"]:

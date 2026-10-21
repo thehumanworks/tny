@@ -11,6 +11,8 @@
 #include "lib/error.h"
 #include "lib/host_services.h"
 #include "util/alloc.h"
+#include "util/process.h"
+#include <sys/stat.h>
 #include "util/util.h"
 
 #include <pthread.h>
@@ -578,6 +580,36 @@ fail:
     return scoped_status(rc, error);
 }
 
+int32_t tny_runtime_set_execution_helper(tny_runtime *runtime, tny_bytes path, tny_error **error) {
+    tny_alloc_scope_begin("runtime_set_execution_helper");
+    if (error) *error = NULL;
+    if (!runtime || !on_owner(runtime) || runtime->session)
+        return scoped_status(
+            failf(error, TNY_STATUS_BAD_STATE,
+                  "execution helper requires owner runtime before session creation"),
+            error);
+    if (runtime->ctx->backend != TNY_BK_OPENAI || runtime->ctx->host_services ||
+        runtime->ctx->custom_tools || !tny_process_tree_supported())
+        return scoped_status(
+            failf(error, TNY_STATUS_UNSUPPORTED,
+                  "execution helper requires native HTTP without host/custom callbacks"),
+            error);
+    char *copy = NULL;
+    int32_t status = path.len <= 4096 ? copy_bytes(path, true, "execution helper", &copy, error)
+                                      : failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                              "execution helper path too long");
+    struct stat st;
+    if (status == TNY_STATUS_OK &&
+        (copy[0] != '/' || stat(copy, &st) || !S_ISREG(st.st_mode) || access(copy, X_OK)))
+        status = failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                       "execution helper must be an absolute executable file");
+    if (status == TNY_STATUS_OK) {
+        free(runtime->ctx->execution_helper);
+        runtime->ctx->execution_helper = copy;
+    } else free(copy);
+    return scoped_status(status, error);
+}
+
 /* Configure the external agent without adding fields to frozen option records. */
 static int32_t runtime_set_acp_command(tny_runtime *runtime, tny_bytes command_json,
                                        tny_error **error) {
@@ -1003,7 +1035,9 @@ static int32_t runtime_get_capabilities_full(const tny_runtime *runtime,
                                   TNY_CAP_FEATURE_CROSS_THREAD_CANCEL |
                                   TNY_CAP_FEATURE_HOST_SERVICES | TNY_CAP_FEATURE_CUSTOM_TOOLS |
                                   TNY_CAP_FEATURE_TASK_PRESETS | TNY_CAP_FEATURE_REASONING_EFFORT;
+    if (tny_process_tree_supported()) full.feature_available_mask |= TNY_CAP_FEATURE_CODE_EXECUTION;
     full.feature_enabled_mask = TNY_CAP_FEATURE_CROSS_THREAD_CANCEL;
+    if (runtime->ctx->execution_helper) full.feature_enabled_mask |= TNY_CAP_FEATURE_CODE_EXECUTION;
 #ifdef TNY_SHARED_LIBRARY_BUILD
     full.feature_available_mask |= TNY_CAP_FEATURE_SHARED_LIBRARY;
     full.feature_enabled_mask |= TNY_CAP_FEATURE_SHARED_LIBRARY;
@@ -1133,6 +1167,9 @@ int32_t tny_runtime_register_tool(tny_runtime *runtime, const tny_tool_spec_v1 *
     if (runtime->session)
         return failf(error, TNY_STATUS_BAD_STATE,
                      "custom tools must be registered before session creation");
+    if (runtime->ctx->execution_helper)
+        return failf(error, TNY_STATUS_UNSUPPORTED,
+                     "custom callbacks cannot cross native tool workers");
     if (!runtime->custom_tools) {
         runtime->custom_tools = custom_tools_new();
         if (!runtime->custom_tools) return failf(error, TNY_STATUS_OOM, "out of memory");

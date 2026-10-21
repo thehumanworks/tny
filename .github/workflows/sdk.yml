@@ -231,7 +231,7 @@ jobs:
           if [ "$jobs" -gt 4 ]; then jobs=4; fi
           export MAKEFLAGS="-j$jobs"
           echo "MAKEFLAGS=$MAKEFLAGS" >> "$GITHUB_ENV"
-          make lib-shared release
+          make lib-shared release sdk-executor
           npm --prefix sdk/typescript run build
       - name: Test and typecheck SDK source
         run: |
@@ -244,6 +244,8 @@ jobs:
               TNY_CONFORMANCE_COMMAND_TIMEOUT=600 TNY_CONFORMANCE_STEER_TIMEOUT=180
           fi
           npm --prefix sdk/typescript test
+          node sdk/typescript/test/native-tools.mjs
+          python3 tests/abi/test_execution_helper.py
           # Full adapter conformance runs against the packed, installed SDK
           # below. Keep source-only tests and typechecking here.
           npm exec --yes --package=typescript -- \
