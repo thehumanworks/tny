@@ -112,8 +112,8 @@ TEST agent_presets_reject_invalid_maps_names_and_duplicates(void) {
         "{\"agent_presets\":{\"a/b\":{}}}",
         "{\"agent_presets\":{\"a b\":{}}}",
         "{\"agent_presets\":{\"a\\u0000b\":{}}}",
-        "{\"agent_presets\":{\"retrieve\":{\"provider\":\"p\",\"model\":\"m\"},"
-        "\"retrie\\u0076e\":{\"provider\":\"p\",\"model\":\"m\"}}}",
+        ("{\"agent_presets\":{\"retrieve\":{\"provider\":\"p\",\"model\":\"m\"},"
+         "\"retrie\\u0076e\":{\"provider\":\"p\",\"model\":\"m\"}}}"),
     };
     for (size_t i = 0; i < sizeof bad / sizeof *bad; ++i) {
         tny_ctx ctx = {.settings = jparse(bad[i], strlen(bad[i]))};

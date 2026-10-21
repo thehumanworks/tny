@@ -342,7 +342,13 @@ int tny_retrieval_import(tny_session_state *session, yyjson_doc *input, buf_t *p
 }
 
 int tny_retrieval_reconcile(tny_session_state *session, char *error, size_t error_size) {
-    if (!session || !session->ctx || !error || !error_size) return -1;
+    if (!session || !session->ctx) return -1;
+    /* Session reload permits callers to omit diagnostic storage. */
+    char ignored_error[256];
+    if (!error || !error_size) {
+        error = ignored_error;
+        error_size = sizeof ignored_error;
+    }
     bool present = false;
     yyjson_doc *stored = saved_state(session, &present);
     if (present && !stored) {

@@ -50,7 +50,7 @@ E_UNSUPPORTED = (
     f"supported. Example: {CREATE_EXAMPLE}"
 )
 E_FIELDS = (
-    "error: SUBAGENT_INVALID_ARGUMENT: only action, id, prompt, provider, model and "
+    "error: SUBAGENT_INVALID_ARGUMENT: only action, id, prompt, preset, sources, provider, model and "
     "effort are accepted. "
     f"Example: {CREATE_EXAMPLE}"
 )

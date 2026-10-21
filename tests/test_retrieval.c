@@ -102,6 +102,7 @@ static void retrieval_teardown(void *unused) {
     free(fixture.wire);
     free(fixture.readback);
     free(fixture.saved_runtime);
+    free(fixture.child.task_body);
     free(fixture.child_ctx.retrieval_state);
     free(fixture.child_ctx.task_name);
     free(fixture.child_ctx.task_source);
@@ -372,8 +373,6 @@ TEST retrieval_resume_rejects_mismatched_provider_and_model(void) {
 TEST retrieval_resume_rejects_corrupt_saved_source_metadata(void) {
     char null_error[64] = {0};
     ASSERT_EQ(-1, tny_retrieval_reconcile(NULL, null_error, sizeof null_error));
-    ASSERT_EQ(-1, tny_retrieval_reconcile(&fixture.child, NULL, sizeof null_error));
-    ASSERT_EQ(-1, tny_retrieval_reconcile(&fixture.child, null_error, 0));
     ASSERT(fixture.ready);
     ASSERT(make_request(false));
     ASSERT(add_source("first", 5, "result:parent:first"));
@@ -499,6 +498,51 @@ TEST retrieval_task_reconcile_restores_old_cache_after_loading_different_snapsho
     PASS();
 }
 
+TEST retrieval_task_reconcile_rejects_bad_swarm_without_diagnostics(void) {
+    ASSERT(fixture.ready);
+    yyjson_mut_doc *doc = fixture.child.doc;
+    yyjson_mut_val *meta = yyjson_mut_obj(doc);
+    ASSERT(meta);
+    ASSERT(yyjson_mut_obj_add_uint(doc, meta, "version", 1));
+    ASSERT(yyjson_mut_obj_add_str(doc, meta, "source", "/fixture"));
+    ASSERT(yyjson_mut_obj_add_str(doc, meta, "sha256", "invalid"));
+    ASSERT(yyjson_mut_obj_add_uint(doc, meta, "participants", 1));
+    ASSERT(yyjson_mut_obj_add_bool(doc, meta, "snapshot", false));
+    ASSERT(yyjson_mut_obj_add_str(doc, meta, "activation", "not_started"));
+    ASSERT(yyjson_mut_obj_add_val(doc, yyjson_mut_doc_get_root(doc), "swarm_definition", meta));
+    fixture.child_ctx.retrieval_state = xstrdup("previous cache");
+    ASSERT(fixture.child_ctx.retrieval_state);
+    char *previous = fixture.child_ctx.retrieval_state;
+    ASSERT_EQ(-1, session_task_reconcile(&fixture.child, NULL, 0));
+    ASSERT_EQ(previous, fixture.child_ctx.retrieval_state);
+    char untouched[] = "unchanged";
+    ASSERT_EQ(-1, session_task_reconcile(&fixture.child, untouched, 0));
+    ASSERT_STR_EQ("unchanged", untouched);
+    ASSERT_EQ(previous, fixture.child_ctx.retrieval_state);
+    PASS();
+}
+
+TEST retrieval_reconcile_keeps_diagnostics_optional(void) {
+    ASSERT(fixture.ready);
+    char untouched[] = "unchanged";
+    fixture.child_ctx.task_explicit = false;
+    ASSERT_EQ(0, session_task_reconcile(&fixture.child, NULL, 0));
+    ASSERT_EQ(0, tny_retrieval_reconcile(&fixture.child, NULL, sizeof untouched));
+    ASSERT_EQ(0, tny_retrieval_reconcile(&fixture.child, untouched, 0));
+    ASSERT_STR_EQ("unchanged", untouched);
+    ASSERT(make_request(false));
+    ASSERT(add_source("first", 5, "result:parent:first"));
+    ASSERT_EQ(0, admit_request(false));
+    ASSERT_EQ(0, tny_retrieval_import(&fixture.child, fixture.input, &fixture.prompt));
+    fixture.saved_runtime = xstrdup(fixture.child_ctx.retrieval_state);
+    ASSERT(fixture.saved_runtime);
+    ASSERT_EQ(0, session_task_reconcile(&fixture.child, NULL, 0));
+    fixture.child_ctx.base_url = "https://changed.invalid/v1";
+    ASSERT_EQ(-1, session_task_reconcile(&fixture.child, NULL, 0));
+    ASSERT_STR_EQ(fixture.saved_runtime, fixture.child_ctx.retrieval_state);
+    PASS();
+}
+
 TEST retrieval_reconcile_pins_routing_but_allows_credential_refresh(void) {
     ASSERT(fixture.ready);
     ASSERT(make_request(false));
@@ -579,6 +623,8 @@ SUITE(retrieval_suite) {
     RUN_TEST(retrieval_reconcile_rejects_changed_or_deleted_child_copies);
     RUN_TEST(retrieval_task_reconcile_restores_old_cache_when_target_has_no_retrieval);
     RUN_TEST(retrieval_task_reconcile_restores_old_cache_after_loading_different_snapshot);
+    RUN_TEST(retrieval_task_reconcile_rejects_bad_swarm_without_diagnostics);
+    RUN_TEST(retrieval_reconcile_keeps_diagnostics_optional);
     RUN_TEST(retrieval_reconcile_pins_routing_but_allows_credential_refresh);
     RUN_TEST(retrieval_prepare_distinguishes_no_preset_from_failed_selection);
 }

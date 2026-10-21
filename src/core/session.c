@@ -252,6 +252,11 @@ static int session_task_reconcile_impl(tny_session_state *s, char *err, size_t e
 
 int session_task_reconcile(tny_session_state *s, char *err, size_t errsz) {
     if (!s || !s->ctx) return -1;
+    char ignored_error[256] = {0};
+    if (!err || !errsz) {
+        err = ignored_error;
+        errsz = sizeof ignored_error;
+    }
     char *previous_retrieval = s->ctx->retrieval_state;
     s->ctx->retrieval_state = NULL;
     if (tny_retrieval_reconcile(s, err, errsz) != 0) {
