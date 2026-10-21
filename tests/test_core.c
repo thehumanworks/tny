@@ -1797,6 +1797,7 @@ TEST tool_result_budget_config_bounds_and_precedence(void) {
     tny_ctx *ctx = tny_ctx_load(g_ws);
     ASSERT(ctx);
     ASSERT_EQ(32768, ctx->max_tool_result_bytes);
+    char *canonical_ws = xstrdup(ctx->cwd);
     tny_ctx_free(ctx);
     const char *valid[] = {"1", "8", "32768", "16777216"};
     for (size_t i = 0; i < sizeof valid / sizeof valid[0]; i++) {
@@ -1813,13 +1814,24 @@ TEST tool_result_budget_config_bounds_and_precedence(void) {
     buf_appendf(&json,
                 "{\"max_tool_result_bytes\":128,\"workspaces\":{\"%s\":{"
                 "\"max_tool_result_bytes\":64}}}",
-                g_ws);
+                canonical_ws);
     write_settings(json.data);
     buf_free(&json);
     ctx = tny_ctx_load(g_ws);
     ASSERT(ctx);
     ASSERT_EQ(64, ctx->max_tool_result_bytes);
     tny_ctx_free(ctx);
+    if (symlinks_supported()) {
+        char *alias = path_join(g_home, "budget-workspace-link");
+        ASSERT(alias);
+        ASSERT_EQ(0, symlink(canonical_ws, alias));
+        ctx = tny_ctx_load(alias);
+        ASSERT(ctx);
+        ASSERT_EQ(64, ctx->max_tool_result_bytes);
+        tny_ctx_free(ctx);
+        ASSERT_EQ(0, unlink(alias));
+        free(alias);
+    }
     const char *config = "{\"max_tool_result_bytes\":8}";
     ASSERT_EQ(0, file_write_atomic(repo, config, strlen(config)));
     ctx = tny_ctx_load(g_ws);
@@ -1834,8 +1846,8 @@ TEST tool_result_budget_config_bounds_and_precedence(void) {
         for (int layer = 0; layer < 3; layer++) {
             buf_init(&json);
             if (layer == 1)
-                buf_appendf(&json, "{\"workspaces\":{\"%s\":{\"max_tool_result_bytes\":%s}}}", g_ws,
-                            invalid[i]);
+                buf_appendf(&json, "{\"workspaces\":{\"%s\":{\"max_tool_result_bytes\":%s}}}",
+                            canonical_ws, invalid[i]);
             else buf_appendf(&json, "{\"max_tool_result_bytes\":%s}", invalid[i]);
             write_settings(layer == 2 ? "{}" : json.data);
             if (layer == 2) ASSERT_EQ(0, file_write_atomic(repo, json.data, json.len));
@@ -1852,6 +1864,7 @@ TEST tool_result_budget_config_bounds_and_precedence(void) {
     ASSERT_EQ(NULL, ctx);
     unlink(repo);
     free(repo);
+    free(canonical_ws);
     write_settings("{}");
     PASS();
 }
