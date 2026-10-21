@@ -104,3 +104,19 @@ handles, content beyond the former 1 MiB cutoff, incomplete-response provenance,
 private artifacts, explicit storage failures and bounded ephemeral retention.
 The file range suite proves that choosing a useful section returns its original
 contents without creating a copied-file artifact.
+
+## Standalone fetch ownership
+
+`tny web fetch` has no conversation session. On spill it creates a private
+absolute-path temporary directory through a sessionless owner mode of the same
+result-stream writer, preserving its byte cap, atomic rename and cleanup. It
+returns the real file path, never a session handle; the file remains readable
+after native command exit until manual or OS temp cleanup. No conversation
+metadata is created. Wasm paths remain virtual-filesystem paths, not durable
+host files; SSH does not relocate controller-local content. Standalone no-save
+requests reject oversized responses before creating storage because a memory
+handle would die at command exit. Small outputs remain unchanged.
+
+CLI fixtures verify exact post-exit bytes, one fetch, private permissions,
+manual cleanup, no-save rejection and an unusable temporary root. A stream
+abort regression verifies removal of both staged file and private directory.

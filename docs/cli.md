@@ -994,7 +994,13 @@ Codex model defaults to `gpt-5.6-sol`; `web_search_model` overrides it independe
 `web_search_timeout_seconds` sets its 1–300 second deadline (default 120), including
 pumped token refresh. An invalid login or failed Codex request is an error, not a
 silent fallback. API-key-only Codex auth is not a ChatGPT subscription login. `tny web fetch https://example.com` fetches
-one URL. `--json` returns kind, ok and result; errors exit 2. Query templates are
+one URL. Oversized standalone responses use the same bounded result writer but
+return an absolute private temporary-file path, not a session handle. Native
+files survive command exit until manual or OS temp cleanup; remove the file and
+its private directory when done. In wasm, paths refer only to its virtual
+filesystem. This creates no conversation session. Standalone `--ephemeral` /
+`--no-save` rejects oversized responses because memory recovery would expire at
+command exit; small responses are unchanged. `--json` returns kind, ok and result; errors exit 2. Query templates are
 percent encoded. Search challenges and incomplete responses are reported rather
 than presented as search results. These verbs also execute in process when
 called through the native terminal tool, preserving its permission identity.

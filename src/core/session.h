@@ -143,6 +143,9 @@ char *session_result_stream_finish(session_result_stream *stream, bool needed);
 
 /* Store fetched content through the same bounded atomic result writer. Returns
  * a recovery notice with a real local path, or memory-only handle in no-save mode. */
+/* Sessionless command content: private temp file survives successful finish.
+ * Caller must not use this for no-save requests; abort removes owned artifacts. */
+session_result_stream *session_result_stream_new_temporary(void);
 char *session_result_stream_finish_content(session_result_stream *stream, bool *stored);
 /* Discard interrupted capture, including its temporary artifact. */
 void session_result_stream_abort(session_result_stream *stream);

@@ -1276,7 +1276,7 @@ struct session_result_stream {
     size_t preview;
     uint64_t total;
     int fd;
-    char *handle, *temporary, *path;
+    char *handle, *temporary, *path, *content_dir;
     bool failed;
 };
 
@@ -1299,6 +1299,22 @@ session_result_stream *session_result_stream_new(tny_session_state *s, size_t pr
     return out;
 }
 
+session_result_stream *session_result_stream_new_temporary(void) {
+    session_result_stream *out = session_result_stream_new(NULL, 0);
+    if (!out) return NULL;
+    const char *tmp = getenv("TMPDIR");
+    if (!tmp || !*tmp) tmp = "/tmp";
+    char *root = path_abs(tmp);
+    out->content_dir = root ? path_join(root, "tny-content-XXXXXX") : NULL;
+    free(root);
+    if (!out->content_dir || !mkdtemp(out->content_dir)) {
+        free(out->content_dir);
+        out->content_dir = NULL;
+        out->failed = true;
+    }
+    return out;
+}
+
 static bool result_stream_write(int fd, const char *data, size_t len) {
     while (len) {
         ssize_t n = write(fd, data, len);
@@ -1312,7 +1328,8 @@ static bool result_stream_write(int fd, const char *data, size_t len) {
 
 static bool result_stream_open(session_result_stream *out) {
     out->handle = gen_id();
-    char *dir = path_join(out->session->dir, "results");
+    char *dir =
+        out->content_dir ? xstrdup(out->content_dir) : path_join(out->session->dir, "results");
     bool ok = out->handle && dir && mkdir_p(dir) == 0;
     buf_t path;
     buf_init(&path);
@@ -1341,11 +1358,11 @@ void session_result_stream_append(void *stream, const char *data, size_t len) {
     if (out->failed) return;
     tny_session_state *s = out->session;
     size_t limit = s && s->ctx->no_save ? result_memory_available(s) : RESULT_STREAM_DISK_BYTES;
-    if (!s || out->total > limit) {
+    if ((!s && !out->content_dir) || out->total > limit) {
         out->failed = true;
         return;
     }
-    if (s->ctx->no_save || out->total <= out->preview) {
+    if ((s && s->ctx->no_save) || out->total <= out->preview) {
         buf_append(&out->memory, data, len);
         out->failed = out->memory.oom;
         return;
@@ -1363,7 +1380,8 @@ static char *result_stream_finish(session_result_stream *out, bool needed, bool 
     if (!out)
         return xstrdup("\n[tny: full-output recovery unavailable: capture allocation failed]\n");
     bool large = needed || out->total > out->preview;
-    if (large && !out->failed && out->session && !out->session->ctx->no_save && out->fd < 0)
+    if (large && !out->failed && out->fd < 0 &&
+        (out->content_dir || (out->session && !out->session->ctx->no_save)))
         out->failed = !result_stream_open(out);
     if (large && !out->failed && out->session && out->session->ctx->no_save) {
         if (out->memory.len > result_memory_available(out->session)) out->failed = true;
@@ -1386,18 +1404,29 @@ static char *result_stream_finish(session_result_stream *out, bool needed, bool 
                 buf_appendf(&notice, "Content saved (%llu bytes). ",
                             (unsigned long long)out->total);
                 if (out->path) {
-                    buf_appendf(&notice, "Local session file: %s\n", out->path);
-                    if (out->session && out->session->ctx && !out->session->ctx->ssh_host)
+                    buf_appendf(&notice, "%s: %s\n",
+                                out->content_dir ? "Local temporary file" : "Local session file",
+                                out->path);
+                    if (!out->content_dir && out->session && out->session->ctx &&
+                        !out->session->ctx->ssh_host)
                         buf_appends(
                             &notice,
                             "Search with grep_files/rg, then read_file line ranges or sed. ");
                     else buf_appends(&notice, "This file is on the controller, not the SSH host. ");
                 } else
                     buf_appends(&notice, "Ephemeral: memory only, no file; expires with session. ");
-                buf_appendf(&notice,
-                            "Read chunks with read_tool_result(handle=\"%s\", offset=0, "
-                            "length=4096); advance offset until enough information.\n",
-                            out->handle);
+                if (out->content_dir)
+                    buf_appends(&notice, "On native builds the file survives command exit until "
+                                         "manual or OS temp cleanup; wasm files live only in its "
+                                         "virtual filesystem. On the controller use rg/sed to "
+                                         "read sections; delete the file and private directory "
+                                         "when done. For giant lines use "
+                                         "bounded Python seek/read or head -c.\n");
+                else
+                    buf_appendf(&notice,
+                                "Read chunks with read_tool_result(handle=\"%s\", offset=0, "
+                                "length=4096); advance offset until enough information.\n",
+                                out->handle);
             } else
                 buf_appendf(
                     &notice,
@@ -1415,12 +1444,22 @@ static char *result_stream_finish(session_result_stream *out, bool needed, bool 
                         "failed or retention limit exceeded; preview only]\n",
                         (unsigned long long)out->total);
     }
+    char *result = buf_detach(&notice);
+    if (!result) {
+        out->failed = true;
+        if (stored) *stored = false;
+    }
     buf_free(&out->memory);
+    if (out->content_dir && (out->failed || !large)) {
+        if (out->path) unlink(out->path);
+        rmdir(out->content_dir);
+    }
+    free(out->content_dir);
     free(out->handle);
     free(out->temporary);
     free(out->path);
     free(out);
-    return buf_detach(&notice);
+    return result;
 }
 
 char *session_result_stream_finish(session_result_stream *out, bool needed) {

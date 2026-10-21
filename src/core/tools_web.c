@@ -92,7 +92,13 @@ static char *fetch_url(tools_env *env, const char *url, int redirects, bool raw)
         }
         if (!raw && !spilled && total + keep > env->ctx->max_tool_result_bytes) {
             spilled = true;
-            saved = session_result_stream_new(env->session, 0);
+            if (!env->session && env->ctx->no_save) {
+                failure = "oversized standalone web content cannot be recovered in no-save mode; "
+                          "use a saved session or fetch a smaller resource";
+                break;
+            }
+            saved = env->session ? session_result_stream_new(env->session, 0)
+                                 : session_result_stream_new_temporary();
             session_result_stream_append(saved, body.data, body.len);
             buf_free(&body);
         }
