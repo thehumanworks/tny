@@ -630,52 +630,83 @@ static char *t_grep_files(tools_env *env, yyjson_val *args) {
     return res;
 }
 
+/* Read only the prefix needed for a line range. Skipped lines never enter the
+ * result buffer; a selected long line still requires its actual output bytes.
+ * Keep the historical range contract: even an unterminated/empty final line
+ * is emitted with a newline. Image detection uses the first chunk, not a seek. */
+static bool read_file_range(FILE *file, int64_t offset, int64_t limit, buf_t *out,
+                            const char **mime) {
+    unsigned char chunk[8192];
+    uint64_t skip = offset > 0 ? (uint64_t)offset - 1 : 0;
+    uint64_t left = limit > 0 ? (uint64_t)limit : UINT64_MAX;
+    bool first = true;
+    for (;;) {
+        size_t n = fread(chunk, 1, sizeof chunk, file);
+        if (ferror(file)) return false;
+        if (first) {
+            first = false;
+            *mime = image_mime(chunk, n);
+            if (*mime) return true;
+        }
+        size_t start = 0;
+        for (size_t i = 0; i < n; i++) {
+            if (chunk[i] != '\n') continue;
+            if (skip) skip--;
+            else {
+                buf_append(out, chunk + start, i - start + 1);
+                if (buf_oom(out)) return false;
+                if (--left == 0) return true;
+            }
+            start = i + 1;
+        }
+        if (!skip) buf_append(out, chunk + start, n - start);
+        if (buf_oom(out)) return false;
+        if (n < sizeof chunk) {
+            if (!skip) buf_appends(out, "\n");
+            return !buf_oom(out);
+        }
+    }
+}
+
 static char *t_read_file(tools_env *env, yyjson_val *args) {
     char *err = NULL;
     char *abs = tool_resolve_path(env, jget_str(args, "path"), &err);
     if (!abs) return err;
+    int64_t off = jget_int(args, "offset", 0);
+    int64_t lim = jget_int(args, "limit", 0);
+    buf_t range;
+    buf_init(&range);
     size_t len = 0;
-    char *data = file_slurp(abs, &len);
-    if (!data) {
+    char *data = NULL;
+    const char *mime = NULL;
+    bool ok;
+    if (off > 0 || lim > 0) {
+        FILE *file = fopen(abs, "rb");
+        ok = file && read_file_range(file, off, lim, &range, &mime);
+        if (file) fclose(file);
+        if (ok) {
+            len = range.len;
+            data = buf_detach(&range);
+        }
+    } else {
+        data = file_slurp(abs, &len);
+        ok = data != NULL;
+        if (ok) mime = image_mime((const uint8_t *)data, len);
+    }
+    buf_free(&range);
+    if (!ok || !data) {
         char *e = tool_err("cannot read %s", abs);
         free(abs);
         return e;
     }
-    const char *mime = image_mime((const uint8_t *)data, len);
     if (mime) {
         free(data);
         char *e = tool_err("%s is %s; use read_image to view it", abs, mime);
         free(abs);
         return e;
     }
-    int64_t off = jget_int(args, "offset", 0);
-    int64_t lim = jget_int(args, "limit", 0);
-    char *res;
-    if (off > 0 || lim > 0) {
-        buf_t out;
-        buf_init(&out);
-        size_t start = 0;
-        int line = 1;
-        int emitted = 0;
-        for (size_t i = 0; i <= len; i++) {
-            if (i == len || data[i] == '\n') {
-                if (line >= (off > 0 ? off : 1)) {
-                    buf_append(&out, data + start, i - start);
-                    buf_appends(&out, "\n");
-                    emitted++;
-                    if (lim > 0 && emitted >= lim) break;
-                }
-                start = i + 1;
-                line++;
-            }
-        }
-        res = tool_bound_result(env, out.data, out.len);
-        if (res) tools_learning_read_result(env, TNY_LEARN_READ, abs, out.len > 0);
-        buf_free(&out);
-    } else {
-        res = tool_bound_result(env, data, len);
-        if (res) tools_learning_read_result(env, TNY_LEARN_READ, abs, len > 0);
-    }
+    char *res = tool_bound_result(env, data, len);
+    if (res) tools_learning_read_result(env, TNY_LEARN_READ, abs, len > 0);
     free(abs);
     free(data);
     return res;

@@ -653,3 +653,13 @@ inspect `errors`, `skipped`, `file_limit`, `hit_limit` and `line_truncations`, t
 narrow scope or use `read_file`. `files` is selected candidates, `scanned` is
 content-read attempts, and `excluded` counts entries, not all descendants.
 Full details and bounds: [ADR 0208](../adr/0208-truthful-scoped-file-search.md).
+
+### Ranged local file reads
+
+Use `read_file` with a positive `limit` to read only the requested line range.
+The local reader scans through `offset` (one-based), then stops after `limit`
+lines; later offsets are not random access. Skipped lines use fixed-size scanning
+memory, while selected output and its existing recovery handle remain intact.
+A range does not validate unread trailing bytes or detect errors there. Existing
+newline formatting, image rejection and path permissions are unchanged. See
+[ADR 0211](../adr/0211-bounded-ranged-file-reads.md).

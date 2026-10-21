@@ -1,0 +1,157 @@
+{
+  "scope": "Compare real read_file owners with identical builds, without model inference.\n\nCounts bytes returned by fread, not physical disk I/O. Fresh child peak RSS\nincludes process overhead and the inherited fork/exec high-water floor; latency\ncovers the file tool only, not a full agent.\nSparse zero tails isolate range cost; results are identical ASCII first 20 lines.\nPage cache is uncontrolled, so samples do not represent cold-storage latency.\n",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "compiler": "cc (Debian 14.2.0-19) 14.2.0",
+  "flags": [
+    "-Os",
+    "-std=c11",
+    "-D_GNU_SOURCE",
+    "-ffunction-sections",
+    "-fdata-sections"
+  ],
+  "baseline_revision": "fe02b5cb",
+  "shared_source_sha256": {
+    "src/util/util.c": "83740c9296d5e5206ae102df37d5d83243e7e19c0fb9a744ace1c2bff572d618",
+    "src/util/alloc.c": "2649a134ad37d07d879928224d3819cd3a2284ed0f2d51a34c84ea46c7a58cf5",
+    "src/json/json.c": "f2aadf67523808a1ad94555458e80a4ba8490af4a1ecc38a1f46ef23aa889477",
+    "src/core/image.c": "e82cb10be7f48cd3d982520d1ee81b2e3c4d9efd0558a08a763b26318f3c46c1",
+    "third_party/yyjson/yyjson.c": "ac2e9bbb2e2d9149d90878d40506a1d624fa0b33c979a11b61075c54782c6d6a",
+    "tests/bench/bench_read_file_ranges.c": "d2389b6efd24bb4e60db3db4c715d15868780f87f0a0b9988947bf67f99a5d98"
+  },
+  "baseline": {
+    "owner_sha256": "c1e5cd45e0addd5278ba01c4770e13dc7a02e948995ba685996ec706ceb83b92",
+    "samples": [
+      {
+        "read_bytes": 1048576,
+        "peak_rss_kib": 12032,
+        "elapsed_ms": 0.835744,
+        "size_mib": 1,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 1048576,
+        "peak_rss_kib": 12032,
+        "elapsed_ms": 0.471005,
+        "size_mib": 1,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 1048576,
+        "peak_rss_kib": 12032,
+        "elapsed_ms": 0.50828,
+        "size_mib": 1,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 104857600,
+        "peak_rss_kib": 103040,
+        "elapsed_ms": 53.106965,
+        "size_mib": 100,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 104857600,
+        "peak_rss_kib": 103040,
+        "elapsed_ms": 56.921886,
+        "size_mib": 100,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 104857600,
+        "peak_rss_kib": 103040,
+        "elapsed_ms": 54.479852,
+        "size_mib": 100,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 1048576000,
+        "peak_rss_kib": 1024640,
+        "elapsed_ms": 444.823157,
+        "size_mib": 1000,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 1048576000,
+        "peak_rss_kib": 1024640,
+        "elapsed_ms": 501.708151,
+        "size_mib": 1000,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 1048576000,
+        "peak_rss_kib": 1024640,
+        "elapsed_ms": 486.348541,
+        "size_mib": 1000,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      }
+    ]
+  },
+  "candidate": {
+    "owner_sha256": "acd89597f334e98cca102c0b86e9d040c375569bebf90e0dfc159148a477966e",
+    "samples": [
+      {
+        "read_bytes": 8192,
+        "peak_rss_kib": 12032,
+        "elapsed_ms": 0.025578,
+        "size_mib": 1,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 8192,
+        "peak_rss_kib": 12032,
+        "elapsed_ms": 0.023494,
+        "size_mib": 1,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 8192,
+        "peak_rss_kib": 12032,
+        "elapsed_ms": 0.022553,
+        "size_mib": 1,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 8192,
+        "peak_rss_kib": 12032,
+        "elapsed_ms": 0.031927,
+        "size_mib": 100,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 8192,
+        "peak_rss_kib": 12032,
+        "elapsed_ms": 0.028442,
+        "size_mib": 100,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 8192,
+        "peak_rss_kib": 12032,
+        "elapsed_ms": 0.059337,
+        "size_mib": 100,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 8192,
+        "peak_rss_kib": 12032,
+        "elapsed_ms": 0.032428,
+        "size_mib": 1000,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 8192,
+        "peak_rss_kib": 12032,
+        "elapsed_ms": 0.030315,
+        "size_mib": 1000,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      },
+      {
+        "read_bytes": 8192,
+        "peak_rss_kib": 12032,
+        "elapsed_ms": 0.029224,
+        "size_mib": 1000,
+        "output_sha256": "dd76d83c02ae168781f14053b1998f80f7ec85e7b6698c2519b16a5beeafa41e"
+      }
+    ]
+  }
+}
