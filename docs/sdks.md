@@ -1,19 +1,21 @@
 # Python and TypeScript SDKs
 
-> **Execution-server compatibility:** public embedded agent tools and standalone
-> SDK `optimise` / `optimize` are currently unsupported. Optimisation refuses
-> before provider, credential or workspace I/O; it never launches the Python/Node
-> host as an execution server. Native CLI/TUI optimisation and the other
-> standalone toolkit services remain available. See [ADR 0174](adr/0174-execution-server-code-mode.md).
+TypeScript ABI 1.5 packages include a private native tool worker, not the CLI.
+Inference, streaming and session persistence stay in-process in libtny. Native
+HTTP runtimes enable the packaged worker by default; `codeExecution: false`
+retains inference-only behavior. C embedders opt in with an explicit trusted
+helper path. Python's agent adapter does not configure this helper yet.
 
-Agent tool execution is currently unavailable in library-hosted sessions under
-[ADR 0174](adr/0174-execution-server-code-mode.md): `run_code` fails closed
-rather than executing inside the embedding process. Installing a matching CLI
-does not enable this path. Custom-tool and host-service callback registration
-APIs retain their ABI, but their callbacks are not invoked by this execution
-path. No-tool inference and standalone SDK toolkit services remain separate.
-See the [execution evidence](verification/execution-code-mode/evidence.md) for
-verified coverage and remaining gates.
+The worker supports file/search/edit and web tools; Python subprocesses can run
+shell commands. Embedded terminal, subagents, teams/jobs, ambient MCP/skills and
+custom JavaScript callbacks remain unavailable. Nested ask-mode operations that
+need approval deny without a synchronous permission owner. Direct Python has
+host authority and is not a sandbox. See
+[ADR 0215](adr/0215-native-sdk-tool-workers.md).
+
+Standalone SDK `optimise` / `optimize` remains unsupported and refuses before
+provider, credential or workspace I/O. It never launches the Python/Node host
+as an execution server. Other standalone toolkit services remain separate.
 
 tny ships two language adapters over the same native `libtny` runtime. Neither
 adapter reimplements provider wire protocols or the agent/tool loop.
@@ -123,7 +125,7 @@ code generation pipeline — see [`examples/sdk/`](../examples/sdk/README.md).
 
 ## Platforms and authority
 
-The embedded runtime supports only native OpenAI-compatible HTTP conversations, with Responses and Chat Completions. Configure endpoints and credentials explicitly in memory. Shared C ABI constants remain stable; removed provider bits are unavailable. Custom tools remain supported where the capability snapshot advertises them.
+The embedded runtime supports only native OpenAI-compatible HTTP conversations, with Responses and Chat Completions. Configure endpoints and credentials explicitly in memory. Shared C ABI constants remain stable; removed provider bits are unavailable. Custom-tool registration retains its ABI, but callbacks cannot cross the native tool-worker boundary and are rejected when a helper is configured.
 
 The SDK default permission mode is `ask`, not the CLI's yolo default.
 Credentials are copied into the native runtime, excluded from repr/error/report

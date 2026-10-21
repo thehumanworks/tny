@@ -11,6 +11,8 @@
 #include "lib/error.h"
 #include "lib/host_services.h"
 #include "util/alloc.h"
+#include "util/process.h"
+#include <sys/stat.h>
 #include "util/util.h"
 
 #include <pthread.h>
@@ -578,6 +580,36 @@ fail:
     return scoped_status(rc, error);
 }
 
+int32_t tny_runtime_set_execution_helper(tny_runtime *runtime, tny_bytes path, tny_error **error) {
+    tny_alloc_scope_begin("runtime_set_execution_helper");
+    if (error) *error = NULL;
+    if (!runtime || !on_owner(runtime) || runtime->session)
+        return scoped_status(
+            failf(error, TNY_STATUS_BAD_STATE,
+                  "execution helper requires owner runtime before session creation"),
+            error);
+    if (runtime->ctx->backend != TNY_BK_OPENAI || runtime->ctx->host_services ||
+        runtime->ctx->custom_tools || !tny_process_tree_supported())
+        return scoped_status(
+            failf(error, TNY_STATUS_UNSUPPORTED,
+                  "execution helper requires native HTTP without host/custom callbacks"),
+            error);
+    char *copy = NULL;
+    int32_t status = path.len <= 4096 ? copy_bytes(path, true, "execution helper", &copy, error)
+                                      : failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                                              "execution helper path too long");
+    struct stat st;
+    if (status == TNY_STATUS_OK &&
+        (!copy || copy[0] != '/' || stat(copy, &st) || !S_ISREG(st.st_mode) || access(copy, X_OK)))
+        status = failf(error, TNY_STATUS_INVALID_ARGUMENT,
+                       "execution helper must be an absolute executable file");
+    if (status == TNY_STATUS_OK) {
+        free(runtime->ctx->execution_helper);
+        runtime->ctx->execution_helper = copy;
+    } else free(copy);
+    return scoped_status(status, error);
+}
+
 /* Configure the external agent without adding fields to frozen option records. */
 static int32_t runtime_set_acp_command(tny_runtime *runtime, tny_bytes command_json,
                                        tny_error **error) {
@@ -1003,7 +1035,9 @@ static int32_t runtime_get_capabilities_full(const tny_runtime *runtime,
                                   TNY_CAP_FEATURE_CROSS_THREAD_CANCEL |
                                   TNY_CAP_FEATURE_HOST_SERVICES | TNY_CAP_FEATURE_CUSTOM_TOOLS |
                                   TNY_CAP_FEATURE_TASK_PRESETS | TNY_CAP_FEATURE_REASONING_EFFORT;
+    if (tny_process_tree_supported()) full.feature_available_mask |= TNY_CAP_FEATURE_CODE_EXECUTION;
     full.feature_enabled_mask = TNY_CAP_FEATURE_CROSS_THREAD_CANCEL;
+    if (runtime->ctx->execution_helper) full.feature_enabled_mask |= TNY_CAP_FEATURE_CODE_EXECUTION;
 #ifdef TNY_SHARED_LIBRARY_BUILD
     full.feature_available_mask |= TNY_CAP_FEATURE_SHARED_LIBRARY;
     full.feature_enabled_mask |= TNY_CAP_FEATURE_SHARED_LIBRARY;
@@ -1133,6 +1167,9 @@ int32_t tny_runtime_register_tool(tny_runtime *runtime, const tny_tool_spec_v1 *
     if (runtime->session)
         return failf(error, TNY_STATUS_BAD_STATE,
                      "custom tools must be registered before session creation");
+    if (runtime->ctx->execution_helper)
+        return failf(error, TNY_STATUS_UNSUPPORTED,
+                     "custom callbacks cannot cross native tool workers");
     if (!runtime->custom_tools) {
         runtime->custom_tools = custom_tools_new();
         if (!runtime->custom_tools) return failf(error, TNY_STATUS_OOM, "out of memory");
@@ -1289,6 +1326,24 @@ static int32_t make_session(tny_runtime *runtime, tny_session_state *state, tny_
     return TNY_STATUS_OK;
 }
 
+/* Restored specialist context belongs to one session, not its reusable runtime.
+ * Explicit embedding task instructions remain a runtime-level selection. */
+static void clear_retrieval_context(tny_runtime *runtime) {
+    tny_ctx *ctx = runtime ? runtime->ctx : NULL;
+    if (!ctx || !ctx->retrieval_state) return;
+    free(ctx->retrieval_state);
+    ctx->retrieval_state = NULL;
+    if (!ctx->task_explicit) {
+        free(ctx->task_name);
+        free(ctx->task_source);
+        free(ctx->task_instructions);
+        ctx->task_name = NULL;
+        ctx->task_source = NULL;
+        ctx->task_instructions = NULL;
+        memset(ctx->task_digest, 0, sizeof ctx->task_digest);
+    }
+}
+
 int32_t tny_session_create(tny_runtime *runtime, tny_session **out, tny_error **error) {
     tny_alloc_scope_begin("session_create");
     if (out) *out = NULL;
@@ -1301,6 +1356,7 @@ int32_t tny_session_create(tny_runtime *runtime, tny_session **out, tny_error **
     if (runtime->session)
         return scoped_status(
             failf(error, TNY_STATUS_BAD_STATE, "runtime already has an open session"), error);
+    clear_retrieval_context(runtime);
     rc = make_session(runtime, session_new(runtime->ctx), out, error);
     if (tny_alloc_scope_failed() && *out) {
         session_release(*out);
@@ -1354,6 +1410,7 @@ static void session_release(tny_session *session) {
     tny_engine_free(session->engine);
     perm_free(session->perm);
     session_close(session->state);
+    clear_retrieval_context(session->runtime);
     if (session->runtime && session->runtime->session == session) session->runtime->session = NULL;
     free(session->permission_id);
     free(session);
@@ -1389,6 +1446,14 @@ int32_t tny_session_send(tny_session *session, tny_bytes prompt, tny_error **err
     char *text = NULL;
     rc = copy_bytes(prompt, true, "prompt", &text, error);
     if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
+    if (session->runtime->ctx->retrieval_state) {
+        char snapshot_error[256] = {0};
+        if (session_task_reconcile(session->state, snapshot_error, sizeof snapshot_error) != 0) {
+            free(text);
+            return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT, "%s", snapshot_error),
+                                 error);
+        }
+    }
     if (!tny_engine_ready(session->engine)) {
         char errbuf[512] = {0};
         tny_backend *backend = tny_backend_create((tny_backend_id)session->runtime->ctx->backend,

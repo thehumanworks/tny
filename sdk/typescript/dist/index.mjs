@@ -9,8 +9,11 @@ import { createToolkitClass } from "./toolkit.mjs";
 const require = createRequire(import.meta.url);
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 let native;
+let executorPath;
 try {
-  const { addonPath } = resolveNativeAddon({ packageRoot });
+  const resolved = resolveNativeAddon({ packageRoot });
+  const { addonPath } = resolved;
+  executorPath = resolved.executorPath;
   native = require(addonPath);
 } catch (cause) {
   if (cause?.name === "TnyLoadError") throw cause;
@@ -101,6 +104,7 @@ function normalizeCapabilities(capabilities) {
     abiMinor: capabilities.abiVersion & 0xffff,
     taskPresets: Boolean(capabilities.featureEnabledMask & (1n << 12n)),
     reasoningEffort: Boolean(capabilities.featureEnabledMask & (1n << 13n)),
+    codeExecution: Boolean(capabilities.featureEnabledMask & (1n << 14n)),
     experimental: false,
   });
 }
@@ -193,11 +197,19 @@ export class Runtime {
       const { reasoningEffort: _omitted, ...rest } = options;
       options = rest;
     }
+    if (options.codeExecution !== undefined && typeof options.codeExecution !== "boolean")
+      throw new TypeError("codeExecution must be boolean");
+    if (options.codeExecution === true && (options.provider === "acp" || !executorPath))
+      throw new UnsupportedFeatureError("codeExecution");
+    const { executionHelper: _internal, ...nativeOptions } = options;
+    const helper = options.provider === "acp" || options.codeExecution === false
+      ? undefined : executorPath;
     let nativeInfo;
     try {
       nativeInfo = await invoke(
         native.createRuntime({
-          ...options,
+          ...nativeOptions,
+          ...(helper ? { executionHelper: helper } : {}),
           provider: options.provider ?? "openai",
           permissionMode: permissionMode(options.permissionMode),
         }),

@@ -837,8 +837,8 @@ static yyjson_mut_doc *client_snapshot(tools_env *env, yyjson_val *args) {
 char *tny_execution_run(tools_env *env, const char *arguments_json) {
     if (!env || !env->ctx || env->execution_server)
         return tool_err("recursive execution server refused");
-    if ((env->ctx->library_mode && !env->ctx->prompt_optimisation) || env->ctx->custom_tools ||
-        env->ctx->host_services)
+    if ((env->ctx->library_mode && !env->ctx->execution_helper && !env->ctx->prompt_optimisation) ||
+        env->ctx->custom_tools || env->ctx->host_services)
         return tool_err(
             "execution server unavailable for embedded host/custom callbacks; no direct fallback");
     yyjson_doc *arguments = arguments_json ? jparse(arguments_json, strlen(arguments_json)) : NULL;
@@ -859,7 +859,10 @@ char *tny_execution_run(tools_env *env, const char *arguments_json) {
         return tool_err("execution snapshot exceeds frame limit or could not be encoded");
     }
     tny_exec_host host = {.fd = -1, .pid = -1};
-    int rc = tny_exec_host_start(&host);
+    int rc =
+        env->ctx->execution_helper
+            ? tny_exec_host_start_embedded(&host, env->ctx->execution_helper, client_cancelled, env)
+            : tny_exec_host_start(&host);
     int64_t deadline = monotonic_ms() + timeout + 1000; /* bounded startup/transport slack */
     if (!rc) rc = tny_exec_host_send(host.fd, request, deadline, client_cancelled, env);
     secure_free(request);
@@ -959,7 +962,7 @@ char *tny_execution_run(tools_env *env, const char *arguments_json) {
     return output;
 }
 
-int tny_execution_server_main(void) {
+static int execution_server_main(bool embedded) {
     execution_server s = {.fd = tny_exec_host_accept(), .next_id = 2};
     if (s.fd < 0) return 2;
     s.deadline = monotonic_ms() + 10000;
@@ -989,7 +992,7 @@ int tny_execution_server_main(void) {
         return 2;
     }
     s.env.ctx = tny_checkpoint_context_restore(jget(body, "context"));
-    if (!s.env.ctx || (s.env.ctx->library_mode && !s.env.ctx->prompt_optimisation)) {
+    if (!s.env.ctx || (s.env.ctx->library_mode && !embedded && !s.env.ctx->prompt_optimisation)) {
         tny_ctx_free(s.env.ctx);
         yyjson_doc_free(d);
         close(s.fd);
@@ -1096,3 +1099,6 @@ int tny_execution_server_main(void) {
     close(s.fd);
     return rc ? 1 : 0;
 }
+
+int tny_execution_server_main(void) { return execution_server_main(false); }
+int tny_execution_embedded_server_main(void) { return execution_server_main(true); }

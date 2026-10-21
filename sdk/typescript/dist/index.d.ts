@@ -83,6 +83,7 @@ export interface RuntimeCapabilities {
   readonly taskPresets: boolean;
   /** True only when this runtime was created with an explicit reasoning effort. */
   readonly reasoningEffort: boolean;
+  readonly codeExecution: boolean;
   readonly experimental: false;
 }
 export interface RuntimeOptions {
@@ -98,6 +99,8 @@ export interface RuntimeOptions {
   wireApi?: "responses" | "chat";
   permissionMode?: PermissionModeName | 0 | 1 | 2;
   persistence?: boolean;
+  /** Enable bundled native workers, default true when available for native HTTP. */
+  codeExecution?: boolean;
   /** Integer from 0 through 2,147,483,647. */
   maxSteps?: number;
   maxToolResultBytes?: number | bigint;

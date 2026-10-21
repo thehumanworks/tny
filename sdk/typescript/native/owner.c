@@ -302,6 +302,28 @@ static void *same_image_symbol(void *library, const Dl_info *image, const char *
                                                                                           : NULL;
 }
 
+static int32_t configure_execution_helper(tny_runtime *runtime, tny_bytes path, tny_error **error) {
+    Dl_info image;
+    void *address = NULL;
+    uint32_t (*version)(void) = tny_abi_version;
+    if ((tny_abi_version() & 0xffffu) < 5u || sizeof address != sizeof version)
+        return TNY_STATUS_UNSUPPORTED;
+    memcpy(&address, &version, sizeof address);
+    if (!address || dladdr(address, &image) == 0 || !image.dli_fname || !*image.dli_fname)
+        return TNY_STATUS_UNSUPPORTED;
+    void *library = dlopen(image.dli_fname, RTLD_NOW | RTLD_LOCAL);
+    if (!library) return TNY_STATUS_UNSUPPORTED;
+    int32_t (*set_helper)(tny_runtime *, tny_bytes, tny_error **) = NULL;
+    void *symbol = same_image_symbol(library, &image, "tny_runtime_set_execution_helper");
+    int32_t status = TNY_STATUS_UNSUPPORTED;
+    if (symbol && sizeof set_helper == sizeof symbol) {
+        memcpy(&set_helper, &symbol, sizeof set_helper);
+        status = set_helper(runtime, path, error);
+    }
+    dlclose(library);
+    return status;
+}
+
 static int open_acp_symbols(sdk_acp_symbols *symbols) {
     Dl_info image;
     void *address = NULL;
@@ -488,6 +510,17 @@ static void execute_create(runtime_state *state, command *cmd) {
         cmd->destroy_owner = 1;
         state->closing = 1;
         return;
+    }
+    if (cmd->create.execution_helper.ptr) {
+        cmd->status = configure_execution_helper(state->runtime,
+                                                 sdk_view_of(cmd->create.execution_helper), &error);
+        if (cmd->status != TNY_STATUS_OK) {
+            (void)tny_runtime_destroy(&state->runtime);
+            fail(cmd, cmd->status, error);
+            cmd->destroy_owner = 1;
+            state->closing = 1;
+            return;
+        }
     }
     if (cmd->create.acp_command.ptr) {
         cmd->status =

@@ -1811,6 +1811,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->swarm_definition);
     free(ctx->swarm_source);
     free(ctx->reasoning_effort);
+    free(ctx->execution_helper);
     free(ctx->instructions_snapshot);
     for (int i = 0; i < ctx->n_instruction_paths; i++) free(ctx->instruction_paths[i]);
     free(ctx->instruction_paths);

@@ -63,6 +63,7 @@ static void free_create_options(create_options *options) {
     sdk_wipe_owned_bytes(&options->api_key);
     free(options->wire_api.ptr);
     free(options->acp_command.ptr);
+    free(options->execution_helper.ptr);
     free(options->task_name.ptr);
     free(options->task_instructions.ptr);
     free(options->reasoning_effort.ptr);

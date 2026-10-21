@@ -112,7 +112,7 @@ function assertEmbeddedRefusal(events, count) {
 }
 
 async function create(baseUrl, options = {}) {
-  return await Runtime.create({
+  return await Runtime.create({ codeExecution: false,
     ...fixture(),
     baseUrl,
     apiKey: "test-key-not-real",
@@ -138,7 +138,7 @@ async function steerWhenActive(session, text) {
 
 await withMock({}, async (baseUrl) => {
   const paths = fixture();
-  const runtimeOptions = {
+  const runtimeOptions = { codeExecution: false,
     ...paths, baseUrl, apiKey: "test-key-not-real", persistence: true,
   };
   const runtime = await Runtime.create(runtimeOptions);
@@ -204,7 +204,7 @@ await withMock({}, async (baseUrl) => {
 await withMock({ MOCK_NO_TOOLS: "1" }, async (baseUrl) => {
   const paths = fixture();
   const before = workspaceSnapshot(paths.workspace);
-  const runtime = await Runtime.create({ ...paths, baseUrl, apiKey: "test-key-not-real" });
+  const runtime = await Runtime.create({ codeExecution: false, ...paths, baseUrl, apiKey: "test-key-not-real" });
   const session = await runtime.createSession();
   for (let turn = 0; turn < 2; turn++) {
     const events = [];
@@ -246,7 +246,7 @@ await withMock({ MOCK_NO_TOOLS: "1" }, async (baseUrl) => {
   const usages = [];
   const acpEvents = [];
   try {
-    runtime = await Runtime.create({ ...fixture(), provider: "acp",
+    runtime = await Runtime.create({ codeExecution: false, ...fixture(), provider: "acp",
       acpCommand: [join(repoRoot, "tests/integration/fake_acp_agent.py")] });
     session = await runtime.createSession();
     for (let turn = 0; turn < 2; turn++) {
@@ -340,7 +340,7 @@ delete process.env.TNY_REASONING_EFFORT;
 
 await withMock({ MOCK_EXPECT_INSTRUCTIONS: "WORKFLOW-DEFAULT-TASK" }, async (baseUrl) => {
   const workflow = new Workflow({
-    runtime: {
+    runtime: { codeExecution: false,
       ...fixture(), baseUrl, apiKey: "test-key-not-real",
       taskPreset: { name: "default-task", instructions: "WORKFLOW-DEFAULT-TASK" },
     },
@@ -350,9 +350,9 @@ await withMock({ MOCK_EXPECT_INSTRUCTIONS: "WORKFLOW-DEFAULT-TASK" }, async (bas
 
 await withMock({ MOCK_EXPECT_INSTRUCTIONS: "WORKFLOW-PER-TASK" }, async (baseUrl) => {
   const workflow = new Workflow({
-    runtime: { ...fixture(), baseUrl, apiKey: "test-key-not-real" },
+    runtime: { codeExecution: false, ...fixture(), baseUrl, apiKey: "test-key-not-real" },
   }).task("uses-per-task-config", "exercise per-task runtime config", {
-    runtime: {
+    runtime: { codeExecution: false,
       ...fixture(), baseUrl, apiKey: "test-key-not-real",
       taskPreset: { name: "per-task", instructions: "WORKFLOW-PER-TASK" },
     },
@@ -363,7 +363,7 @@ await withMock({ MOCK_EXPECT_INSTRUCTIONS: "WORKFLOW-PER-TASK" }, async (baseUrl
 await withMock({ MOCK_SLOW_MS: "50" }, async (baseUrl) => {
   const seen = new Set();
   const workflow = new Workflow({
-    runtime: {
+    runtime: { codeExecution: false,
       ...fixture(), baseUrl, apiKey: "test-key-not-real",
     },
     maxConcurrency: 2,
@@ -396,7 +396,7 @@ await withMock({ MOCK_SENSITIVE: "1" }, async (baseUrl) => {
   const events = [];
   let permissionCallbacks = 0;
   const workflow = new Workflow({
-    runtime: { ...paths, baseUrl, apiKey: "test-key-not-real" },
+    runtime: { codeExecution: false, ...paths, baseUrl, apiKey: "test-key-not-real" },
     onEvent: (_task, event) => events.push(event),
     onPermission: () => { permissionCallbacks++; return "allow"; },
   }).task("workflow-refused", "request a sensitive operation");
@@ -415,7 +415,7 @@ await withMock({ MOCK_SLOW_MS: "5000" }, async (baseUrl) => {
   const controller = new AbortController();
   const reason = new Error("workflow cancellation fixture");
   const workflow = new Workflow({
-    runtime: {
+    runtime: { codeExecution: false,
       ...fixture(), baseUrl, apiKey: "test-key-not-real",
     },
     maxConcurrency: 2,
@@ -429,7 +429,7 @@ await withMock({ MOCK_SLOW_MS: "5000" }, async (baseUrl) => {
 
 await withMock({ MOCK_SLOW_MS: "5000" }, async (baseUrl) => {
   const paths = fixture();
-  const runtimeOptions = {
+  const runtimeOptions = { codeExecution: false,
     ...paths, baseUrl, apiKey: "test-key-not-real", persistence: true,
   };
   const runtime = await Runtime.create(runtimeOptions);
@@ -455,7 +455,7 @@ await withMock({ MOCK_SLOW_MS: "5000" }, async (baseUrl) => {
   await runtime.close();
 
   await withMock({}, async (resumedBaseUrl) => {
-    const resumedRuntime = await Runtime.create({
+    const resumedRuntime = await Runtime.create({ codeExecution: false,
       ...runtimeOptions, baseUrl: resumedBaseUrl,
     });
     const resumed = await resumedRuntime.openSession(sessionId);
@@ -478,7 +478,7 @@ for (const permissionMode of ["ask", "auto", "yolo"]) {
   await withMock({ MOCK_SENSITIVE: "1" }, async (baseUrl) => {
     const paths = fixture();
     const before = workspaceSnapshot(paths.workspace);
-    const runtime = await Runtime.create({
+    const runtime = await Runtime.create({ codeExecution: false,
       ...paths, baseUrl, apiKey: "test-key-not-real", permissionMode,
     });
     const session = await runtime.createSession();
@@ -561,7 +561,7 @@ await withMock({
 });
 
 for (let index = 0; index < 3; index++) {
-  const runtime = await Runtime.create({
+  const runtime = await Runtime.create({ codeExecution: false,
     ...fixture(), baseUrl: "http://127.0.0.1:1/v1", apiKey: "test-key-not-real",
   });
   const session = await runtime.createSession();

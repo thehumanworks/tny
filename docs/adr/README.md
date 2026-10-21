@@ -222,3 +222,5 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0210: Stable tool-call views](0210-stable-tool-call-views.md) — compact, full and hidden views with retained inspection and measured layout stability.
 
 - [0213: Recoverable transcript provenance](0213-recoverable-transcript-provenance.md) — bounded original-message discovery and exact source recovery before semantic compaction.
+
+- [0215: Native SDK tool workers](0215-native-sdk-tool-workers.md) — in-process libtny sessions with explicitly configured private native tool workers, not a CLI wrapper.

@@ -38,7 +38,10 @@ Saved native sessions are required; ephemeral and unsupported process environmen
 fail clearly instead of silently losing durability. Generic `session recover` does
 not copy retained result files, so retrieval sessions are explicitly refused rather
 than producing an unusable recovered ID. Preserve the original session and source
-files; normal resume remains supported.
+files; normal resume remains supported. Native SDK callers may open a saved
+specialist with matching explicit routing. Each send revalidates its retained
+sources and task before inference. Closing it clears inherited specialist context
+from the reusable runtime; an explicitly configured runtime task is preserved.
 
 Specialist output is a JSON object with `summary` and `citations`. Each citation
 names an original source and a byte `offset` and `length`. The harness validates

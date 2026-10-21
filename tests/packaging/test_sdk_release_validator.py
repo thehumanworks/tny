@@ -24,12 +24,79 @@ spec.loader.exec_module(validator)
 
 
 class ReleaseValidatorTests(unittest.TestCase):
+    def test_native_executor_payload_is_required_and_verified(self) -> None:
+        version = "1.2.3"
+        name = "@thehumanworks/tny-linux-x64"
+        elf = bytearray(64)
+        elf[:6] = b"\x7fELF\x02\x01"
+        elf[18:20] = (62).to_bytes(2, "little")
+        manifest = {
+            "schemaVersion": 3,
+            "packageName": name,
+            "packageVersion": version,
+            "releaseTag": "v1.2.3",
+            "platform": "linux",
+            "architecture": "x64",
+            "abiMajor": 1,
+            "abiMinor": 5,
+            "libraryVersion": version,
+            "dynamicIdentity": {"kind": "soname", "value": "libtny.so.1"},
+            "addonSha256": validator.digest(b"addon"),
+            "librarySha256": validator.digest(b"library"),
+            "executor": {
+                "filename": "tny-executor",
+                "protocolVersion": 1,
+                "libraryVersion": version,
+                "sha256": validator.digest(elf),
+            },
+        }
+        package = {
+            "name": name,
+            "version": version,
+            "os": ["linux"],
+            "cpu": ["x64"],
+            "libc": ["glibc"],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "native.tgz"
+
+            def pack(payload: bytes | None = bytes(elf), mode: int = 0o755) -> None:
+                files = {
+                    "package/package.json": json.dumps(package).encode(),
+                    "package/prebuilds/manifest.json": json.dumps(manifest).encode(),
+                    "package/prebuilds/tny.node": b"addon",
+                    "package/prebuilds/libtny.so.1": b"library",
+                }
+                if payload is not None:
+                    files["package/prebuilds/tny-executor"] = payload
+                with tarfile.open(path, "w:gz") as archive:
+                    for filename, data in files.items():
+                        info = tarfile.TarInfo(filename)
+                        info.size = len(data)
+                        info.mode = mode if filename.endswith("tny-executor") else 0o644
+                        archive.addfile(info, io.BytesIO(data))
+
+            pack()
+            self.assertEqual(validator.validate_npm(path, "v1.2.3", version)[0], name)
+            for payload, mode, message in [
+                (None, 0o755, "executor is missing"),
+                (bytes(elf), 0o644, "regular executable"),
+                (b"tampered", 0o755, "executor hash mismatch"),
+            ]:
+                with self.subTest(message=message):
+                    pack(payload, mode)
+                    with self.assertRaisesRegex(SystemExit, message):
+                        validator.validate_npm(path, "v1.2.3", version)
+
+    def test_repository_active_abi_matches_release_guard(self) -> None:
+        validator.require_active_abi_baseline(ROOT)
+
     def test_release_requires_an_active_abi1_baseline(self) -> None:
         expected_abi = {
             "major": 1,
-            "minor": 4,
-            "encoded": 65540,
-            "elf_version_node": "LIBTNY_1.4",
+            "minor": 5,
+            "encoded": 65541,
+            "elf_version_node": "LIBTNY_1.5",
         }
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -57,6 +57,26 @@ function assertBinaryTarget(path, target) {
       bytes[4] !== 2 || bytes[5] !== 1 || bytes.readUInt16LE(18) !== machine) {
     throw fail(`${target.packageName} contains a non-${target.architecture} ELF64 artifact: ${path}`);
   }
+}
+
+/** ABI 1.5 packages carry a private worker, never a CLI discovered on PATH. */
+export function verifyNativeExecutor(root, manifest, target) {
+  const descriptor = manifest.executor;
+  if (manifest.abiMinor < 5 && descriptor === undefined) return undefined;
+  if (manifest.abiMinor < 5 || descriptor?.filename !== "tny-executor" ||
+      descriptor.protocolVersion !== 1 || descriptor.libraryVersion !== manifest.libraryVersion ||
+      !/^[0-9a-f]{64}$/.test(descriptor.sha256 || ""))
+    throw fail("native executor manifest is missing or incompatible");
+  const executorPath = join(root, "tny-executor");
+  let status;
+  try { status = lstatSync(executorPath); }
+  catch (cause) { throw fail("native executor is missing", { cause }); }
+  if (!status.isFile() || status.isSymbolicLink() || !(status.mode & 0o111))
+    throw fail("native executor must be a regular executable file");
+  if (sha256(executorPath) !== descriptor.sha256)
+    throw fail("native executor failed SHA-256 integrity validation");
+  assertBinaryTarget(executorPath, target);
+  return executorPath;
 }
 
 export function verifyNativePackage(root, target, expectedVersion, host = {}) {
@@ -119,7 +139,8 @@ export function verifyNativePackage(root, target, expectedVersion, host = {}) {
       );
     }
   }
-  return Object.freeze({ addonPath, libraryPath, manifest });
+  const executorPath = verifyNativeExecutor(join(root, "prebuilds"), manifest, target);
+  return Object.freeze({ addonPath, libraryPath, executorPath, manifest });
 }
 
 function verifyCheckoutBuild(packageRoot, target) {
@@ -144,7 +165,8 @@ function verifyCheckoutBuild(packageRoot, target) {
     throw fail("checkout build has the wrong libtny ABI 1 dynamic identity");
   assertBinaryTarget(addonPath, target);
   assertBinaryTarget(libraryPath, target);
-  return Object.freeze({ addonPath, libraryPath, manifest });
+  const executorPath = verifyNativeExecutor(root, manifest, target);
+  return Object.freeze({ addonPath, libraryPath, executorPath, manifest });
 }
 
 export function resolveNativeAddon({

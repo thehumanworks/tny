@@ -271,6 +271,12 @@ LIB_APP_EXCLUDE := src/main.c $(filter-out src/cli/globals.c,$(wildcard src/cli/
 LIB_SRC := $(SRC_PUBLIC_API) \
            $(filter-out $(LIB_APP_EXCLUDE) $(SRC_PUBLIC_API),$(SRC_SHARED)) \
            $(SRC_NATIVE) $(SRC_PY_UNSUPPORTED)
+SDK_EXECUTOR_SRC := $(filter-out $(SRC_PY_UNSUPPORTED),$(LIB_SRC)) $(SRC_PY_RUNTIME) sdk/native/executor.c
+$(OBJ_REL)/sdk/native/executor.o: REL_LTO := -fno-lto
+SDK_EXECUTOR_OBJS := $(call objects,$(OBJ_REL),$(SDK_EXECUTOR_SRC)) $(call objects,$(OBJ_REL),$(TP))
+ifeq ($(UNAME_S),Linux)
+  SDK_EXECUTOR_LDFLAGS := -Wl,--wrap=fmod -Wl,--wrap=hypot
+endif
 OBJ_PIC := $(BUILD)/pic
 LIB_PIC_OBJS := $(call objects,$(OBJ_PIC),$(LIB_SRC)) $(call objects,$(OBJ_PIC),$(TP))
 PIC_CFLAGS := $(REL_CFLAGS) -fPIC -fvisibility=hidden \
@@ -635,12 +641,18 @@ $(OBJ_FUZZ)/%.cpp.o: %.cpp | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(FUZZ_CXX) $(FUZZ_CXXFLAGS) -MMD -MP -c -o $@ $<
 
+.PHONY: sdk-executor
 ifeq ($(LIBTNY_SHARED_SUPPORTED),1)
+sdk-executor: $(BUILD)/lib/tny-executor
+$(BUILD)/lib/tny-executor: $(SDK_EXECUTOR_OBJS) $(CPYTHON_LIB)
+	@mkdir -p $(@D)
+	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $(SDK_EXECUTOR_OBJS) $(REL_LDFLAGS) $(SDK_EXECUTOR_LDFLAGS)
+	strip $@ 2>/dev/null || strip -x $@
 lib-shared-active: $(LIB_LINK)
 lib-shared: lib-shared-active $(LIB_COMPAT0_REAL)
 lib-shared-compat0: $(LIB_COMPAT0_REAL)
 else
-lib-shared lib-shared-active lib-shared-compat0:
+lib-shared lib-shared-active lib-shared-compat0 sdk-executor:
 	@echo "error: ABI 1 shared libtny is supported only on macOS arm64 and glibc Linux x86_64/aarch64 dynamic builds" >&2
 	@exit 2
 endif
@@ -818,9 +830,11 @@ test-sdk-python: lib-shared release
 		--report $(BUILD)/conformance/python.json -- \
 		python3 sdk/python/conformance_adapter.py
 
-test-sdk-typescript: lib-shared release
+test-sdk-typescript: lib-shared release sdk-executor
 	npm --prefix sdk/typescript run build
 	npm --prefix sdk/typescript test
+	node sdk/typescript/test/native-tools.mjs
+	python3 tests/abi/test_execution_helper.py
 	mkdir -p $(BUILD)/conformance
 	python3 sdk/conformance/run.py \
 		--artifact sdk/typescript/build/Release/tny.node \
@@ -1355,7 +1369,7 @@ JS_SRC  := docs/assets/site.js docs/assets/term-core.js docs/assets/term-wasm.js
 
 # clang-tidy analyzes the native translation units with the release flag
 # set (minus -Werror; WarningsAsErrors in .clang-tidy is the gate).
-TIDY_SRC    := $(sort $(SRC) $(SRC_PUBLIC_API))
+TIDY_SRC    := $(sort $(SRC) $(SRC_PUBLIC_API) sdk/native/executor.c)
 TIDY_C_SRC = $(filter %.c,$(TIDY_SRC))
 TIDY_CPP_SRC = $(filter %.cpp,$(TIDY_SRC))
 # scripts/tidy_cpp.py discovers the selected CXX driver's STL/system paths;

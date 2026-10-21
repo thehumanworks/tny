@@ -90,3 +90,8 @@ LIBTNY_1.4 {
     tny_event_cost_cumulative;
     tny_event_tokens_reported;
 } LIBTNY_1.3;
+
+LIBTNY_1.5 {
+  global:
+    tny_runtime_set_execution_helper;
+} LIBTNY_1.4;

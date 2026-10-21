@@ -73,6 +73,7 @@ typedef struct create_options {
     sdk_owned_bytes task_name, task_instructions;
     int task_set;
     sdk_owned_bytes acp_command;
+    sdk_owned_bytes execution_helper;
     sdk_owned_bytes reasoning_effort; /* empty = provider default */
 } create_options;
 

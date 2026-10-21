@@ -7,12 +7,20 @@ through a small C Node-API addon. HTTP mode does not spawn `tny`; optional
 ACP mode starts an external adapter and a matching tny MCP relay. JavaScript
 contains no provider-wire or agent-loop implementation.
 
-Model-driven tools are unavailable in embedded sessions under
-[ADR 0174](../../docs/adr/0174-execution-server-code-mode.md). `run_code`
-returns an explicit refusal with no direct fallback, before permission dispatch.
-Installing a matching CLI does not enable embedded model tools. Registration
-APIs remain available; this path invokes no custom-tool callbacks. No-tool
-inference, streaming, cancellation and session lifecycle remain supported.
+Native HTTP sessions use the bundled `tny-executor` for isolated code-mode tools
+with libtny ABI 1.5. Agent inference and sessions stay **in-process in libtny**;
+the helper contains only private tool-worker entry points, not the CLI.
+`codeExecution: false` selects inference-only mode; `true` requires a matching
+bundled helper and rejects ACP. Older ABI packages retain inference support.
+`runtime.capabilities.codeExecution` reports configured worker support.
+
+Files/search/edit and web tools are supported; Python subprocesses can run shell
+commands. Embedded terminal, subagents, teams/jobs, ambient MCP/skills and custom
+JavaScript tool callbacks remain unavailable. Nested operations requiring
+approval in `ask` mode deny without a synchronous permission owner;
+`respondPermission` does not implement that nested approval bridge. Direct
+Python has the host user's ordinary authority and is not mediated by nested
+tool permissions. See [the native worker contract](../../docs/adr/0215-native-sdk-tool-workers.md).
 
 The package is intentionally marked `UNLICENSED` until the repository adopts
 project licensing.
@@ -27,18 +35,26 @@ Registry releases use one JavaScript-only `@thehumanworks/tny` meta package.
 It has exact-version optional dependencies on the three native payloads:
 `@thehumanworks/tny-darwin-arm64`, `@thehumanworks/tny-linux-x64`, and
 `@thehumanworks/tny-linux-arm64`. npm selects the compatible payload. The
-runtime validates its package name and version, target, ABI manifest, and both
+runtime validates its package name and version, target, ABI manifest, and all
 native SHA-256 values before loading the addon. Missing optional packages,
 musl, the wrong CPU, tampering, and any ABI major other than 1 produce targeted
 `TnyLoadError` diagnostics.
-Platform packages contain only `libtny.1.dylib` or `libtny.so.1`; the loader
+The only shared-library ABI shipped is `libtny.1.dylib` or `libtny.so.1`; the loader
 never searches for ABI major 0 and rejects a manifest which claims it.
 
 The repository checkout is deliberately private/non-publishable and has no
 automatic install build. Source users explicitly build against the enclosing
 checkout, or set `TNY_INCLUDE_DIR` and `TNY_LIB_DIR` (alternatively `TNY_ROOT`)
 for an installed libtny. The versioned shared library is staged beside the
-addon and uses a loader-relative rpath.
+addon and uses a loader-relative rpath. ABI 1.5 builds also stage the private
+`tny-executor` native tool worker from `TNY_EXECUTOR_PATH`, or from
+`TNY_LIB_DIR/tny-executor` by default. Source builds run `make sdk-executor`;
+installed-library builds must provide the matching worker explicitly. There is
+no CLI or executable search through `PATH`. Package manifests bind the worker's
+protocol, version, architecture and SHA-256. Missing, non-executable, symlinked
+or integrity-invalid payloads fail package loading. Each launch also checks the
+worker's actual protocol/build identity before transferring runtime context;
+this handshake detects a mismatched trusted executable, not malicious code.
 
 ```sh
 cd /path/to/tny
@@ -55,7 +71,7 @@ const runtime = await Runtime.create({
   stateDir: "/tmp/my-tny-state", // required only with persistence: true
   baseUrl: "https://api.openai.com/v1",
   apiKey: process.env.OPENAI_API_KEY,
-  permissionMode: "ask",
+  permissionMode: "yolo", // tools act with the host user's authority
   taskPreset: "review", // built-ins: review, optimizer, document, retro, task-creation
 });
 
@@ -119,7 +135,7 @@ const workflow = new Workflow({
     workspace: process.cwd(),
     baseUrl: "https://api.openai.com/v1",
     apiKey: process.env.OPENAI_API_KEY,
-    permissionMode: "ask",
+    permissionMode: "yolo", // tools act with the host user's authority
   },
   maxConcurrency: 2,
   onPermission: () => PermissionDecision.deny,
@@ -170,8 +186,8 @@ ordinary turn traffic. The view reports these limitations explicitly:
 - SecureTransport on macOS and dynamically loaded system OpenSSL on glibc
   Linux.
 
-Each platform package bundles a matched addon and shared library with a
-loader-relative rpath. Installation verifies hashes, Mach-O/ELF architecture,
+Each platform package bundles a matched addon, native tool worker and shared
+library with a loader-relative rpath. Installation verifies hashes, Mach-O/ELF architecture,
 ABI-1 major/capability size, SONAME/install-name, and the build host's deployment contract. Release CI sets
 the macOS 13 deployment target; Linux artifacts record and require their
 derived glibc floor, which may not exceed 2.34.
@@ -184,7 +200,8 @@ use schema 3 to add exact package identity. A mismatch fails before compilation.
 derive referenced GLIBC symbol versions and reject release floors above 2.34.
 
 `npm run footprint` records byte counts and SHA-256 values for the addon,
-staged library, and generated `.tgz`; it does not make a performance claim.
+private executor, staged library, and generated `.tgz`; it does not make a
+performance claim.
 
 Package versions come only from the release tag. Stable tags use
 `vMAJOR.MINOR.PATCH`; prereleases use the deliberately narrow
