@@ -129,6 +129,7 @@ import json
 import os
 import select
 import socket
+import socketserver
 import ssl
 import stat
 import struct
@@ -138,6 +139,17 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from code_mode_fixture import code_call, code_chat_frames, code_response_events
+
+
+class LoopbackHTTPServer(ThreadingHTTPServer):
+    """Numeric loopback fixtures do not need reverse DNS during startup."""
+
+    def server_bind(self):
+        # Preserve TCP socket options and kernel-assigned ports; HTTPServer's
+        # extra getfqdn lookup can block for tens of seconds on CI hosts.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
 
 EXPECT_WIRE = os.environ.get("MOCK_EXPECT_WIRE")
 EXPECT_EFFORT = os.environ.get("MOCK_EXPECT_EFFORT")
@@ -1751,7 +1763,7 @@ if __name__ == "__main__":
     # opens a second page while Chromium may retain the first page's idle
     # connection. A threaded fixture mirrors a real provider and lets both
     # clients progress independently.
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    srv = LoopbackHTTPServer(("127.0.0.1", port), Handler)
     if len(sys.argv) > 3:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(certfile=sys.argv[2], keyfile=sys.argv[3])

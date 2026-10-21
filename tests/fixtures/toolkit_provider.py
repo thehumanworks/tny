@@ -5,11 +5,23 @@ from __future__ import annotations
 import base64
 import io
 import json
+import socketserver
 import sys
 import threading
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+
+class LoopbackHTTPServer(ThreadingHTTPServer):
+    """Numeric loopback fixtures do not need reverse DNS during startup."""
+
+    def server_bind(self):
+        # Preserve TCP socket options and kernel-assigned ports; HTTPServer's
+        # extra getfqdn lookup can block for tens of seconds on CI hosts.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
 
 TOKEN = "toolkit-fixture-token"
 ACCOUNT = "toolkit-fixture-account"
@@ -195,7 +207,7 @@ class Provider:
         self.mode = "ok"
         self.arrived = threading.Event()
         self.release = threading.Event()
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server = LoopbackHTTPServer(("127.0.0.1", 0), Handler)
         self.server.owner = self
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
