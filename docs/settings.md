@@ -299,3 +299,13 @@ provider selection do not spawn the adapter. The restored transport is stdio;
 WebSocket URLs and browser/wasm process execution fail clearly. SSH is supported
 only for adapters whose local tools and settings can be disabled safely.
 See [ACP client](backends/acp.md) for protocol capabilities and differences.
+
+### Content and tool-result budget
+
+`max_tool_result_bytes` is the shared inline tool-result budget (default 32768
+bytes, integer 1–16777216). Global settings are overridden by the matching
+workspace settings and then repository `.tny.json`; malformed values are errors.
+Large local file reads return a path with scoped-read guidance instead of a dump.
+Large fetched pages return a session-owned file/handle for chunked recovery;
+no-save sessions use memory only. This setting also retains its existing preview
+meaning for other tools. See [ADR 0212](adr/0212-size-aware-content-returns.md).

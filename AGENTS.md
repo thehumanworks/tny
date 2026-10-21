@@ -69,6 +69,16 @@ docs/          # this contract; update when behavior changes
 - Protocol mocks send whole frames per read — real transports split anywhere. Streaming parsers need split-boundary tests (see `chunked_survives_every_split_boundary` in `tests/test_net.c`).
 - `nix flake check` runs the same suite hermetically (`docs/nix.md`, ADR 0035). If you add a make target, a test fixture directory, or a tool the suite shells out to, update `nix/source.nix` and `nix/tests.nix` in the same change — the sandbox has only what those files name.
 
+### Keep verification inputs stable
+
+Use one build owner per worktree. Finish source edits and builds before running
+`make quality`, then freeze both source and `build/generated/tny_version.h`
+until it exits. Do not run integration tests or another build concurrently in
+that worktree: `tests/integration/run.sh` can relink binaries and regenerate
+version/site artifacts. Run these checks sequentially or in separate worktrees;
+restore only identified generated test changes and record each check's input
+revision before reusing its evidence.
+
 ### Waiting for background checks
 
 - Use a tool/job API that reports terminal state and exit status. For a child of

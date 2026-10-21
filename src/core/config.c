@@ -650,6 +650,22 @@ static void apply_custom_provider(tny_ctx *ctx, const char *name) {
     tny_ctx_clear_extra_headers(ctx);
 }
 
+/* One byte budget serves content guards and ordinary tool-result previews.
+ * Reject malformed values before converting to size_t, including overridden
+ * lower-precedence settings, so configuration mistakes cannot disable bounds. */
+static bool load_result_budget(yyjson_val *root, const char *source, size_t *budget) {
+    yyjson_val *value = jget(root, "max_tool_result_bytes");
+    if (!value) return true;
+    if (!yyjson_is_int(value) || yyjson_get_sint(value) < 1 ||
+        yyjson_get_uint(value) > (16u << 20)) {
+        fprintf(stderr, "tny: %s max_tool_result_bytes must be an integer from 1 to 16777216\n",
+                source);
+        return false;
+    }
+    *budget = (size_t)yyjson_get_uint(value);
+    return true;
+}
+
 static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
     tny_ctx *ctx = calloc(1, sizeof *ctx);
     if (!ctx) return NULL;
@@ -722,6 +738,12 @@ static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
     ctx->max_extension_iterations = 0; /* unlimited by default */
     ctx->extension_timeout_ms = 5000;
     ctx->max_tool_result_bytes = 32768;
+    if (!load_result_budget(sroot, "settings.json", &ctx->max_tool_result_bytes) ||
+        !load_result_budget(wso, "settings.json workspace", &ctx->max_tool_result_bytes) ||
+        !load_result_budget(rroot, ".tny.json", &ctx->max_tool_result_bytes)) {
+        tny_ctx_free(ctx);
+        return NULL;
+    }
     ctx->context_enabled = true;
     ctx->task_explicit = false;
     ctx->sandbox_mode = xstrdup("auto");
@@ -826,8 +848,6 @@ static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
     /* repo limits — never authority */
     if (rroot) {
         ctx->max_steps = (int)jget_int(rroot, "steps", ctx->max_steps);
-        ctx->max_tool_result_bytes =
-            (size_t)jget_int(rroot, "max_tool_result_bytes", (int64_t)ctx->max_tool_result_bytes);
         ctx->context_enabled = jget_bool(rroot, "context", ctx->context_enabled);
         const char *sb = jget_str(rroot, "sandbox");
         if (sb) {
@@ -1600,6 +1620,7 @@ int tny_provider_write_profile(tny_ctx *ctx, const char *name, const tny_provide
                                            "acp",
                                            "last_provider",
                                            "last_backend",
+                                           "max_tool_result_bytes",
                                            "web_search_url",
                                            "web_search_command",
                                            "mcp",

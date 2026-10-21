@@ -9,7 +9,8 @@
 #include <string.h>
 #include <poll.h>
 
-#define FETCH_MAX (1u * 1024u * 1024u)
+#define FETCH_MAX         (1u * 1024u * 1024u)
+#define CONTENT_FETCH_MAX (64u * 1024u * 1024u)
 
 static char *fetch_url(tools_env *env, const char *url, int redirects, bool raw) {
     url_parts u;
@@ -48,7 +49,14 @@ static char *fetch_url(tools_env *env, const char *url, int redirects, bool raw)
     buf_t body;
     buf_init(&body);
     int64_t deadline = monotonic_ms() + (raw ? 20000 : 60000);
+    size_t total = 0;
+    size_t max_body = raw ? FETCH_MAX : CONTENT_FETCH_MAX;
+    session_result_stream *saved = NULL;
+    bool spilled = false;
     const char *failure = NULL;
+    const char *incomplete = NULL;
+    const char *type = http_header(c, "Content-Type");
+    char *content_type = xstrdup(type ? type : "unspecified");
     for (;;) {
         if (env->control_pump) env->control_pump(env->control_pump_ud, 0);
         if (env->cancelled && env->cancelled(env->cancelled_ud)) {
@@ -57,6 +65,7 @@ static char *fetch_url(tools_env *env, const char *url, int redirects, bool raw)
         }
         if (monotonic_ms() >= deadline) {
             if (raw) failure = "web request timed out";
+            else incomplete = "request timed out";
             break;
         }
         char tmp[16384];
@@ -69,29 +78,70 @@ static char *fetch_url(tools_env *env, const char *url, int redirects, bool raw)
         }
         if (n < 0) {
             if (raw) failure = "web response was interrupted";
+            else incomplete = "response interrupted";
             break;
         }
-        if ((size_t)n > FETCH_MAX - body.len) {
+        size_t keep = (size_t)n;
+        if (keep > max_body - total) {
             if (raw) {
                 failure = "web response exceeds 1 MiB";
                 break;
             }
-            size_t keep = FETCH_MAX - body.len;
-            if (keep) buf_append(&body, tmp, keep);
-        } else buf_append(&body, tmp, (size_t)n);
-        if (!raw && body.len >= FETCH_MAX) break;
+            keep = max_body - total;
+            incomplete = "64 MiB download cap; retained prefix only; total size unknown";
+        }
+        if (!raw && !spilled && total + keep > env->ctx->max_tool_result_bytes) {
+            spilled = true;
+            if (!env->session && env->ctx->no_save) {
+                failure = "oversized standalone web content cannot be recovered in no-save mode; "
+                          "use a saved session or fetch a smaller resource";
+                break;
+            }
+            saved = env->session ? session_result_stream_new(env->session, 0)
+                                 : session_result_stream_new_temporary();
+            session_result_stream_append(saved, body.data, body.len);
+            buf_free(&body);
+        }
+        if (spilled) session_result_stream_append(saved, tmp, keep);
+        else buf_append(&body, tmp, keep);
+        total += keep;
+        if (buf_oom(&body)) {
+            failure = "web response allocation failed";
+            break;
+        }
+        if (incomplete) break;
     }
     http_close(c);
     if (failure) {
         buf_free(&body);
+        free(content_type);
+        session_result_stream_abort(saved);
         return tool_err("%s", failure);
     }
     buf_t out;
     buf_init(&out);
     buf_appendf(&out, "HTTP %d from %s\n\n", status, url);
-    buf_append(&out, body.data ? body.data : "", body.len);
+    bool recovery_failed = false;
+    if (spilled) {
+        buf_appendf(&out, "Content-Type: %s (original response bytes, no conversion)\n",
+                    content_type);
+        if (incomplete)
+            buf_appendf(&out, "INCOMPLETE: %s (%zu bytes retained; total unknown)\n", incomplete,
+                        total);
+        bool stored = false;
+        char *notice = session_result_stream_finish_content(saved, &stored);
+        recovery_failed = !notice || !stored;
+        if (notice) buf_appends(&out, notice);
+        free(notice);
+    } else {
+        buf_append(&out, body.data ? body.data : "", body.len);
+        if (incomplete) buf_appendf(&out, "\nINCOMPLETE: %s\n", incomplete);
+    }
+    free(content_type);
     buf_free(&body);
-    char *res = raw ? xstrndup(out.data, out.len) : tool_bound_result(env, out.data, out.len);
+    char *res = recovery_failed
+                    ? tool_err("could not retain fetched content: %s", out.data ? out.data : "")
+                    : xstrndup(out.data ? out.data : "", out.len);
     buf_free(&out);
     return res;
 }

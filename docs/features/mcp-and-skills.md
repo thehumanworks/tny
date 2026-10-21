@@ -659,7 +659,19 @@ Full details and bounds: [ADR 0208](../adr/0208-truthful-scoped-file-search.md).
 Use `read_file` with a positive `limit` to read only the requested line range.
 The local reader scans through `offset` (one-based), then stops after `limit`
 lines; later offsets are not random access. Skipped lines use fixed-size scanning
-memory, while selected output and its existing recovery handle remain intact.
+memory. Selected output is capped by `max_tool_result_bytes`; oversized files or
+ranges return their original path and guidance to search/read smaller sections.
 A range does not validate unread trailing bytes or detect errors there. Existing
 newline formatting, image rejection and path permissions are unchanged. See
 [ADR 0211](../adr/0211-bounded-ranged-file-reads.md).
+
+### Large fetched content
+
+`web_fetch` and `web_search_url` preserve original response bytes, not a fabricated
+Markdown conversion. Above `max_tool_result_bytes` they return a private
+session-owned path and `read_tool_result` handle instead of a body dump. Search
+that file, then request only useful chunks; the URL is not fetched again for
+recovery. HTTP status and Content-Type remain visible. The 64 MiB page-download cap and
+interrupted responses are explicitly marked INCOMPLETE. Ephemeral/no-save results
+are memory-only; SSH web artifacts stay on the controller, so use the handle.
+See [ADR 0212](../adr/0212-size-aware-content-returns.md) for bounds and lifetime.

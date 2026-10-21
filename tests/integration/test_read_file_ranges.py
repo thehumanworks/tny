@@ -72,6 +72,37 @@ class ReadFileRanges(unittest.TestCase):
             with self.subTest(wire=wire):
                 self.assertIn("all range cases passed", self.run_code(code, wire=wire))
 
+    def test_size_guard_and_scoped_recovery_on_both_wires(self):
+        threshold = 32768
+        path = self.workspace / "large"
+        original = b"first\n" + b"x" * (threshold * 4) + b"\nlast\n"
+        path.write_bytes(original)
+        for name, size in (
+            ("below", threshold - 1),
+            ("equal", threshold),
+            ("above", threshold + 1),
+        ):
+            (self.workspace / name).write_bytes(b"z" * size)
+        (self.workspace / "image").write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * threshold)
+        code = "import json\n"
+        code += "def read(**args): return tools.call('read_file', json.dumps(args))\n"
+        code += "assert read(path='below') == 'z' * 32767\n"
+        code += "assert read(path='equal') == 'z' * 32768\n"
+        code += "for args in ({'path':'above'}, {'path':'large'}, {'path':'large','offset':2}, {'path':'large','offset':2,'limit':1}):\n"
+        code += "    result = read(**args)\n    assert 'No contents returned or copied' in result, result\n    assert 'grep_files/rg' in result and len(result) < 1024, result\n"
+        code += "assert read(path='large', offset=1, limit=1) == 'first\\n'\n"
+        code += "assert read(path='large', offset=3, limit=1) == 'last\\n'\n"
+        code += "assert 'use read_image' in read(path='image')\n"
+        code += "print('bounded file recovery passed')"
+        for wire in ("responses", "chat"):
+            with self.subTest(wire=wire):
+                self.assertIn(
+                    "bounded file recovery passed",
+                    self.run_code(code, wire=wire, no_save=False),
+                )
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(list((self.home / ".tny").glob("sessions/*/*/results/*")), [])
+
     @unittest.skipUnless(sys.platform.startswith("linux"), "fopencookie is a GNU seam")
     def test_read_errors_do_not_require_scanning_unselected_tail(self):
         compiler = os.environ.get("CC", "cc")

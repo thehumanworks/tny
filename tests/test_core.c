@@ -911,6 +911,40 @@ TEST session_stream_preserves_chunked_bytes_and_handles_missing_session(void) {
         free(raw);
         free(notice);
     }
+    char *prior_tmp = getenv("TMPDIR") ? xstrdup(getenv("TMPDIR")) : NULL;
+    char *capture_root = path_join(g_home, "capture-abort");
+    ASSERT_EQ(0, mkdir(capture_root, 0700));
+    ASSERT_EQ(0, setenv("TMPDIR", capture_root, 1));
+    session_result_stream *aborted = session_result_stream_new_temporary();
+    ASSERT(aborted);
+    session_result_stream_append(aborted, bytes, sizeof bytes - 1);
+    session_result_stream_abort(aborted);
+    session_result_stream *empty = session_result_stream_new_temporary();
+    ASSERT(empty);
+    bool stored = false;
+    char *empty_notice = session_result_stream_finish_content(empty, &stored);
+    ASSERT(stored && empty_notice);
+    char *file_start = strstr(empty_notice, "Local temporary file: ");
+    ASSERT(file_start);
+    file_start += strlen("Local temporary file: ");
+    char *file_end = strchr(file_start, '\n');
+    ASSERT(file_end);
+    *file_end = 0;
+    struct stat empty_stat;
+    ASSERT_EQ(0, stat(file_start, &empty_stat));
+    ASSERT_EQ(0, empty_stat.st_size);
+    ASSERT_EQ(0, unlink(file_start));
+    char *separator = strrchr(file_start, '/');
+    ASSERT(separator);
+    *separator = 0;
+    ASSERT_EQ(0, rmdir(file_start));
+    free(empty_notice);
+    /* rmdir proves abort removed both staged file and its private directory. */
+    ASSERT_EQ(0, rmdir(capture_root));
+    if (prior_tmp) setenv("TMPDIR", prior_tmp, 1);
+    else unsetenv("TMPDIR");
+    free(capture_root);
+    free(prior_tmp);
     session_result_stream *missing = session_result_stream_new(NULL, 64);
     ASSERT(missing);
     char *notice = session_result_stream_finish(missing, true);
@@ -1784,6 +1818,87 @@ TEST acp_profiles_list_without_auto_select(void) {
     ASSERT(strstr(names, "|acp:|") == NULL);
     free(names);
     tny_ctx_free(ctx);
+    write_settings("{}");
+    PASS();
+}
+
+TEST tool_result_budget_config_bounds_and_precedence(void) {
+    ensure_env();
+    char *repo = path_join(g_ws, ".tny.json");
+    ASSERT(repo);
+    unlink(repo);
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT_EQ(32768, ctx->max_tool_result_bytes);
+    char *canonical_ws = xstrdup(ctx->cwd);
+    tny_ctx_free(ctx);
+    const char *valid[] = {"1", "8", "32768", "16777216"};
+    for (size_t i = 0; i < sizeof valid / sizeof valid[0]; i++) {
+        buf_t json = {0};
+        buf_appendf(&json, "{\"max_tool_result_bytes\":%s}", valid[i]);
+        write_settings(json.data);
+        buf_free(&json);
+        ctx = tny_ctx_load(g_ws);
+        ASSERT(ctx);
+        ASSERT_EQ(strtoul(valid[i], NULL, 10), ctx->max_tool_result_bytes);
+        tny_ctx_free(ctx);
+    }
+    buf_t json = {0};
+    buf_appendf(&json,
+                "{\"max_tool_result_bytes\":128,\"workspaces\":{\"%s\":{"
+                "\"max_tool_result_bytes\":64}}}",
+                canonical_ws);
+    write_settings(json.data);
+    buf_free(&json);
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT_EQ(64, ctx->max_tool_result_bytes);
+    tny_ctx_free(ctx);
+    if (symlinks_supported()) {
+        char *alias = path_join(g_home, "budget-workspace-link");
+        ASSERT(alias);
+        ASSERT_EQ(0, symlink(canonical_ws, alias));
+        ctx = tny_ctx_load(alias);
+        ASSERT(ctx);
+        ASSERT_EQ(64, ctx->max_tool_result_bytes);
+        tny_ctx_free(ctx);
+        ASSERT_EQ(0, unlink(alias));
+        free(alias);
+    }
+    const char *config = "{\"max_tool_result_bytes\":8}";
+    ASSERT_EQ(0, file_write_atomic(repo, config, strlen(config)));
+    ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ASSERT_EQ(8, ctx->max_tool_result_bytes);
+    tny_ctx_free(ctx);
+    unlink(repo);
+    const char *invalid[] = {"0",   "-1",      "16777217", "18446744073709551615",
+                             "1.5", "\"128\"", "true",     "null",
+                             "{}",  "[]"};
+    for (size_t i = 0; i < sizeof invalid / sizeof invalid[0]; i++) {
+        for (int layer = 0; layer < 3; layer++) {
+            buf_init(&json);
+            if (layer == 1)
+                buf_appendf(&json, "{\"workspaces\":{\"%s\":{\"max_tool_result_bytes\":%s}}}",
+                            canonical_ws, invalid[i]);
+            else buf_appendf(&json, "{\"max_tool_result_bytes\":%s}", invalid[i]);
+            write_settings(layer == 2 ? "{}" : json.data);
+            if (layer == 2) ASSERT_EQ(0, file_write_atomic(repo, json.data, json.len));
+            buf_free(&json);
+            ctx = tny_ctx_load(g_ws);
+            ASSERT_EQ(NULL, ctx);
+            unlink(repo);
+        }
+    }
+    /* Invalid lower layers remain errors even if a valid repo value overrides. */
+    write_settings("{\"max_tool_result_bytes\":-1}");
+    ASSERT_EQ(0, file_write_atomic(repo, config, strlen(config)));
+    ctx = tny_ctx_load(g_ws);
+    ASSERT_EQ(NULL, ctx);
+    unlink(repo);
+    free(repo);
+    free(canonical_ws);
     write_settings("{}");
     PASS();
 }
@@ -7470,6 +7585,7 @@ SUITE(core_suite) {
     RUN_TEST(acp_profile_model_precedence);
     RUN_TEST(acp_profiles_validate_when_selected);
     RUN_TEST(acp_profiles_list_without_auto_select);
+    RUN_TEST(tool_result_budget_config_bounds_and_precedence);
     RUN_TEST(settings_general_defaults);
     RUN_TEST(provider_profile_stored_api_key);
     RUN_TEST(provider_write_profile_rules);

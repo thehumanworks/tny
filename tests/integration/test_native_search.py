@@ -3,6 +3,8 @@
 
 import json
 import os
+import re
+import stat
 import subprocess
 import tempfile
 import threading
@@ -227,11 +229,14 @@ def run_case(mode, unsolicited=False):
 
 
 def fetch_compatibility():
+    fetches = []
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
             pass
 
         def do_GET(self):
+            fetches.append(self.path)
             data = (
                 b"FETCH-NOT-FOUND" if self.path == "/missing" else b"A" * (1536 * 1024)
             )
@@ -248,6 +253,9 @@ def fetch_compatibility():
     try:
         with tempfile.TemporaryDirectory(prefix="tny-web-fetch-") as home:
             env = base_env(home, {})
+            temp_root = Path(home) / "downloads"
+            temp_root.mkdir()
+            env["TMPDIR"] = str(temp_root)
             for path, expected in (
                 ("missing", "FETCH-NOT-FOUND"),
                 ("large", "HTTP 200"),
@@ -270,6 +278,67 @@ def fetch_compatibility():
                 value = json.loads(result.stdout)
                 assert value["ok"] and expected in value["result"], value
                 assert len(value["result"]) < 40000, len(value["result"])
+                if path == "large":
+                    match = re.search(
+                        r"Local temporary file: ([^\n]+)", value["result"]
+                    )
+                    assert match, value
+                    retained = Path(match[1])
+                    assert retained.is_absolute() and retained.read_bytes() == b"A" * (
+                        1536 * 1024
+                    )
+                    assert stat.S_IMODE(retained.stat().st_mode) == 0o600
+                    assert stat.S_IMODE(retained.parent.stat().st_mode) == 0o700
+                    assert "read_tool_result" not in value["result"]
+                    assert not list(Path(home).glob(".tny/sessions/**/session.json"))
+                    retained.unlink()
+                    retained.parent.rmdir()
+                assert list(temp_root.iterdir()) == []
+            assert fetches == ["/missing", "/large"], fetches
+            # No-save cannot offer a handle that expires when this command exits.
+            result = subprocess.run(
+                [
+                    TNY,
+                    "--ephemeral",
+                    "web",
+                    "fetch",
+                    f"http://127.0.0.1:{server.server_port}/large",
+                    "--json",
+                ],
+                env=env,
+                cwd=home,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            assert result.returncode == 2, (result.stdout, result.stderr)
+            value = json.loads(result.stdout)
+            assert not value["ok"] and "no-save mode" in value["result"], value
+            assert list(temp_root.iterdir()) == []
+            # A rejected temp root leaves no path or fake successful recovery.
+            blocked = Path(home) / "blocked"
+            blocked.write_text("not a directory")
+            env["TMPDIR"] = str(blocked)
+            result = subprocess.run(
+                [
+                    TNY,
+                    "web",
+                    "fetch",
+                    f"http://127.0.0.1:{server.server_port}/large",
+                    "--json",
+                ],
+                env=env,
+                cwd=home,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            assert result.returncode == 2, (result.stdout, result.stderr)
+            assert "content recovery unavailable" in result.stdout
+            assert "Local temporary file" not in result.stdout
+            assert blocked.read_text() == "not a directory"
+            assert fetches == ["/missing", "/large", "/large", "/large"], fetches
+
     finally:
         server.shutdown()
         server.server_close()
