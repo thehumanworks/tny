@@ -1357,7 +1357,9 @@ void session_result_stream_append(void *stream, const char *data, size_t len) {
     if (!out->failed && !result_stream_write(out->fd, data, len)) out->failed = true;
 }
 
-char *session_result_stream_finish(session_result_stream *out, bool needed) {
+static char *result_stream_finish(session_result_stream *out, bool needed, bool content,
+                                  bool *stored) {
+    if (stored) *stored = false;
     if (!out)
         return xstrdup("\n[tny: full-output recovery unavailable: capture allocation failed]\n");
     bool large = needed || out->total > out->preview;
@@ -1378,11 +1380,35 @@ char *session_result_stream_finish(session_result_stream *out, bool needed) {
     buf_t notice;
     buf_init(&notice);
     if (large) {
-        if (!out->failed && out->handle)
+        if (!out->failed && out->handle) {
+            if (stored) *stored = true;
+            if (content) {
+                buf_appendf(&notice, "Content saved (%llu bytes). ",
+                            (unsigned long long)out->total);
+                if (out->path) {
+                    buf_appendf(&notice, "Local session file: %s\n", out->path);
+                    if (out->session && out->session->ctx && !out->session->ctx->ssh_host)
+                        buf_appends(
+                            &notice,
+                            "Search with grep_files/rg, then read_file line ranges or sed. ");
+                    else buf_appends(&notice, "This file is on the controller, not the SSH host. ");
+                } else
+                    buf_appends(&notice, "Ephemeral: memory only, no file; expires with session. ");
+                buf_appendf(&notice,
+                            "Read chunks with read_tool_result(handle=\"%s\", offset=0, "
+                            "length=4096); advance offset until enough information.\n",
+                            out->handle);
+            } else
+                buf_appendf(
+                    &notice,
+                    "\nFull output stored as handle \"%s\" (%llu bytes, raw stdout/stderr). "
+                    "Read with read_tool_result(handle, offset, length).\n",
+                    out->handle, (unsigned long long)out->total);
+        } else if (content)
             buf_appendf(&notice,
-                        "\nFull output stored as handle \"%s\" (%llu bytes, raw stdout/stderr). "
-                        "Read with read_tool_result(handle, offset, length).\n",
-                        out->handle, (unsigned long long)out->total);
+                        "error: content recovery unavailable for %llu bytes: storage "
+                        "failed or retention limit exceeded; no content returned.\n",
+                        (unsigned long long)out->total);
         else
             buf_appendf(&notice,
                         "\n[tny: full-output recovery unavailable for %llu bytes: capture storage "
@@ -1395,6 +1421,19 @@ char *session_result_stream_finish(session_result_stream *out, bool needed) {
     free(out->path);
     free(out);
     return buf_detach(&notice);
+}
+
+char *session_result_stream_finish(session_result_stream *out, bool needed) {
+    return result_stream_finish(out, needed, false, NULL);
+}
+
+char *session_result_stream_finish_content(session_result_stream *out, bool *stored) {
+    return result_stream_finish(out, true, true, stored);
+}
+
+void session_result_stream_abort(session_result_stream *out) {
+    if (out) out->failed = true;
+    free(result_stream_finish(out, false, false, NULL));
 }
 
 char *session_read_result(tny_session_state *s, const char *handle, size_t off, size_t maxlen,

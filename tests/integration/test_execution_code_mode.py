@@ -675,7 +675,9 @@ class ExecutionCodeMode(unittest.TestCase):
                         for index in range(8)
                     ]
                     output = self.run_code(
-                        f"print(tools.parallel({json.dumps(calls)!r}))", wire=wire
+                        f"print(tools.parallel({json.dumps(calls)!r}))",
+                        wire=wire,
+                        no_save=False,
                     )
                     results = json.loads(output)
                     self.assertEqual(len(results), 8)
@@ -726,19 +728,19 @@ class ExecutionCodeMode(unittest.TestCase):
         self.assertFalse((self.workspace / "must-not-exist").exists())
 
     @unittest.skipIf(WASM, "fresh-exec parallel workers require native processes")
-    def test_parallel_spills_remain_readable_and_profile_is_not_widened(self):
-        (self.workspace / "large-a").write_text("a" * 40000)
-        (self.workspace / "large-b").write_text("b" * 40000)
+    def test_parallel_large_files_are_scoped_and_profile_is_not_widened(self):
+        (self.workspace / "large-a").write_text("aa\n" + "a" * 40000)
+        (self.workspace / "large-b").write_text("bb\n" + "b" * 40000)
         calls = [
             {"name": "read_file", "arguments": {"path": path}}
             for path in ("large-a", "large-b")
         ]
         output = self.run_code(
             f"results = json.loads(tools.parallel({json.dumps(calls)!r}))\n"
-            "import re\n"
             "for result in results:\n"
-            '    handle = re.search(r\'handle "([^"]+)"\', result).group(1)\n'
-            "    print(tools.call('read_tool_result', json.dumps({'handle': handle, 'offset': 39998, 'length': 2})))\n"
+            "    assert 'No contents returned or copied' in result, result\n"
+            "for path in ('large-a', 'large-b'):\n"
+            "    print(tools.call('read_file', json.dumps({'path': path, 'offset': 1, 'limit': 1})))\n"
         )
         self.assertIn("aa", output)
         self.assertIn("bb", output)
@@ -877,7 +879,8 @@ class ExecutionCodeMode(unittest.TestCase):
                 arguments={
                     "code": f"print(tools.parallel({json.dumps(calls)!r}))",
                     "timeout_ms": 1200,
-                }
+                },
+                no_save=False,
             )
             self.assertTrue(web.entered.is_set(), output)
             self.assertIn("timeout", output)

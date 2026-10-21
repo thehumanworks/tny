@@ -14,6 +14,8 @@ bool tny_execution_parallel_safe(const tools_env *env, const tools_call *call) {
     if (!env || !env->ctx || env->ctx->ssh_host || env->ctx->custom_tools ||
         env->ctx->host_services || !call || !call->name || call->custom || call->intercept)
         return false;
+    /* No-save content retention shares an owner memory budget; reserve it serially. */
+    if (env->ctx->no_save && strcmp(call->name, "web_fetch") == 0) return false;
     const char *handle = jget_str(call->args, "handle");
     if (strcmp(call->name, "read_tool_result") == 0 && handle && str_starts(handle, "transcript:"))
         return false; /* Only the owner retains the referenced transcript. */

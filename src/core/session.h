@@ -141,6 +141,12 @@ session_result_stream *session_result_stream_new(tny_session_state *s, size_t pr
 void session_result_stream_append(void *stream, const char *data, size_t len);
 char *session_result_stream_finish(session_result_stream *stream, bool needed);
 
+/* Store fetched content through the same bounded atomic result writer. Returns
+ * a recovery notice with a real local path, or memory-only handle in no-save mode. */
+char *session_result_stream_finish_content(session_result_stream *stream, bool *stored);
+/* Discard interrupted capture, including its temporary artifact. */
+void session_result_stream_abort(session_result_stream *stream);
+
 /* Read a byte range from a stored blob; malloc'd or NULL. */
 char *session_read_result(tny_session_state *s, const char *handle, size_t off, size_t maxlen,
                           size_t *out_len);

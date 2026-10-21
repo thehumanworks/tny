@@ -13,6 +13,7 @@ behavior is in the linked feature contract; ADRs explain decisions when needed.
 | Prompt reuse / context stability | `src/core/skills.c`, `learning.c`, native request builder | `skills_suite`, `learning_suite`, `tests/bench/bench_prefix_stability.py` |
 | Model-visible tool discovery | `src/core/tools.c`, `src/core/code_python.c` | `code_runtime_suite`, `test_execution_code_mode.py` |
 | Search scope / completeness | `core/tools_fs.c`, [contract](adr/0208-truthful-scoped-file-search.md) | `test_search_coverage.py`, `bench_search_coverage.py` |
+| Large file/web content | `tools_fs.c`, `tools_web.c`, session result writer, [contract](adr/0212-size-aware-content-returns.md) | `test_read_file_ranges.py`, `test_content_bounds.py` |
 | Ranged local file reads | `core/tools_fs.c`, [contract](adr/0211-bounded-ranged-file-reads.md) | `test_read_file_ranges.py` |
 | Implement a nested tool | `src/core/tools_*.c`, [catalog](features/mcp-and-skills.md) | owning unit suite + real execution fixture |
 | Parallel independent reads | `execution_parallel.c`, `execution.c`, `code_python.c` | `test_execution_code_mode.py` (rendezvous, barriers, spill recovery, timeout) |

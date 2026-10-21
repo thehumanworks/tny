@@ -631,11 +631,11 @@ static char *t_grep_files(tools_env *env, yyjson_val *args) {
 }
 
 /* Read only the prefix needed for a line range. Skipped lines never enter the
- * result buffer; a selected long line still requires its actual output bytes.
+ * result buffer; selected bytes stop at the shared inline content budget.
  * Keep the historical range contract: even an unterminated/empty final line
  * is emitted with a newline. Image detection uses the first chunk, not a seek. */
 static bool read_file_range(FILE *file, int64_t offset, int64_t limit, buf_t *out,
-                            const char **mime) {
+                            const char **mime, size_t max_bytes, bool *too_large) {
     unsigned char chunk[8192];
     uint64_t skip = offset > 0 ? (uint64_t)offset - 1 : 0;
     uint64_t left = limit > 0 ? (uint64_t)limit : UINT64_MAX;
@@ -653,16 +653,29 @@ static bool read_file_range(FILE *file, int64_t offset, int64_t limit, buf_t *ou
             if (chunk[i] != '\n') continue;
             if (skip) skip--;
             else {
+                if (i - start + 1 > max_bytes - out->len) {
+                    *too_large = true;
+                    return true;
+                }
                 buf_append(out, chunk + start, i - start + 1);
                 if (buf_oom(out)) return false;
                 if (--left == 0) return true;
             }
             start = i + 1;
         }
-        if (!skip) buf_append(out, chunk + start, n - start);
+        if (!skip) {
+            if (n - start > max_bytes - out->len) {
+                *too_large = true;
+                return true;
+            }
+            buf_append(out, chunk + start, n - start);
+        }
         if (buf_oom(out)) return false;
         if (n < sizeof chunk) {
-            if (!skip) buf_appends(out, "\n");
+            if (!skip) {
+                if (out->len == max_bytes) *too_large = true;
+                else buf_appends(out, "\n");
+            }
             return !buf_oom(out);
         }
     }
@@ -679,22 +692,54 @@ static char *t_read_file(tools_env *env, yyjson_val *args) {
     size_t len = 0;
     char *data = NULL;
     const char *mime = NULL;
-    bool ok;
-    if (off > 0 || lim > 0) {
-        FILE *file = fopen(abs, "rb");
-        ok = file && read_file_range(file, off, lim, &range, &mime);
-        if (file) fclose(file);
-        if (ok) {
-            len = range.len;
-            data = buf_detach(&range);
+    bool too_large = false;
+    size_t max_bytes = env->ctx->max_tool_result_bytes;
+    FILE *file = fopen(abs, "rb");
+    bool ok = file != NULL;
+    struct stat st;
+    bool sized = file && fstat(fileno(file), &st) == 0 && S_ISREG(st.st_mode) && st.st_size >= 0;
+    if (ok && lim <= 0 && sized && (uintmax_t)st.st_size > max_bytes) {
+        unsigned char prefix[32];
+        size_t n = fread(prefix, 1, sizeof prefix, file);
+        ok = !ferror(file);
+        mime = image_mime(prefix, n);
+        too_large = !mime;
+    } else if (ok && (off > 0 || lim > 0)) {
+        ok = read_file_range(file, off, lim, &range, &mime, max_bytes, &too_large);
+        len = range.len;
+        data = buf_detach(&range);
+    } else if (ok) {
+        unsigned char chunk[8192];
+        bool first = true;
+        for (;;) {
+            size_t n = fread(chunk, 1, sizeof chunk, file);
+            if (ferror(file)) {
+                ok = false;
+                break;
+            }
+            if (first) {
+                mime = image_mime(chunk, n);
+                first = false;
+            }
+            if (mime) break;
+            if (n > max_bytes - range.len) {
+                too_large = true;
+                break;
+            }
+            buf_append(&range, chunk, n);
+            if (buf_oom(&range)) {
+                ok = false;
+                break;
+            }
+            if (n < sizeof chunk) break;
         }
-    } else {
-        data = file_slurp(abs, &len);
-        ok = data != NULL;
-        if (ok) mime = image_mime((const uint8_t *)data, len);
+        len = range.len;
+        data = buf_detach(&range);
     }
+    if (file) fclose(file);
     buf_free(&range);
-    if (!ok || !data) {
+    if (!ok || (!data && !mime && !too_large)) {
+        free(data);
         char *e = tool_err("cannot read %s", abs);
         free(abs);
         return e;
@@ -704,6 +749,19 @@ static char *t_read_file(tools_env *env, yyjson_val *args) {
         char *e = tool_err("%s is %s; use read_image to view it", abs, mime);
         free(abs);
         return e;
+    }
+    if (too_large) {
+        buf_t notice;
+        buf_init(&notice);
+        buf_appendf(&notice, "Content exceeds %zu-byte inline limit. File: %s", max_bytes, abs);
+        if (sized) buf_appendf(&notice, " (%ju bytes)", (uintmax_t)st.st_size);
+        buf_appends(&notice,
+                    "\nNo contents returned or copied. Search with grep_files/rg first, then use "
+                    "read_file(path, offset, limit) with a smaller line range, or terminal sed. "
+                    "For very long lines use bounded Python seek/read or head -c instead.");
+        free(abs);
+        free(data);
+        return buf_detach(&notice);
     }
     char *res = tool_bound_result(env, data, len);
     if (res) tools_learning_read_result(env, TNY_LEARN_READ, abs, len > 0);

@@ -33,7 +33,9 @@ static void check(size_t prefix, int64_t offset, int64_t limit, bool success,
     buf_t out;
     buf_init(&out);
     const char *mime = NULL;
-    assert(read_file_range(file, offset, limit, &out, &mime) == success);
+    bool too_large = false;
+    assert(read_file_range(file, offset, limit, &out, &mime, SIZE_MAX, &too_large) == success);
+    assert(!too_large);
     assert(!mime);
     assert(stream.calls == expected_calls);
     if (success) assert(out.len == 2 && memcmp(out.data, "x\n", 2) == 0);
