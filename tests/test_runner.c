@@ -36,9 +36,11 @@ static const char *WIRE =
     "{\"ev\":\"snapshot\",\"text\":\"partial so far\"}\n"
     "{\"ev\":\"text_delta\",\"text\":\"hi ✓ there\\n\"}\n"
     "this line is not json and must be skipped\n"
-    "{\"ev\":\"tool_start\",\"tool_name\":\"list_files\",\"tool_id\":\"t1\","
+    "{\"ev\":\"tool_start\",\"timestamp_ms\":5000000000,\"tool_name\":\"list_files\",\"tool_id\":"
+    "\"t1\","
     "\"detail\":\"{\\\"path\\\": \\\".\\\"}\",\"reason\":\"List workspace files\"}\n"
-    "{\"ev\":\"tool_end\",\"tool_name\":\"list_files\",\"tool_id\":\"t1\","
+    "{\"ev\":\"tool_end\",\"timestamp_ms\":5000002500,\"tool_name\":\"list_files\",\"tool_id\":"
+    "\"t1\","
     "\"detail\":\"3 entries\",\"ok\":true}\n"
     "{\"ev\":\"permission\",\"id\":\"p9\",\"summary\":\"run rm -rf\",\"options\":5}\n"
     "{\"ev\":\"ask_user\",\"id\":\"q17\",\"question\":\"Which branch?\"}\n"
@@ -129,6 +131,9 @@ static enum greatest_test_res wire_assert_sequence(wire_env *w) {
     /* the garbage line was skipped without dropping the connection */
     ASSERT_EQ(TNY_RMSG_EVENT, ms[3]->kind);
     ASSERT_EQ(TNY_EV_TOOL_START, ms[3]->ev.kind);
+    ASSERT_EQ(0, ms[2]->timestamp_ms);
+    ASSERT_EQ_FMT(5000000000LL, (long long)ms[3]->timestamp_ms, "%lld");
+    ASSERT_EQ_FMT(2500LL, (long long)(ms[4]->timestamp_ms - ms[3]->timestamp_ms), "%lld");
     ASSERT_STR_EQ("list_files", ms[3]->ev.tool_name);
     ASSERT_STR_EQ("{\"path\": \".\"}", ms[3]->ev.tool_detail);
     ASSERT_STR_EQ("List workspace files", ms[3]->ev.tool_reason);

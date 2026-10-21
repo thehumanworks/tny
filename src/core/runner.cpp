@@ -159,9 +159,10 @@ static tny_event_error_kind rn_error_from(const char *s) {
 }
 
 /* One normalized event as one wire line (no trailing newline; caller adds). */
-static void rn_event_line(buf_t *b, const tny_backend_event *ev) {
+static void rn_event_line(buf_t *b, const tny_backend_event *ev, int64_t timestamp_ms) {
     buf_appends(b, "{\"ev\":");
     jescape(b, rn_kind_name(ev->kind));
+    if (timestamp_ms > 0) buf_appendf(b, ",\"timestamp_ms\":%lld", (long long)timestamp_ms);
     switch (ev->kind) {
     case TNY_EV_TEXT_DELTA:
     case TNY_EV_THINKING:
@@ -315,6 +316,7 @@ typedef struct {
     bool control_pumping;
     bool hard_cancel_pending;
     bool background_armed, background, background_permissions, handoff_pending;
+    int64_t event_timestamp_ms; /* producer clock, never socket receipt time */
     int64_t permission_deadline;
     char *permission_summary;
     int permission_options;
@@ -530,7 +532,7 @@ static void rn_broadcast(rn_state *r, const buf_t *line) {
 static void rn_broadcast_event(rn_state *r, const tny_backend_event *ev) {
     buf_t b;
     buf_init(&b);
-    rn_event_line(&b, ev);
+    rn_event_line(&b, ev, r->event_timestamp_ms);
     rn_broadcast(r, &b);
     buf_free(&b);
 }
@@ -838,7 +840,10 @@ static void rn_drain_engine(rn_state *r) {
     if (!r->engine) return;
     tny_owned_event *owned;
     while ((owned = tny_engine_pop_event(r->engine))) {
+        int64_t previous = r->event_timestamp_ms;
+        r->event_timestamp_ms = owned->timestamp_ms;
         rn_on_event(r, &owned->ev);
+        r->event_timestamp_ms = previous;
         tny_owned_event_free(owned);
     }
 }
@@ -2284,6 +2289,7 @@ static void rc_parse_line(tny_runner_client *c, const char *line, size_t len) {
         m->text = (char *)jget_str(root, "text");
     } else {
         m->kind = TNY_RMSG_EVENT;
+        m->timestamp_ms = yyjson_get_sint(jget(root, "timestamp_ms"));
         tny_backend_event *e = &m->ev;
         size_t tlen = 0;
         const char *text = jget_strn(root, "text", &tlen);

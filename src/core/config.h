@@ -372,6 +372,8 @@ int tny_settings_set_str(tny_ctx *ctx, const char *key, const char *value);
 const char *tny_settings_ui_mode(tny_ctx *ctx);
 bool tny_settings_ui_alternate_screen(tny_ctx *ctx);
 bool tny_settings_ui_inline_mouse(tny_ctx *ctx);
+const char *tny_settings_ui_tool_call_view(tny_ctx *ctx);
+bool tny_settings_ui_tool_call_view_valid(const char *value);
 bool tny_settings_ui_tool_calls_expanded(tny_ctx *ctx);
 bool tny_settings_ui_tool_call_reasons(tny_ctx *ctx);
 size_t tny_settings_ui_scrollback_lines(tny_ctx *ctx);

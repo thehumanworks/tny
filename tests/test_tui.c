@@ -1755,6 +1755,7 @@ TEST terminal_generated_modes_restore_once_and_non_tty_is_plain(void) {
 }
 
 static void tool_event(tui *t, bool done, const char *id, const char *detail) {
+    t->event_timestamp_ms = monotonic_ms();
     tny_backend_event event = {.kind = done ? TNY_EV_TOOL_END : TNY_EV_TOOL_START,
                                .tool_name = "run_code",
                                .tool_id = id,
@@ -1762,6 +1763,252 @@ static void tool_event(tui *t, bool done, const char *id, const char *detail) {
                                .tool_reason = "Check the complete output",
                                .tool_ok = true};
     tui_handle_backend_event(t, &event);
+    t->event_timestamp_ms = 0;
+}
+
+static void set_tool_view(tui *t, const char *view) {
+    char json[128];
+    snprintf(json, sizeof json, "{\"ui\":{\"tool_call_view\":\"%s\"}}", view);
+    yyjson_doc_free(t->ctx->settings);
+    t->ctx->settings = jparse(json, strlen(json));
+    tui_tools_default_changed(t);
+}
+
+TEST tool_views_stable_rows_and_reversible_hidden_anchors(void) {
+    tui t;
+    mk_tui(&t, 24);
+    tny_ctx ctx = {0};
+    t.ctx = &ctx;
+    t.fullscreen = true;
+    set_tool_view(&t, "compact");
+    tool_event(&t, false, "one", "INPUT_ONE");
+    tool_event(&t, false, "two", "INPUT_TWO");
+    ASSERT_EQ(2, t.transcript_lines);
+    tool_event(&t, true, "two", "OUTPUT_TWO\nlarge\noutput\nend");
+    tool_event(&t, true, "one", "OUTPUT_ONE\nlarge\noutput\nend");
+    ASSERT_EQ(2, t.transcript_lines);
+    ASSERT(strstr(t.transcript.data, " ms"));
+    ASSERT_FALSE(strstr(t.transcript.data, "OUTPUT"));
+    for (int i = 0; i < 3; i++) {
+        set_tool_view(&t, "hidden");
+        ASSERT_EQ(0, t.transcript_lines);
+        ASSERT_EQ(0, t.transcript.len);
+        set_tool_view(&t, "full");
+        ASSERT_EQ(18, t.transcript_lines);
+        ASSERT(strstr(t.transcript.data, "INPUT_ONE"));
+        ASSERT(strstr(t.transcript.data, "INPUT_TWO"));
+        ASSERT(strstr(t.transcript.data, "OUTPUT_ONE"));
+        ASSERT(strstr(t.transcript.data, "OUTPUT_TWO"));
+        ASSERT(t.tool_calls->start_at < t.tool_calls->next->start_at);
+        ASSERT(t.tool_calls->next->end_at < t.tool_calls->end_at);
+        set_tool_view(&t, "compact");
+        ASSERT_EQ(2, t.transcript_lines);
+        tui_size_report(&t, 24, 20);
+        ASSERT_EQ(2, t.transcript_lines);
+        buf_t frame = {0};
+        tui_fullscreen_frame(&t, &frame);
+        ASSERT_EQ(2, t.scrollback_total);
+        buf_free(&frame);
+        tui_size_report(&t, 24, 100);
+    }
+    yyjson_doc_free(ctx.settings);
+    ctx.settings = NULL;
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_hidden_calls_inspectable_and_errors_actionable(void) {
+    tui t;
+    mk_tui(&t, 24);
+    tny_ctx ctx = {0};
+    t.ctx = &ctx;
+    t.fullscreen = true;
+    set_tool_view(&t, "hidden");
+    tool_event(&t, false, "a", "retained input");
+    tool_event(&t, true, "a", "retained output");
+    ASSERT_EQ(0, t.transcript.len);
+    tui_linef(&t, "assistant text");
+    tui_transcript_commit(&t);
+    tui_tools_click(&t, 1, 1);
+    ASSERT_FALSE(t.tool_calls->overridden);
+    tui_tools_command(&t, "1");
+    ASSERT_EQ(t.tool_calls, t.tool_view);
+    tui_tools_toggle(&t, t.tool_view);
+    buf_t frame = {0};
+    tui_tools_view_frame(&t, &frame);
+    ASSERT(strstr(t.tool_view_visual.data, "retained input"));
+    ASSERT(strstr(t.tool_view_visual.data, "retained output"));
+    tui_tools_view_close(&t);
+    tny_backend_event event = {.kind = TNY_EV_TOOL_END,
+                               .tool_id = "failure",
+                               .tool_detail = "actionable failure",
+                               .tool_ok = false};
+    tui_tools_event(&t, &event);
+    ASSERT(strstr(t.transcript.data, "failed: actionable failure"));
+    ASSERT(strstr(t.transcript.data, "/tools 2 for complete details"));
+    ASSERT_FALSE(t.tool_calls_tail->timed);
+    buf_free(&frame);
+    yyjson_doc_free(ctx.settings);
+    ctx.settings = NULL;
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_inline_compact_emits_only_one_completion_summary(void) {
+    tui t;
+    mk_tui(&t, 24);
+    tny_ctx ctx = {0};
+    t.ctx = &ctx;
+    tool_event(&t, false, "a", "full input retained");
+    ASSERT_EQ(0, t.transcript.len);
+    tool_event(&t, true, "a", "full output retained");
+    ASSERT_EQ(1, t.transcript_lines);
+    ASSERT_FALSE(strstr(t.transcript.data, "full output"));
+    ASSERT_STR_EQ("full output retained", t.tool_calls->result);
+    set_tool_view(&t, "hidden");
+    tool_event(&t, false, "b", "hidden input");
+    tool_event(&t, true, "b", "hidden output");
+    ASSERT_EQ(1, t.transcript_lines); /* terminal-owned history is not rewritten */
+    yyjson_doc_free(ctx.settings);
+    ctx.settings = NULL;
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_latency_uses_producer_clock_for_batched_delivery(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.fullscreen = true;
+    tny_backend_event event = {.kind = TNY_EV_TOOL_START, .tool_id = "a", .tool_name = "tool"};
+    t.event_timestamp_ms = 10000;
+    tui_tools_event(&t, &event);
+    event.kind = TNY_EV_TOOL_END;
+    event.tool_ok = true;
+    t.event_timestamp_ms = 12500;
+    tui_tools_event(&t, &event); /* delivered immediately, produced 2.5 seconds later */
+    ASSERT_EQ(2500, t.tool_calls->elapsed_ms);
+    ASSERT(strstr(t.transcript.data, "2500 ms"));
+    event.kind = TNY_EV_TOOL_START;
+    t.event_timestamp_ms = 0;
+    tui_tools_event(&t, &event);
+    event.kind = TNY_EV_TOOL_END;
+    tui_tools_event(&t, &event);
+    ASSERT_FALSE(t.tool_calls_tail->timed);
+    event.kind = TNY_EV_TOOL_START;
+    t.event_timestamp_ms = 20000;
+    tui_tools_event(&t, &event);
+    event.kind = TNY_EV_TOOL_END;
+    t.event_timestamp_ms = 19000;
+    tui_tools_event(&t, &event);
+    ASSERT_FALSE(t.tool_calls_tail->timed); /* an invalid clock is not zero latency */
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_replayed_calls_do_not_invent_latency(void) {
+    tui t;
+    mk_tui(&t, 24);
+    t.fullscreen = true;
+    const char *json = "[{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"a\",\"function\":{"
+                       "\"name\":\"run_code\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"tool_"
+                       "call_id\":\"a\",\"content\":\"result\"}]";
+    yyjson_doc *doc = jparse(json, strlen(json));
+    yyjson_mut_doc *mut = yyjson_doc_mut_copy(doc, NULL);
+    for (int restoring = 0; restoring < 2; restoring++) {
+        t.tool_restoring = restoring != 0;
+        ASSERT(tui_tools_replay_message(&t, yyjson_mut_arr_get(yyjson_mut_doc_get_root(mut), 0)));
+        ASSERT(tui_tools_replay_message(&t, yyjson_mut_arr_get(yyjson_mut_doc_get_root(mut), 1)));
+        ASSERT_FALSE(t.tool_calls_tail->timed);
+    }
+    ASSERT_FALSE(strstr(t.transcript.data, " ms"));
+    yyjson_mut_doc_free(mut);
+    yyjson_doc_free(doc);
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_hidden_retention_and_partial_order(void) {
+    tui t;
+    mk_tui(&t, 24);
+    tny_ctx ctx = {0};
+    t.ctx = &ctx;
+    t.fullscreen = true;
+    t.scrollback_lines = 2;
+    set_tool_view(&t, "hidden");
+    for (int i = 0; i < 10; i++) {
+        tool_event(&t, false, "a", "args");
+        tool_event(&t, true, "a", "result");
+    }
+    ASSERT_EQ(9, t.tool_calls->number);
+    ASSERT_EQ(t.tool_calls_tail, t.tool_calls->next);
+    ASSERT_EQ(0, t.transcript.len);
+    t.scrollback_lines = 100;
+    tui_write(&t, "before", 6);
+    tool_event(&t, false, "b", "LATER_ARGS");
+    tool_event(&t, true, "b", "LATER_RESULT");
+    set_tool_view(&t, "full");
+    ASSERT(strstr(t.transcript.data, "before") < strstr(t.transcript.data, "LATER_ARGS"));
+    yyjson_doc_free(ctx.settings);
+    ctx.settings = NULL;
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_hidden_budget_preserves_visible_targets_active_and_inspected_calls(void) {
+    tui t;
+    mk_tui(&t, 24);
+    tny_ctx ctx = {0};
+    t.ctx = &ctx;
+    t.fullscreen = true;
+    for (int i = 0; i < 4; i++) {
+        tool_event(&t, false, "done", "args");
+        tool_event(&t, true, "done", "result");
+    }
+    tui_tool_call *inspected = t.tool_calls;
+    t.tool_view = inspected;
+    tool_event(&t, false, "active", "active args");
+    tui_tool_call *active = t.tool_calls_tail;
+    ASSERT_EQ(5, t.transcript_lines);
+    t.scrollback_lines = 2;
+    set_tool_view(&t, "hidden");
+    ASSERT_EQ(0, t.transcript.len);
+    ASSERT_EQ(inspected, t.tool_calls);
+    ASSERT_EQ(active, inspected->next);
+    ASSERT_EQ(NULL, active->next);
+    set_tool_view(&t, "full");
+    ASSERT(strstr(t.transcript.data, "active args"));
+    ASSERT(strstr(t.transcript.data, "result"));
+    ASSERT_EQ(inspected, t.tool_view);
+    yyjson_doc_free(ctx.settings);
+    ctx.settings = NULL;
+    free_tui(&t);
+    PASS();
+}
+
+TEST tool_compact_pending_eviction_keeps_completion_and_wide_heading(void) {
+    tui t;
+    mk_tui(&t, 24);
+    tny_ctx ctx = {0};
+    t.ctx = &ctx;
+    t.fullscreen = true;
+    t.scrollback_lines = 2;
+    tool_event(&t, false, "a", "args");
+    tui_linef(&t, "one");
+    tui_linef(&t, "two");
+    tui_linef(&t, "three");
+    tool_event(&t, true, "a", "result");
+    ASSERT(strstr(t.transcript.data, "✓"));
+    free(t.tool_calls_tail->reason);
+    t.tool_calls_tail->reason = xstrdup("検索検索検索検索検索😀😀😀😀");
+    for (int cols = 25; cols <= 55; cols += 5) {
+        tui_size_report(&t, 24, cols);
+        buf_t frame = {0};
+        tui_fullscreen_frame(&t, &frame);
+        ASSERT_EQ(t.transcript_lines, t.scrollback_total);
+        buf_free(&frame);
+    }
+    free_tui(&t);
+    PASS();
 }
 
 TEST tool_cards_retain_full_content_and_toggle_paired_spans(void) {
@@ -1988,6 +2235,14 @@ SUITE(tui_suite) {
     RUN_TEST(tool_large_output_inspection_keeps_tail_across_resize);
     RUN_TEST(tool_late_result_survives_evicted_heading);
     RUN_TEST(tool_inspector_yields_to_questions_and_drains_cursor_report);
+    RUN_TEST(tool_views_stable_rows_and_reversible_hidden_anchors);
+    RUN_TEST(tool_hidden_calls_inspectable_and_errors_actionable);
+    RUN_TEST(tool_inline_compact_emits_only_one_completion_summary);
+    RUN_TEST(tool_replayed_calls_do_not_invent_latency);
+    RUN_TEST(tool_latency_uses_producer_clock_for_batched_delivery);
+    RUN_TEST(tool_hidden_retention_and_partial_order);
+    RUN_TEST(tool_hidden_budget_preserves_visible_targets_active_and_inspected_calls);
+    RUN_TEST(tool_compact_pending_eviction_keeps_completion_and_wide_heading);
     RUN_TEST(tool_cards_retain_full_content_and_toggle_paired_spans);
     RUN_TEST(tool_cards_click_mapping_survives_wrap_resize_and_streaming);
     RUN_TEST(tool_defaults_preserve_explicit_overrides);

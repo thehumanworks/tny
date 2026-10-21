@@ -648,6 +648,150 @@ def test_approval_ui(home, ws):
     print("ok  approval prompt shown, 'n' denies and stops before another request")
 
 
+class ToolViewHandler(ApprovalHandler):
+    delay = 0.2
+    results = []
+    payload = "VIEW-FIRST\n" + "payload row\n" * 100 + "VIEW-TAIL"
+
+    def do_POST(self):
+        self.close_connection = True
+        req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        answered = any(i.get("type") == "function_call_output" for i in req["input"])
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        if answered:
+            self.results.extend(
+                i["output"]
+                for i in req["input"]
+                if i.get("type") == "function_call_output"
+            )
+            events = [
+                {
+                    "type": "response.output_text.delta",
+                    "output_index": 0,
+                    "delta": "VIEW-DONE",
+                }
+            ]
+        else:
+            code = (
+                f"import time; time.sleep({self.delay}); print("
+                + repr(self.payload)
+                + ")"
+            )
+            events = [
+                {
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": {
+                        "type": "function_call",
+                        "id": "fc_view",
+                        "call_id": "call_view",
+                        "name": "run_code",
+                        "arguments": json.dumps(
+                            {"code": code, "reason": "Inspect complete payload"}
+                        ),
+                    },
+                }
+            ]
+        events.append(
+            {"type": "response.completed", "response": {"status": "completed"}}
+        )
+        for event in events:
+            self._chunk(("data: %s\n\n" % json.dumps(event)).encode())
+        self._chunk(b"")
+
+
+def test_tool_view_modes(_home, ws):
+    """Actual PTYs: all display modes retain inspector data across redraws."""
+    srv = HTTPServer(("127.0.0.1", 0), ToolViewHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        for mode, view in itertools.product(
+            ("inline", "fullscreen"), ("compact", "full", "hidden")
+        ):
+            with tempfile.TemporaryDirectory(prefix="tny-tool-views-") as home:
+                os.mkdir(os.path.join(home, ".tny"))
+                with open(os.path.join(home, ".tny", "settings.json"), "w") as f:
+                    json.dump({"ui": {"mode": mode, "tool_call_view": view}}, f)
+                env = base_env(
+                    home,
+                    {
+                        "OPENAI_BASE_URL": "http://127.0.0.1:%d/v1" % srv.server_port,
+                        "OPENAI_API_KEY": "test-key-not-a-secret",
+                    },
+                )
+                ToolViewHandler.results = []
+                t = Term([TNY], env, ws)
+                try:
+                    t.expect(BANNER)
+                    t.send("inspect the payload\r")
+                    t.expect("VIEW-DONE", 20.0)
+                    assert (
+                        ToolViewHandler.results[-1] == ToolViewHandler.payload + "\n"
+                    ), ToolViewHandler.results
+                    t.expect_gone_from_screen("(esc cancels)")
+                    if view == "hidden":
+                        assert "▸ #" not in t.buf and "▾ #" not in t.buf, clean(t.buf)
+                    elif view == "compact":
+                        assert "VIEW-TAIL" not in t.buf, clean(t.buf)
+                        times = [int(x) for x in re.findall(r"(\d+) ms", clean(t.buf))]
+                        assert times and 150 <= times[-1] <= 10000, (
+                            times,
+                            clean(t.buf),
+                        )
+                    else:
+                        assert "VIEW-TAIL" in t.buf, clean(t.buf)
+                    t.send("/tools\r")
+                    t.expect_on_screen("Tool #1")
+                    if view != "full":
+                        t.send("\r")
+                    t.send("\x1b[F")
+                    t.expect_on_screen("VIEW-TAIL")
+                    for rows, cols in ((18, 42), (30, 80)):
+                        t.resize(rows, cols)
+                        t.send("\x1b[F")
+                        t.expect_on_screen("VIEW-TAIL")
+                        t.send("\r")
+                        t.expect_gone_from_screen("VIEW-TAIL")
+                        t.send("\r\x1b[F")
+                        t.expect_on_screen("VIEW-TAIL")
+                    t.send("\x1b")
+                    t.expect_gone_from_screen("Tool #1")
+                    t.send("/quit\r")
+                    assert t.wait() == 0
+                    assert t.restored(), (mode, view)
+                finally:
+                    t.close()
+                ToolViewHandler.delay = 2
+                t = Term([TNY], env, ws)
+                try:
+                    t.expect(BANNER)
+                    t.send("cancel this running tool\r")
+                    t.expect_on_screen("(esc cancels)")
+                    t.pump(0.3)
+                    t.send("\x1b")
+                    t.expect_gone_from_screen("(esc cancels)", 10.0)
+                    assert "VIEW-DONE" not in t.buf, clean(t.buf)
+                    t.send("/quit\r")
+                    assert t.wait() == 0
+                    assert t.restored(), (mode, view, "cancel")
+                finally:
+                    t.close()
+                    ToolViewHandler.delay = 0.2
+                # Permission gates must remain visible, including hidden mode.
+                with tempfile.TemporaryDirectory(
+                    prefix="tny-tool-approval-"
+                ) as approval_ws:
+                    test_approval_ui(home, approval_ws)
+    finally:
+        srv.shutdown()
+    print(
+        "ok  six tool-view PTYs preserve full payload, toggles, resize, cancel and approvals"
+    )
+
+
 def test_yolo_default_auto_approves(home, ws):
     """Out of the box tny runs yolo (docs/adr/0001): the sensitive tool runs
     with no prompt and no 'auto-approved' chatter in the transcript."""
@@ -873,6 +1017,7 @@ def test_ui_settings_cli(_home, ws):
             "mode": "inline",
             "alternate_screen": True,
             "scrollback_lines": 50000,
+            "tool_call_view": "compact",
             "tool_calls_expanded": False,
             "tool_call_reasons": True,
             "inline_mouse": False,
@@ -906,6 +1051,7 @@ def test_ui_settings_cli(_home, ws):
                 "mode": mode,
                 "alternate_screen": alternate,
                 "scrollback_lines": 50000,
+                "tool_call_view": "compact",
                 "tool_calls_expanded": False,
                 "tool_call_reasons": True,
                 "inline_mouse": False,
@@ -914,10 +1060,14 @@ def test_ui_settings_cli(_home, ws):
                 saved = json.load(f)
             assert saved["ui"] == {"mode": mode, "alternate_screen": alternate}, saved
             assert all(saved[key] == value for key, value in original.items()), saved
+        for view in ("hidden", "full", "compact"):
+            assert settings("set", "ui.tool_call_view", view)["value"] == view
+            assert settings("get", "ui.tool_call_view")["value"] == view
         with open(path, "rb") as f:
             before = f.read()
         for args in (
             ("set", "ui.mode", "sideways"),
+            ("set", "ui.tool_call_view", "sideways"),
             ("set", "ui.alternate_screen", "yes"),
             ("set", "ui.unknown", "true"),
             ("get", "ui.unknown"),
@@ -1282,7 +1432,7 @@ def test_interactive_ui_settings(_home, ws):
             t.send("/settings ui.alternate_screen true\r")
             expect_saved("inline", True)
             t.send("/settings\r")
-            t.expect_on_screen("ui.tool_calls_expanded")
+            t.expect_on_screen("ui.tool_call_view")
             assert "\x1b[?1000h" not in t.buf, (
                 "inline must preserve terminal wheel by default"
             )
@@ -1290,7 +1440,7 @@ def test_interactive_ui_settings(_home, ws):
             t.pump(0.3)
             with open(path) as f:
                 ui = json.load(f)["ui"]
-            assert ui["tool_calls_expanded"] is True, ui
+            assert ui["tool_call_view"] == "full", ui
             assert ui["tool_call_reasons"] is False, ui
             assert ui["inline_mouse"] is True, ui
             assert "\x1b[?1000h" in t.buf, "inline mouse opt-in did not apply"
@@ -1572,6 +1722,7 @@ def main():
             test_slash_palette(home, ws)
             test_approval_ui(home, ws)
             test_yolo_default_auto_approves(home, ws)
+            test_tool_view_modes(home, ws)
             test_menu_overlay_transient(home, ws)
             test_task_resume_and_session_guards(home, ws, port)
             test_no_color_keeps_the_status_bar(home, ws)

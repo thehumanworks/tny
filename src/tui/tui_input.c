@@ -511,9 +511,11 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
                                         ? "ui.alternate_screen false"
                                         : "ui.alternate_screen true");
         else if (k == TUI_K_CHAR && chlen == 1 && ch[0] == 't')
-            tui_settings_command(t, tny_settings_ui_tool_calls_expanded(t->ctx)
-                                        ? "ui.tool_calls_expanded false"
-                                        : "ui.tool_calls_expanded true");
+            tui_settings_command(t, strcmp(tny_settings_ui_tool_call_view(t->ctx), "compact") == 0
+                                        ? "ui.tool_call_view full"
+                                    : strcmp(tny_settings_ui_tool_call_view(t->ctx), "full") == 0
+                                        ? "ui.tool_call_view hidden"
+                                        : "ui.tool_call_view compact");
         else if (k == TUI_K_CHAR && chlen == 1 && ch[0] == 'i')
             tui_settings_command(t, tny_settings_ui_inline_mouse(t->ctx) ? "ui.inline_mouse false"
                                                                          : "ui.inline_mouse true");

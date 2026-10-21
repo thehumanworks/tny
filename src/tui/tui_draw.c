@@ -142,11 +142,13 @@ void tui_size_report(tui *t, int rows, int cols) {
     if (rows == t->rows && cols == t->cols) return;
     t->rows = rows;
     t->cols = cols;
+    if (t->fullscreen) tui_tools_default_changed(t);
     t->dirty = true;
 }
 
 void tui_resize(tui *t) {
     tui_size(t);
+    if (t->fullscreen) tui_tools_default_changed(t);
     tui_size_probe(t);
     t->dirty = true;
 }
@@ -462,6 +464,20 @@ static int transcript_cell_width(const char *s, size_t n) {
     for (size_t i = 0; i < sizeof wide / sizeof *wide; i++)
         if (cp >= wide[i][0] && cp <= wide[i][1]) return 2;
     return 1;
+}
+
+/* A sanitized single-line label, clipped in the same cells as the viewport. */
+void tui_push_literal_row(buf_t *out, const char *s, size_t n, int width) {
+    int cells = 0;
+    for (size_t i = 0; i < n && s[i] != '\n';) {
+        size_t end = i + 1;
+        while (end < n && ((unsigned char)s[end] & 0xc0) == 0x80) end++;
+        int next = transcript_cell_width(s + i, end - i);
+        if (cells + next > width) break;
+        buf_append(out, s + i, end - i);
+        cells += next;
+        i = end;
+    }
 }
 
 typedef struct {
@@ -1043,8 +1059,9 @@ void tui_tools_click(tui *t, int row, int col) {
     if (!t->fullscreen && source < t->inline_map_from) return;
     for (tui_tool_call *c = t->tool_calls; c; c = c->next) {
         size_t at[2] = {c->start_at, c->end_at};
+        size_t len[2] = {c->start_len, c->end_len};
         for (size_t i = 0; i < 2; i++) {
-            if (at[i] == SIZE_MAX || at[i] >= t->transcript.len) continue;
+            if (!len[i] || at[i] == SIZE_MAX || at[i] >= t->transcript.len) continue;
             const char *nl = memchr(t->transcript.data + at[i], '\n', t->transcript.len - at[i]);
             size_t end = nl ? (size_t)(nl - t->transcript.data) : t->transcript.len;
             if (source < at[i] || source > end) continue;

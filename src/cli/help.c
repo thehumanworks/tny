@@ -359,7 +359,7 @@ bool help_for(const char *command) {
                "Read or change UI defaults in ~/.tny/settings.json without provider credentials.\n"
                "Keys: ui.mode (inline|fullscreen), ui.alternate_screen (true|false),\n"
                "      ui.scrollback_lines (integer 1..1000000; default 50000),\n"
-               "      ui.tool_calls_expanded (true|false; default false),\n"
+               "      ui.tool_call_view (hidden|compact|full; default compact),\n"
                "      ui.tool_call_reasons (true|false; default true),\n"
                "      ui.inline_mouse (true|false; default false).\n"
                "Defaults: inline, true. Global UI flags override these for one run.\n\n"

@@ -77,10 +77,23 @@ See [ADR 0183](adr/0183-fullscreen-scrollback.md).
 
 ## Tool-call details
 
-Tool calls start collapsed, showing a numbered heading and a short purpose when
-provided. Fullscreen: click either the argument or result heading to toggle the
-whole call. Full retained arguments and output appear when expanded; collapsing
-does not discard them or execute the tool again.
+Choose `ui.tool_call_view` in global `settings.json`, `tny settings set`, or
+`/settings ui.tool_call_view compact|full|hidden`:
+
+- **compact** (default): one clipped status/purpose row per call, with measured
+  elapsed milliseconds when complete. Fullscreen updates that row in place;
+  inline prints only the completion row while the normal activity indicator
+  remains visible during execution. Output size does not grow the card.
+- **full**: full retained arguments and output, without a display-level cutoff.
+- **hidden**: no routine tool rows. Permission requests, questions and failures
+  remain visible; `/tools` still opens retained details.
+
+Fullscreen: click a heading to expand or collapse that call. Collapsing never
+executes the tool again or discards its retained payload. Compact labels are
+clipped by terminal cell width, including wide Unicode. Replayed calls do not
+invent elapsed time. Duration uses the engine's monotonic producer timestamps,
+not the frontend's receipt time. It measures start-to-result, including queue or
+permission waits; missing timestamps omit the metric. Tool content cannot emit terminal controls.
 
 Inline history belongs to the terminal and cannot be rewritten. By default,
 inline mouse capture is off, preserving native wheel scrolling and selection.
@@ -94,20 +107,29 @@ Up/Down/PageUp/PageDown scroll, Home/End jump, and Esc closes. The draft and
 conversation remain intact; the running turn continues. The inspector itself
 supports mouse scrolling and clicking its heading, even without inline capture.
 
-In `/settings`, `t` toggles `ui.tool_calls_expanded` (default false), and `r`
-toggles `ui.tool_call_reasons` (default true). Both can also be changed through
-`tny settings set`, `/settings ui.NAME true|false`, or the global `settings.json`
-`ui` object. The expansion default applies immediately to calls without a
-manual override and to future calls. In inline mode, already printed history
-stays unchanged; new expanded calls print their retained content in full.
+In `/settings`, `t` cycles compact → full → hidden, and `r` toggles
+`ui.tool_call_reasons` (default true). The view default applies immediately to
+retained calls without a manual expansion override and to future calls; hidden
+suppresses all routine cards, including overrides. Inline cannot rewrite terminal
+history, so a change affects subsequent printed events and the inspector.
+
+The old `ui.tool_calls_expanded` boolean remains a fallback only when the new
+setting is absent: true means full, false means compact. Setting the old key
+through the CLI/TUI writes the equivalent new mode, so it cannot silently lose
+to a previously saved mode.
 
 Reasons are optional tool metadata. When enabled, the system prompt asks for a
 1–10-word purpose; disabling it removes that request for the next runner turn
 (or the next provider request in explicit in-process/wasm mode). A missing
 reason never breaks tool execution. Display expansion exposes retained content,
 not bytes discarded by upstream tool limits. The display history is bounded by
-`ui.scrollback_lines`; `/transcript` replays saved top-level calls, and `/tools`
-can load their details on resume. See [ADR 0205](adr/0205-reversible-tool-display-and-reasons.md).
+`ui.scrollback_lines`. Invisible completed-call details also have a tail budget
+of at most 1,024 calls (or the smaller scrollback line setting) and 16 MiB;
+active calls, the inspected call and the newest result are protected, so these
+exceptions can exceed the budget. This does not remove visible click targets.
+`/transcript` replays saved top-level calls with new display numbers, and `/tools`
+can load their details on resume. Older tool-truncated output still requires its
+`read_tool_output` handle, not display expansion. See [ADR 0205](adr/0205-reversible-tool-display-and-reasons.md).
 
 ## Colors and attributes
 

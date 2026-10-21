@@ -25,19 +25,23 @@ int cmd_settings(const cli_globals *g, int argc, char **argv) {
     bool mode = key && strcmp(key, "ui.mode") == 0;
     bool scrollback = key && strcmp(key, "ui.scrollback_lines") == 0;
     bool inline_mouse = key && strcmp(key, "ui.inline_mouse") == 0;
+    bool view = key && strcmp(key, "ui.tool_call_view") == 0;
     bool expanded = key && strcmp(key, "ui.tool_calls_expanded") == 0;
     bool reasons = key && strcmp(key, "ui.tool_call_reasons") == 0;
-    if (key && !mode && !scrollback && !expanded && !reasons && !inline_mouse &&
+    if (key && !mode && !scrollback && !expanded && !view && !reasons && !inline_mouse &&
         strcmp(key, "ui.alternate_screen") != 0) {
-        fputs("tny: settings: key must be ui.mode, ui.alternate_screen, ui.scrollback_lines, "
-              "ui.tool_calls_expanded, ui.tool_call_reasons or ui.inline_mouse\n",
-              stderr);
+        fputs(
+            "tny: settings: key must be ui.mode, ui.alternate_screen, ui.scrollback_lines, "
+            "ui.tool_call_view, ui.tool_calls_expanded, ui.tool_call_reasons or ui.inline_mouse\n",
+            stderr);
         return 1;
     }
     if (set && (mode         ? strcmp(args[2], "inline") != 0 && strcmp(args[2], "fullscreen") != 0
+                : view       ? !tny_settings_ui_tool_call_view_valid(args[2])
                 : scrollback ? !tny_settings_ui_scrollback_lines_valid(args[2])
                              : strcmp(args[2], "true") != 0 && strcmp(args[2], "false") != 0)) {
         fputs(mode         ? "tny: settings: ui.mode must be inline or fullscreen\n"
+              : view       ? "tny: settings: ui.tool_call_view must be hidden, compact or full\n"
               : scrollback ? "tny: settings: ui.scrollback_lines must be an integer 1..1000000\n"
                            : "tny: settings: boolean setting must be true or false\n",
               stderr);
@@ -63,6 +67,7 @@ int cmd_settings(const cli_globals *g, int argc, char **argv) {
     const char *alternate = tny_settings_ui_alternate_screen(&ctx) ? "true" : "false";
     size_t lines = tny_settings_ui_scrollback_lines(&ctx);
     const char *inline_mouse_value = tny_settings_ui_inline_mouse(&ctx) ? "true" : "false";
+    const char *view_value = tny_settings_ui_tool_call_view(&ctx);
     const char *expanded_value = tny_settings_ui_tool_calls_expanded(&ctx) ? "true" : "false";
     const char *reasons_value = tny_settings_ui_tool_call_reasons(&ctx) ? "true" : "false";
     const char *boolean_value = inline_mouse ? inline_mouse_value
@@ -72,21 +77,25 @@ int cmd_settings(const cli_globals *g, int argc, char **argv) {
     if (!key) {
         if (json)
             printf("{\"kind\":\"settings\",\"ui\":{\"mode\":\"%s\",\"alternate_screen\":%s,"
-                   "\"scrollback_lines\":%zu,\"tool_calls_expanded\":%s,\"tool_call_reasons\":%s,"
+                   "\"scrollback_lines\":%zu,\"tool_call_view\":\"%s\",\"tool_calls_expanded\":%s,"
+                   "\"tool_call_reasons\":%s,"
                    "\"inline_mouse\":%s}}\n",
-                   ui_mode, alternate, lines, expanded_value, reasons_value, inline_mouse_value);
+                   ui_mode, alternate, lines, view_value, expanded_value, reasons_value,
+                   inline_mouse_value);
         else
             printf("ui.mode = %s\nui.alternate_screen = %s\nui.scrollback_lines = %zu\n"
-                   "ui.tool_calls_expanded = %s\nui.tool_call_reasons = %s\nui.inline_mouse = %s\n",
-                   ui_mode, alternate, lines, expanded_value, reasons_value, inline_mouse_value);
+                   "ui.tool_call_view = %s\nui.tool_calls_expanded = %s\nui.tool_call_reasons = "
+                   "%s\nui.inline_mouse = %s\n",
+                   ui_mode, alternate, lines, view_value, expanded_value, reasons_value,
+                   inline_mouse_value);
     } else if (json) {
         printf("{\"kind\":\"setting\",\"key\":\"%s\",\"value\":", key);
-        if (mode) printf("\"%s\"", ui_mode);
+        if (mode || view) printf("\"%s\"", mode ? ui_mode : view_value);
         else if (scrollback) printf("%zu", lines);
         else fputs(boolean_value, stdout);
         fputs("}\n", stdout);
     } else if (scrollback) printf("%zu\n", lines);
-    else printf("%s\n", mode ? ui_mode : boolean_value);
+    else printf("%s\n", mode ? ui_mode : view ? view_value : boolean_value);
     rc = ferror(stdout) ? 1 : 0;
 done:
     yyjson_doc_free(ctx.settings);
