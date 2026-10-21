@@ -218,3 +218,5 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0208: Truthful scoped file search](0208-truthful-scoped-file-search.md)
 
 - [0209: Exact-edit text integrity](0209-exact-edit-text-integrity.md) — reject NUL-bearing sources before writes or undo side effects.
+
+- [0210: Stable tool-call views](0210-stable-tool-call-views.md) — compact, full and hidden views with retained inspection and measured layout stability.

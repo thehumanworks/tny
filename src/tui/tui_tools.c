@@ -44,21 +44,51 @@ void tui_tool_literal(buf_t *out, const char *s, bool line) {
     }
 }
 
-static void card(buf_t *out, const tui_tool_call *c, bool result) {
-    buf_appendf(out, "%s #%zu %s", c->expanded ? "▾" : "▸", c->number,
-                result ? (c->ok ? "✓ " : "✗ ") : "");
+static bool hidden(const tui *t) {
+    return strcmp(tny_settings_ui_tool_call_view(t->ctx), "hidden") == 0;
+}
+
+static void heading(buf_t *out, const tui_tool_call *c, bool expanded) {
+    buf_appendf(out, "%s #%zu %s ", expanded ? "▾" : "▸", c->number,
+                c->done ? (c->ok ? "✓" : "✗") : "…");
+    if (c->done && c->timed) buf_appendf(out, "%lld ms · ", (long long)c->elapsed_ms);
     tui_tool_literal(out, c->name, true);
     if (c->reason && *c->reason) {
         buf_appends(out, " · ");
         tui_tool_literal(out, c->reason, true);
     }
     buf_appends(out, "\n");
-    if (c->expanded) {
-        buf_appends(out, result ? "  Result:\n" : "  Arguments:\n");
-        tui_tool_literal(out, result ? c->result : c->args, false);
-        if (out->len && out->data[out->len - 1] != '\n') buf_appends(out, "\n");
-    }
 }
+
+static void card(buf_t *out, const tui *t, const tui_tool_call *c, bool result) {
+    if (hidden(t)) {
+        if (result && c->done && !c->ok) {
+            buf_appendf(out, "Tool #%zu failed: ", c->number);
+            buf_t detail = {0};
+            tui_tool_literal(&detail, c->result, false);
+            tui_push_literal_row(out, detail.data, detail.len, 120);
+            buf_free(&detail);
+            buf_appendf(out, "\n  /tools %zu for complete details\n", c->number);
+        }
+        return;
+    }
+    if (!c->expanded) {
+        if (result == !t->fullscreen || (result && c->start_at == SIZE_MAX)) {
+            buf_t line = {0};
+            heading(&line, c, false);
+            tui_push_literal_row(out, line.data, line.len, t->cols > 3 ? t->cols - 1 : 3);
+            buf_appends(out, "\n");
+            buf_free(&line);
+        }
+        return;
+    }
+    heading(out, c, true);
+    buf_appends(out, result ? "  Result:\n" : "  Arguments:\n");
+    tui_tool_literal(out, result ? c->result : c->args, false);
+    if (out->len && out->data[out->len - 1] != '\n') buf_appends(out, "\n");
+}
+
+static void replace_card(tui *t, tui_tool_call *c, bool result);
 
 void tui_tools_trim(tui *t, size_t cut) {
     tui_tool_call **link = &t->tool_calls;
@@ -75,6 +105,39 @@ void tui_tools_trim(tui *t, size_t cut) {
             t->tool_calls_tail = c;
             link = &c->next;
         }
+    }
+}
+
+/* Hidden calls do not advance scrollback. Bound their retained details without
+ * orphaning visible headings, while preserving active/viewed/newest calls. */
+static bool invisible(const tui_tool_call *c) {
+    return (!c->start_len || c->start_at == SIZE_MAX) && (!c->end_len || c->end_at == SIZE_MAX);
+}
+
+static size_t retained_bytes(const tui_tool_call *c) {
+    return sizeof *c + strlen(c->id ? c->id : "") + strlen(c->name ? c->name : "") +
+           strlen(c->reason ? c->reason : "") + strlen(c->args ? c->args : "") +
+           strlen(c->result ? c->result : "");
+}
+
+static void retain_tail(tui *t) {
+    size_t count = 0, bytes = 0;
+    size_t limit = t->scrollback_lines ? t->scrollback_lines : TNY_UI_SCROLLBACK_LINES_DEFAULT;
+    if (limit > 1024) limit = 1024;
+    for (tui_tool_call *c = t->tool_calls; c; c = c->next) {
+        if (!invisible(c)) continue;
+        count++;
+        bytes += retained_bytes(c);
+    }
+    tui_tool_call **link = &t->tool_calls;
+    while (*link && (count > limit || bytes > 16u * 1024u * 1024u)) {
+        tui_tool_call *c = *link;
+        if (invisible(c) && c->done && !c->pinned && c != t->tool_view && c != t->tool_calls_tail) {
+            count--;
+            bytes -= retained_bytes(c);
+            *link = c->next;
+            call_free(c);
+        } else link = &c->next;
     }
 }
 
@@ -98,6 +161,8 @@ void tui_tools_event(tui *t, const tny_backend_event *ev) {
         c->name = xstrdup(ev->tool_name ? ev->tool_name : "tool");
         c->reason = xstrdup(ev->tool_reason ? ev->tool_reason : "");
         c->expanded = tny_settings_ui_tool_calls_expanded(t->ctx);
+        c->timed = !t->tool_restoring && !result && t->event_timestamp_ms > 0;
+        c->started_ms = c->timed ? t->event_timestamp_ms : 0;
         if (t->tool_calls_tail) t->tool_calls_tail->next = c;
         else t->tool_calls = c;
         t->tool_calls_tail = c;
@@ -107,28 +172,38 @@ void tui_tools_event(tui *t, const tny_backend_event *ev) {
         c->result = xstrdup(ev->tool_detail ? ev->tool_detail : "");
         c->done = true;
         c->ok = ev->tool_ok;
+        if (c->timed) {
+            if (t->event_timestamp_ms >= c->started_ms)
+                c->elapsed_ms = t->event_timestamp_ms - c->started_ms;
+            else c->timed = false;
+        }
     } else c->args = xstrdup(ev->tool_detail ? ev->tool_detail : "");
     if (t->tool_restoring) {
         c->pinned = false;
+        retain_tail(t);
         return;
     }
     tui_bol(t);
     tui_transcript_commit(t);
-    size_t at = t->transcript.len;
+    if (result && t->fullscreen) replace_card(t, c, false);
     buf_t text = {0};
-    card(&text, c, result);
-    tui_write(t, text.data, text.len);
+    card(&text, t, c, result);
+    size_t at = t->transcript.len;
+    if (text.len) tui_write(t, text.data, text.len);
     if (result) {
         c->end_at = at;
+        c->end_order = ++t->tool_span_sequence;
         c->end_len = text.len;
     } else {
         c->start_at = at;
+        c->start_order = ++t->tool_span_sequence;
         c->start_len = text.len;
     }
     buf_free(&text);
     tui_transcript_commit(t);
     if (t->tool_view == c) t->tool_view_changed = true;
     c->pinned = false;
+    retain_tail(t);
 }
 
 static size_t newline_count(const char *s, size_t n) {
@@ -143,7 +218,11 @@ static void replace_card(tui *t, tui_tool_call *c, bool result) {
     size_t len = result ? c->end_len : c->start_len;
     if (at == SIZE_MAX || at > t->transcript.len || len > t->transcript.len - at) return;
     buf_t text = {0};
-    card(&text, c, result);
+    card(&text, t, c, result);
+    if (text.len == len && (!len || memcmp(t->transcript.data + at, text.data, len) == 0)) {
+        buf_free(&text);
+        return;
+    }
     if (text.oom) {
         buf_free(&text);
         return;
@@ -157,12 +236,16 @@ static void replace_card(tui *t, tui_tool_call *c, bool result) {
     t->transcript_lines += newline_count(text.data, text.len);
     memmove(t->transcript.data + at + text.len, t->transcript.data + at + len,
             t->transcript.len - at - len + 1);
-    memcpy(t->transcript.data + at, text.data, text.len);
+    if (text.len) memcpy(t->transcript.data + at, text.data, text.len);
     t->transcript.len = t->transcript.len - len + text.len;
+    size_t order = result ? c->end_order : c->start_order;
     for (tui_tool_call *it = t->tool_calls; it; it = it->next) {
-        if (it->start_at != SIZE_MAX && it->start_at > at)
+        if (it->start_at != SIZE_MAX &&
+            (it->start_at > at || (it->start_at == at && it->start_order > order)))
             it->start_at = it->start_at - len + text.len;
-        if (it->end_at != SIZE_MAX && it->end_at > at) it->end_at = it->end_at - len + text.len;
+        if (it->end_at != SIZE_MAX &&
+            (it->end_at > at || (it->end_at == at && it->end_order > order)))
+            it->end_at = it->end_at - len + text.len;
     }
     if (t->scrollback_anchor > at)
         t->scrollback_anchor =
@@ -193,11 +276,18 @@ void tui_tools_toggle(tui *t, tui_tool_call *c) {
 
 void tui_tools_default_changed(tui *t) {
     bool expanded = tny_settings_ui_tool_calls_expanded(t->ctx);
+    tui_transcript_commit(t);
     for (tui_tool_call *c = t->tool_calls; c; c = c->next) {
-        if (c->overridden || c->expanded == expanded) continue;
-        tui_tools_toggle(t, c);
-        c->overridden = false;
+        c->pinned = true;
+        if (!c->overridden) c->expanded = expanded;
+        if (t->fullscreen) {
+            replace_card(t, c, true);
+            replace_card(t, c, false);
+        }
+        c->pinned = false;
     }
+    retain_tail(t);
+    t->tool_view_changed = t->dirty = true;
 }
 
 void tui_tools_view_close(tui *t) {
@@ -218,8 +308,14 @@ static void view_open(tui *t, tui_tool_call *c) {
         bool old = c->expanded;
         c->expanded = true;
         buf_t b = {0};
-        card(&b, c, false);
-        if (c->done) card(&b, c, true);
+        heading(&b, c, true);
+        buf_appends(&b, "Arguments:\n");
+        tui_tool_literal(&b, c->args, false);
+        if (c->done) {
+            buf_appends(&b, "\nResult:\n");
+            tui_tool_literal(&b, c->result, false);
+        }
+        buf_appends(&b, "\n");
         c->expanded = old;
         tui_write(t, b.data, b.len);
         buf_free(&b);
@@ -253,7 +349,7 @@ void tui_tools_command(tui *t, const char *arg) {
         }
         for (c = t->tool_calls; c && c->number != n; c = c->next) {}
         if (!c) {
-            tui_err(t, "tool call is not in retained display history");
+            tui_err(t, "tool call is not retained; use /transcript for session history");
             return;
         }
     }
@@ -317,6 +413,7 @@ bool tui_tools_replay_message(tui *t, yyjson_mut_val *message) {
                 .tool_detail = args,
                 .tool_reason = doc ? jget_str(yyjson_doc_get_root(doc), "reason") : NULL};
             tui_tools_event(t, &event);
+            if (t->tool_calls_tail) t->tool_calls_tail->timed = false;
             yyjson_doc_free(doc);
         }
         return yyjson_mut_arr_size(calls) > 0;

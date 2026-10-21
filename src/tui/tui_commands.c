@@ -575,8 +575,8 @@ void tui_settings_show(tui *t) {
     tui_overlay_linef(t, "      ui.scrollback_lines: %zu",
                       tny_settings_ui_scrollback_lines(t->ctx));
     tui_overlay_linef(t, "  /settings ui.scrollback_lines 1..1000000");
-    tui_overlay_linef(t, "  [t] ui.tool_calls_expanded: %s",
-                      tny_settings_ui_tool_calls_expanded(t->ctx) ? "true" : "false");
+    tui_overlay_linef(t, "  [t] ui.tool_call_view: %s (compact → full → hidden)",
+                      tny_settings_ui_tool_call_view(t->ctx));
     tui_overlay_linef(t, "  [r] ui.tool_call_reasons: %s",
                       tny_settings_ui_tool_call_reasons(t->ctx) ? "true" : "false");
     tui_overlay_linef(t, "  [i] ui.inline_mouse: %s (captures wheel/selection)",
@@ -604,23 +604,26 @@ void tui_settings_command(tui *t, const char *arg) {
     const char *key = ac == 2 && strncmp(av[0], "ui.", 3) == 0 ? av[0] + 3 : NULL;
     if (!key ||
         (strcmp(key, "mode") != 0 && strcmp(key, "alternate_screen") != 0 &&
-         strcmp(key, "scrollback_lines") != 0 && strcmp(key, "tool_calls_expanded") != 0 &&
-         strcmp(key, "tool_call_reasons") != 0 && strcmp(key, "inline_mouse") != 0) ||
+         strcmp(key, "scrollback_lines") != 0 && strcmp(key, "tool_call_view") != 0 &&
+         strcmp(key, "tool_calls_expanded") != 0 && strcmp(key, "tool_call_reasons") != 0 &&
+         strcmp(key, "inline_mouse") != 0) ||
         (strcmp(key, "mode") == 0 && strcmp(av[1], "inline") != 0 &&
          strcmp(av[1], "fullscreen") != 0) ||
+        (strcmp(key, "tool_call_view") == 0 && !tny_settings_ui_tool_call_view_valid(av[1])) ||
         ((strcmp(key, "alternate_screen") == 0 || strcmp(key, "tool_calls_expanded") == 0 ||
           strcmp(key, "tool_call_reasons") == 0 || strcmp(key, "inline_mouse") == 0) &&
          strcmp(av[1], "true") != 0 && strcmp(av[1], "false") != 0) ||
         (strcmp(key, "scrollback_lines") == 0 && !tny_settings_ui_scrollback_lines_valid(av[1]))) {
-        tui_err(t, "usage: /settings ui.mode inline|fullscreen | "
-                   "/settings ui.alternate_screen true|false | "
-                   "/settings ui.scrollback_lines 1..1000000 | "
-                   "/settings ui.tool_calls_expanded true|false | /settings ui.tool_call_reasons "
-                   "true|false | /settings ui.inline_mouse true|false");
+        tui_err(t,
+                "usage: /settings ui.mode inline|fullscreen | "
+                "/settings ui.alternate_screen true|false | "
+                "/settings ui.scrollback_lines 1..1000000 | "
+                "/settings ui.tool_call_view hidden|compact|full | /settings ui.tool_call_reasons "
+                "true|false | /settings ui.inline_mouse true|false");
     } else if (tny_settings_set_ui(t->ctx, key, av[1]) != 0) {
         tui_err(t, "could not save display settings");
     } else {
-        bool tools = strcmp(key, "tool_calls_expanded") == 0;
+        bool tools = strcmp(key, "tool_calls_expanded") == 0 || strcmp(key, "tool_call_view") == 0;
         bool reasons = strcmp(key, "tool_call_reasons") == 0;
         bool mouse = strcmp(key, "inline_mouse") == 0;
         if (mouse) tui_terminal_mouse_update(t);

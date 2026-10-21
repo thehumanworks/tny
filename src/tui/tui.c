@@ -449,14 +449,16 @@ void tui_handle_backend_event(tui *t, const tny_backend_event *ev) {
         break;
     }
     case TNY_EV_TOOL_START:
-        maybe_gap(t, false);
+        if (strcmp(tny_settings_ui_tool_call_view(t->ctx), "hidden") != 0) maybe_gap(t, false);
         tui_tools_event(t, ev);
         break;
     case TNY_EV_TOOL_END:
         tui_tools_event(t, ev);
-        t->gap = 2; /* next model text starts a new iteration */
+        if (strcmp(tny_settings_ui_tool_call_view(t->ctx), "hidden") != 0)
+            t->gap = 2; /* next model text starts a new iteration */
         break;
     case TNY_EV_TOOL_PROGRESS:
+        if (strcmp(tny_settings_ui_tool_call_view(t->ctx), "hidden") == 0) break;
         oneline(line, sizeof line, ev->tool_detail);
         tui_note(t, "%s: %.360s", ev->tool_name ? ev->tool_name : "tool", line);
         break;
@@ -529,7 +531,10 @@ static void drain_engine_events(tui *t) {
     if (!t->engine) return;
     tny_owned_event *owned;
     while ((owned = tny_engine_pop_event(t->engine))) {
+        int64_t previous = t->event_timestamp_ms;
+        t->event_timestamp_ms = owned->timestamp_ms;
         tui_handle_backend_event(t, &owned->ev);
+        t->event_timestamp_ms = previous;
         tny_owned_event_free(owned);
     }
 }

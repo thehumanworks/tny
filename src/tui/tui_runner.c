@@ -163,10 +163,14 @@ void tui_runner_dispatch(tui *t) {
     tny_runner_msg *m;
     while (t->rc && (m = tny_runner_client_pop(t->rc))) {
         switch (m->kind) {
-        case TNY_RMSG_EVENT:
+        case TNY_RMSG_EVENT: {
+            int64_t previous = t->event_timestamp_ms;
+            t->event_timestamp_ms = m->timestamp_ms;
             if (m->ev.kind == TNY_EV_ERROR && t->background_armed) t->background_armed = false;
             tui_handle_backend_event(t, &m->ev);
+            t->event_timestamp_ms = previous;
             break;
+        }
         case TNY_RMSG_SNAPSHOT:
         case TNY_RMSG_RECOVERY:
             if (m->text && *m->text) {

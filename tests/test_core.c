@@ -6135,6 +6135,19 @@ TEST ui_settings_defaults_and_generated_roundtrips(void) {
         ASSERT_EQ(strcmp(alternate, "true") == 0, tny_settings_ui_tool_call_reasons(ctx));
         tny_ctx_free(ctx);
     }
+    write_settings("{\"ui\":{\"tool_calls_expanded\":true,\"tool_call_view\":\"hidden\"}}");
+    tny_ctx *view_ctx = tny_ctx_load(g_ws);
+    ASSERT_STR_EQ("hidden", tny_settings_ui_tool_call_view(view_ctx));
+    const char *views[] = {"compact", "full", "hidden"};
+    for (size_t i = 0; i < 3; i++) {
+        ASSERT_EQ(0, tny_settings_set_ui(view_ctx, "tool_call_view", views[i]));
+        ASSERT_STR_EQ(views[i], tny_settings_ui_tool_call_view(view_ctx));
+        ASSERT_EQ(-1, tny_settings_set_ui(view_ctx, "tool_call_view", "bogus"));
+        ASSERT_STR_EQ(views[i], tny_settings_ui_tool_call_view(view_ctx));
+    }
+    ASSERT_EQ(0, tny_settings_set_ui(view_ctx, "tool_calls_expanded", "false"));
+    ASSERT_STR_EQ("compact", tny_settings_ui_tool_call_view(view_ctx));
+    tny_ctx_free(view_ctx);
     write_settings("{}");
     tny_ctx *ctx = tny_ctx_load(g_ws);
     ASSERT(ctx);

@@ -81,6 +81,7 @@ typedef enum {
 typedef struct tny_runner_msg {
     tny_runner_msg_kind kind;
     tny_backend_event ev; /* strings borrow from the owned line below */
+    int64_t timestamp_ms; /* producer monotonic clock; zero when unavailable */
     char *text;
     char *id;
     int exit_code;

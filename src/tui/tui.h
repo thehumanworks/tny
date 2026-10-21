@@ -40,9 +40,10 @@ typedef struct {
 
 typedef struct tui_tool_call {
     struct tui_tool_call *next;
-    size_t number, start_at, start_len, end_at, end_len;
+    size_t number, start_at, start_len, end_at, end_len, start_order, end_order;
+    int64_t started_ms, elapsed_ms;
     char *id, *name, *reason, *args, *result;
-    bool expanded, overridden, done, ok, pinned, restored;
+    bool expanded, overridden, done, ok, pinned, restored, timed;
 } tui_tool_call;
 
 typedef struct tui {
@@ -75,7 +76,8 @@ typedef struct tui {
     bool dirty;
     size_t out_committed;
     tui_tool_call *tool_calls, *tool_calls_tail, *tool_view;
-    size_t tool_sequence, tool_view_offset;
+    size_t tool_sequence, tool_span_sequence, tool_view_offset;
+    int64_t event_timestamp_ms; /* current producer event, not frontend receipt */
     buf_t tool_view_text, tool_view_rows, tool_view_visual;
     int tool_view_width;
     bool tool_view_changed, tool_restoring;
@@ -253,6 +255,7 @@ void tui_background_arm(tui *t);
 bool tui_runner_attach(tui *t, tny_session_state *session);
 
 /* Tool cards keep full event content separately from their display spans. */
+void tui_push_literal_row(buf_t *out, const char *s, size_t n, int width);
 void tui_tool_literal(buf_t *out, const char *s, bool line);
 void tui_tools_event(tui *t, const tny_backend_event *ev);
 void tui_tools_free(tui *t);

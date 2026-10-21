@@ -293,7 +293,7 @@
         "tool_calls_expanded": {
           "type": "boolean",
           "default": false,
-          "description": "Show tool calls expanded by default; individual calls can be toggled."
+          "description": "Legacy fallback only when tool_call_view is absent: true means full, false means compact."
         },
         "tool_call_reasons": {
           "type": "boolean",
@@ -304,6 +304,16 @@
           "type": "boolean",
           "default": false,
           "description": "Opt in to inline mouse reporting for clickable tool headings. Default false preserves native terminal wheel scrolling and selection."
+        },
+        "tool_call_view": {
+          "type": "string",
+          "enum": [
+            "hidden",
+            "compact",
+            "full"
+          ],
+          "default": "compact",
+          "description": "Tool display mode. Compact is one status/timing line; full shows retained inputs/outputs; hidden suppresses routine rows. Overrides legacy tool_calls_expanded."
         }
       },
       "additionalProperties": false

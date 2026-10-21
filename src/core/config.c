@@ -1421,8 +1421,21 @@ bool tny_settings_ui_inline_mouse(tny_ctx *ctx) {
     return jget_bool(settings_ui(ctx), "inline_mouse", false);
 }
 
+bool tny_settings_ui_tool_call_view_valid(const char *value) {
+    return value && (strcmp(value, "hidden") == 0 || strcmp(value, "compact") == 0 ||
+                     strcmp(value, "full") == 0);
+}
+
+const char *tny_settings_ui_tool_call_view(tny_ctx *ctx) {
+    yyjson_val *value = jget(settings_ui(ctx), "tool_call_view");
+    const char *view = yyjson_get_str(value);
+    if (view && strlen(view) == yyjson_get_len(value) && tny_settings_ui_tool_call_view_valid(view))
+        return view;
+    return jget_bool(settings_ui(ctx), "tool_calls_expanded", false) ? "full" : "compact";
+}
+
 bool tny_settings_ui_tool_calls_expanded(tny_ctx *ctx) {
-    return jget_bool(settings_ui(ctx), "tool_calls_expanded", false);
+    return strcmp(tny_settings_ui_tool_call_view(ctx), "full") == 0;
 }
 
 bool tny_settings_ui_tool_call_reasons(tny_ctx *ctx) {
@@ -1453,9 +1466,16 @@ int tny_settings_set_ui(tny_ctx *ctx, const char *key, const char *value) {
     /* A failed initial parse is not an empty settings file. Preserve it so
      * the settings UI cannot replace a malformed manual edit with defaults. */
     if (!ctx->settings && file_exists(ctx->settings_path)) return -1;
+    if (strcmp(key, "tool_calls_expanded") == 0) {
+        if (strcmp(value, "true") != 0 && strcmp(value, "false") != 0) return -1;
+        key = "tool_call_view";
+        value = strcmp(value, "true") == 0 ? "full" : "compact";
+    }
     bool mode = strcmp(key, "mode") == 0;
     bool scrollback = strcmp(key, "scrollback_lines") == 0;
-    if (mode ? strcmp(value, "inline") != 0 && strcmp(value, "fullscreen") != 0
+    bool tools = strcmp(key, "tool_call_view") == 0;
+    if (mode    ? strcmp(value, "inline") != 0 && strcmp(value, "fullscreen") != 0
+        : tools ? !tny_settings_ui_tool_call_view_valid(value)
         : scrollback
             ? !tny_settings_ui_scrollback_lines_valid(value)
             : (strcmp(key, "alternate_screen") != 0 && strcmp(key, "inline_mouse") != 0 &&
@@ -1478,9 +1498,9 @@ int tny_settings_set_ui(tny_ctx *ctx, const char *key, const char *value) {
         ok = ui && yyjson_mut_obj_add_val(doc, root, "ui", ui);
     }
     yyjson_mut_val *k = yyjson_mut_strcpy(doc, key);
-    yyjson_mut_val *v = mode         ? yyjson_mut_strcpy(doc, value)
-                        : scrollback ? yyjson_mut_uint(doc, strtoul(value, NULL, 10))
-                                     : yyjson_mut_bool(doc, strcmp(value, "true") == 0);
+    yyjson_mut_val *v = (mode || tools) ? yyjson_mut_strcpy(doc, value)
+                        : scrollback    ? yyjson_mut_uint(doc, strtoul(value, NULL, 10))
+                                        : yyjson_mut_bool(doc, strcmp(value, "true") == 0);
     ok = ok && k && v && yyjson_mut_obj_put(ui, k, v);
     char *out = ok ? jwrite_pretty(doc) : NULL;
     yyjson_mut_doc_free(doc);
