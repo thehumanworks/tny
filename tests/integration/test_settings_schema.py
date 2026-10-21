@@ -55,6 +55,10 @@ class UiSettingsTests(unittest.TestCase):
                 "description": "Maximum logical transcript lines retained for fullscreen scrolling. Applies on the next TUI launch.",
             },
         )
+        self.assertCountEqual(
+            ui["properties"]["tool_call_view"]["enum"], ["compact", "full", "hidden"]
+        )
+        self.assertEqual(ui["properties"]["tool_call_view"]["default"], "compact")
         self.assertFalse(ui["additionalProperties"])
         self.assertFalse(
             any(re.fullmatch(p, "ui") for p in SCHEMA["patternProperties"])
@@ -66,12 +70,15 @@ class UiSettingsTests(unittest.TestCase):
                 jsonschema.validate(
                     {"ui": {"mode": mode, "alternate_screen": alternate}}, SCHEMA
                 )
+        for view in ("compact", "full", "hidden"):
+            jsonschema.validate({"ui": {"tool_call_view": view}}, SCHEMA)
         for ui in (
             [],
             "fullscreen",
             {"mode": "full"},
             {"alternate_screen": "false"},
             {"extra": 1},
+            *({"tool_call_view": value} for value in ("Full", "full ", "", True)),
             *(
                 ({"scrollback_lines": value})
                 for value in (0, -1, 1000001, 1.5, "50000", True)
@@ -113,6 +120,7 @@ class UiSettingsTests(unittest.TestCase):
                     "mode": "inline",
                     "alternate_screen": True,
                     "scrollback_lines": 50000,
+                    "tool_call_view": "compact",
                     "tool_calls_expanded": False,
                     "inline_mouse": False,
                     "tool_call_reasons": True,
@@ -150,7 +158,7 @@ class UiSettingsTests(unittest.TestCase):
                     {
                         "mode": mode,
                         "alternate_screen": alternate,
-                        "tool_calls_expanded": alternate,
+                        "tool_call_view": "full" if alternate else "compact",
                         "inline_mouse": alternate,
                         "tool_call_reasons": alternate,
                         "scrollback_lines": lines,
@@ -160,6 +168,7 @@ class UiSettingsTests(unittest.TestCase):
                 for key, expected in (
                     ("ui.mode", mode),
                     ("ui.alternate_screen", alternate),
+                    ("ui.tool_call_view", "full" if alternate else "compact"),
                     ("ui.tool_calls_expanded", alternate),
                     ("ui.inline_mouse", alternate),
                     ("ui.tool_call_reasons", alternate),
@@ -173,6 +182,7 @@ class UiSettingsTests(unittest.TestCase):
                     )
                 before = settings.read_bytes()
                 for key, bad in (
+                    *(("ui.tool_call_view", value) for value in ("Full", "full ", "")),
                     ("ui.mode", "Fullscreen"),
                     ("ui.mode", "fullscreen "),
                     ("ui.alternate_screen", "1"),
@@ -198,6 +208,53 @@ class UiSettingsTests(unittest.TestCase):
                         original["private_sentinel"], result.stdout + result.stderr
                     )
                     self.assertEqual(settings.read_bytes(), before)
+
+            for view in ("compact", "full", "hidden"):
+                result = run("settings", "set", "ui.tool_call_view", view, "--json")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                result = run("settings", "--json")
+                resolved = json.loads(result.stdout)["ui"]
+                self.assertEqual(resolved["tool_call_view"], view)
+                self.assertEqual(resolved["tool_calls_expanded"], view == "full")
+
+            for legacy in (False, True):
+                for view in (
+                    None,
+                    "compact",
+                    "full",
+                    "hidden",
+                    "invalid",
+                    "full\x00hidden",
+                ):
+                    ui = {"tool_calls_expanded": legacy}
+                    if view is not None:
+                        ui["tool_call_view"] = view
+                    settings.write_text(json.dumps({"ui": ui}))
+                    before = settings.read_bytes()
+                    result = run("settings", "--json")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    expected = (
+                        view
+                        if view in ("compact", "full", "hidden")
+                        else ("full" if legacy else "compact")
+                    )
+                    resolved = json.loads(result.stdout)["ui"]
+                    self.assertEqual(resolved["tool_call_view"], expected)
+                    self.assertEqual(
+                        resolved["tool_calls_expanded"], expected == "full"
+                    )
+                    self.assertEqual(settings.read_bytes(), before)
+                    result = run(
+                        "settings",
+                        "set",
+                        "ui.tool_calls_expanded",
+                        str(not legacy).lower(),
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(
+                        json.loads(settings.read_text())["ui"]["tool_call_view"],
+                        "compact" if legacy else "full",
+                    )
 
 
 class DictationSchemaTests(unittest.TestCase):
