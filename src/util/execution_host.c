@@ -1,5 +1,4 @@
 #include "util/execution_host.h"
-#include "tny_version.h"
 #include "core/execution_protocol.h"
 #include "util/process.h"
 #include "util/tny_poll.h"
@@ -11,6 +10,7 @@
 #include <string.h>
 #include <unistd.h>
 #ifndef __EMSCRIPTEN__
+#include "tny_version.h"
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
