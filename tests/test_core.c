@@ -3,6 +3,7 @@
 #include "greatest.h"
 #include "core/config.h"
 #include "core/checkpoint.h"
+#include "core/execution_state.h"
 #include "core/backend.h"
 #include "core/perm.h"
 #include "core/session.h"
@@ -213,6 +214,8 @@ TEST perm_ask_mode_opt_in(void) {
     ASSERT(perm_tool_is_safe("read_file"));
     ASSERT_FALSE(perm_tool_is_safe("terminal"));
     ASSERT_EQ(PERM_ALLOW, perm_check(p, "read_file", "relative/path.c"));
+    ASSERT_EQ(PERM_ALLOW, perm_check(p, "search_transcript", NULL));
+    ASSERT(perm_tool_is_safe("search_transcript"));
     ASSERT_EQ(PERM_PROMPT, perm_check(p, "read_file", "/etc/passwd"));
     ASSERT_EQ(PERM_PROMPT, perm_check(p, "terminal", "echo hi"));
     ASSERT_EQ(PERM_PROMPT, perm_check(p, "write_file", "/somewhere/else.txt"));
@@ -1406,6 +1409,394 @@ TEST session_working_context_repaired_source_indices(void) {
     PASS();
 }
 
+TEST session_transcript_search_and_exact_recovery(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session_state *s = session_new(ctx);
+    const char *request = "Keep the old API. Exact constraint: port 48231, never 48213.";
+    session_add_text(s, "user", request);
+    session_add_assistant(
+        s, NULL,
+        "[{\"id\":\"source-call\",\"type\":\"function\",\"function\":{"
+        "\"name\":\"terminal\",\"arguments\":\"{\\\"command\\\":\\\"check-special\\\"}\"}}]");
+    session_add_tool_result(s, "source-call", "FAILED: do not claim success");
+    char *found = session_search_transcript(s, "48231", 0, 16);
+    ASSERT(found);
+    yyjson_doc *page = jparse(found, strlen(found));
+    yyjson_val *root = yyjson_doc_get_root(page);
+    ASSERT(jget_bool(root, "complete", false));
+    ASSERT_EQ(1u, yyjson_arr_size(jget(root, "messages")));
+    yyjson_val *hit = yyjson_arr_get(jget(root, "messages"), 0);
+    char *handle = xstrdup(jget_str(hit, "handle"));
+    ASSERT(strstr(handle, s->id));
+    ASSERT_STR_EQ("user", jget_str(hit, "role"));
+    char *original = jwrite_mut_val(yyjson_mut_arr_get(session_messages(s), 0));
+    size_t got = 0;
+    char *read = session_read_result(s, handle, 0, 65536, &got);
+    ASSERT_STR_EQ(original, read);
+    ASSERT_EQ(strlen(original), got);
+    free(read);
+    read = session_read_result(s, handle, 7, 11, &got);
+    ASSERT_EQ(11u, got);
+    ASSERT_EQ(0, memcmp(original + 7, read, 11));
+    free(read);
+    size_t artifact_bytes = 0;
+    char *artifact = session_materialize_transcript(s, handle, &artifact_bytes);
+    ASSERT(artifact);
+    ASSERT_EQ(strlen(original), artifact_bytes);
+    ASSERT_EQ(0, session_save(s));
+    char *id = xstrdup(s->id);
+    session_close(s);
+    s = session_open(ctx, id);
+    ASSERT(s);
+    session_add_text(s, "user", "Another turn must not change old identifiers");
+    read = session_read_result(s, handle, 0, 65536, &got);
+    ASSERT_STR_EQ(original, read);
+    free(read);
+    tny_session_state *other = session_new(ctx);
+    session_add_text(other, "user", request);
+    ASSERT_EQ(NULL, session_read_result(other, handle, 0, 65536, &got));
+    ASSERT_EQ(NULL, session_read_result(other, artifact, 0, 65536, &got));
+    session_close(other);
+    yyjson_mut_val *message = yyjson_mut_arr_get(session_messages(s), 0);
+    yyjson_mut_obj_put(message, yyjson_mut_strcpy(s->doc, "content"),
+                       yyjson_mut_strcpy(s->doc, "changed"));
+    ASSERT_EQ(NULL, session_read_result(s, handle, 0, 65536, &got));
+    ASSERT_EQ(NULL, session_materialize_transcript(s, handle, &got));
+    read = session_read_result(s, artifact, 0, 65536, &got);
+    ASSERT_STR_EQ(original, read); /* Explicit snapshot stays immutable. */
+    free(read);
+    free(artifact);
+    free(found);
+    yyjson_doc_free(page);
+    found = session_search_transcript(s, "check-special", 0, 16);
+    page = jparse(found, strlen(found));
+    hit = yyjson_arr_get(jget(yyjson_doc_get_root(page), "messages"), 0);
+    ASSERT_STR_EQ("assistant", jget_str(hit, "role"));
+    read = session_read_result(s, jget_str(hit, "handle"), 0, 65536, &got);
+    ASSERT(strstr(read, "source-call"));
+    ASSERT(strstr(read, "check-special"));
+    free(read);
+    free(found);
+    yyjson_doc_free(page);
+    free(handle);
+    free(original);
+    free(id);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST session_transcript_bounded_cursor(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->no_save = true;
+    tny_session_state *s = session_new(ctx);
+    for (int i = 0; i < 300; i++) session_add_text(s, "user", "ordinary history");
+    session_add_tool_result(s, "last", "needle beyond first scan");
+    char *out = session_search_transcript(s, "needle", 0, 32);
+    ASSERT(out);
+    yyjson_doc *page = jparse(out, strlen(out));
+    yyjson_val *root = yyjson_doc_get_root(page);
+    ASSERT_FALSE(jget_bool(root, "complete", true));
+    ASSERT_EQ(256, jget_int(root, "next_index", -1));
+    ASSERT_EQ(0u, yyjson_arr_size(jget(root, "messages")));
+    free(out);
+    yyjson_doc_free(page);
+    out = session_search_transcript(s, "needle", 256, 32);
+    page = jparse(out, strlen(out));
+    root = yyjson_doc_get_root(page);
+    ASSERT(jget_bool(root, "complete", false));
+    ASSERT_EQ(1u, yyjson_arr_size(jget(root, "messages")));
+    ASSERT_EQ(300, jget_int(yyjson_arr_get(jget(root, "messages"), 0), "index", -1));
+    free(out);
+    yyjson_doc_free(page);
+    out = session_search_transcript(s, "", 0, 32);
+    ASSERT(strlen(out) < 65536);
+    page = jparse(out, strlen(out));
+    root = yyjson_doc_get_root(page);
+    ASSERT_EQ(32u, yyjson_arr_size(jget(root, "messages")));
+    ASSERT_EQ(32, jget_int(root, "next_index", -1));
+    ASSERT_FALSE(jget_bool(root, "complete", true));
+    free(out);
+    yyjson_doc_free(page);
+    ASSERT_EQ(NULL, session_search_transcript(s, "", 0, 33));
+    ASSERT_EQ(NULL, session_search_transcript(s, "", 0, 0));
+    char long_query[258];
+    memset(long_query, 'x', sizeof long_query - 1);
+    long_query[sizeof long_query - 1] = 0;
+    ASSERT_EQ(NULL, session_search_transcript(s, long_query, 0, 1));
+    out = session_search_transcript(s, "", SIZE_MAX, 1);
+    page = jparse(out, strlen(out));
+    ASSERT(jget_bool(yyjson_doc_get_root(page), "complete", false));
+    ASSERT_EQ(0u, yyjson_arr_size(jget(yyjson_doc_get_root(page), "messages")));
+    yyjson_doc_free(page);
+    free(out);
+    s->execution_snapshot = true;
+    ASSERT_EQ(NULL, session_search_transcript(s, "", 0, 1));
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST session_transcript_materialize_ephemeral_budget(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->no_save = true;
+    tny_session_state *s = session_new(ctx);
+    char *content = malloc(500001);
+    ASSERT(content);
+    memset(content, 'x', 500000);
+    content[500000] = 0;
+    session_add_text(s, "user", content);
+    free(content);
+    char *out = session_search_transcript(s, "", 0, 1);
+    yyjson_doc *page = jparse(out, strlen(out));
+    yyjson_val *hit = yyjson_arr_get(jget(yyjson_doc_get_root(page), "messages"), 0);
+    const char *handle = jget_str(hit, "handle");
+    size_t length = 0;
+    char *first = session_materialize_transcript(s, handle, &length);
+    ASSERT(first);
+    ASSERT(length > 500000);
+    char *second = session_materialize_transcript(s, handle, &length);
+    ASSERT(second);
+    ASSERT_EQ(NULL, session_materialize_transcript(s, handle, &length));
+    ASSERT_EQ(2, s->n_mem_results);
+    char *read = session_read_result(s, first, 100, 16, &length);
+    ASSERT(read);
+    ASSERT_EQ(16u, length);
+    ASSERT_STR_EQ("xxxxxxxxxxxxxxxx", read);
+    ASSERT_FALSE(file_exists(s->dir));
+    free(read);
+    free(first);
+    free(second);
+    yyjson_doc_free(page);
+    free(out);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+/* Exercise the storage/state seam with the descriptor's reservation applied
+ * explicitly. The production no-save materialization RPC has no tool caller yet. */
+static yyjson_doc *transcript_budget_state(tools_env *env, yyjson_val *baseline, bool initial) {
+    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+    yyjson_mut_val *state = d ? tny_execution_state_encode(d, env, baseline, initial) : NULL;
+    if (d) yyjson_mut_doc_set_root(d, state);
+    yyjson_doc *out = state ? yyjson_mut_doc_imut_copy(d, jallocator()) : NULL;
+    yyjson_mut_doc_free(d);
+    return out;
+}
+
+static void transcript_budget_reserve(tny_session_state *snapshot, tny_session_state *owner) {
+    snapshot->execution_reserved_result_bytes = 0;
+    size_t local = session_result_memory_available(snapshot);
+    size_t available = session_result_memory_available(owner);
+    snapshot->execution_reserved_result_bytes = local > available ? local - available : 0;
+}
+
+TEST session_transcript_materialize_and_stream_share_snapshot_budget(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->no_save = true;
+    char *content = malloc(600001);
+    ASSERT(content);
+    memset(content, 'x', 600000);
+    content[600000] = 0;
+    for (int stream_first = 0; stream_first <= 1; ++stream_first) {
+        tools_env owner = {.ctx = ctx, .session = session_new(ctx)}, child = {.ctx = ctx};
+        ASSERT(owner.session);
+        session_add_text(owner.session, "user", content);
+        yyjson_doc *initial = transcript_budget_state(&owner, NULL, true);
+        ASSERT(initial);
+        ASSERT(tny_execution_state_apply(&child, yyjson_doc_get_root(initial), true));
+        yyjson_doc *baseline = yyjson_mut_doc_imut_copy(child.session->doc, jallocator());
+        ASSERT(baseline);
+        char *search = session_search_transcript(owner.session, "", 0, 1);
+        ASSERT(search);
+        yyjson_doc *page = jparse(search, strlen(search));
+        ASSERT(page);
+        const char *handle =
+            jget_str(yyjson_arr_get(jget(yyjson_doc_get_root(page), "messages"), 0), "handle");
+        ASSERT(handle);
+        bool stored = false;
+        char *notice = NULL;
+        if (stream_first) {
+            session_result_stream *stream = session_result_stream_new(child.session, 0);
+            ASSERT(stream);
+            session_result_stream_append(stream, content, 600000);
+            notice = session_result_stream_finish_content(stream, &stored);
+            ASSERT(notice && stored);
+            free(notice);
+        }
+        /* The materialization RPC must publish completed local spills first. */
+        yyjson_doc *delta = transcript_budget_state(&child, yyjson_doc_get_root(baseline), false);
+        ASSERT(delta);
+        ASSERT(tny_execution_state_apply(&owner, yyjson_doc_get_root(delta), false));
+        yyjson_doc_free(delta);
+        size_t length = 0;
+        char *artifact = session_materialize_transcript(owner.session, handle, &length);
+        ASSERT_EQ(!stream_first, artifact != NULL);
+        transcript_budget_reserve(child.session, owner.session);
+        ASSERT_EQ(session_result_memory_available(owner.session),
+                  session_result_memory_available(child.session));
+        if (!stream_first) {
+            ASSERT_EQ(length, child.session->execution_reserved_result_bytes);
+            session_result_stream *stream = session_result_stream_new(child.session, 0);
+            ASSERT(stream);
+            session_result_stream_append(stream, content, 600000);
+            notice = session_result_stream_finish_content(stream, &stored);
+            ASSERT(notice && !stored);
+            ASSERT(strstr(notice, "recovery unavailable"));
+            free(notice);
+        }
+        delta = transcript_budget_state(&child, yyjson_doc_get_root(baseline), false);
+        ASSERT(delta);
+        ASSERT(tny_execution_state_apply(&owner, yyjson_doc_get_root(delta), false));
+        ASSERT_EQ(1, owner.session->n_mem_results);
+        ASSERT(owner.session->mem_results[0].len <= 1024u * 1024u);
+        ASSERT_EQ(0u, owner.session->execution_reserved_result_bytes);
+        ASSERT_FALSE(file_exists(owner.session->dir));
+        free(artifact);
+        free(search);
+        yyjson_doc_free(page);
+        yyjson_doc_free(delta);
+        yyjson_doc_free(baseline);
+        yyjson_doc_free(initial);
+        session_close(child.session);
+        session_close(owner.session);
+    }
+    free(content);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST session_transcript_repeated_reservations_and_active_capture_budget(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->no_save = true;
+    tny_session_state *owner = session_new(ctx), *snapshot = session_new(ctx);
+    ASSERT(owner && snapshot);
+    char *content = malloc(300001);
+    ASSERT(content);
+    memset(content, 'x', 300000);
+    content[300000] = 0;
+    session_add_text(owner, "user", content);
+    char *search = session_search_transcript(owner, "", 0, 1);
+    ASSERT(search);
+    yyjson_doc *page = jparse(search, strlen(search));
+    ASSERT(page);
+    const char *handle =
+        jget_str(yyjson_arr_get(jget(yyjson_doc_get_root(page), "messages"), 0), "handle");
+    ASSERT(handle);
+    session_result_stream *active = NULL;
+    size_t retained = 0;
+    for (int i = 0; i < 4; ++i) {
+        size_t length = 0;
+        char *artifact = session_materialize_transcript(owner, handle, &length);
+        ASSERT_EQ(i < 3, artifact != NULL);
+        if (artifact) retained += length;
+        transcript_budget_reserve(snapshot, owner);
+        ASSERT_EQ(retained, snapshot->execution_reserved_result_bytes);
+        ASSERT_EQ(1024u * 1024u - retained, session_result_memory_available(snapshot));
+        ASSERT_EQ(0, snapshot->n_mem_results);
+        if (i == 1) {
+            active = session_result_stream_new(snapshot, 0);
+            ASSERT(active);
+            session_result_stream_append(active, content, 200000);
+        }
+        free(artifact);
+    }
+    ASSERT_EQ(3, owner->n_mem_results);
+    /* A later import can consume capacity held by an unfinished stdout capture.
+     * Finish must refuse that capture instead of publishing a partial handle. */
+    bool stored = true;
+    char *notice = session_result_stream_finish_content(active, &stored);
+    ASSERT(notice && !stored);
+    ASSERT(strstr(notice, "recovery unavailable"));
+    ASSERT_EQ(0, snapshot->n_mem_results);
+    free(notice);
+    session_result_stream *small = session_result_stream_new(snapshot, 0);
+    ASSERT(small);
+    session_result_stream_append(small, content, 100000);
+    notice = session_result_stream_finish_content(small, &stored);
+    ASSERT(notice && stored);
+    ASSERT_EQ(1, snapshot->n_mem_results);
+    ASSERT_EQ(1024u * 1024u - retained - 100000, session_result_memory_available(snapshot));
+    free(notice);
+    free(search);
+    free(content);
+    yyjson_doc_free(page);
+    session_close(snapshot);
+    session_close(owner);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST session_transcript_budget_preserves_legacy_unbounded_spills(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ASSERT(ctx);
+    ctx->no_save = true;
+    tny_session_state *s = session_new(ctx);
+    ASSERT(s);
+    size_t length = 1024u * 1024u + 1;
+    char *content = malloc(length);
+    ASSERT(content);
+    memset(content, 'x', length);
+    char *handle = session_store_result(s, content, length);
+    ASSERT(handle); /* The new bounded helper does not redefine legacy storage. */
+    ASSERT_EQ(0u, session_result_memory_available(s));
+    s->execution_reserved_result_bytes = SIZE_MAX;
+    ASSERT_EQ(0u, session_result_memory_available(s));
+    session_add_text(s, "user", "small source");
+    char *search = session_search_transcript(s, "", 0, 1);
+    ASSERT(search);
+    yyjson_doc *page = jparse(search, strlen(search));
+    ASSERT(page);
+    const char *source =
+        jget_str(yyjson_arr_get(jget(yyjson_doc_get_root(page), "messages"), 0), "handle");
+    ASSERT_EQ(NULL, session_materialize_transcript(s, source, &length));
+    ASSERT_EQ(1, s->n_mem_results);
+    ASSERT_FALSE(file_exists(s->dir));
+    free(search);
+    yyjson_doc_free(page);
+    free(handle);
+    free(content);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
+TEST session_compaction_unicode_is_durable(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    tny_session_state *s = session_new(ctx);
+    char content[170];
+    memset(content, 'x', 159);
+    strcpy(content + 159, "€tail");
+    session_add_text(s, "user", content);
+    session_add_assistant(s, content, NULL);
+    session_add_text(s, "user", "latest");
+    ASSERT_EQ(1, session_compact(s, true));
+    ASSERT_EQ(0, session_save(s));
+    char *serialized = jwrite(s->doc);
+    ASSERT(serialized);
+    free(serialized);
+    session_close(s);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST session_compaction(void) {
     ensure_env();
     write_settings("{}");
@@ -1434,6 +1825,13 @@ TEST session_compaction(void) {
     b = session_compact_boundary(s, &summary);
     ASSERT_EQ_FMT(16, b, "%d");
     ASSERT(strstr(summary, "question 7") != NULL);
+    ASSERT(strstr(summary, s->id));
+    ASSERT(strstr(summary, "message indices [0, 10)"));
+    ASSERT(strstr(summary, "message indices [10, 16)"));
+    yyjson_mut_val *compact = yyjson_mut_obj_get(yyjson_mut_doc_get_root(s->doc), "compact");
+    ASSERT_STR_EQ(s->id, yyjson_mut_get_str(yyjson_mut_obj_get(compact, "source_session")));
+    ASSERT_EQ(0u, yyjson_mut_get_uint(yyjson_mut_obj_get(compact, "source_first")));
+    ASSERT_EQ(16u, yyjson_mut_get_uint(yyjson_mut_obj_get(compact, "source_end")));
     session_close(s);
     tny_ctx_free(ctx);
     PASS();
@@ -7634,6 +8032,13 @@ SUITE(core_suite) {
     RUN_TEST(session_stream_preserves_chunked_bytes_and_handles_missing_session);
     RUN_TEST(session_result_handles);
     RUN_TEST(session_result_sparse_slices);
+    RUN_TEST(session_transcript_search_and_exact_recovery);
+    RUN_TEST(session_transcript_bounded_cursor);
+    RUN_TEST(session_transcript_materialize_ephemeral_budget);
+    RUN_TEST(session_transcript_materialize_and_stream_share_snapshot_budget);
+    RUN_TEST(session_transcript_repeated_reservations_and_active_capture_budget);
+    RUN_TEST(session_transcript_budget_preserves_legacy_unbounded_spills);
+    RUN_TEST(session_compaction_unicode_is_durable);
     RUN_TEST(session_compaction);
     RUN_TEST(session_working_context_reversible_and_stable);
     RUN_TEST(session_working_context_preserves_protected_overflow);

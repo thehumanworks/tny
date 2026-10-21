@@ -33,6 +33,8 @@ typedef struct {
     /* Private execution snapshot: mutate working state, but only its owning
      * harness may publish session.json/task.md after merging the RPC delta. */
     bool execution_snapshot;
+    /* Owner-only ephemeral artifacts are not copied into execution snapshots. */
+    size_t execution_reserved_result_bytes;
     /* Private synchronous save boundary; never serialized. A snapshot cannot
      * report save success before its owner has merged and persisted state. */
     int (*execution_save)(void *ud);
@@ -40,6 +42,8 @@ typedef struct {
     /* Lazy owner transcript reads keep historical messages outside snapshots. */
     char *(*execution_read_result)(void *ud, const char *handle, size_t offset, size_t length,
                                    size_t *out_len);
+    char *(*execution_search_transcript)(void *ud, const char *query, size_t start, size_t limit);
+    char *(*execution_materialize_transcript)(void *ud, const char *handle, size_t *out_len);
     /* Exact resolved task instructions are persisted in the private
      * <session>/task.md sidecar. Public session JSON carries metadata only. */
     char *task_body;
@@ -137,6 +141,7 @@ char *session_store_result(tny_session_state *s, const char *data, size_t len);
  * Finish consumes the stream and returns a malloc-owned recovery notice (empty
  * for small output). Incomplete captures are discarded and reported explicitly. */
 typedef struct session_result_stream session_result_stream;
+size_t session_result_memory_available(const tny_session_state *s);
 session_result_stream *session_result_stream_new(tny_session_state *s, size_t preview_bytes);
 void session_result_stream_append(void *stream, const char *data, size_t len);
 char *session_result_stream_finish(session_result_stream *stream, bool needed);
@@ -154,10 +159,24 @@ void session_result_stream_abort(session_result_stream *stream);
 char *session_read_result(tny_session_state *s, const char *handle, size_t off, size_t maxlen,
                           size_t *out_len);
 
+/* Bounded, session-local original-message metadata. Empty query browses; literal
+ * case-sensitive search covers serialized message JSON. At most 256 originals
+ * are scanned and 32 hits returned per call; follow next_index until complete.
+ * Returned handles read whole-message JSON through session_read_result. */
+char *session_search_transcript(tny_session_state *s, const char *query, size_t start,
+                                size_t limit);
+
+/* Explicit selected-source copy, never automatic browse caching. Validates the
+ * whole-message handle once, then returns a seekable session-qualified artifact
+ * handle and exact length. Existing 64 MiB per-artifact disk / 1 MiB ephemeral aggregate caps
+ * apply; no cross-session lookup, and failure returns NULL without a partial. */
+char *session_materialize_transcript(tny_session_state *s, const char *handle, size_t *out_len);
+
 /* Legacy explicit compaction: nonforce keeps latest 4 turns after 8; force=true
  * condenses everything before the latest turn. Summary is mechanical
  * (requests, files, commands, outcomes). */
-int session_compact(tny_session_state *s, bool force); /* 1 changed, 0 no-op */
+int session_compact(tny_session_state *s,
+                    bool force); /* 1 changed, 0 no-op, -1 allocation failure */
 bool session_compact_needed(tny_session_state *s, bool force);
 int session_message_count(tny_session_state *s);
 /* Index of first message the model should see verbatim + summary text. */

@@ -77,6 +77,17 @@ static char *t_memory(tools_env *env, yyjson_val *args) {
     return result;
 }
 
+static char *t_search_transcript(tools_env *env, yyjson_val *args) {
+    if (!env->session) return tool_err("no session");
+    const char *query = jget_str(args, "query");
+    int64_t start = jget_int(args, "start_index", 0), limit = jget_int(args, "limit", 16);
+    if (start < 0 || limit < 1 || limit > 32 || (query && strlen(query) > 256))
+        return tool_err("start_index must be nonnegative, limit 1..32, query at most 256 bytes");
+    char *out =
+        session_search_transcript(env->session, query ? query : "", (size_t)start, (size_t)limit);
+    return out ? out : tool_err("transcript lookup unavailable");
+}
+
 static char *t_read_tool_result(tools_env *env, yyjson_val *args) {
     if (!env->session) return tool_err("no session");
     const char *handle = jget_str(args, "handle");
@@ -249,6 +260,7 @@ char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool 
     }
     if (strcmp(name, "speak") == 0) return t_speak(env, args);
     if (strcmp(name, "memory") == 0) return t_memory(env, args);
+    if (strcmp(name, "search_transcript") == 0) return t_search_transcript(env, args);
     if (strcmp(name, "read_tool_result") == 0) return t_read_tool_result(env, args);
     if (strcmp(name, "skill") == 0) return t_skill(env, args);
     if (strcmp(name, "install_skill") == 0) return t_install_skill(env, args);

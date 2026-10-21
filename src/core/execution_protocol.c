@@ -10,7 +10,8 @@ bool tny_exec_protocol_admit(tny_exec_phase phase, tny_exec_kind kind, uint64_t 
     if (phase != TNY_EXEC_WAIT_RESULT) return false;
     if (kind == TNY_EXEC_RESULT) return id == 1;
     return expected >= 2 && id == expected &&
-           ((kind >= TNY_EXEC_CONTROL && kind <= TNY_EXEC_STATE) || kind == TNY_EXEC_READ_RESULT);
+           ((kind >= TNY_EXEC_CONTROL && kind <= TNY_EXEC_STATE) || kind == TNY_EXEC_READ_RESULT ||
+            kind == TNY_EXEC_SEARCH_TRANSCRIPT || kind == TNY_EXEC_MATERIALIZE_TRANSCRIPT);
 }
 
 static bool valid_value(yyjson_val *v, unsigned depth, size_t *left) {
@@ -54,6 +55,8 @@ static const char *method_name(tny_exec_kind kind) {
     case TNY_EXEC_ASK: return "ask";
     case TNY_EXEC_STATE: return "state";
     case TNY_EXEC_READ_RESULT: return "read_result";
+    case TNY_EXEC_SEARCH_TRANSCRIPT: return "search_transcript";
+    case TNY_EXEC_MATERIALIZE_TRANSCRIPT: return "materialize_transcript";
     default: return NULL;
     }
 }
@@ -75,7 +78,7 @@ tny_exec_kind tny_exec_envelope(yyjson_val *root, uint64_t *id, yyjson_val **bod
     } else {
         if (yyjson_obj_size(root) != 5 || !yyjson_is_obj(jget(root, "params")))
             return TNY_EXEC_INVALID;
-        for (int i = TNY_EXEC_EXECUTE; i <= TNY_EXEC_READ_RESULT; i++) {
+        for (int i = TNY_EXEC_EXECUTE; i <= TNY_EXEC_MATERIALIZE_TRANSCRIPT; i++) {
             const char *name = method_name((tny_exec_kind)i);
             if (name && strcmp(method, name) == 0) kind = (tny_exec_kind)i;
         }

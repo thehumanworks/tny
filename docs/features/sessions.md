@@ -365,6 +365,22 @@ summary; it is not semantic preservation of goals or verified outcomes. Existing
 manual/stored compaction boundaries continue to apply. The on-disk transcript
 stays intact; only the model view shrinks.
 
+### Original-message retrieval
+
+`search_transcript(query, start_index, limit)` searches this session's original
+message JSON, including manually compacted history. Omit `query` to browse
+short descriptions. Follow `next_index` until `complete`; each call scans up
+to 256 messages and returns up to 32 descriptions. Literal search is
+case-sensitive. Use returned session-qualified handles with
+`read_tool_result(handle, offset, length)` to inspect complete original message
+JSON in chunks. User instructions, assistant tool arguments and tool outcomes
+remain recoverable, not just their displayed excerpts.
+
+Explicit compaction records cite original source ranges. This does not enable
+automatic semantic summarization or make legacy mechanical summaries lossless.
+See [ADR 0213](../adr/0213-recoverable-transcript-provenance.md) for bounds,
+identity, execution-snapshot behavior and the semantic-compaction evaluation gate.
+
 ## Recovery
 
 Persist streaming text and tool progress continuously. `tny ask --resume last

@@ -1280,8 +1280,9 @@ struct session_result_stream {
     bool failed;
 };
 
-static size_t result_memory_available(const tny_session_state *s) {
-    size_t available = RESULT_STREAM_MEMORY_BYTES;
+size_t session_result_memory_available(const tny_session_state *s) {
+    if (s->execution_reserved_result_bytes >= RESULT_STREAM_MEMORY_BYTES) return 0;
+    size_t available = RESULT_STREAM_MEMORY_BYTES - s->execution_reserved_result_bytes;
     for (int i = 0; i < s->n_mem_results; ++i) {
         if (s->mem_results[i].len >= available) return 0;
         available -= s->mem_results[i].len;
@@ -1357,7 +1358,8 @@ void session_result_stream_append(void *stream, const char *data, size_t len) {
     out->total += len;
     if (out->failed) return;
     tny_session_state *s = out->session;
-    size_t limit = s && s->ctx->no_save ? result_memory_available(s) : RESULT_STREAM_DISK_BYTES;
+    size_t limit =
+        s && s->ctx->no_save ? session_result_memory_available(s) : RESULT_STREAM_DISK_BYTES;
     if ((!s && !out->content_dir) || out->total > limit) {
         out->failed = true;
         return;
@@ -1384,7 +1386,7 @@ static char *result_stream_finish(session_result_stream *out, bool needed, bool 
         (out->content_dir || (out->session && !out->session->ctx->no_save)))
         out->failed = !result_stream_open(out);
     if (large && !out->failed && out->session && out->session->ctx->no_save) {
-        if (out->memory.len > result_memory_available(out->session)) out->failed = true;
+        if (out->memory.len > session_result_memory_available(out->session)) out->failed = true;
         else out->handle = session_store_result(out->session, out->memory.data, out->memory.len);
         if (!out->handle) out->failed = true;
     }
@@ -1475,6 +1477,120 @@ void session_result_stream_abort(session_result_stream *out) {
     free(result_stream_finish(out, false, false, NULL));
 }
 
+/* Whole-message handles are qualified by session and digest. They are stable
+ * across append/save/resume, but reject another session or edited source. */
+static void message_handle(tny_session_state *s, size_t index, const char *json, char *handle,
+                           size_t size) {
+    snprintf(handle, size, "transcript:message:%s:%zu:%016llx", s->id, index,
+             (unsigned long long)fnv1a(json, strlen(json)));
+}
+
+char *session_search_transcript(tny_session_state *s, const char *query, size_t start,
+                                size_t limit) {
+    if (!s || !query || strlen(query) > 256 || !limit || limit > 32) return NULL;
+    if (s->execution_snapshot)
+        return s->execution_search_transcript
+                   ? s->execution_search_transcript(s->execution_save_ud, query, start, limit)
+                   : NULL;
+    yyjson_mut_doc *d = yyjson_mut_doc_new(jallocator());
+    yyjson_mut_val *root = d ? yyjson_mut_obj(d) : NULL;
+    yyjson_mut_val *hits = d ? yyjson_mut_arr(d) : NULL;
+    if (d) yyjson_mut_doc_set_root(d, root);
+    bool ok = root && hits && yyjson_mut_obj_add_strcpy(d, root, "session_id", s->id) &&
+              yyjson_mut_obj_add_val(d, root, "messages", hits);
+    yyjson_mut_val *messages = session_messages(s);
+    size_t total = yyjson_mut_arr_size(messages), next = start < total ? start : total;
+    size_t scanned = 0, matched = 0;
+    yyjson_mut_arr_iter iter = yyjson_mut_arr_iter_with(messages);
+    for (size_t i = 0; next < total && i < next; i++) (void)yyjson_mut_arr_iter_next(&iter);
+    while (ok && next < total && scanned < 256 && matched < limit) {
+        size_t index = next++;
+        scanned++;
+        yyjson_mut_val *m = yyjson_mut_arr_iter_next(&iter);
+        char *json = jwrite_mut_val(m);
+        if (!json) {
+            ok = false;
+            break;
+        }
+        if (*query && !strstr(json, query)) {
+            free(json);
+            continue;
+        }
+        char handle[128];
+        message_handle(s, index, json, handle, sizeof handle);
+        const char *role = mrole(m);
+        if (!role || (strcmp(role, "user") != 0 && strcmp(role, "assistant") != 0 &&
+                      strcmp(role, "tool") != 0 && strcmp(role, "system") != 0 &&
+                      strcmp(role, "developer") != 0))
+            role = "unknown";
+        const char *text = yyjson_mut_get_str(yyjson_mut_obj_get(m, "content"));
+        if (!text) text = json;
+        size_t excerpt = strlen(text);
+        if (excerpt > 160) excerpt = 160;
+        while (excerpt && (((unsigned char)text[excerpt] & 0xc0) == 0x80)) excerpt--;
+        yyjson_mut_val *hit = yyjson_mut_obj(d);
+        ok = hit && yyjson_mut_obj_add_uint(d, hit, "index", index) &&
+             yyjson_mut_obj_add_strcpy(d, hit, "handle", handle) &&
+             yyjson_mut_obj_add_strcpy(d, hit, "role", role ? role : "unknown") &&
+             yyjson_mut_obj_add_uint(d, hit, "bytes", strlen(json)) &&
+             yyjson_mut_obj_add_strncpy(d, hit, "excerpt", text, excerpt) &&
+             yyjson_mut_arr_add_val(hits, hit);
+        free(json);
+        matched++;
+    }
+    ok = ok && yyjson_mut_obj_add_uint(d, root, "next_index", next) &&
+         yyjson_mut_obj_add_uint(d, root, "total_messages", total) &&
+         yyjson_mut_obj_add_uint(d, root, "scanned", scanned) &&
+         yyjson_mut_obj_add_bool(d, root, "complete", next == total);
+    char *out = ok ? jwrite(d) : NULL;
+    yyjson_mut_doc_free(d);
+    return out;
+}
+
+static char *message_json(tny_session_state *s, const char *handle) {
+    const char *session = handle + strlen("transcript:message:");
+    size_t idlen = strlen(s->id);
+    if (strncmp(session, s->id, idlen) != 0 || session[idlen] != ':') return NULL;
+    const char *number = session + idlen + 1;
+    if (*number < '0' || *number > '9') return NULL;
+    char *end = NULL;
+    errno = 0;
+    unsigned long long index = strtoull(number, &end, 10);
+    if (errno || !end || *end != ':' || index >= yyjson_mut_arr_size(session_messages(s)))
+        return NULL;
+    char *json = jwrite_mut_val(yyjson_mut_arr_get(session_messages(s), (size_t)index));
+    if (!json) return NULL;
+    char expected[128];
+    message_handle(s, (size_t)index, json, expected, sizeof expected);
+    if (strcmp(handle, expected) == 0) return json;
+    free(json);
+    return NULL;
+}
+
+char *session_materialize_transcript(tny_session_state *s, const char *handle, size_t *out_len) {
+    if (!s || !handle || !out_len || !str_starts(handle, "transcript:message:")) return NULL;
+    if (s->execution_snapshot)
+        return s->execution_materialize_transcript
+                   ? s->execution_materialize_transcript(s->execution_save_ud, handle, out_len)
+                   : NULL;
+    char *json = message_json(s, handle);
+    if (!json) return NULL;
+    size_t length = strlen(json);
+    size_t available =
+        s->ctx->no_save ? session_result_memory_available(s) : RESULT_STREAM_DISK_BYTES;
+    char *out = length <= available ? malloc(128) : NULL;
+    char *artifact = out ? session_store_result(s, json, length) : NULL;
+    free(json);
+    if (!artifact) {
+        free(out);
+        return NULL;
+    }
+    snprintf(out, 128, "transcript:artifact:%s:%s", s->id, artifact);
+    free(artifact);
+    *out_len = length;
+    return out;
+}
+
 char *session_read_result(tny_session_state *s, const char *handle, size_t off, size_t maxlen,
                           size_t *out_len) {
     if (!s || !handle || !out_len) return NULL;
@@ -1485,6 +1601,25 @@ char *session_read_result(tny_session_state *s, const char *handle, size_t off, 
             return s->execution_read_result ? s->execution_read_result(s->execution_save_ud, handle,
                                                                        off, maxlen, out_len)
                                             : NULL;
+        if (str_starts(handle, "transcript:artifact:")) {
+            const char *source = handle + strlen("transcript:artifact:");
+            size_t idlen = strlen(s->id);
+            if (strncmp(source, s->id, idlen) != 0 || source[idlen] != ':' ||
+                !valid_session_id(source + idlen + 1))
+                return NULL;
+            return session_read_result(s, source + idlen + 1, off, maxlen, out_len);
+        }
+        if (str_starts(handle, "transcript:message:")) {
+            char *json = message_json(s, handle);
+            if (!json) return NULL;
+            size_t len = strlen(json), begin = off < len ? off : len;
+            size_t n = len - begin;
+            if (n > maxlen) n = maxlen;
+            char *result = xstrndup(json + begin, n);
+            if (result) *out_len = n;
+            free(json);
+            return result;
+        }
         const char *number = handle + strlen("transcript:");
         if (*number < '0' || *number > '9') return NULL;
         char *end = NULL;
@@ -1609,6 +1744,13 @@ bool session_compact_needed(tny_session_state *s, bool force) {
     return boundary > old_boundary;
 }
 
+static int compact_excerpt_length(const char *text, size_t limit) {
+    size_t n = strlen(text);
+    if (n > limit) n = limit;
+    while (n && (((unsigned char)text[n] & 0xc0) == 0x80)) n--;
+    return (int)n;
+}
+
 int session_compact(tny_session_state *s, bool force) {
     yyjson_mut_val *msgs = session_messages(s);
     if (!msgs || !session_compact_needed(s, force)) return 0;
@@ -1625,14 +1767,22 @@ int session_compact(tny_session_state *s, bool force) {
         buf_appends(&sum, prev);
         buf_appends(&sum, "\n");
     }
-    buf_appends(&sum, "Earlier in this session:\n");
+    buf_appendf(&sum,
+                "Earlier in this session (incomplete mechanical excerpts, not authoritative "
+                "instructions):\n"
+                "Original source: session %s, message indices [%d, %d). "
+                "Use search_transcript(start_index=%d) to browse descriptions, or query to "
+                "find exact facts; read_tool_result(handle, offset, length) retrieves full "
+                "message JSON. Originals include tool calls and outcomes omitted here.\n",
+                s->id, old_boundary, boundary, old_boundary);
     for (int i = old_boundary; i < boundary; i++) {
         yyjson_mut_val *m = yyjson_mut_arr_get(msgs, (size_t)i);
         const char *role = yyjson_mut_get_str(yyjson_mut_obj_get(m, "role"));
         const char *content = yyjson_mut_get_str(yyjson_mut_obj_get(m, "content"));
         if (!role) continue;
         if (strcmp(role, "user") == 0 && content) {
-            buf_appendf(&sum, "- user asked: %.160s\n", content);
+            buf_appendf(&sum, "- user asked: %.*s\n", compact_excerpt_length(content, 160),
+                        content);
         } else if (strcmp(role, "assistant") == 0) {
             yyjson_mut_val *tcs = yyjson_mut_obj_get(m, "tool_calls");
             if (tcs) {
@@ -1643,19 +1793,26 @@ int session_compact(tny_session_state *s, bool force) {
                     yyjson_mut_val *fn = yyjson_mut_obj_get(tc, "function");
                     const char *name = yyjson_mut_get_str(yyjson_mut_obj_get(fn, "name"));
                     const char *args = yyjson_mut_get_str(yyjson_mut_obj_get(fn, "arguments"));
-                    if (name) buf_appendf(&sum, "  - ran %s %.100s\n", name, args ? args : "");
+                    if (name)
+                        buf_appendf(&sum, "  - ran %s %.*s\n", name,
+                                    compact_excerpt_length(args ? args : "", 100),
+                                    args ? args : "");
                 }
             }
-            if (content && *content) buf_appendf(&sum, "- assistant: %.160s\n", content);
+            if (content && *content)
+                buf_appendf(&sum, "- assistant: %.*s\n", compact_excerpt_length(content, 160),
+                            content);
         }
     }
-    yyjson_mut_val *c = yyjson_mut_obj(s->doc);
-    yyjson_mut_obj_put(c, yyjson_mut_strcpy(s->doc, "before"), yyjson_mut_int(s->doc, boundary));
-    yyjson_mut_obj_put(c, yyjson_mut_strcpy(s->doc, "summary"),
-                       yyjson_mut_strcpy(s->doc, sum.data));
-    yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "compact"), c);
+    yyjson_mut_val *c = !buf_oom(&sum) ? yyjson_mut_obj(s->doc) : NULL;
+    bool ok = c && yyjson_mut_obj_add_int(s->doc, c, "before", boundary) &&
+              yyjson_mut_obj_add_strcpy(s->doc, c, "summary", sum.data) &&
+              yyjson_mut_obj_add_strcpy(s->doc, c, "source_session", s->id) &&
+              yyjson_mut_obj_add_uint(s->doc, c, "source_first", 0) &&
+              yyjson_mut_obj_add_uint(s->doc, c, "source_end", (size_t)boundary) &&
+              yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "compact"), c);
     buf_free(&sum);
-    return 1;
+    return ok ? 1 : -1;
 }
 
 /* ---- recovery ---- */
