@@ -132,6 +132,8 @@ typedef struct tny_ctx {
 
     /* User system prompt carried on the native system/instructions field. */
     char *system_prompt;
+    /* Frozen optional retrieval profile and imported-source manifest; no credentials. */
+    char *retrieval_state;
 
     /* Runtime-owned task preset selection. Bodies are resolved lazily for CLI
      * contexts and are never ambiently discovered by deterministic embedders. */

@@ -298,7 +298,7 @@
         "tool_call_reasons": {
           "type": "boolean",
           "default": true,
-          "description": "Ask agents for a short 1\u201310 word tool-call reason. Missing reasons never prevent execution."
+          "description": "Ask agents for a short 1–10 word tool-call reason. Missing reasons never prevent execution."
         },
         "inline_mouse": {
           "type": "boolean",
@@ -324,10 +324,21 @@
       "maximum": 16777216,
       "default": 32768,
       "description": "Byte threshold for inline tool results and file/web content. Oversized content stays recoverable through scoped reads. Workspace settings override this global default; .tny.json overrides both."
+    },
+    "agent_presets": {
+      "type": "object",
+      "description": "Optional global-only named agent inference presets. Explicit provider and model select independently from the conversation; credentials remain in existing provider stores. No project authority, task execution or provider I/O occurs while loading these settings.",
+      "maxProperties": 32,
+      "propertyNames": {
+        "$ref": "#/$defs/agentPresetName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/agentPreset"
+      }
     }
   },
   "patternProperties": {
-    "^(?!\\$schema$|provider$|model$|models$|optimise$|dictation$|effort$|fast$|image_input$|permission_mode$|tools$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|ui$|permission$|workspaces$|web_search_command$|web_search_url$|web_search_model$|web_search_timeout_seconds$|mcp$|max_tool_result_bytes$)[A-Za-z0-9_-]+$": {
+    "^(?!\\$schema$|provider$|model$|models$|agent_presets$|optimise$|dictation$|effort$|fast$|image_input$|permission_mode$|tools$|last_provider$|last_backend$|openai$|cursor$|acp$|extensions$|ui$|permission$|workspaces$|web_search_command$|web_search_url$|web_search_model$|web_search_timeout_seconds$|mcp$|max_tool_result_bytes$)[A-Za-z0-9_-]+$": {
       "$ref": "#/$defs/openAIProfile",
       "description": "Named OpenAI-compatible provider profile."
     }
@@ -461,6 +472,60 @@
         "model": {
           "type": "string",
           "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "agentPresetName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^(?!\\.)(?!.*\\.\\.)[A-Za-z0-9_.-]+(?![\\s\\S])",
+      "description": "Task-name grammar: ASCII letters, digits, underscore, hyphen and dot; no leading dot or consecutive dots."
+    },
+    "agentPresetText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000]*$",
+      "description": "Nonempty NUL-free UTF-8 text. Runtime additionally enforces at most 256 UTF-8 bytes; JSON Schema maxLength counts Unicode characters."
+    },
+    "agentPreset": {
+      "type": "object",
+      "required": [
+        "provider",
+        "model"
+      ],
+      "properties": {
+        "provider": {
+          "$ref": "#/$defs/agentPresetText",
+          "description": "Explicit existing provider/profile selector. No default, credentials or endpoint URL."
+        },
+        "model": {
+          "$ref": "#/$defs/agentPresetText",
+          "description": "Explicit model identifier. Never inherited from the conversation."
+        },
+        "effort": {
+          "$ref": "#/$defs/agentPresetText",
+          "description": "Optional independent reasoning effort. Omitted means the selected provider default."
+        },
+        "task": {
+          "$ref": "#/$defs/agentPresetName",
+          "default": "context-retrieval",
+          "description": "Instructions-only task preset; cannot grant tools, permissions or credentials."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 256,
+          "pattern": "^[^\\u0000]*$",
+          "default": "",
+          "description": "Optional discovery text; NUL-free UTF-8, at most 256 bytes at runtime."
+        },
+        "max_result_bytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65536,
+          "default": 8192
         }
       },
       "additionalProperties": false

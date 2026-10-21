@@ -1,3 +1,5 @@
+# Retrieval preset fixtures use the existing src/tests filesets, Python stdlib,
+# native child processes and loopback mocks; no live provider or new inputs.
 # Execution snapshot regressions and optional encoder benchmark use existing
 # src/tests filesets, the C compiler and Python stdlib; no new dependencies.
 # Parallel read workers and their rendezvous/timeout tests use the existing

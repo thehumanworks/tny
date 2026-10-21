@@ -3,6 +3,7 @@
  * connected until the first prompt is submitted). See docs/tui.md. */
 #include "tui/tui.h"
 #include "mcp/mcp.h"
+#include "core/retrieval.h"
 #include "util/tny_poll.h"
 
 #ifdef __EMSCRIPTEN__
@@ -598,6 +599,8 @@ void tui_new_session(tui *t, bool clear_screen) {
     }
     tui_tools_view_close(t);
     tui_tools_free(t);
+    free(t->ctx->retrieval_state);
+    t->ctx->retrieval_state = NULL;
     t->session = session_new(t->ctx);
     if (t->session)
         session_set_extension_start(t->session, clear_screen ? "clear" : "new", previous);
@@ -615,10 +618,12 @@ static bool ensure_backend(tui *t) {
         tui_err(t, "could not create a session");
         return false;
     }
+    char err[512] = {0};
+    if (tny_retrieval_reconcile(t->session, err, sizeof err) != 0) {
+        tui_err(t, err);
+        return false;
+    }
     if (t->engine) return true;
-
-    char err[512];
-    err[0] = 0;
     tny_engine *engine = tny_engine_new(t->ctx, t->session, t->perm, perm_hook, t);
     if (!engine) {
         tui_err(t, "could not create the runtime");

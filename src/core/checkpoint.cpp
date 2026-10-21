@@ -60,6 +60,7 @@ constexpr string_field strings[] = {
     {"ssh_control", &tny_ctx::ssh_control, false},
     {"service_tier", &tny_ctx::service_tier, false},
     {"system_prompt", &tny_ctx::system_prompt, false},
+    {"retrieval_state", &tny_ctx::retrieval_state, false},
     {"task_name", &tny_ctx::task_name, false},
     {"task_source", &tny_ctx::task_source, false},
     {"task_instructions", &tny_ctx::task_instructions, false},

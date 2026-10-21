@@ -4,6 +4,7 @@
  * this process is only the renderer, so a crashed or killed caller never
  * takes the agent with it. wasm and TNY_ISOLATE=0 keep the in-process
  * path. */
+#include "core/retrieval.h"
 #include "cli/cli.h"
 #include "core/backend.h"
 #include "core/event_jsonl.h"
@@ -491,6 +492,8 @@ static int ask_isolated_loop(ask_client *a, tny_ctx *ctx, const char *session_id
 int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool json = g->json, use_stdin = false, ephemeral = ctx->no_save;
     bool continue_recovery = false, background = false;
+    bool preset_input_mode = false;
+    yyjson_doc *preset_input = NULL;
     bool steer = false, steer_takeover = false;
     const char *usage_env = getenv("TNY_PRINT_USAGE");
     bool print_usage = usage_env && strcmp(usage_env, "1") == 0;
@@ -521,6 +524,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                      "nested asks require a new parent-owned DAG "
                      "task; shared admission cannot be bypassed by a background ask",
                      NULL);
+            yyjson_doc_free(preset_input);
             buf_free(&prompt);
             return 1;
         }
@@ -534,6 +538,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (!raw && a[0] == '-' && a[1]) {
             if (strcmp(a, "--json") == 0) json = true;
             else if (strcmp(a, "--stdin") == 0) use_stdin = true;
+            else if (strcmp(a, "--preset-input") == 0) preset_input_mode = true;
             else if (strcmp(a, "--ephemeral") == 0 || strcmp(a, "--no-save") == 0) ephemeral = true;
             else if (strcmp(a, "--no-color") == 0) ctx->no_color = true;
             else if (strcmp(a, "--continue-recovery") == 0) continue_recovery = true;
@@ -547,6 +552,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 if (!value || strcmp(value, "jsonl") != 0) {
                     ask_diag(events, "invalid_option", "ask: --events accepts only jsonl",
                              "tny ask --events=jsonl \"summarize this repository\"");
+                    yyjson_doc_free(preset_input);
                     buf_free(&prompt);
                     return 1;
                 }
@@ -558,6 +564,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 if (!value || (strcmp(value, "none") != 0 && strcmp(value, "auto") != 0)) {
                     ask_diag(events, "invalid_option", "ask: --progress accepts auto or none",
                              "tny ask --progress=none \"summarize this repository\"");
+                    yyjson_doc_free(preset_input);
                     buf_free(&prompt);
                     return 1;
                 }
@@ -569,6 +576,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 ctx->swarm_explicit = true;
                 if (!ctx->swarm_cap) {
                     ask_diag(events, "invalid_option", "--swarm count must be 1..16", NULL);
+                    yyjson_doc_free(preset_input);
                     buf_free(&prompt);
                     return 1;
                 }
@@ -576,6 +584,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 if (++i >= argc || !ctx->swarm_definition) {
                     ask_diag(events, "invalid_option", "--swarm-file requires a validated PATH",
                              "tny ask --swarm-file swarm.json \"task\"");
+                    yyjson_doc_free(preset_input);
                     buf_free(&prompt);
                     return 1;
                 }
@@ -583,6 +592,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 if (i + 1 >= argc) {
                     ask_diag(events, "invalid_option", "ask: --task requires a value",
                              "tny ask --task review \"inspect the current diff\"");
+                    yyjson_doc_free(preset_input);
                     buf_free(&prompt);
                     return 1;
                 }
@@ -593,6 +603,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 if (i + 1 >= argc) {
                     ask_diag(events, "invalid_option", "--output-schema requires a value",
                              "tny ask --output-schema schema.json \"…\"");
+                    yyjson_doc_free(preset_input);
                     buf_free(&prompt);
                     return 1;
                 }
@@ -601,6 +612,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 if (n_images < 16) images[n_images++] = argv[++i];
                 else {
                     ask_diag(events, "invalid_option", "too many --image flags (max 16)", NULL);
+                    yyjson_doc_free(preset_input);
                     buf_free(&prompt);
                     return 1;
                 }
@@ -609,6 +621,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 char message[256];
                 snprintf(message, sizeof message, "ask: unknown flag %s", a);
                 ask_diag(events, "invalid_option", message, "tny ask --json \"hi\"");
+                yyjson_doc_free(preset_input);
                 buf_free(&prompt);
                 return 1;
             }
@@ -622,6 +635,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         snprintf(message, sizeof message,
                  "unknown or invalid task '%s' (run `tny tasks` to list tasks)", task_name);
         ask_diag(events, "invalid_option", message, NULL);
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         return 1;
     }
@@ -632,6 +646,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         ask_diag(events, "option_conflict",
                  "ask: --events=jsonl is incompatible with --json (both own stdout)",
                  "tny ask --events=jsonl \"summarize this repository\"");
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         return 1;
     }
@@ -640,6 +655,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                  "ask: --events=jsonl is incompatible with --background "
                  "(a detached turn has no foreground stream; read the session instead)",
                  "tny ask -B \"audit the Makefile\" && tny session last --wait --json");
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         return 1;
     }
@@ -647,34 +663,40 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         fprintf(stderr, "tny: --background is incompatible with --ephemeral "
                         "(the printed id must point at a saved session)\n"
                         "Example: tny ask -B \"refactor the parser\"\n");
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         return 1;
     }
 #ifdef __EMSCRIPTEN__
     if (background) {
         fprintf(stderr, "tny: --background is not available in the browser build\n");
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         return 1;
     }
 #endif
     if (ephemeral && resume) {
         ask_diag(events, "option_conflict", "--ephemeral is incompatible with --resume", NULL);
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         return 1;
     }
     if (steer && !resume) {
         ask_diag(events, "invalid_option", "--steer requires --resume",
                  "tny ask --resume last --steer \"drop that — check the tests instead\"");
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         return 1;
     }
     if (ephemeral && continue_recovery) {
         ask_diag(events, "option_conflict", "--ephemeral is incompatible with --continue-recovery",
                  NULL);
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         return 1;
     }
     if (output_schema && load_output_schema(ctx, output_schema, events) != 0) {
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         return 1;
     }
@@ -684,12 +706,14 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
      * caller; this one only avoids a pointless session. */
     if (n_images && tny_image_input_refused(ctx)) {
         fprintf(stderr, "tny: %s\n", TNY_IMAGE_INPUT_REFUSAL);
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         return 1;
     }
     ctx->no_save = ephemeral;
     if (ctx->swarm_cap && !tny_swarm_supported(ctx)) {
         ask_diag(events, "unsupported", "swarm requires a saved native local lead session", NULL);
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         return 1;
     }
@@ -700,6 +724,37 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
      * the in-process path that already owns the canonical envelope. */
     bool isolate = tny_isolation_enabled(ctx) && !events;
 
+    if (preset_input_mode) {
+        if (!use_stdin || prompt.len || ephemeral || task_name || n_images || output_schema) {
+            ask_diag(events, "preset_input", "preset input requires a saved stdin-only child",
+                     NULL);
+            yyjson_doc_free(preset_input);
+            buf_free(&prompt);
+            return 1;
+        }
+        char chunk[8192];
+        size_t got;
+        bool bounded = true;
+        while ((got = fread(chunk, 1, sizeof chunk, stdin)) > 0) {
+            if (got > TNY_RETRIEVAL_INPUT_MAX - prompt.len) {
+                bounded = false;
+                break;
+            }
+            buf_append(&prompt, chunk, got);
+            if (prompt.oom) {
+                bounded = false;
+                break;
+            }
+        }
+        if (!bounded || ferror(stdin) ||
+            tny_retrieval_input(ctx, &prompt, resume != NULL, &preset_input) != 0) {
+            ask_diag(events, "preset_input", "invalid or oversized preset launch snapshot", NULL);
+            yyjson_doc_free(preset_input);
+            buf_free(&prompt);
+            return 1;
+        }
+    }
+
     /* Resolve the session task snapshot before any provider connection is
      * started. This keeps every resume spelling provider-independent. */
     tny_session_state *session = resume ? session_open(ctx, resume) : session_new(ctx);
@@ -708,6 +763,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (resume) snprintf(message, sizeof message, "no session '%s' for this workspace", resume);
         else snprintf(message, sizeof message, "could not create a session");
         ask_diag(events, "session", message, NULL);
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         return 1;
     }
@@ -719,6 +775,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                      task_err);
             ask_diag(events, "session", message, NULL);
             session_close(session);
+            yyjson_doc_free(preset_input);
             buf_free(&prompt);
             return 1;
         }
@@ -743,12 +800,14 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                         "tny session stop %s --kill\n",
                         session->id, session->id);
                 session_close(session);
+                yyjson_doc_free(preset_input);
                 buf_free(&prompt);
                 return 2;
             }
             if (src < 0) {
                 fprintf(stderr, "tny: %s\n", serr);
                 session_close(session);
+                yyjson_doc_free(preset_input);
                 buf_free(&prompt);
                 return 1;
             }
@@ -784,6 +843,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 else cli_print_still_running(ctx, sid);
                 free(sid);
                 session_close(session);
+                yyjson_doc_free(preset_input);
                 buf_free(&prompt);
                 return 1;
             }
@@ -793,6 +853,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             if (events) ask_diag(events, "session_busy", "session is still running", NULL);
             else cli_print_still_running(ctx, session->id);
             session_close(session);
+            yyjson_doc_free(preset_input);
             buf_free(&prompt);
             return 1;
         }
@@ -806,10 +867,24 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                      task_err);
             ask_diag(events, "session", message, NULL);
             session_close(session);
+            yyjson_doc_free(preset_input);
             buf_free(&prompt);
             return 1;
         }
     }
+
+    char retrieval_error[192];
+    if (tny_retrieval_reconcile(session, retrieval_error, sizeof retrieval_error) != 0 ||
+        tny_retrieval_import(session, preset_input, &prompt) != 0) {
+        ask_diag(events, "preset_input", "retrieval snapshot mismatch or source import failed",
+                 NULL);
+        yyjson_doc_free(preset_input);
+        session_close(session);
+        buf_free(&prompt);
+        return 1;
+    }
+    yyjson_doc_free(preset_input);
+    preset_input = NULL;
 
 #ifndef __EMSCRIPTEN__
     if (isolate && !background) {
@@ -837,6 +912,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 fprintf(stderr, "tny: cannot reach the session runner\n");
                 kill(child, SIGTERM);
                 session_close(session);
+                yyjson_doc_free(preset_input);
                 buf_free(&prompt);
                 return 1;
             }
@@ -854,6 +930,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 tny_runner_client_end(rc, "no prompt");
                 tny_runner_client_close(rc);
                 session_close(session);
+                yyjson_doc_free(preset_input);
                 buf_free(&prompt);
                 return 1;
             }
@@ -869,6 +946,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                                 : (fprintf(stderr, "tny: cannot reach the session runner\n"), 2);
             tny_runner_client_close(rc);
             session_close(session);
+            yyjson_doc_free(preset_input);
             buf_free(&prompt);
             return code;
         }
@@ -908,6 +986,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                  "tny ask \"summarize this repository\"");
         abort_backend(bk, connecting && job.rc == 0);
         session_close(session);
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         return 1;
     }
@@ -921,6 +1000,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (session_save(session) != 0) {
             fprintf(stderr, "tny: cannot write session %s\n", session->id);
             session_close(session);
+            yyjson_doc_free(preset_input);
             buf_free(&prompt);
             return 1;
         }
@@ -937,6 +1017,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         if (child < 0) {
             fprintf(stderr, "tny: %s; cannot background\n", err);
             session_close(session);
+            yyjson_doc_free(preset_input);
             buf_free(&prompt);
             return 1;
         }
@@ -986,6 +1067,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         tny_team_startup_diagnostic(ctx, "PROVIDER_START");
         /* the constructor already explained itself on stderr in human mode */
         if (events) ask_diag(events, "provider", "cannot create the provider client", NULL);
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         session_close(session);
         buf_free(&st.output);
@@ -1006,6 +1088,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         ask_diag(events, "provider", err, NULL);
         bk->destroy(bk);
         session_close(session);
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         buf_free(&st.output);
         buf_free(&st.errline);
@@ -1020,6 +1103,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         else bk->destroy(bk);
         perm_free(perm);
         session_close(session);
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         buf_free(&st.output);
         buf_free(&st.errline);
@@ -1032,6 +1116,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         tny_engine_free(engine);
         perm_free(perm);
         session_close(session);
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         buf_free(&st.output);
         buf_free(&st.errline);
@@ -1048,6 +1133,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         tny_engine_free(engine);
         perm_free(perm);
         session_close(session);
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         buf_free(&st.output);
         buf_free(&st.errline);
@@ -1067,6 +1153,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         tny_engine_free(engine);
         perm_free(perm);
         session_close(session);
+        yyjson_doc_free(preset_input);
         buf_free(&prompt);
         buf_free(&st.output);
         buf_free(&st.errline);
@@ -1171,6 +1258,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     tny_engine_free(engine);
     perm_free(perm);
     session_close(session);
+    yyjson_doc_free(preset_input);
     buf_free(&prompt);
     buf_free(&st.output);
     buf_free(&st.errline);

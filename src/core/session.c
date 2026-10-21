@@ -1,6 +1,7 @@
 #include "core/session.h"
 #include "core/swarm.h"
 #include "core/tasks.h"
+#include "core/retrieval.h"
 #include "util/util.h"
 #include "util/process.h"
 #include "util/alloc.h"
@@ -251,6 +252,13 @@ static int session_task_reconcile_impl(tny_session_state *s, char *err, size_t e
 
 int session_task_reconcile(tny_session_state *s, char *err, size_t errsz) {
     if (!s || !s->ctx) return -1;
+    char *previous_retrieval = s->ctx->retrieval_state;
+    s->ctx->retrieval_state = NULL;
+    if (tny_retrieval_reconcile(s, err, errsz) != 0) {
+        free(s->ctx->retrieval_state);
+        s->ctx->retrieval_state = previous_retrieval;
+        return -1;
+    }
     int previous_cap = s->ctx->swarm_cap;
     int previous_participants = s->ctx->swarm_participants;
     char previous_digest[sizeof s->ctx->swarm_definition_digest];
@@ -262,10 +270,14 @@ int session_task_reconcile(tny_session_state *s, char *err, size_t errsz) {
         free(previous_definition);
         free(previous_source);
         snprintf(err, errsz, "could not preserve swarm selection during reconciliation");
+        free(s->ctx->retrieval_state);
+        s->ctx->retrieval_state = previous_retrieval;
         return -1;
     }
     int rc = session_task_reconcile_impl(s, err, errsz);
     if (rc) {
+        free(s->ctx->retrieval_state);
+        s->ctx->retrieval_state = previous_retrieval;
         s->ctx->swarm_cap = previous_cap;
         s->ctx->swarm_participants = previous_participants;
         free(s->ctx->swarm_definition);
@@ -275,6 +287,7 @@ int session_task_reconcile(tny_session_state *s, char *err, size_t errsz) {
         snprintf(s->ctx->swarm_definition_digest, sizeof s->ctx->swarm_definition_digest, "%s",
                  previous_digest);
     } else {
+        free(previous_retrieval);
         free(previous_definition);
         free(previous_source);
     }
@@ -1376,12 +1389,7 @@ void session_result_stream_append(void *stream, const char *data, size_t len) {
     if (!out->failed && !result_stream_write(out->fd, data, len)) out->failed = true;
 }
 
-static char *result_stream_finish(session_result_stream *out, bool needed, bool content,
-                                  bool *stored) {
-    if (stored) *stored = false;
-    if (!out)
-        return xstrdup("\n[tny: full-output recovery unavailable: capture allocation failed]\n");
-    bool large = needed || out->total > out->preview;
+static void result_stream_commit(session_result_stream *out, bool large) {
     if (large && !out->failed && out->fd < 0 &&
         (out->content_dir || (out->session && !out->session->ctx->no_save)))
         out->failed = !result_stream_open(out);
@@ -1397,6 +1405,43 @@ static char *result_stream_finish(session_result_stream *out, bool needed, bool 
         if (!out->failed && rename(out->temporary, out->path) != 0) out->failed = true;
     }
     if (out->temporary) unlink(out->temporary);
+}
+
+static void result_stream_free(session_result_stream *out, bool large) {
+    buf_free(&out->memory);
+    if (out->content_dir && (out->failed || !large)) {
+        if (out->path) unlink(out->path);
+        rmdir(out->content_dir);
+    }
+    free(out->content_dir);
+    free(out->handle);
+    free(out->temporary);
+    free(out->path);
+    free(out);
+}
+
+char *session_result_stream_finish_handle(session_result_stream *out, size_t *bytes) {
+    if (bytes) *bytes = 0;
+    if (!out) return NULL;
+    if (!out->session || !bytes) out->failed = true;
+    result_stream_commit(out, true);
+    char *handle = NULL;
+    if (!out->failed && out->handle) {
+        handle = out->handle;
+        out->handle = NULL;
+        *bytes = (size_t)out->total;
+    }
+    result_stream_free(out, true);
+    return handle;
+}
+
+static char *result_stream_finish(session_result_stream *out, bool needed, bool content,
+                                  bool *stored) {
+    if (stored) *stored = false;
+    if (!out)
+        return xstrdup("\n[tny: full-output recovery unavailable: capture allocation failed]\n");
+    bool large = needed || out->total > out->preview;
+    result_stream_commit(out, large);
     buf_t notice;
     buf_init(&notice);
     if (large) {
@@ -1451,16 +1496,7 @@ static char *result_stream_finish(session_result_stream *out, bool needed, bool 
         out->failed = true;
         if (stored) *stored = false;
     }
-    buf_free(&out->memory);
-    if (out->content_dir && (out->failed || !large)) {
-        if (out->path) unlink(out->path);
-        rmdir(out->content_dir);
-    }
-    free(out->content_dir);
-    free(out->handle);
-    free(out->temporary);
-    free(out->path);
-    free(out);
+    result_stream_free(out, large);
     return result;
 }
 
@@ -2047,6 +2083,18 @@ char *session_recover_copy(tny_ctx *ctx, const char *id) {
         len--;
     }
     if (!recovered) {
+        free(data);
+        free(src);
+        free(root);
+        return NULL;
+    }
+
+    /* Generic recovery copies metadata, not retained result artifacts. Do not
+     * return an apparently usable specialist with dangling frozen sources. */
+    if (jget(yyjson_doc_get_root(recovered), "retrieval")) {
+        fprintf(stderr, "tny: retrieval sessions cannot be copied by recover; preserve the "
+                        "original session and its retained source files\n");
+        yyjson_doc_free(recovered);
         free(data);
         free(src);
         free(root);

@@ -219,6 +219,12 @@ this boundary to checkpoint encoding and independently owned context recovery.
 sub-agent launch snapshots: selectors and environment share one owned, wiped
 block; failed construction preserves the previous plan. Process control stays
 in C and no new scheduling or OS seam is introduced.
+[ADR 0214](adr/0214-explicit-retrieval-agent-presets.md) layers explicit retrieval
+profiles onto this same child lifecycle. Global settings select the specialist;
+the session owns its frozen profile, task and source manifest. Parent-owned
+handles are materialized through the existing owner RPC and stream-copied into
+child-owned retained artifacts. Only bounded manifests and cited derived results
+enter prompts; existing tool/filesystem permissions do not change.
 The C-facing adapters retain scheduling, public
 ABI and OS operations in their existing owners. Synchronous views are
 borrowed; retained records own their data. Exceptions never escape to C.

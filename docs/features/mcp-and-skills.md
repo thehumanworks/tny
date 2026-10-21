@@ -474,6 +474,18 @@ it. In the TUI a builtin slash command always wins over a same-named skill.
 
 ## Subagents
 
+**Optional retrieval specialists.** Global `agent_presets` lets `create` select a
+named provider/model/task with `preset`. Optional `sources` contains up to 32
+parent-owned retained result handles or `search_transcript` message handles,
+64 MiB total. The child gets private retained copies and can read any section
+without relaying content through the lead. This preserves existing filesystem
+permissions, not a sandbox. Saved native sessions are required. Follow-ups keep
+the frozen preset and source copies; `sources` is create-only. Results contain a
+bounded derived summary with original-source byte-range citations; reference
+bounds are checked, semantic support is not. Oversized valid envelopes remain
+recoverable intact. See [ADR 0214](../adr/0214-explicit-retrieval-agent-presets.md).
+
+
 Durable child sessions ([ADR 0087](../adr/0197-explicit-subagent-contract-and-private-launch.md)). Each child is an ordinary workspace session run by a separate `tny ask` process; the parent receives only the child's final answer, never its transcript. The tool is owned by the native parent loop. A child may select any configured native HTTP profile. See [ADR 0139](../adr/0139-subagent-provider-model-and-effort.md).
 
 `create` and `message` wait synchronously for the complete child turn and consume

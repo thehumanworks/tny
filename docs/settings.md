@@ -133,10 +133,29 @@ discovered as Markdown files so they can be reviewed and versioned directly.
 Place user presets in `~/.tny/tasks/NAME.md` or project presets in
 `<workspace>/.tny/tasks/NAME.md`; project definitions take precedence. The
 runtime also accepts the built-ins (`review`, `optimizer`, `document`, `retro`, and
-`task-creation`) and the CLI selects them with `--task NAME`. Presets may contain only
+`task-creation`, plus `context-retrieval`) and the CLI selects them with `--task NAME`. Presets may contain only
 the restricted frontmatter and instructions described in [cli.md](cli.md); they
 cannot add credentials, endpoints, tools, MCP servers, workspace paths, or
 permission/cost escalation.
+
+## Retrieval agent presets
+
+Optional global-only `agent_presets` maps names to independent specialist profiles:
+
+```json
+{"agent_presets":{"lookup":{"provider":"openai","model":"YOUR_MODEL","effort":"low","task":"context-retrieval","max_result_bytes":8192}}}
+```
+
+`provider` and `model` are required and use existing authentication. `effort` is
+optional; `task` defaults to the built-in `context-retrieval`; `description` is an
+optional discovery label; `max_result_bytes` defaults to 8192 (1024–65536).
+Custom tasks must request the same JSON `summary`/`citations` output contract as
+the built-in retrieval task. At most 32 named profiles are supported. Workspace settings cannot define these
+profiles. Nothing runs automatically. The lead explicitly invokes
+`subagent(action="create", preset="lookup", sources=[...], prompt="...")`.
+Do not also supply provider/model/effort. Existing children keep their original
+profile after settings edits; changing their resolved endpoint/wire requires a new
+child. See [the retrieval contract](adr/0214-explicit-retrieval-agent-presets.md).
 
 ## General defaults
 

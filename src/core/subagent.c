@@ -10,6 +10,8 @@
  * environment. inspect/lifecycle read the stored session and its writer
  * lock; they never start a process. */
 #include "core/subagent.h"
+#include "core/retrieval.h"
+#include "core/tasks.h"
 #include "util/process.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
@@ -109,11 +111,12 @@ char *tny_subagent_prepare_error(const tools_env *env, yyjson_val *args) {
             if (!name || strlen(name) != yyjson_get_len(key) ||
                 (strcmp(name, "action") != 0 && strcmp(name, "id") != 0 &&
                  strcmp(name, "prompt") != 0 && strcmp(name, "provider") != 0 &&
-                 strcmp(name, "model") != 0 && strcmp(name, "effort") != 0))
-                return tool_err(
-                    "SUBAGENT_INVALID_ARGUMENT: only action, id, prompt, provider, model and "
-                    "effort are accepted. Example: %s",
-                    SA_EXAMPLES[action]);
+                 strcmp(name, "model") != 0 && strcmp(name, "effort") != 0 &&
+                 strcmp(name, "preset") != 0 && strcmp(name, "sources") != 0))
+                return tool_err("SUBAGENT_INVALID_ARGUMENT: only action, id, prompt, preset, "
+                                "sources, provider, model and "
+                                "effort are accepted. Example: %s",
+                                SA_EXAMPLES[action]);
         }
     }
     yyjson_val *id = jget(args, "id");
@@ -126,6 +129,18 @@ char *tny_subagent_prepare_error(const tools_env *env, yyjson_val *args) {
         return tool_err("SUBAGENT_INVALID_ARGUMENT: %s needs the 16-character lowercase hex id "
                         "returned by create. Example: %s",
                         SA_NAMES[action], SA_EXAMPLES[action]);
+    yyjson_val *preset = jget(args, "preset");
+    yyjson_val *sources = jget(args, "sources");
+    if (preset && ((action != SA_CREATE && action != SA_MESSAGE) || !yyjson_is_str(preset) ||
+                   strlen(yyjson_get_str(preset)) != yyjson_get_len(preset) ||
+                   !tny_task_name_valid(yyjson_get_str(preset))))
+        return tool_err("SUBAGENT_INVALID_ARGUMENT: preset needs a valid name on create/message");
+    if (sources && (action != SA_CREATE || !preset || !yyjson_is_arr(sources) ||
+                    yyjson_arr_size(sources) > 32))
+        return tool_err("SUBAGENT_INVALID_ARGUMENT: sources requires create with preset and at "
+                        "most 32 handles");
+    if (preset && (jget(args, "provider") || jget(args, "model") || jget(args, "effort")))
+        return tool_err("SUBAGENT_INVALID_ARGUMENT: preset cannot mix with provider/model/effort");
     yyjson_val *prompt = jget(args, "prompt");
     bool wants_prompt = action == SA_CREATE || action == SA_MESSAGE;
     static const char *const selectors[] = {"provider", "model", "effort"};
@@ -278,6 +293,9 @@ static bool sa_session_stored(tny_ctx *ctx, const char *id) {
 }
 
 static char *sa_success(tools_env *env, const char *sid, const char *output) {
+    bool retrieval_applies = false;
+    char *retrieved = tny_retrieval_result(env, sid, output, &retrieval_applies);
+    if (retrieval_applies) return retrieved;
     buf_t r;
     buf_init(&r);
     if (sid) {
@@ -506,27 +524,38 @@ char *tny_subagent_execute(tools_env *env, yyjson_val *args) {
             session_close(child);
             return described;
         }
-        session_close(child);
-        if (session_is_running(ctx, id))
+        if (session_is_running(ctx, id)) {
+            session_close(child);
             return tool_err("SUBAGENT_SESSION_BUSY: that child is running a turn; check "
                             "{\"action\":\"lifecycle\",\"id\":\"%s\"} and retry after it "
                             "finishes",
                             id);
+        }
     }
-    const char *provider = jget_str(args, "provider");
-    bool parent_provider = tny_subagent_provider_is_parent(ctx, provider);
+    yyjson_doc *selection = NULL;
+    bool retrieval_applies = false;
+    char *payload = tny_retrieval_prepare(env, args, child, &selection, &err, &retrieval_applies);
+    session_close(child);
+    if (err || (retrieval_applies && !payload)) return err;
+    yyjson_val *effective = selection ? yyjson_doc_get_root(selection) : args;
+    const char *provider = jget_str(effective, "provider");
+    bool parent_provider = !selection && tny_subagent_provider_is_parent(ctx, provider);
     if (parent_provider && ctx->backend == TNY_BK_OPENAI && !(ctx->api_key && *ctx->api_key) &&
         !str_starts(ctx->base_url ? ctx->base_url : "", "http://"))
         return tool_err("SUBAGENT_AUTH_UNAVAILABLE: the parent provider has no resolved "
                         "credential to hand a child; configure its key (for example "
                         "--api-key-env NAME, tny login or tny provider setup) and retry");
     tny_subagent_plan plan = {0};
-    if (tny_subagent_plan_build_selected(env, id, args, &plan) != 0) {
+    if (tny_subagent_plan_build_selected(env, id, effective, &plan) != 0) {
         sa_proc failed = {.spawn_error = errno == ENOTSUP ? ENOTSUP : ENOENT};
+        free(payload);
+        yyjson_doc_free(selection);
         return sa_outcome(env, action, id, &failed);
     }
-    char *result =
-        tny_subagent_run(env, SA_NAMES[action], id, plan.argv, plan.envp, jget_str(args, "prompt"));
+    char *result = tny_subagent_run(env, SA_NAMES[action], id, plan.argv, plan.envp,
+                                    payload ? payload : jget_str(args, "prompt"));
     tny_subagent_plan_free(&plan);
+    free(payload);
+    yyjson_doc_free(selection);
     return result;
 }
