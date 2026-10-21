@@ -88,12 +88,15 @@ class ReleaseValidatorTests(unittest.TestCase):
                     with self.assertRaisesRegex(SystemExit, message):
                         validator.validate_npm(path, "v1.2.3", version)
 
+    def test_repository_active_abi_matches_release_guard(self) -> None:
+        validator.require_active_abi_baseline(ROOT)
+
     def test_release_requires_an_active_abi1_baseline(self) -> None:
         expected_abi = {
             "major": 1,
-            "minor": 4,
-            "encoded": 65540,
-            "elf_version_node": "LIBTNY_1.4",
+            "minor": 5,
+            "encoded": 65541,
+            "elf_version_node": "LIBTNY_1.5",
         }
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)

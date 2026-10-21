@@ -342,15 +342,15 @@ def run_ctypes(
     assert prefix_caps.schema_version == 1 and prefix_caps.provider_selected == 1
 
     caps = capabilities()
-    assert caps.schema_version == 1 and caps.abi_version == ((1 << 16) | 4)
+    assert caps.schema_version == 1 and caps.abi_version == ((1 << 16) | 5)
     assert caps.provider_selected == 1 and caps.provider_initialized == 0
     assert caps.endpoint_reachability == 0
     assert caps.threading_model == 1 and caps.cancel_model == 2
     assert caps.provider_available_mask == 9
     # ABI 1.1 advertises the task-preset capability (bit 12) and ABI 1.3 the
-    # reasoning-effort capability (bit 13) in addition to the frozen 1.0 set.
-    # Neither is enabled: this runtime selects no preset and no effort.
-    expected_features = 0x8A7 | (1 << 12) | (1 << 13)
+    # reasoning-effort capability (bit 13). ABI 1.5 adds native code execution
+    # (bit 14). None is enabled without a preset, effort or configured helper.
+    expected_features = 0x8A7 | (1 << 12) | (1 << 13) | (1 << 14)
     assert caps.feature_available_mask & expected_features == expected_features
     assert not caps.feature_available_mask & ~expected_features
     expected_enabled = 0x84 | (0x2 if persistence else 0)
