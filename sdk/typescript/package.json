@@ -18,6 +18,7 @@
     "scripts/",
     "build/Release/manifest.json",
     "build/Release/*.node",
+    "build/Release/tny-executor",
     "build/Release/libtny.*",
     "README.md",
     "LICENSE-METADATA.json",

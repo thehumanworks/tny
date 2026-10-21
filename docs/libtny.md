@@ -1,19 +1,21 @@
 # libtny embedding API
 
-> **Execution-server compatibility:** public embedded agent tools and standalone
-> SDK `optimise` / `optimize` are currently unsupported. Optimisation refuses
-> before provider, credential or workspace I/O; it never launches the Python/Node
-> host as an execution server. Native CLI/TUI optimisation and the other
-> standalone toolkit services remain available. See [ADR 0174](adr/0174-execution-server-code-mode.md).
+TypeScript ABI 1.5 packages include a private native tool worker, not the CLI.
+Inference, streaming and session persistence stay in-process in libtny. Native
+HTTP runtimes enable the packaged worker by default; `codeExecution: false`
+retains inference-only behavior. C embedders opt in with an explicit trusted
+helper path. Python's agent adapter does not configure this helper yet.
 
-Agent tool execution is currently unavailable in library-hosted sessions under
-[ADR 0174](adr/0174-execution-server-code-mode.md): `run_code` fails closed
-rather than executing inside the embedding process. Installing a matching CLI
-does not enable this path. Custom-tool and host-service callback registration
-APIs retain their ABI, but their callbacks are not invoked by this execution
-path. No-tool inference and standalone SDK toolkit services remain separate.
-See the [execution evidence](verification/execution-code-mode/evidence.md) for
-verified coverage and remaining gates.
+The worker supports file/search/edit and web tools; Python subprocesses can run
+shell commands. Embedded terminal, subagents, teams/jobs, ambient MCP/skills and
+custom JavaScript callbacks remain unavailable. Nested ask-mode operations that
+need approval deny without a synchronous permission owner. Direct Python has
+host authority and is not a sandbox. See
+[ADR 0215](adr/0215-native-sdk-tool-workers.md).
+
+Standalone SDK `optimise` / `optimize` remains unsupported and refuses before
+provider, credential or workspace I/O. It never launches the Python/Node host
+as an execution server. Other standalone toolkit services remain separate.
 
 ABI 1.2 also exposes [standalone toolkit jobs](sdk-toolkit.md) for images,
 speech, transcription, and prompt optimisation, independent of runtime/session
@@ -407,3 +409,29 @@ to it. When `tny_event_tokens_reported` is false, the frozen integer fields are
 not reported token counts. Resolve these additive functions only on ABI 1.4
 or newer. The SDKs retain native HTTP compatibility with earlier ABI 1.x
 libraries and reject ACP commands there with an explicit unsupported error.
+
+## ABI 1.5 native tool workers
+
+`tny_runtime_set_execution_helper(runtime, path, &error)` copies a trusted,
+absolute UTF-8 executable path (at most 4,096 bytes) on the runtime owner thread
+before a session exists. It requires native HTTP and rejects host-service or
+custom-tool callbacks. Registering custom callbacks after configuring a helper
+is also rejected. This additive setter changes no frozen options or records.
+
+`TNY_CAP_FEATURE_CODE_EXECUTION` reports available native worker support and is
+enabled when a runtime has a configured helper. It does not guarantee that a
+future launch or operation succeeds. There is no PATH discovery, CLI fallback
+or retry of uncertain effects. The helper reports matching protocol/build
+identity before receiving the runtime snapshot. C callers explicitly trust
+the executable they configure; the handshake is not a sandbox or authentication
+of malicious code. TypeScript package loading separately validates its hash,
+architecture and manifest.
+
+Inference and sessions stay in-process in libtny; tools run in isolated native
+workers using the existing execution protocol. The restored context retains
+library mode. File/search/edit/web tools are supported, with shell commands
+available through Python subprocesses. Embedded terminal, subagents, teams/jobs,
+ambient MCP/skills and host/custom callbacks remain unsupported. Nested approval
+requests deny without a synchronous owner. Direct Python retains host authority.
+ACP, wasm and standalone toolkit optimisation do not use this setter. See
+[ADR 0215](adr/0215-native-sdk-tool-workers.md).

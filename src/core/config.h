@@ -156,6 +156,7 @@ typedef struct tny_ctx {
      * TNY_EFFORT_LEVELS; other tokens are provider-advertised values passed
      * through verbatim. NULL = provider default (field omitted on the wire). */
     char *reasoning_effort;
+    char *execution_helper;    /* owned runtime-only path; never checkpointed */
     bool effort_explicit;      /* --effort / TUI /effort was used (any value,
                                 * "default" included): settings defaults must
                                 * never override an explicit choice */

@@ -116,9 +116,10 @@ MCP clients and connections are cell-scoped. Dependent stateful MCP calls work
 within one cell; connection continuity across separate cells is not preserved.
 Standalone CLI toolkit operations are not provider tool calls and keep their
 existing interface. Public C ABI layouts do not change. Library-hosted agent tool execution is
-currently rejected explicitly, even if a matching CLI is installed; there is
-no configured executable escape hatch. The native CLI's private prompt
-optimisation context is the sole internal exception. Registered custom tools
+rejected explicitly unless a native HTTP runtime configures the dedicated
+ABI 1.5 worker described in [ADR 0215](0215-native-sdk-tool-workers.md). Installing
+a matching CLI alone does not enable it. The native CLI's private prompt
+optimisation context retains its internal exception. Registered custom tools
 or host-service callbacks also cause execution to fail closed because their
 pointers cannot be reconstructed in a fresh executable. Standalone SDK image, speech and dictation service
 operations retain their separate interfaces. Public SDK optimisation uses an

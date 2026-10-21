@@ -29,10 +29,12 @@ function describe(event: TnyEvent): string {
 async function useSdk(): Promise<void> {
   const task: TaskPreset = { name: "review" };
   await using runtime = await Runtime.create({
-    workspace, taskPreset: task, reasoningEffort: "high",
+    workspace, taskPreset: task, reasoningEffort: "high", codeExecution: true,
   });
   const effortEnabled: boolean = runtime.capabilities.reasoningEffort;
   void effortEnabled;
+  const codeEnabled: boolean = runtime.capabilities.codeExecution;
+  void codeEnabled;
   await using session = await runtime.createSession();
   for await (const event of session.run("hello")) {
     describe(event);

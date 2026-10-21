@@ -49,6 +49,7 @@
     "tny_runtime_options_v3_init": "int32_t tny_runtime_options_v3_init(tny_runtime_options_v3*options,uint64_t capacity)",
     "tny_runtime_register_tool": "int32_t tny_runtime_register_tool(tny_runtime*runtime,const tny_tool_spec_v1*spec,tny_tool_registration**out_registration,tny_error**out_error)",
     "tny_runtime_set_acp_command": "int32_t tny_runtime_set_acp_command(tny_runtime*runtime,tny_bytes command_json,tny_error**error)",
+    "tny_runtime_set_execution_helper": "int32_t tny_runtime_set_execution_helper(tny_runtime*runtime,tny_bytes path,tny_error**out_error)",
     "tny_session_cancel": "int32_t tny_session_cancel(tny_session*session,tny_error**out_error)",
     "tny_session_create": "int32_t tny_session_create(tny_runtime*runtime,tny_session**out_session,tny_error**out_error)",
     "tny_session_destroy": "int32_t tny_session_destroy(tny_session**session)",

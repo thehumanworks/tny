@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 #define TNY_ABI_MAJOR   1u
-#define TNY_ABI_MINOR   4u
+#define TNY_ABI_MINOR   5u
 #define TNY_ABI_VERSION ((TNY_ABI_MAJOR << 16) | TNY_ABI_MINOR)
 
 /* Non-error outcomes. */
@@ -275,6 +275,7 @@ typedef struct {
 #define TNY_CAP_FEATURE_HOST_SERVICES       (UINT64_C(1) << 11)
 #define TNY_CAP_FEATURE_TASK_PRESETS        (UINT64_C(1) << 12)
 #define TNY_CAP_FEATURE_REASONING_EFFORT    (UINT64_C(1) << 13)
+#define TNY_CAP_FEATURE_CODE_EXECUTION      (UINT64_C(1) << 14)
 
 #define TNY_ENDPOINT_REACHABILITY_UNKNOWN     0u
 #define TNY_ENDPOINT_REACHABILITY_REACHABLE   1u
@@ -445,6 +446,14 @@ TNY_API int32_t TNY_CALL tny_capabilities_v1_init(tny_capabilities_v1 *capabilit
 TNY_API int32_t TNY_CALL tny_runtime_create(const tny_runtime_options_v0 *options,
                                             uint64_t capacity, tny_runtime **out_runtime,
                                             tny_error **out_error);
+/* ABI 1.5: configure a trusted private native tool worker before sessions.
+ * Absolute UTF-8 path, copied on the owner thread. Native HTTP only, without
+ * custom/host callbacks. No PATH lookup or CLI fallback; launch verifies exact
+ * protocol/build identity before sending context. Direct Python has host authority.
+ * Nested ask-mode approvals remain fail-closed without a synchronous owner. */
+TNY_API int32_t TNY_CALL tny_runtime_set_execution_helper(tny_runtime *runtime, tny_bytes path,
+                                                          tny_error **out_error);
+
 /* ABI 1.4 optional ACP client: literal JSON argv, copied before session creation.
  * No shell expansion. Credentials belong in the agent environment, never argv.
  * libtny needs TNY_ACP_BRIDGE_EXECUTABLE pointing to an absolute tny executable. */

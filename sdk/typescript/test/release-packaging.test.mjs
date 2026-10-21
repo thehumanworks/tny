@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { resolveNativeAddon, verifyNativePackage } from "../scripts/native-loader.mjs";
+import { resolveNativeAddon, verifyNativeExecutor, verifyNativePackage } from "../scripts/native-loader.mjs";
 import { targetForHost } from "../scripts/platform.mjs";
 import { versionsFromTag } from "../scripts/release-version.mjs";
 
@@ -72,5 +72,44 @@ test("wrong-platform metadata and tampered artifacts are rejected before loading
       () => verifyNativePackage(root, target, "1.2.3", { glibcVersion: "2.34" }),
       /SHA-256 integrity/,
     );
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("native executor requires exact identity, hash, architecture and executable file", () => {
+  const root = mkdtempSync(join(tmpdir(), "tny-executor-"));
+  const target = targetForHost("linux", "x64", "2.34");
+  const path = join(root, "tny-executor");
+  const elf = Buffer.alloc(64);
+  elf[0] = 0x7f; elf.write("ELF", 1); elf[4] = 2; elf[5] = 1; elf.writeUInt16LE(62, 18);
+  const manifest = { abiMinor: 5, libraryVersion: "1.2.3" };
+  try {
+    assert.equal(verifyNativeExecutor(root, { abiMinor: 4 }, target), undefined);
+    assert.throws(() => verifyNativeExecutor(root, manifest, target), /manifest is missing/);
+    writeFileSync(path, elf, { mode: 0o755 });
+    manifest.executor = { filename: "tny-executor", protocolVersion: 1, libraryVersion: "1.2.3", sha256: hash(path) };
+    assert.equal(verifyNativeExecutor(root, manifest, target), path);
+    for (const patch of [
+      { filename: "../tny" }, { protocolVersion: 2 }, { libraryVersion: "1.2.4" }, { sha256: "bad" },
+    ]) {
+      assert.throws(() => verifyNativeExecutor(root, {
+        ...manifest, executor: { ...manifest.executor, ...patch },
+      }, target), /manifest is missing or incompatible/);
+    }
+    chmodSync(path, 0o644);
+    assert.throws(() => verifyNativeExecutor(root, manifest, target), /regular executable/);
+    chmodSync(path, 0o755);
+    writeFileSync(path, Buffer.concat([elf, Buffer.from("tampered")]));
+    assert.throws(() => verifyNativeExecutor(root, manifest, target), /SHA-256/);
+    elf.writeUInt16LE(183, 18);
+    writeFileSync(path, elf);
+    manifest.executor.sha256 = hash(path);
+    assert.throws(() => verifyNativeExecutor(root, manifest, target), /non-x64/);
+    rmSync(path);
+    assert.throws(() => verifyNativeExecutor(root, manifest, target), /executor is missing/);
+    const other = join(root, "other");
+    writeFileSync(other, elf, { mode: 0o755 });
+    symlinkSync(other, path);
+    assert.throws(() => verifyNativeExecutor(root, manifest, target), /regular executable/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

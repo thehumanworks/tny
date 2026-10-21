@@ -71,11 +71,19 @@ for stateful tools. Provider-level Python cells remain serial. See
 
 ## Embedding boundary
 
+Native TypeScript HTTP sessions remain in-process in libtny. ABI 1.5 optionally
+configures a per-runtime, absolute trusted `tny-executor` path before session
+creation. The packaged worker exposes only private tool execution entries;
+it does not wrap the CLI or own inference. Each launch verifies matching
+protocol/build identity before context transfer. Library-mode restrictions,
+callback exclusions and fail-closed nested approvals remain in force. See
+[ADR 0215](adr/0215-native-sdk-tool-workers.md).
+
 Standalone SDK toolkit jobs ([ADR 0086](adr/0086-standalone-sdk-toolkit.md))
 call the shared image, speech and dictation services directly. Public SDK
 optimisation currently returns `TNY_STATUS_UNSUPPORTED` before any I/O: it
-requires a trusted execution-server launcher that the embedding ABI does not
-provide (ADR 0174). Native CLI/TUI optimisation remains supported.
+requires a trusted execution-server launcher that this standalone toolkit path
+does not configure (ADR 0174). Native CLI/TUI optimisation remains supported.
 Each has a private context and atomic cancellation flag; language adapters own
 scheduling and release. They never enter the agent session API or spawn `tny`.
 
@@ -90,7 +98,7 @@ its workspace or provider context changes.
 ## Process rules
 
 - One tny process, one primary workspace (`cwd` unless `--cwd`).
-- **Turns run in a detached session runner** ([ADR 0053](adr/0053-forked-turn-isolation.md), [ADR 0166](adr/0166-global-sessions-and-immediate-backgrounding.md)): on native builds, `ask` and the TUI spawn a fresh executable in a detached process session. The runner owns the backend, engine and every `session.json` write, streaming normalized events over `<session>/sock` (NDJSON). Execution children own nested tools and their MCP clients; state changes return to the runner for persistence. A caller crash or SIGKILL detaches the turn. Explicit interrupts, foreground TUI exit and foreground terminal hangup stop it, with a verified process kill if cancellation stalls ([ADR 0081](adr/0081-reliable-session-interruption.md)). Caller-side macOS TLS initialization does not disable isolation. wasm, `--ephemeral`, and `TNY_ISOLATE=0` keep the turn in-process; supported native tools still require execution children. Library-hosted model tools fail closed.
+- **Turns run in a detached session runner** ([ADR 0053](adr/0053-forked-turn-isolation.md), [ADR 0166](adr/0166-global-sessions-and-immediate-backgrounding.md)): on native builds, `ask` and the TUI spawn a fresh executable in a detached process session. The runner owns the backend, engine and every `session.json` write, streaming normalized events over `<session>/sock` (NDJSON). Execution children own nested tools and their MCP clients; state changes return to the runner for persistence. A caller crash or SIGKILL detaches the turn. Explicit interrupts, foreground TUI exit and foreground terminal hangup stop it, with a verified process kill if cancellation stalls ([ADR 0081](adr/0081-reliable-session-interruption.md)). Caller-side macOS TLS initialization does not disable isolation. wasm, `--ephemeral`, and `TNY_ISOLATE=0` keep the turn in-process; supported native tools still require execution children. Library-hosted model tools fail closed unless explicitly configured with the native ABI 1.5 worker (ADR 0215).
 - Always have a RAII-style shutdown path: cancel turn → close stream → release resources.
 - Never log bearer tokens, `.env` values.
 

@@ -1,3 +1,4 @@
+# sdk/native is included in source.nix. Native SDK verification stays in SDK CI.
 # Execution snapshot regressions and optional encoder benchmark use existing
 # src/tests filesets, the C compiler and Python stdlib; no new dependencies.
 # Parallel read workers and their rendezvous/timeout tests use the existing

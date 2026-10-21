@@ -9,6 +9,7 @@ const workspace = join(root, "workspace");
 mkdirSync(workspace);
 const base = { workspace, baseUrl: "http://127.0.0.1:1/v1", apiKey: "secret-must-not-leak" };
 for (const options of [
+  { codeExecution: "yes" }, { provider: "acp", codeExecution: true },
   { maxSteps: "bad" }, { maxSteps: -1 }, { maxSteps: 1.5 }, { maxSteps: Infinity },
   { maxSteps: NaN }, { maxSteps: 2 ** 40 }, { maxSteps: 2147483648 },
   { maxToolResultBytes: -1 }, { maxToolResultBytes: 1.5 }, { persistence: "yes" },

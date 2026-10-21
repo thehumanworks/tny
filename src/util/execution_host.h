@@ -21,6 +21,9 @@ typedef struct {
     void *ud;
 } tny_exec_aux;
 int tny_exec_host_start(tny_exec_host *host);
+/* Explicit trusted worker; verifies identity before any runtime context. */
+int tny_exec_host_start_embedded(tny_exec_host *host, const char *executable,
+                                 tny_exec_cancel_fn cancel, void *ud);
 int tny_exec_host_start_tool(tny_exec_host *host);
 /* Same channel for a `--code-cell` child: the parent's environment minus
  * tny's reserved process-scope fields, stdin on /dev/null, and stdout and
