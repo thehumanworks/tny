@@ -22,7 +22,9 @@ typedef enum {
     TNY_EXEC_ASK = 5,
     TNY_EXEC_STATE = 6,
     TNY_EXEC_RESULT = 7,
-    TNY_EXEC_READ_RESULT = 8
+    TNY_EXEC_READ_RESULT = 8,
+    TNY_EXEC_SEARCH_TRANSCRIPT = 9,
+    TNY_EXEC_MATERIALIZE_TRANSCRIPT = 10
 } tny_exec_kind;
 bool tny_exec_protocol_admit(tny_exec_phase phase, tny_exec_kind kind, uint64_t id,
                              uint64_t expected);

@@ -38,6 +38,8 @@ ENUMS = (
     "TNY_EXEC_STATE",
     "TNY_EXEC_RESULT",
     "TNY_EXEC_READ_RESULT",
+    "TNY_EXEC_SEARCH_TRANSCRIPT",
+    "TNY_EXEC_MATERIALIZE_TRANSCRIPT",
 )
 FLAGS = [
     "-std=c11",
@@ -235,7 +237,8 @@ static bool specification(unsigned p, unsigned k, uint64_t id, uint64_t expected
     case TNY_EXEC_WAIT_RESULT:
         if (k == TNY_EXEC_RESULT) return id == 1;
         if (k != TNY_EXEC_CONTROL && k != TNY_EXEC_EVENT && k != TNY_EXEC_PROMPT &&
-            k != TNY_EXEC_ASK && k != TNY_EXEC_STATE && k != TNY_EXEC_READ_RESULT) return false;
+            k != TNY_EXEC_ASK && k != TNY_EXEC_STATE && k != TNY_EXEC_READ_RESULT &&
+            k != TNY_EXEC_SEARCH_TRANSCRIPT && k != TNY_EXEC_MATERIALIZE_TRANSCRIPT) return false;
         return expected >= 2 && id == expected;
     default: return false;
     }
@@ -328,7 +331,16 @@ def main(source_path: Path = SOURCE) -> None:
             "(or "
             + " ".join(
                 f"(= kind {enum(k)})"
-                for k in ("CONTROL", "EVENT", "PROMPT", "ASK", "STATE", "READ_RESULT")
+                for k in (
+                    "CONTROL",
+                    "EVENT",
+                    "PROMPT",
+                    "ASK",
+                    "STATE",
+                    "READ_RESULT",
+                    "SEARCH_TRANSCRIPT",
+                    "MATERIALIZE_TRANSCRIPT",
+                )
             )
             + ")"
         )

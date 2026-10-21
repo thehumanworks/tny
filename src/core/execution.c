@@ -222,6 +222,59 @@ static bool server_state(execution_server *s) {
  * commit context before acknowledging a mailbox/job handoff. */
 static int server_save(void *ud) { return server_state(ud) ? 0 : -1; }
 
+static char *server_materialize_transcript(void *ud, const char *handle, size_t *out_len) {
+    execution_server *s = ud;
+    /* Publish local spills before the owner decides whether another artifact fits. */
+    if (s->env.ctx->no_save && !server_state(s)) return NULL;
+    yyjson_mut_doc *d = object_doc();
+    yyjson_mut_val *r = d ? yyjson_mut_doc_get_root(d) : NULL;
+    bool ok = r && yyjson_mut_obj_add_strcpy(d, r, "handle", handle);
+    yyjson_doc *reply = ok ? server_rpc(s, TNY_EXEC_MATERIALIZE_TRANSCRIPT, d) : NULL;
+    yyjson_val *result = rpc_result(reply), *data = jget(result, "handle"),
+               *length = jget(result, "length"), *available = jget(result, "memory_available");
+    char *out = NULL;
+    if (!reply || yyjson_obj_size(result) != 3 || !yyjson_is_uint(available) ||
+        yyjson_get_uint(available) > 1024u * 1024u || !yyjson_is_uint(length) ||
+        yyjson_get_uint(length) > 64u * 1024u * 1024u ||
+        (!yyjson_is_str(data) && !yyjson_is_null(data)) || yyjson_get_len(data) > 128 ||
+        (yyjson_is_null(data) && yyjson_get_uint(length) != 0))
+        s->failed = true;
+    else {
+        if (s->env.ctx->no_save) {
+            s->env.session->execution_reserved_result_bytes = 0;
+            size_t local = session_result_memory_available(s->env.session);
+            size_t owner = (size_t)yyjson_get_uint(available);
+            s->env.session->execution_reserved_result_bytes = local > owner ? local - owner : 0;
+        }
+        if (yyjson_is_str(data)) {
+            out = xstrdup(yyjson_get_str(data));
+            if (out) *out_len = (size_t)yyjson_get_uint(length);
+        }
+    }
+    yyjson_doc_free(reply);
+    yyjson_mut_doc_free(d);
+    return out;
+}
+
+static char *server_search_transcript(void *ud, const char *query, size_t start, size_t limit) {
+    execution_server *s = ud;
+    yyjson_mut_doc *d = object_doc();
+    yyjson_mut_val *r = d ? yyjson_mut_doc_get_root(d) : NULL;
+    bool ok = r && yyjson_mut_obj_add_strcpy(d, r, "query", query) &&
+              yyjson_mut_obj_add_uint(d, r, "start", start) &&
+              yyjson_mut_obj_add_uint(d, r, "limit", limit);
+    yyjson_doc *reply = ok ? server_rpc(s, TNY_EXEC_SEARCH_TRANSCRIPT, d) : NULL;
+    yyjson_val *result = rpc_result(reply), *data = jget(result, "data");
+    char *out = NULL;
+    if (!reply || yyjson_obj_size(result) != 1 || (!yyjson_is_str(data) && !yyjson_is_null(data)) ||
+        yyjson_get_len(data) > 65536)
+        s->failed = true;
+    else if (yyjson_is_str(data)) out = xstrdup(yyjson_get_str(data));
+    yyjson_doc_free(reply);
+    yyjson_mut_doc_free(d);
+    return out;
+}
+
 static char *server_read_result(void *ud, const char *handle, size_t offset, size_t length,
                                 size_t *out_len) {
     execution_server *s = ud;
@@ -676,6 +729,35 @@ static yyjson_mut_doc *client_callback(tools_env *env, tny_exec_kind kind, yyjso
             ok = value && yyjson_mut_obj_add_val(d, r, "answer", value);
             free(answer);
         }
+    } else if (ok && kind == TNY_EXEC_MATERIALIZE_TRANSCRIPT) {
+        const char *handle = jget_str(body, "handle");
+        ok = env->session && handle && strlen(handle) <= 128 && yyjson_obj_size(body) == 1;
+        if (ok) {
+            size_t length = 0;
+            char *artifact = session_materialize_transcript(env->session, handle, &length);
+            ok = yyjson_mut_obj_add_val(d, r, "handle",
+                                        artifact ? yyjson_mut_strcpy(d, artifact)
+                                                 : yyjson_mut_null(d)) &&
+                 yyjson_mut_obj_add_uint(d, r, "length", artifact ? length : 0) &&
+                 yyjson_mut_obj_add_uint(d, r, "memory_available",
+                                         session_result_memory_available(env->session));
+            free(artifact);
+        }
+    } else if (ok && kind == TNY_EXEC_SEARCH_TRANSCRIPT) {
+        const char *query = jget_str(body, "query");
+        yyjson_val *start = jget(body, "start"), *limit = jget(body, "limit");
+        ok = env->session && query && strlen(query) <= 256 && yyjson_obj_size(body) == 3 &&
+             yyjson_is_uint(start) && yyjson_get_uint(start) <= SIZE_MAX && yyjson_is_uint(limit) &&
+             yyjson_get_uint(limit) > 0 && yyjson_get_uint(limit) <= 32;
+        if (ok) {
+            char *text =
+                session_search_transcript(env->session, query, (size_t)yyjson_get_uint(start),
+                                          (size_t)yyjson_get_uint(limit));
+            ok = (!text || strlen(text) <= 65536) &&
+                 yyjson_mut_obj_add_val(d, r, "data",
+                                        text ? yyjson_mut_strcpy(d, text) : yyjson_mut_null(d));
+            free(text);
+        }
     } else if (ok && kind == TNY_EXEC_READ_RESULT) {
         const char *handle = jget_str(body, "handle");
         yyjson_val *offset = jget(body, "offset"), *length = jget(body, "length");
@@ -948,6 +1030,8 @@ int tny_execution_server_main(void) {
         s.env.session->execution_save = server_save;
         s.env.session->execution_save_ud = &s;
         s.env.session->execution_read_result = server_read_result;
+        s.env.session->execution_search_transcript = server_search_transcript;
+        s.env.session->execution_materialize_transcript = server_materialize_transcript;
     }
     char *catalog = !s.failed ? tools_catalog_json(&s.env) : NULL;
     /* Direct Python acts in the selected local workspace (ctx->cwd), also

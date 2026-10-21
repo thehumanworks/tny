@@ -2,6 +2,7 @@
 """Long durable history must not become execution-process transport state."""
 
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -46,6 +47,24 @@ class ExecutionSnapshot(unittest.TestCase):
                         {"role": "user", "content": f"turn {i}: " + "x" * 16384}
                         for i in range(640)
                     ]
+                    facts = [
+                        "port is 48231, not 48213",
+                        "never migrate the production database",
+                        "rename only internal symbols, retain public ABI",
+                        "earlier green check was stale; current check failed",
+                        "cancel deployment until owner approval",
+                        "keep compatibility with Python 3.11",
+                        "payment credential must never enter logs",
+                        "do not overwrite a concurrent user edit",
+                        "timeout is 750 milliseconds, not seconds",
+                        "the rollback commit is abc0123, not abc0213",
+                        "test fixture is synthetic, not live evidence",
+                        "latest decision supersedes the earlier plan",
+                    ]
+                    for index, fact in enumerate(facts):
+                        history[index * 53]["content"] += (
+                            f" RETENTION-FACT-{index}: {fact}"
+                        )
                     diagnostic = "HISTORICAL-DIAGNOSTIC-END€"
                     digest = 0xCBF29CE484222325
                     for byte in diagnostic.encode():
@@ -107,6 +126,31 @@ class ExecutionSnapshot(unittest.TestCase):
                         f"assert tools.call('read_tool_result', {eof_args!r}) == ''\n"
                         f"assert tools.call('read_tool_result', {binary_args!r}) == '4g=='\n"
                         f"assert 'incomplete UTF-8' in tools.call('read_tool_result', {text_args!r})\n"
+                        "page=json.loads(tools.call('search_transcript', "
+                        "json.dumps({'query':'HISTORICAL-DIAGNOSTIC','start_index':640,'limit':1})))\n"
+                        "assert len(page['messages']) == 1\n"
+                        "hit=page['messages'][0]\n"
+                        f"assert hit['handle'].startswith('transcript:message:{sid}:640:')\n"
+                        "original=tools.call('read_tool_result', json.dumps({'handle':hit['handle']}))\n"
+                        f"assert json.loads(original) == {history[-1]!r}\n"
+                        "assert hit['bytes'] == len(original.encode())\n"
+                        f"facts={facts!r}\n"
+                        "metadata_bytes=0\n"
+                        "for number, fact in enumerate(facts):\n"
+                        "    cursor=0\n"
+                        "    while True:\n"
+                        "        page_text=tools.call('search_transcript', json.dumps({'query':f'RETENTION-FACT-{number}:','start_index':cursor,'limit':1}))\n"
+                        "        metadata_bytes+=len(page_text.encode())\n"
+                        "        page=json.loads(page_text)\n"
+                        "        if page['messages']:\n"
+                        "            source=page['messages'][0]\n"
+                        "            assert fact not in source['excerpt']\n"
+                        "            recovered=tools.call('read_tool_result', json.dumps({'handle':source['handle'],'offset':16384,'length':1024}))\n"
+                        "            assert fact in recovered\n"
+                        "            break\n"
+                        "        assert not page['complete']\n"
+                        "        cursor=page['next_index']\n"
+                        "print('RETRIEVAL-METRICS', json.dumps({'exact_facts':len(facts),'metadata_bytes':metadata_bytes}))\n"
                         "print('RECOVERED-HISTORY')"
                     }
                     for turn in range(2):
@@ -124,6 +168,8 @@ class ExecutionSnapshot(unittest.TestCase):
                         self.assertEqual(len(owner.server.outputs), 1)
                         self.assertNotIn("error:", owner.server.outputs[0])
                         self.assertIn("RECOVERED-HISTORY", owner.server.outputs[0])
+                        if os.environ.get("TNY_TRANSCRIPT_BENCH"):
+                            print(wire, turn, owner.server.outputs[0], flush=True)
                         self.assertEqual(
                             (owner.workspace / "effects").read_text(), "x" * (turn + 1)
                         )
