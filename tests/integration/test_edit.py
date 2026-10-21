@@ -121,6 +121,45 @@ class EditCliTest(unittest.TestCase):
         )
         self.assertEqual(path.read_text(), "new new")
 
+    def test_nul_source_is_rejected_without_changing_bytes_or_inode(self) -> None:
+        path = self.directory / "binary.txt"
+        for original in (b"old\0IMPORTANT_SUFFIX\n", b"\0old", b"old\0"):
+            for all_matches in (False, True):
+                with self.subTest(original=original, replace_all=all_matches):
+                    path.write_bytes(original)
+                    before = path.stat()
+                    result = self.run_edit(
+                        path,
+                        json.dumps(
+                            {"old": "old", "new": "new", "replace_all": all_matches}
+                        ),
+                        "--json",
+                    )
+                    self.assertEqual(result.returncode, 1, result.stdout)
+                    self.assertIn("NUL", result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertEqual(path.read_bytes(), original)
+                    self.assertEqual(path.stat().st_ino, before.st_ino)
+                    self.assertEqual(path.stat().st_mtime_ns, before.st_mtime_ns)
+                    self.assertEqual(list(self.directory.iterdir()), [path])
+
+    def test_nul_payloads_are_rejected_without_writes(self) -> None:
+        path = self.directory / "payload.txt"
+        path.write_text("old")
+        for field in ("old", "new"):
+            payload = {"old": "old", "new": "new"}
+            payload[field] += "\0ignored"
+            result = self.run_edit(path, json.dumps(payload), "--json")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("NUL", result.stderr)
+            self.assertEqual(path.read_bytes(), b"old")
+        result = self.run_edit(
+            path, "*** SEARCH\nold\n*** REPLACE\nnew\0ignored\n*** END\n"
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("NUL", result.stderr)
+        self.assertEqual(path.read_bytes(), b"old")
+
     def test_zero_and_multiple_are_exit_two_without_writes(self) -> None:
         zero = self.directory / "zero.txt"
         zero.write_text("alpha\ncorrect target\nomega\n")

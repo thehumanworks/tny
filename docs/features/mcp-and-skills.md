@@ -125,7 +125,12 @@ Large results: bounded preview + session handle; `read_tool_result` reads a byte
 ### Exact-edit recovery evidence
 
 Local `edit_file` still requires an exact, unambiguous `old_string` (or explicit
-`replace_all`). A failed match never writes the file or updates undo state.
+`replace_all`). Files containing NUL bytes are rejected before matching or undo
+recording. Tool path/search/replacement strings containing NUL are rejected
+before path resolution or permission prompts. Exact edits operate on NUL-free
+text; use an explicit byte-aware operation for binary data. This is a data
+integrity contract, not a sandbox restriction. A failed match never writes the
+file or updates undo state.
 When the shared editor identifies a uniquely nearest line, the failure also
 returns its one-based line number and a bounded snippet:
 

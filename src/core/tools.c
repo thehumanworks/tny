@@ -123,7 +123,7 @@ static const char *SCHEMA_JSON =
     "content.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},"
     "\"content\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"edit_file\",\"description\":\"Replace an "
-    "exact substring in a file once (or all occurrences with "
+    "exact substring in a NUL-free text file once (or all occurrences with "
     "replace_all).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":"
     "\"string\"},\"old_string\":{\"type\":\"string\"},\"new_string\":{\"type\":\"string\"},"
     "\"replace_all\":{\"type\":\"boolean\"}},\"required\":[\"path\",\"old_string\",\"new_string\"]}"
@@ -933,6 +933,18 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
             return -1;
         }
         if (validate_call_schema(call->name, call->args, &call->error) != 0) return -1;
+    }
+    if (!call->custom && strcmp(call->name, "edit_file") == 0) {
+        static const char *fields[] = {"path", "old_string", "new_string"};
+        for (size_t i = 0; i < sizeof fields / sizeof *fields; i++) {
+            yyjson_val *value = jget(call->args, fields[i]);
+            const char *text = yyjson_get_str(value);
+            if (!text || strlen(text) != yyjson_get_len(value)) {
+                call->error =
+                    tool_err("edit_file %s must be a string without NUL bytes", fields[i]);
+                return -1;
+            }
+        }
     }
     if (!call->custom && strcmp(call->name, "terminal") == 0) {
         yyjson_val *owned = jget(call->args, "owned_check");

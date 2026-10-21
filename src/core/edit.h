@@ -16,6 +16,7 @@ typedef enum {
     TNY_EDIT_WRITE_ERROR,
     TNY_EDIT_NOMEM,
     TNY_EDIT_INTERRUPTED,
+    TNY_EDIT_BINARY,
 } tny_edit_status;
 
 typedef struct {
@@ -37,7 +38,9 @@ typedef struct {
 } tny_edit_hooks;
 
 /* Replace old_text exactly once, or every non-overlapping occurrence when
- * replace_all is true. The destination is untouched unless the match policy,
+ * replace_all is true. NUL-bearing source files are rejected before matching
+ * or invoking write hooks; this API edits NUL-free text, not arbitrary bytes.
+ * The destination is untouched unless the match policy,
  * allocation, and complete replacement construction all succeed. Existing
  * symlinks are resolved so the target is edited without replacing the link.
  * Preserve the target's rwx permission bits (not set-ID/sticky bits); metadata

@@ -3087,6 +3087,65 @@ TEST edit_feedback_dispatch_preserves_failure_and_undo(void) {
     PASS();
 }
 
+TEST edit_nul_rejection_preserves_file_and_undo(void) {
+    ensure_env();
+    write_settings("{}");
+    tny_ctx *ctx = tny_ctx_load(g_ws);
+    ctx->perm_mode = TNY_MODE_YOLO;
+    ctx->tool_profile = TNY_TOOLS_ALL;
+    perm_engine *perm = perm_new(ctx);
+    tny_session_state *session = session_new(ctx);
+    tools_env env = {.ctx = ctx, .perm = perm, .session = session};
+    char *path = path_join(g_ws, "edit-nul.txt");
+    char *meta = path_join(session->dir, "undo.json");
+    char *blob = path_join(session->dir, "undo.blob");
+    ASSERT_EQ(0, mkdir_p(session->dir));
+    const char binary[] = "old\0IMPORTANT_SUFFIX\n";
+    const char *arguments[] = {
+        "{\"path\":\"edit-nul.txt\",\"old_string\":\"old\",\"new_string\":\"new\"}",
+        "{\"path\":\"edit-nul.txt\\u0000ignored\",\"old_string\":\"old\",\"new_string\":\"new\"}",
+        "{\"path\":\"edit-nul.txt\",\"old_string\":\"old\\u0000ignored\",\"new_string\":\"new\"}",
+        "{\"path\":\"edit-nul.txt\",\"old_string\":\"old\",\"new_string\":\"new\\u0000ignored\"}",
+    };
+    for (size_t i = 0; i < sizeof arguments / sizeof *arguments; i++) {
+        const char *original = i == 0 ? binary : "old";
+        size_t original_len = i == 0 ? sizeof binary - 1 : 3;
+        ASSERT_EQ(0, file_write_atomic(path, original, original_len));
+        ASSERT_EQ(0, file_write_atomic(meta, "prior metadata", 14));
+        ASSERT_EQ(0, file_write_atomic(blob, "prior bytes", 11));
+        if (i != 0) {
+            tools_call prepared;
+            ASSERT_EQ(-1, tools_call_prepare(&env, "edit_file", arguments[i], &prepared));
+            ASSERT_EQ(NULL, prepared.detail);
+            ASSERT(prepared.error && strstr(prepared.error, "NUL"));
+            tools_call_free(&prepared);
+        }
+        char *result = tools_execute(&env, "edit_file", arguments[i]);
+        ASSERT(result && str_starts(result, "error:") && strstr(result, "NUL"));
+        free(result);
+        size_t len = 0;
+        char *actual = file_slurp(path, &len);
+        ASSERT(actual);
+        ASSERT_EQ(original_len, len);
+        ASSERT_MEM_EQ(original, actual, len);
+        free(actual);
+        actual = file_slurp(meta, NULL);
+        ASSERT_STR_EQ("prior metadata", actual);
+        free(actual);
+        actual = file_slurp(blob, NULL);
+        ASSERT_STR_EQ("prior bytes", actual);
+        free(actual);
+    }
+    unlink(path);
+    free(path);
+    free(meta);
+    free(blob);
+    perm_free(perm);
+    session_close(session);
+    tny_ctx_free(ctx);
+    PASS();
+}
+
 TEST edit_feedback_dispatch_bounds_utf8_snippet(void) {
     ensure_env();
     write_settings("{}");
@@ -7361,6 +7420,7 @@ TEST oauth_callback_rules(void) {
 }
 
 SUITE(core_suite) {
+    RUN_TEST(edit_nul_rejection_preserves_file_and_undo);
     RUN_TEST(edit_feedback_dispatch_preserves_failure_and_undo);
     RUN_TEST(edit_feedback_dispatch_bounds_utf8_snippet);
     RUN_TEST(grep_late_earlier_index_survives_hit_threshold);
