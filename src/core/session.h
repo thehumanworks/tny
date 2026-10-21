@@ -152,6 +152,9 @@ char *session_result_stream_finish(session_result_stream *stream, bool needed);
  * Caller must not use this for no-save requests; abort removes owned artifacts. */
 session_result_stream *session_result_stream_new_temporary(void);
 char *session_result_stream_finish_content(session_result_stream *stream, bool *stored);
+/* Consume a session-owned stream, returning its owned handle and exact byte count.
+ * Failure returns NULL and publishes no partial content; no human receipt is built. */
+char *session_result_stream_finish_handle(session_result_stream *stream, size_t *bytes);
 /* Discard interrupted capture, including its temporary artifact. */
 void session_result_stream_abort(session_result_stream *stream);
 

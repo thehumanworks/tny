@@ -84,6 +84,8 @@ PARSED_WITHOUT_HELP = {
         # Private lossless argv grammar for owned child launch snapshots.
         "--acp-agent-argv",
     },
+    # Private bounded stdin envelope from the existing owned subagent launcher.
+    "ask": {"--preset-input"},
     "image": {"--job-no-replace"},
     "provider": {"--api-key"},
 }

@@ -11,6 +11,9 @@
 GREATEST_MAIN_DEFS();
 
 SUITE_EXTERN(acp_compat_suite);
+SUITE_EXTERN(agent_presets_suite);
+SUITE_EXTERN(retrieval_sources_suite);
+SUITE_EXTERN(retrieval_suite);
 SUITE_EXTERN(code_runtime_suite);
 SUITE_EXTERN(execution_protocol_suite);
 SUITE_EXTERN(execution_transport_suite);
@@ -70,6 +73,9 @@ int main(int argc, char **argv) {
     unsetenv("TNY_SELF_IMPROVE");
     GREATEST_MAIN_BEGIN();
     RUN_SUITE(acp_compat_suite);
+    RUN_SUITE(agent_presets_suite);
+    RUN_SUITE(retrieval_sources_suite);
+    RUN_SUITE(retrieval_suite);
     RUN_SUITE(image_service_suite);
     RUN_SUITE(speech_suite);
     RUN_SUITE(dictation_suite);

@@ -78,7 +78,8 @@ struct tny_subagent_plan_owner {
     tny_subagent_plan_owner(const tny_ctx &ctx, const char *resume_id, yyjson_val *selection,
                             const char *exe) {
         const char *provider = jget_str(selection, "provider");
-        const bool parent = tny_subagent_provider_is_parent(&ctx, provider);
+        const bool preset = jget_str(selection, "name") != nullptr;
+        const bool parent = !preset && tny_subagent_provider_is_parent(&ctx, provider);
         const char *model = jget_str(selection, "model");
         const char *effort = jget_str(selection, "effort");
         if (parent) provider = tny_provider_name(&ctx);
@@ -154,6 +155,7 @@ struct tny_subagent_plan_owner {
         if (ctx.no_save) arg("--ephemeral");
         if (ctx.no_self_improve) arg("--no-self-improve");
         arg("ask");
+        if (preset) arg("--preset-input");
         arg("--json");
         arg("--stdin");
         if (resume_id) {

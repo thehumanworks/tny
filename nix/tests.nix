@@ -1,3 +1,5 @@
+# Retrieval preset fixtures use the existing src/tests filesets, Python stdlib,
+# native child processes and loopback mocks; no live provider or new inputs.
 # sdk/native is included in source.nix. Native SDK verification stays in SDK CI.
 # Execution snapshot regressions and optional encoder benchmark use existing
 # src/tests filesets, the C compiler and Python stdlib; no new dependencies.

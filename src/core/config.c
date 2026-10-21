@@ -1,4 +1,5 @@
 #include "core/config.h"
+#include "core/agent_presets.h"
 #include "core/tasks.h"
 #include "core/backend.h"
 #include "core/extensions.h"
@@ -209,7 +210,8 @@ static int validate_provider_settings(tny_ctx *ctx) {
     size_t i, n;
     yyjson_val *k, *v;
     if (yyjson_is_obj(root)) yyjson_obj_foreach(root, i, n, k, v) {
-            (void)k;
+            /* A preset named api_key is a selector, not a stored credential. */
+            if (yyjson_equals_str(k, "agent_presets")) continue;
             if (jget(v, "api_key")) {
                 fputs("tny: stored api_key settings were removed; export the key, set api_key_env, "
                       "and delete api_key from settings.json\n",
@@ -701,7 +703,7 @@ static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
     yyjson_val *wso = ws_obj(ctx);
     yyjson_val *rroot = ctx->repo_cfg ? yyjson_doc_get_root(ctx->repo_cfg) : NULL;
 
-    if (validate_provider_settings(ctx) != 0) {
+    if (validate_provider_settings(ctx) != 0 || tny_agent_presets_validate(ctx) != 0) {
         tny_ctx_free(ctx);
         return NULL;
     }
@@ -1802,6 +1804,7 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->ssh_control);
     free(ctx->service_tier);
     free(ctx->system_prompt);
+    free(ctx->retrieval_state);
     free(ctx->task_name);
     free(ctx->task_source);
     free(ctx->task_instructions);

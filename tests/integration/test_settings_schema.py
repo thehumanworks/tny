@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Settings editor contract and generated headless UI persistence checks.
 
-Schema tests cover image_input, dictation.normalize and ui, including reserved
+Schema tests cover agent_presets, image_input, dictation.normalize and ui, including reserved
 root names. Uses jsonschema when installed and always checks stdlib patterns.
 The UI CLI tests use TNY (default build/tny) and a temporary HOME without
 provider credentials, verifying strict values, field preservation and output
@@ -134,6 +134,9 @@ class UiSettingsTests(unittest.TestCase):
                 lines = seed.randint(1, 1000000)
                 original = {
                     "provider": "missing-provider",
+                    "agent_presets": {
+                        "retrieve": {"provider": "codex", "model": "explicit-model"}
+                    },
                     "models": {"openai": f"keep-{seed.getrandbits(32)}"},
                     "permission": {"edit": {"*": "deny"}},
                     "private_sentinel": "synthetic-secret-do-not-print",
@@ -327,6 +330,171 @@ class SpeedTierSchemaTests(unittest.TestCase):
                 jsonschema.validate({"fast": value}, SCHEMA)
             with self.assertRaises(jsonschema.ValidationError):
                 jsonschema.validate({"fast": "ULTRAFAST"}, SCHEMA)
+
+
+class AgentPresetSchemaTests(unittest.TestCase):
+    def test_context_load_validates_global_presets_without_resolving_them(self):
+        binary = Path(
+            os.environ.get("TNY", SUPPLIED_BINARY or str(ROOT / "build/tny"))
+        ).resolve()
+        if not binary.is_file():
+            self.skipTest("tny binary is unavailable")
+        with tempfile.TemporaryDirectory(prefix="tny-agent-preset-settings-") as home:
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": home}
+            settings = Path(home) / ".tny/settings.json"
+            settings.parent.mkdir()
+
+            def status():
+                return subprocess.run(
+                    [str(binary), "--provider", "openai", "status", "--json"],
+                    cwd=home,
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    timeout=10,
+                )
+
+            # api_key is a valid preset name, not a persisted provider credential.
+            # Unknown providers and task names are not resolved during config load.
+            settings.write_text(
+                json.dumps(
+                    {
+                        "agent_presets": {
+                            "api_key": {
+                                "provider": "not-a-configured-provider",
+                                "model": "not-the-conversation-model",
+                                "task": "not-an-installed-task",
+                            }
+                        }
+                    }
+                )
+            )
+            result = status()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["backend"], "openai")
+            self.assertNotIn("not-the-conversation-model", result.stdout)
+
+            for value in (
+                None,
+                [],
+                {"retrieve": {"provider": "p"}},
+                {"retrieve": {"model": "m"}},
+                {"retrieve": {"provider": "p", "model": "m", "api_key": "secret"}},
+            ):
+                settings.write_text(json.dumps({"agent_presets": value}))
+                result = status()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("agent_presets", result.stderr)
+                self.assertNotIn("secret", result.stdout + result.stderr)
+
+            # Repository content never gains inference or credential authority.
+            settings.write_text("{}")
+            (Path(home) / ".tny.json").write_text(
+                json.dumps({"agent_presets": {"retrieve": {"api_key": "secret"}}})
+            )
+            result = status()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("secret", result.stdout + result.stderr)
+
+    def test_presets_are_global_strict_bounded_and_reserved(self):
+        presets = SCHEMA["properties"]["agent_presets"]
+        self.assertEqual(presets["maxProperties"], 32)
+        entry = SCHEMA["$defs"]["agentPreset"]
+        self.assertEqual(entry["required"], ["provider", "model"])
+        self.assertFalse(entry["additionalProperties"])
+        self.assertEqual(entry["properties"]["task"]["default"], "context-retrieval")
+        self.assertEqual(entry["properties"]["max_result_bytes"]["default"], 8192)
+        self.assertNotIn("default", entry["properties"]["provider"])
+        self.assertNotIn("default", entry["properties"]["model"])
+        self.assertNotIn("agent_presets", SCHEMA["$defs"]["workspace"]["properties"])
+        for pattern in SCHEMA["patternProperties"]:
+            self.assertIsNone(re.fullmatch(pattern, "agent_presets"))
+        names = SCHEMA["$defs"]["agentPresetName"]
+        self.assertEqual(names["maxLength"], 63)
+        pattern = re.compile(names["pattern"])
+        for name in ("retrieve", "a-b_c.d", "A9", "a" * 63):
+            self.assertIsNotNone(pattern.search(name), name)
+        for name in ("", ".hidden", "a..b", "a/b", "a b", "x\n", "a\x00b"):
+            self.assertIsNone(pattern.search(name), name)
+
+    def test_preset_documents_accept_explicit_independent_selection(self):
+        if jsonschema is None:
+            self.skipTest("jsonschema is not installed in this environment")
+        for doc in (
+            {"agent_presets": {}},
+            {"agent_presets": {"retrieve": {"provider": "codex", "model": "small"}}},
+            {
+                "agent_presets": {
+                    "retrieve": {
+                        "provider": "gateway",
+                        "model": "fast",
+                        "effort": "light",
+                        "task": "custom.instructions",
+                        "description": "Find 世界 files",
+                        "max_result_bytes": 65536,
+                    }
+                }
+            },
+            {
+                "agent_presets": {
+                    f"retrieve-{i}": {"provider": "p", "model": "m"} for i in range(32)
+                }
+            },
+        ):
+            jsonschema.validate(doc, SCHEMA)
+
+    def test_preset_documents_reject_ambiguity_and_authority(self):
+        if jsonschema is None:
+            self.skipTest("jsonschema is not installed in this environment")
+        invalid = [
+            {"agent_presets": None},
+            {"agent_presets": []},
+            {"agent_presets": {".hidden": {"provider": "p", "model": "m"}}},
+            {"agent_presets": {"a..b": {"provider": "p", "model": "m"}}},
+            {"agent_presets": {"a" * 64: {"provider": "p", "model": "m"}}},
+            {
+                "agent_presets": {
+                    f"retrieve-{i}": {"provider": "p", "model": "m"} for i in range(33)
+                }
+            },
+        ]
+        for entry in ({}, {"provider": "p"}, {"model": "m"}):
+            invalid.append({"agent_presets": {"retrieve": entry}})
+        for field in ("provider", "model", "effort"):
+            for value in (None, "", True, "a\x00b", "a" * 257):
+                entry = {"provider": "p", "model": "m", field: value}
+                invalid.append({"agent_presets": {"retrieve": entry}})
+        for field, value in (
+            ("task", "../escape"),
+            ("task", "x\n"),
+            ("description", "a\x00b"),
+            ("description", "a" * 257),
+            *(
+                ("max_result_bytes", value)
+                for value in (1023, 65537, -1, 1.5, True, "8192")
+            ),
+            *(
+                (field, "forbidden")
+                for field in (
+                    "api_key",
+                    "api_key_env",
+                    "base_url",
+                    "headers",
+                    "command",
+                    "args",
+                    "tools",
+                    "permissions",
+                    "permission_mode",
+                    "subscription",
+                    "name",
+                )
+            ),
+        ):
+            entry = {"provider": "p", "model": "m", field: value}
+            invalid.append({"agent_presets": {"retrieve": entry}})
+        for doc in invalid:
+            with self.assertRaises(jsonschema.ValidationError, msg=doc):
+                jsonschema.validate(doc, SCHEMA)
 
 
 class SettingsSchemaTests(unittest.TestCase):

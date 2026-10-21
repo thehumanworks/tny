@@ -1326,6 +1326,24 @@ static int32_t make_session(tny_runtime *runtime, tny_session_state *state, tny_
     return TNY_STATUS_OK;
 }
 
+/* Restored specialist context belongs to one session, not its reusable runtime.
+ * Explicit embedding task instructions remain a runtime-level selection. */
+static void clear_retrieval_context(tny_runtime *runtime) {
+    tny_ctx *ctx = runtime ? runtime->ctx : NULL;
+    if (!ctx || !ctx->retrieval_state) return;
+    free(ctx->retrieval_state);
+    ctx->retrieval_state = NULL;
+    if (!ctx->task_explicit) {
+        free(ctx->task_name);
+        free(ctx->task_source);
+        free(ctx->task_instructions);
+        ctx->task_name = NULL;
+        ctx->task_source = NULL;
+        ctx->task_instructions = NULL;
+        memset(ctx->task_digest, 0, sizeof ctx->task_digest);
+    }
+}
+
 int32_t tny_session_create(tny_runtime *runtime, tny_session **out, tny_error **error) {
     tny_alloc_scope_begin("session_create");
     if (out) *out = NULL;
@@ -1338,6 +1356,7 @@ int32_t tny_session_create(tny_runtime *runtime, tny_session **out, tny_error **
     if (runtime->session)
         return scoped_status(
             failf(error, TNY_STATUS_BAD_STATE, "runtime already has an open session"), error);
+    clear_retrieval_context(runtime);
     rc = make_session(runtime, session_new(runtime->ctx), out, error);
     if (tny_alloc_scope_failed() && *out) {
         session_release(*out);
@@ -1391,6 +1410,7 @@ static void session_release(tny_session *session) {
     tny_engine_free(session->engine);
     perm_free(session->perm);
     session_close(session->state);
+    clear_retrieval_context(session->runtime);
     if (session->runtime && session->runtime->session == session) session->runtime->session = NULL;
     free(session->permission_id);
     free(session);
@@ -1426,6 +1446,14 @@ int32_t tny_session_send(tny_session *session, tny_bytes prompt, tny_error **err
     char *text = NULL;
     rc = copy_bytes(prompt, true, "prompt", &text, error);
     if (rc != TNY_STATUS_OK) return scoped_status(rc, error);
+    if (session->runtime->ctx->retrieval_state) {
+        char snapshot_error[256] = {0};
+        if (session_task_reconcile(session->state, snapshot_error, sizeof snapshot_error) != 0) {
+            free(text);
+            return scoped_status(failf(error, TNY_STATUS_INVALID_ARGUMENT, "%s", snapshot_error),
+                                 error);
+        }
+    }
     if (!tny_engine_ready(session->engine)) {
         char errbuf[512] = {0};
         tny_backend *backend = tny_backend_create((tny_backend_id)session->runtime->ctx->backend,

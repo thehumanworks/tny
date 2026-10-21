@@ -1240,6 +1240,8 @@ endif
 test-subagent-e2e: release
 	TNY='$(abspath $(BIN))' python3 tests/integration/test_subagent.py
 	TNY='$(abspath $(BIN))' python3 tests/integration/test_subagent_diagnostics.py
+	TNY='$(abspath $(BIN))' python3 tests/integration/test_retrieval_presets.py
+	TNY='$(abspath $(BIN))' python3 tests/integration/test_retrieval_transcripts.py
 
 # Explicitly opt-in: consumes the configured Codex ChatGPT account allowance.
 verify-subagents-live: release

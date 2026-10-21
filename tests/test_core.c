@@ -5552,7 +5552,8 @@ TEST subagent_selector_validation(void) {
     }
     char *error = subagent_prepare(
         &env, "{\"action\":\"create\",\"prompt\":\"p\",\"model\\u0000suffix\":\"x\"}");
-    ASSERT(error && strstr(error, "only action, id, prompt, provider, model and effort"));
+    ASSERT(error &&
+           strstr(error, "only action, id, prompt, preset, sources, provider, model and effort"));
     free(error);
     tny_ctx_free(ctx);
     PASS();
@@ -5608,7 +5609,8 @@ TEST subagent_prepare_rejects_with_exact_codes(void) {
          "lifecycle; relationship, configure and queued messages are not supported. "
          "Example: " SA_CREATE_EXAMPLE},
         {"{\"action\":\"create\",\"prompt\":\"p\",\"SENTINEL\":1}",
-         "error: SUBAGENT_INVALID_ARGUMENT: only action, id, prompt, provider, model and "
+         "error: SUBAGENT_INVALID_ARGUMENT: only action, id, prompt, preset, sources, provider, "
+         "model and "
          "effort are accepted. "
          "Example: " SA_CREATE_EXAMPLE},
         {"{\"action\":\"create\",\"prompt\":\"\"}",

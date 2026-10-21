@@ -56,7 +56,10 @@ static tny_ctx *fixture(bool full) {
     c->library_mode = false;
     c->perm_mode = TNY_MODE_YOLO;
     c->tool_profile = TNY_TOOLS_ALL;
-    if (!full) return c;
+    if (!full) {
+        REQUIRE(!c->retrieval_state);
+        return c;
+    }
     set_string(&c->provider_name, "grok");
     set_string(&c->model, "fixture-model");
     set_string(&c->base_url, "https://cli-chat-proxy.fixture.invalid/v1");
@@ -75,6 +78,8 @@ static tny_ctx *fixture(bool full) {
     set_string(&c->ssh_control, "fixture-ssh_control");
     set_string(&c->service_tier, "fixture-service_tier");
     set_string(&c->system_prompt, "fixture-system_prompt");
+    set_string(&c->retrieval_state,
+               "{\"profile\":{\"name\":\"fixture-retrieval\"},\"sources\":[]}");
     set_string(&c->task_name, "fixture-task_name");
     set_string(&c->task_source, "fixture-task_source");
     set_string(&c->task_instructions, "fixture-task_instructions");
@@ -160,7 +165,7 @@ static void complete_schema(tny_ctx *c) {
     yyjson_val *r = yyjson_doc_get_root(d);
     /* Legacy contexts omit the two nullable definition strings but retain the
      * explicit empty digest and zero participant count. */
-    REQUIRE(yyjson_obj_size(r) == 74);
+    REQUIRE(yyjson_obj_size(r) == 75);
     REQUIRE(yyjson_is_arr(jget(r, "agent_argv")) && yyjson_arr_size(jget(r, "agent_argv")) == 0);
     REQUIRE(yyjson_is_bool(jget(r, "agent_from_profile")) &&
             yyjson_get_bool(jget(r, "agent_from_profile")) == c->agent_from_profile);
@@ -205,6 +210,8 @@ static void complete_schema(tny_ctx *c) {
     REQUIRE(jget_str(r, "service_tier") && !strcmp(jget_str(r, "service_tier"), c->service_tier));
     REQUIRE(jget_str(r, "system_prompt") &&
             !strcmp(jget_str(r, "system_prompt"), c->system_prompt));
+    REQUIRE(jget_str(r, "retrieval_state") &&
+            !strcmp(jget_str(r, "retrieval_state"), c->retrieval_state));
     REQUIRE(jget_str(r, "task_name") && !strcmp(jget_str(r, "task_name"), c->task_name));
     REQUIRE(jget_str(r, "task_source") && !strcmp(jget_str(r, "task_source"), c->task_source));
     REQUIRE(jget_str(r, "task_instructions") &&
@@ -306,7 +313,9 @@ static void complete_schema(tny_ctx *c) {
                 c->mcp_import_order[i]);
     yyjson_doc_free(d);
     d = snapshot(c, true);
-    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 64);
+    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 65);
+    REQUIRE(jget_str(yyjson_doc_get_root(d), "retrieval_state") &&
+            !strcmp(jget_str(yyjson_doc_get_root(d), "retrieval_state"), c->retrieval_state));
     REQUIRE(!jget(yyjson_doc_get_root(d), "acp_cleanup_file"));
     REQUIRE(!jget(yyjson_doc_get_root(d), "openai_signin_key"));
     REQUIRE(yyjson_is_null(jget(yyjson_doc_get_root(d), "swarm_definition")));
@@ -337,6 +346,13 @@ static void roundtrip(tny_ctx *c) {
     yyjson_doc_free(input);
     same(restored, expected);
     REQUIRE(restored->cwd != c->cwd);
+    if (c->retrieval_state) {
+        REQUIRE(restored->retrieval_state &&
+                !strcmp(restored->retrieval_state, c->retrieval_state));
+        REQUIRE(restored->retrieval_state != c->retrieval_state);
+    } else {
+        REQUIRE(!restored->retrieval_state);
+    }
     REQUIRE(restored->no_self_improve == c->no_self_improve);
     REQUIRE(!c->settings || restored->settings != c->settings);
     REQUIRE(!c->extensions_enabled || restored->extensions);
@@ -401,6 +417,7 @@ static void edge_cases(tny_ctx *full) {
         "ssh_control",
         "service_tier",
         "system_prompt",
+        "retrieval_state",
         "task_name",
         "task_source",
         "task_instructions",
@@ -578,6 +595,7 @@ static void recovery_routing(tny_ctx *saved) {
     tny_ctx *resolved = fixture(true);
     set_string(&resolved->model, "new-default-model");
     set_string(&resolved->api_key, "SECRET-refreshed-credential");
+    set_string(&resolved->retrieval_state, "fixture-unsaved-retrieval_state");
     tny_ctx_clear_extra_headers(resolved);
     resolved->extra_headers =
         array("X-Fixture: SECRET-header", "X-Second: value", "X-XAI-Token-Auth: xai-grok-cli");
@@ -603,6 +621,9 @@ static void recovery_routing(tny_ctx *saved) {
             REQUIRE(!strcmp(c->model, saved->model));
             REQUIRE(!strcmp(c->api_key, resolved->api_key));
             REQUIRE(c->api_key != resolved->api_key);
+            REQUIRE(c->retrieval_state && !strcmp(c->retrieval_state, saved->retrieval_state));
+            REQUIRE(c->retrieval_state != saved->retrieval_state);
+            REQUIRE(c->retrieval_state != resolved->retrieval_state);
             REQUIRE(!strcmp(c->extra_headers[3], "x-grok-model-override: fixture-model"));
             REQUIRE(!c->extra_headers[4]);
         }
@@ -772,7 +793,7 @@ static void swarm_metadata_ownership(void) {
     for (int public_only = 0; public_only <= 1; public_only++) {
         yyjson_doc *d = snapshot(c, public_only != 0);
         yyjson_val *r = yyjson_doc_get_root(d);
-        REQUIRE(yyjson_obj_size(r) == (public_only ? 64u : 76u));
+        REQUIRE(yyjson_obj_size(r) == (public_only ? 65u : 77u));
         REQUIRE(jget_str(r, "swarm_definition") &&
                 !strcmp(jget_str(r, "swarm_definition"), c->swarm_definition));
         REQUIRE(jget_str(r, "swarm_source") &&
