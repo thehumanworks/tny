@@ -37,8 +37,8 @@ __asm__(".symver tny_sdk_hypot_compat,hypot@GLIBC_2.2.5");
 __asm__(".symver tny_sdk_fmod_compat,fmod@GLIBC_2.17");
 __asm__(".symver tny_sdk_hypot_compat,hypot@GLIBC_2.17");
 #endif
-double __wrap_fmod(double x, double y);
-double __wrap_hypot(double x, double y);
-double __wrap_fmod(double x, double y) { return tny_sdk_fmod_compat(x, y); }
-double __wrap_hypot(double x, double y) { return tny_sdk_hypot_compat(x, y); }
+double tny_sdk_wrap_fmod(double x, double y) __asm__("__wrap_fmod");
+double tny_sdk_wrap_hypot(double x, double y) __asm__("__wrap_hypot");
+double tny_sdk_wrap_fmod(double x, double y) { return tny_sdk_fmod_compat(x, y); }
+double tny_sdk_wrap_hypot(double x, double y) { return tny_sdk_hypot_compat(x, y); }
 #endif

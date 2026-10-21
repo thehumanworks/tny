@@ -9,6 +9,13 @@ import { spawn } from "node:child_process";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const delay = (ms) => new Promise((done) => setTimeout(done, ms));
+const timeoutMs = (name, seconds) => {
+  const configured = Number(process.env[name] ?? seconds);
+  assert.ok(Number.isFinite(configured) && configured > 0, `${name} must be positive seconds`);
+  return configured * 1000;
+};
+const mockReadyTimeout = timeoutMs("TNY_TEST_MOCK_READY_TIMEOUT", 15);
+const turnTimeout = timeoutMs("TNY_TEST_TURN_TIMEOUT", 45);
 
 async function childCase() {
   const { Runtime } = await import(pathToFileURL(join(process.env.TNY_TEST_STAGE, "dist/index.mjs")));
@@ -32,7 +39,7 @@ async function childCase() {
     const abort = new AbortController();
     let cancelTask;
     if (kind === "cancel") cancelTask = (async () => {
-      const deadline = Date.now() + 15_000;
+      const deadline = Date.now() + turnTimeout;
       while (!existsSync(join(workspace, "started"))) {
         if (Date.now() >= deadline) throw new Error("Python cell never started");
         await delay(10);
@@ -95,7 +102,7 @@ async function withMock(mockScript, env, run) {
   try {
     const port = await new Promise((ready, reject) => {
       let output = "";
-      const timer = setTimeout(() => reject(new Error(`mock readiness timeout: ${diagnostics}`)), 15_000);
+      const timer = setTimeout(() => reject(new Error(`mock readiness timeout: ${diagnostics}`)), mockReadyTimeout);
       mock.once("error", (error) => { clearTimeout(timer); reject(error); });
       mock.once("exit", (code) => { clearTimeout(timer); reject(new Error(`mock exited ${code}: ${diagnostics}`)); });
       mock.stdout.on("data", (data) => {
@@ -166,7 +173,7 @@ async function main() {
           let stdout = "", stderr = "";
           child.stdout.on("data", (data) => { stdout += data; });
           child.stderr.on("data", (data) => { stderr += data; });
-          const timer = setTimeout(() => child.kill("SIGKILL"), 45_000);
+          const timer = setTimeout(() => child.kill("SIGKILL"), turnTimeout * 2);
           child.once("error", (error) => { clearTimeout(timer); reject(error); });
           child.once("exit", (status, signal) => { clearTimeout(timer); done({ status, signal, stdout, stderr }); });
         });

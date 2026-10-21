@@ -180,7 +180,9 @@ def main() -> None:
                     assert mock.stdout
                     with selectors.DefaultSelector() as selector:
                         selector.register(mock.stdout, selectors.EVENT_READ)
-                        assert selector.select(10), "mock readiness timeout"
+                        assert selector.select(
+                            float(os.environ.get("TNY_TEST_MOCK_READY_TIMEOUT", "15"))
+                        ), "mock readiness timeout"
                     ready = mock.stdout.readline().strip()
                     assert ready.startswith("ready on "), ready
                     url = f"http://127.0.0.1:{int(ready.split()[-1])}/v1"
@@ -188,7 +190,7 @@ def main() -> None:
                         [str(consumer), mode, str(workspace), str(executable), url],
                         env=environment,
                         check=True,
-                        timeout=30,
+                        timeout=float(os.environ.get("TNY_TEST_TURN_TIMEOUT", "30")),
                     )
                     if mode == "removed":
                         assert not log.exists(), "removed helper unexpectedly launched"

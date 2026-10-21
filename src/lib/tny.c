@@ -600,7 +600,7 @@ int32_t tny_runtime_set_execution_helper(tny_runtime *runtime, tny_bytes path, t
                                               "execution helper path too long");
     struct stat st;
     if (status == TNY_STATUS_OK &&
-        (copy[0] != '/' || stat(copy, &st) || !S_ISREG(st.st_mode) || access(copy, X_OK)))
+        (!copy || copy[0] != '/' || stat(copy, &st) || !S_ISREG(st.st_mode) || access(copy, X_OK)))
         status = failf(error, TNY_STATUS_INVALID_ARGUMENT,
                        "execution helper must be an absolute executable file");
     if (status == TNY_STATUS_OK) {
