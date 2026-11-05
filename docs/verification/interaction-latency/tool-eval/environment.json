@@ -1,0 +1,12 @@
+{
+  "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+  "python": "3.14.7 (main, Aug  7 2026, 02:15:30) [Clang 22.1.3 ]",
+  "node": "v26.12.1",
+  "monty": "1.4.0",
+  "sha256": {
+    "build/python-runtime-bench/production": "e0152c16000739178d8ec5e748875ee25d7685531dfe8390faeb9117f90f2fe5",
+    "tests/bench/code_mode/cases.py": "af6270ede1452855cf2ea2d18e75c631f9d0a41b82f58c74826d943e0f5f2487",
+    "tests/bench/code_mode/execute.py": "6e5ce492e6ce87327e7860476b62319be06867942286162bd717afbf831de34e",
+    "tests/bench/code_mode/references.py": "c6316c61ef3d5391b1ae9a700785273694c1a0f372586c7dde979a3f4debecd3"
+  }
+}

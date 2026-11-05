@@ -1,0 +1,178 @@
+{
+  "python": {
+    "samples": 18,
+    "first_pass": 18,
+    "final_pass": 18,
+    "first_correct_effects": 18,
+    "final_correct_effects": 18,
+    "requests_including_repairs": 18,
+    "input_tokens": 10443,
+    "output_tokens": 3519,
+    "reasoning_tokens_included_in_output": 0,
+    "cached_input_tokens": 0,
+    "usage_missing": 0,
+    "tokens_per_success_including_failures": 775.6666666666666,
+    "median_first_output_tokens": 177.0,
+    "executed_variants_including_repairs": 54,
+    "invalid_call_variants": 0,
+    "logical_tool_calls_all_variants_and_repairs": 234,
+    "tasks": {
+      "join": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "pagination": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "batch_edit": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "bounded_retry": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "unicode": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "dependency_order": {
+        "first_pass": 3,
+        "final_pass": 3
+      }
+    }
+  },
+  "shell": {
+    "samples": 18,
+    "first_pass": 18,
+    "final_pass": 18,
+    "first_correct_effects": 18,
+    "final_correct_effects": 18,
+    "requests_including_repairs": 18,
+    "input_tokens": 11613,
+    "output_tokens": 3870,
+    "reasoning_tokens_included_in_output": 0,
+    "cached_input_tokens": 0,
+    "usage_missing": 0,
+    "tokens_per_success_including_failures": 860.1666666666666,
+    "median_first_output_tokens": 208.5,
+    "executed_variants_including_repairs": 54,
+    "invalid_call_variants": 0,
+    "logical_tool_calls_all_variants_and_repairs": 234,
+    "tasks": {
+      "join": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "pagination": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "batch_edit": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "bounded_retry": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "unicode": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "dependency_order": {
+        "first_pass": 3,
+        "final_pass": 3
+      }
+    }
+  },
+  "javascript": {
+    "samples": 18,
+    "first_pass": 18,
+    "final_pass": 18,
+    "first_correct_effects": 18,
+    "final_correct_effects": 18,
+    "requests_including_repairs": 18,
+    "input_tokens": 10911,
+    "output_tokens": 4001,
+    "reasoning_tokens_included_in_output": 0,
+    "cached_input_tokens": 0,
+    "usage_missing": 0,
+    "tokens_per_success_including_failures": 828.4444444444445,
+    "median_first_output_tokens": 168.5,
+    "executed_variants_including_repairs": 54,
+    "invalid_call_variants": 0,
+    "logical_tool_calls_all_variants_and_repairs": 234,
+    "tasks": {
+      "join": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "pagination": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "batch_edit": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "bounded_retry": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "unicode": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "dependency_order": {
+        "first_pass": 3,
+        "final_pass": 3
+      }
+    }
+  },
+  "monty": {
+    "samples": 18,
+    "first_pass": 18,
+    "final_pass": 18,
+    "first_correct_effects": 18,
+    "final_correct_effects": 18,
+    "requests_including_repairs": 18,
+    "input_tokens": 10875,
+    "output_tokens": 4177,
+    "reasoning_tokens_included_in_output": 0,
+    "cached_input_tokens": 0,
+    "usage_missing": 0,
+    "tokens_per_success_including_failures": 836.2222222222222,
+    "median_first_output_tokens": 188.5,
+    "executed_variants_including_repairs": 54,
+    "invalid_call_variants": 0,
+    "logical_tool_calls_all_variants_and_repairs": 234,
+    "tasks": {
+      "join": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "pagination": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "batch_edit": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "bounded_retry": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "unicode": {
+        "first_pass": 3,
+        "final_pass": 3
+      },
+      "dependency_order": {
+        "first_pass": 3,
+        "final_pass": 3
+      }
+    }
+  }
+}

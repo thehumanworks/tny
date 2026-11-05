@@ -1,0 +1,50 @@
+{
+  "python": {
+    "samples": 18,
+    "first_pass": 18,
+    "final_pass": 18,
+    "requests": 18,
+    "usage_missing": 0,
+    "input_tokens": 10443,
+    "output_tokens": 3519,
+    "total_tokens_per_success": 775.6666666666666,
+    "median_first_output_tokens": 177.0,
+    "invalid_call_variants": 0
+  },
+  "shell": {
+    "samples": 18,
+    "first_pass": 18,
+    "final_pass": 18,
+    "requests": 18,
+    "usage_missing": 0,
+    "input_tokens": 11613,
+    "output_tokens": 3870,
+    "total_tokens_per_success": 860.1666666666666,
+    "median_first_output_tokens": 208.5,
+    "invalid_call_variants": 0
+  },
+  "javascript": {
+    "samples": 18,
+    "first_pass": 18,
+    "final_pass": 18,
+    "requests": 18,
+    "usage_missing": 0,
+    "input_tokens": 10911,
+    "output_tokens": 4001,
+    "total_tokens_per_success": 828.4444444444445,
+    "median_first_output_tokens": 168.5,
+    "invalid_call_variants": 0
+  },
+  "monty": {
+    "samples": 18,
+    "first_pass": 18,
+    "final_pass": 18,
+    "requests": 18,
+    "usage_missing": 0,
+    "input_tokens": 10875,
+    "output_tokens": 4177,
+    "total_tokens_per_success": 836.2222222222222,
+    "median_first_output_tokens": 188.5,
+    "invalid_call_variants": 0
+  }
+}

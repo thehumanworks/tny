@@ -1,0 +1,4628 @@
+[
+  {
+    "arm": "python",
+    "task": "join",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "def read_json(path):\n    return json.loads(tools.call('fs.read', json.dumps({'path': path})))\n\nusers = read_json('users.json')\ntickets = read_json('tickets.json')\nnames = {user['id']: user['name'] for user in users}\nresult = [{'id': ticket['id'], 'owner': names.get(ticket['owner'])} for ticket in tickets]\nresponse = json.loads(tools.call('fs.write', json.dumps({'path': 'output.json', 'content': json.dumps(result)})))\nif response.get('ok') is not True:\n    raise RuntimeError('Write failed')\nprint('done')",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_05eda10471955ee1016aec7979afc487d19482467a366f207d": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 564,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 564,
+                  "output_tokens": 0
+                },
+                "rs_05eda10471955ee1016aec797ba54087d1914ecac294ea1ec5": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "input_tokens": 2,
+                  "output_tokens": 13
+                },
+                "msg_05eda10471955ee1016aec797c2d7487d1ac88e60e6f20efdb": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 0,
+                      "output_tokens": 156
+                    }
+                  ],
+                  "input_tokens": 0,
+                  "output_tokens": 156
+                }
+              }
+            },
+            "input_tokens": 566,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 169,
+            "output_tokens_details": {
+              "reasoning_tokens": 13
+            },
+            "total_tokens": 735
+          },
+          "wall_ms": 7435.859833029099
+        },
+        "evaluation": {
+          "passed": true,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 21233000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\": \"item-686\", \"owner\": \"Ana\"}, {\"id\": \"item-849\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-864\", \"owner\": \"\\u674e\"}, {\"id\": \"item-141\", \"owner\": null}, {\"id\": \"item-927\", \"owner\": null}, {\"id\": \"item-651\", \"owner\": \"Ana\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\": \"item-686\", \"owner\": \"Ana\"}, {\"id\": \"item-849\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-864\", \"owner\": \"\\u674e\"}, {\"id\": \"item-141\", \"owner\": null}, {\"id\": \"item-927\", \"owner\": null}, {\"id\": \"item-651\", \"owner\": \"Ana\"}]"
+                }
+              },
+              "wall_ms": 35.072750004474074
+            },
+            {
+              "variant": 1,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 15849000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\": \"item-197\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-222\", \"owner\": \"\\u674e\"}, {\"id\": \"item-466\", \"owner\": null}, {\"id\": \"item-607\", \"owner\": null}, {\"id\": \"item-807\", \"owner\": \"Ana\"}, {\"id\": \"item-263\", \"owner\": \"Zo\\u00eb\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\": \"item-197\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-222\", \"owner\": \"\\u674e\"}, {\"id\": \"item-466\", \"owner\": null}, {\"id\": \"item-607\", \"owner\": null}, {\"id\": \"item-807\", \"owner\": \"Ana\"}, {\"id\": \"item-263\", \"owner\": \"Zo\\u00eb\"}]"
+                }
+              },
+              "wall_ms": 22.471792006399482
+            },
+            {
+              "variant": 2,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 14193000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\": \"item-656\", \"owner\": \"\\u674e\"}, {\"id\": \"item-826\", \"owner\": null}, {\"id\": \"item-426\", \"owner\": null}, {\"id\": \"item-940\", \"owner\": \"Ana\"}, {\"id\": \"item-443\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-504\", \"owner\": \"\\u674e\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\": \"item-656\", \"owner\": \"\\u674e\"}, {\"id\": \"item-826\", \"owner\": null}, {\"id\": \"item-426\", \"owner\": null}, {\"id\": \"item-940\", \"owner\": \"Ana\"}, {\"id\": \"item-443\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-504\", \"owner\": \"\\u674e\"}]"
+                }
+              },
+              "wall_ms": 20.564292033668607
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": true,
+    "passed": true
+  },
+  {
+    "arm": "shell",
+    "task": "join",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "#!/bin/sh\nset -eu\npython3 - <<'PY'\nimport json\nfrom tool_eval_adapter import tools\n\ndef read(path):\n    return json.loads(tools.call('fs.read', json.dumps({'path': path})))\n\nusers = read('users.json')\ntickets = read('tickets.json')\nnames = {user['id']: user['name'] for user in users}\nresult = [{'id': ticket['id'], 'owner': names.get(ticket['owner'])} for ticket in tickets]\nresponse = json.loads(tools.call('fs.write', json.dumps({'path': 'output.json', 'content': json.dumps(result, ensure_ascii=False)})))\nif response.get('ok') is not True:\n    raise RuntimeError('Write failed')\nprint('done')\nPY\n",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_06b447e1a2b32788016aec79798e3487d1bf84ace8807ddcad": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 629,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 629,
+                  "output_tokens": 0
+                },
+                "rs_06b447e1a2b32788016aec797ad61887d1aa4b629d64ca3985": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "input_tokens": 2,
+                  "output_tokens": 37
+                },
+                "msg_06b447e1a2b32788016aec797ce2f087d1b2e2b0e6c73b717f": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 0,
+                      "output_tokens": 188
+                    }
+                  ],
+                  "input_tokens": 0,
+                  "output_tokens": 188
+                }
+              }
+            },
+            "input_tokens": 631,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 225,
+            "output_tokens_details": {
+              "reasoning_tokens": 37
+            },
+            "total_tokens": 856
+          },
+          "wall_ms": 7756.837666966021
+        },
+        "evaluation": {
+          "passed": true,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 69145000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\": \"item-686\", \"owner\": \"Ana\"}, {\"id\": \"item-849\", \"owner\": \"Zo\u00eb\"}, {\"id\": \"item-864\", \"owner\": \"\u674e\"}, {\"id\": \"item-141\", \"owner\": null}, {\"id\": \"item-927\", \"owner\": null}, {\"id\": \"item-651\", \"owner\": \"Ana\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\": \"item-686\", \"owner\": \"Ana\"}, {\"id\": \"item-849\", \"owner\": \"Zo\u00eb\"}, {\"id\": \"item-864\", \"owner\": \"\u674e\"}, {\"id\": \"item-141\", \"owner\": null}, {\"id\": \"item-927\", \"owner\": null}, {\"id\": \"item-651\", \"owner\": \"Ana\"}]"
+                }
+              },
+              "wall_ms": 81.83804102009162
+            },
+            {
+              "variant": 1,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 54742000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\": \"item-197\", \"owner\": \"Zo\u00eb\"}, {\"id\": \"item-222\", \"owner\": \"\u674e\"}, {\"id\": \"item-466\", \"owner\": null}, {\"id\": \"item-607\", \"owner\": null}, {\"id\": \"item-807\", \"owner\": \"Ana\"}, {\"id\": \"item-263\", \"owner\": \"Zo\u00eb\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\": \"item-197\", \"owner\": \"Zo\u00eb\"}, {\"id\": \"item-222\", \"owner\": \"\u674e\"}, {\"id\": \"item-466\", \"owner\": null}, {\"id\": \"item-607\", \"owner\": null}, {\"id\": \"item-807\", \"owner\": \"Ana\"}, {\"id\": \"item-263\", \"owner\": \"Zo\u00eb\"}]"
+                }
+              },
+              "wall_ms": 61.05895800283179
+            },
+            {
+              "variant": 2,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 47807000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\": \"item-656\", \"owner\": \"\u674e\"}, {\"id\": \"item-826\", \"owner\": null}, {\"id\": \"item-426\", \"owner\": null}, {\"id\": \"item-940\", \"owner\": \"Ana\"}, {\"id\": \"item-443\", \"owner\": \"Zo\u00eb\"}, {\"id\": \"item-504\", \"owner\": \"\u674e\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\": \"item-656\", \"owner\": \"\u674e\"}, {\"id\": \"item-826\", \"owner\": null}, {\"id\": \"item-426\", \"owner\": null}, {\"id\": \"item-940\", \"owner\": \"Ana\"}, {\"id\": \"item-443\", \"owner\": \"Zo\u00eb\"}, {\"id\": \"item-504\", \"owner\": \"\u674e\"}]"
+                }
+              },
+              "wall_ms": 52.491708018351346
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": true,
+    "passed": true
+  },
+  {
+    "arm": "javascript",
+    "task": "join",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "const users = JSON.parse(tools.call('fs.read', JSON.stringify({path:'users.json'})));\nconst tickets = JSON.parse(tools.call('fs.read', JSON.stringify({path:'tickets.json'})));\nconst names = new Map(users.map(user => [user.id, user.name]));\nconst result = tickets.map(ticket => ({id:ticket.id, owner:names.has(ticket.owner) ? names.get(ticket.owner) : null}));\nconst written = JSON.parse(tools.call('fs.write', JSON.stringify({path:'output.json', content:JSON.stringify(result)})));\nif (written.ok !== true) throw new Error('Write failed');\nprint('done\\n');",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_0e5c2258aa9371e6016aec7980185887d187a471eabb91cf44": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 581,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 581,
+                  "output_tokens": 0
+                },
+                "rs_0e5c2258aa9371e6016aec7981475c87d1b954a052f4b6276a": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "input_tokens": 2,
+                  "output_tokens": 17
+                },
+                "msg_0e5c2258aa9371e6016aec79819a1087d1a6614df0dcfaf1a9": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 0,
+                      "output_tokens": 158
+                    }
+                  ],
+                  "input_tokens": 0,
+                  "output_tokens": 158
+                }
+              }
+            },
+            "input_tokens": 583,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 175,
+            "output_tokens_details": {
+              "reasoning_tokens": 17
+            },
+            "total_tokens": 758
+          },
+          "wall_ms": 5828.501334006432
+        },
+        "evaluation": {
+          "passed": false,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": false,
+              "execution_ok": false,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n\n",
+                "runtime_ns": 131125000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\":\"item-686\",\"owner\":\"Ana\"},{\"id\":\"item-849\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-864\",\"owner\":\"\u674e\"},{\"id\":\"item-141\",\"owner\":null},{\"id\":\"item-927\",\"owner\":null},{\"id\":\"item-651\",\"owner\":\"Ana\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\":\"item-686\",\"owner\":\"Ana\"},{\"id\":\"item-849\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-864\",\"owner\":\"\u674e\"},{\"id\":\"item-141\",\"owner\":null},{\"id\":\"item-927\",\"owner\":null},{\"id\":\"item-651\",\"owner\":\"Ana\"}]"
+                }
+              },
+              "wall_ms": 143.95425003021955
+            },
+            {
+              "variant": 1,
+              "passed": false,
+              "execution_ok": false,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n\n",
+                "runtime_ns": 104020000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\":\"item-197\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-222\",\"owner\":\"\u674e\"},{\"id\":\"item-466\",\"owner\":null},{\"id\":\"item-607\",\"owner\":null},{\"id\":\"item-807\",\"owner\":\"Ana\"},{\"id\":\"item-263\",\"owner\":\"Zo\u00eb\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\":\"item-197\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-222\",\"owner\":\"\u674e\"},{\"id\":\"item-466\",\"owner\":null},{\"id\":\"item-607\",\"owner\":null},{\"id\":\"item-807\",\"owner\":\"Ana\"},{\"id\":\"item-263\",\"owner\":\"Zo\u00eb\"}]"
+                }
+              },
+              "wall_ms": 109.98900001868606
+            },
+            {
+              "variant": 2,
+              "passed": false,
+              "execution_ok": false,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n\n",
+                "runtime_ns": 103581000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\":\"item-656\",\"owner\":\"\u674e\"},{\"id\":\"item-826\",\"owner\":null},{\"id\":\"item-426\",\"owner\":null},{\"id\":\"item-940\",\"owner\":\"Ana\"},{\"id\":\"item-443\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-504\",\"owner\":\"\u674e\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\":\"item-656\",\"owner\":\"\u674e\"},{\"id\":\"item-826\",\"owner\":null},{\"id\":\"item-426\",\"owner\":null},{\"id\":\"item-940\",\"owner\":\"Ana\"},{\"id\":\"item-443\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-504\",\"owner\":\"\u674e\"}]"
+                }
+              },
+              "wall_ms": 109.01108296820894
+            }
+          ]
+        }
+      },
+      {
+        "generation": {
+          "ok": true,
+          "code": "const users = JSON.parse(tools.call('fs.read', JSON.stringify({path:'users.json'})));\nconst tickets = JSON.parse(tools.call('fs.read', JSON.stringify({path:'tickets.json'})));\nconst names = new Map(users.map(user => [user.id, user.name]));\nconst result = tickets.map(ticket => ({id:ticket.id, owner:names.has(ticket.owner) ? names.get(ticket.owner) : null}));\nconst written = JSON.parse(tools.call('fs.write', JSON.stringify({path:'output.json', content:JSON.stringify(result)})));\nif (written.ok !== true) throw new Error('Write failed');\nprint('done');",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_002c9d22177832a6016aec79864bbc87d189e2beb8095f9083": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 1594,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 1594,
+                  "output_tokens": 0
+                },
+                "msg_002c9d22177832a6016aec79876be887d19200abb2110e85aa": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 2,
+                      "output_tokens": 154
+                    }
+                  ],
+                  "input_tokens": 2,
+                  "output_tokens": 154
+                }
+              }
+            },
+            "input_tokens": 1596,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 154,
+            "output_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "total_tokens": 1750
+          },
+          "wall_ms": 5276.900917000603
+        },
+        "evaluation": {
+          "passed": true,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 118532000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\":\"item-686\",\"owner\":\"Ana\"},{\"id\":\"item-849\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-864\",\"owner\":\"\u674e\"},{\"id\":\"item-141\",\"owner\":null},{\"id\":\"item-927\",\"owner\":null},{\"id\":\"item-651\",\"owner\":\"Ana\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\":\"item-686\",\"owner\":\"Ana\"},{\"id\":\"item-849\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-864\",\"owner\":\"\u674e\"},{\"id\":\"item-141\",\"owner\":null},{\"id\":\"item-927\",\"owner\":null},{\"id\":\"item-651\",\"owner\":\"Ana\"}]"
+                }
+              },
+              "wall_ms": 129.0322080021724
+            },
+            {
+              "variant": 1,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 108212000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\":\"item-197\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-222\",\"owner\":\"\u674e\"},{\"id\":\"item-466\",\"owner\":null},{\"id\":\"item-607\",\"owner\":null},{\"id\":\"item-807\",\"owner\":\"Ana\"},{\"id\":\"item-263\",\"owner\":\"Zo\u00eb\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\":\"item-197\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-222\",\"owner\":\"\u674e\"},{\"id\":\"item-466\",\"owner\":null},{\"id\":\"item-607\",\"owner\":null},{\"id\":\"item-807\",\"owner\":\"Ana\"},{\"id\":\"item-263\",\"owner\":\"Zo\u00eb\"}]"
+                }
+              },
+              "wall_ms": 114.32133300695568
+            },
+            {
+              "variant": 2,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 106700000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\":\"item-656\",\"owner\":\"\u674e\"},{\"id\":\"item-826\",\"owner\":null},{\"id\":\"item-426\",\"owner\":null},{\"id\":\"item-940\",\"owner\":\"Ana\"},{\"id\":\"item-443\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-504\",\"owner\":\"\u674e\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\":\"item-656\",\"owner\":\"\u674e\"},{\"id\":\"item-826\",\"owner\":null},{\"id\":\"item-426\",\"owner\":null},{\"id\":\"item-940\",\"owner\":\"Ana\"},{\"id\":\"item-443\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-504\",\"owner\":\"\u674e\"}]"
+                }
+              },
+              "wall_ms": 112.12020803941414
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": false,
+    "passed": true
+  },
+  {
+    "arm": "monty",
+    "task": "join",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "users = json.loads(tools.call(\"fs.read\", json.dumps({\"path\": \"users.json\"})))\ntickets = json.loads(tools.call(\"fs.read\", json.dumps({\"path\": \"tickets.json\"})))\nnames = {user[\"id\"]: user[\"name\"] for user in users}\nresult = [{\"id\": ticket[\"id\"], \"owner\": names.get(ticket[\"owner\"])} for ticket in tickets]\nresponse = json.loads(tools.call(\"fs.write\", json.dumps({\"path\": \"output.json\", \"content\": json.dumps(result)})))\nif response.get(\"ok\") is not True:\n    raise ValueError(\"Write failed\")\nprint(\"done\")",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_06bb3f64703c64e5016aec79805c1c87d28555ecd6006dd621": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 588,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 588,
+                  "output_tokens": 0
+                },
+                "rs_06bb3f64703c64e5016aec7982075c87d2849af8d8c684d710": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "input_tokens": 2,
+                  "output_tokens": 24
+                },
+                "msg_06bb3f64703c64e5016aec7982b26c87d2a9ebea64fda456cd": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 0,
+                      "output_tokens": 165
+                    }
+                  ],
+                  "input_tokens": 0,
+                  "output_tokens": 165
+                }
+              }
+            },
+            "input_tokens": 590,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 189,
+            "output_tokens_details": {
+              "reasoning_tokens": 24
+            },
+            "total_tokens": 779
+          },
+          "wall_ms": 6472.500791947823
+        },
+        "evaluation": {
+          "passed": true,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 79327000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\": \"item-686\", \"owner\": \"Ana\"}, {\"id\": \"item-849\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-864\", \"owner\": \"\\u674e\"}, {\"id\": \"item-141\", \"owner\": null}, {\"id\": \"item-927\", \"owner\": null}, {\"id\": \"item-651\", \"owner\": \"Ana\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\": \"item-686\", \"owner\": \"Ana\"}, {\"id\": \"item-849\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-864\", \"owner\": \"\\u674e\"}, {\"id\": \"item-141\", \"owner\": null}, {\"id\": \"item-927\", \"owner\": null}, {\"id\": \"item-651\", \"owner\": \"Ana\"}]"
+                }
+              },
+              "wall_ms": 85.68587497575209
+            },
+            {
+              "variant": 1,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 73408000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\": \"item-197\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-222\", \"owner\": \"\\u674e\"}, {\"id\": \"item-466\", \"owner\": null}, {\"id\": \"item-607\", \"owner\": null}, {\"id\": \"item-807\", \"owner\": \"Ana\"}, {\"id\": \"item-263\", \"owner\": \"Zo\\u00eb\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\": \"item-197\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-222\", \"owner\": \"\\u674e\"}, {\"id\": \"item-466\", \"owner\": null}, {\"id\": \"item-607\", \"owner\": null}, {\"id\": \"item-807\", \"owner\": \"Ana\"}, {\"id\": \"item-263\", \"owner\": \"Zo\\u00eb\"}]"
+                }
+              },
+              "wall_ms": 78.60758301103488
+            },
+            {
+              "variant": 2,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 72280000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "users.json"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "tickets.json"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[{\"id\": \"item-656\", \"owner\": \"\\u674e\"}, {\"id\": \"item-826\", \"owner\": null}, {\"id\": \"item-426\", \"owner\": null}, {\"id\": \"item-940\", \"owner\": \"Ana\"}, {\"id\": \"item-443\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-504\", \"owner\": \"\\u674e\"}]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "[{\"id\": \"item-656\", \"owner\": \"\\u674e\"}, {\"id\": \"item-826\", \"owner\": null}, {\"id\": \"item-426\", \"owner\": null}, {\"id\": \"item-940\", \"owner\": \"Ana\"}, {\"id\": \"item-443\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-504\", \"owner\": \"\\u674e\"}]"
+                }
+              },
+              "wall_ms": 77.50395801849663
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": true,
+    "passed": true
+  },
+  {
+    "arm": "shell",
+    "task": "pagination",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "#!/bin/sh\nset -eu\nexec python3 - <<'PY'\nimport json\nfrom tool_eval_adapter import tools\n\ndef call(name, args):\n    return json.loads(tools.call(name, json.dumps(args)))\n\nids = set()\ncursor = None\nwhile True:\n    page = call('api.page', {'cursor': cursor})\n    for item in page['items']:\n        ids.add(item['id'])\n    cursor = page['next']\n    if cursor is None:\n        break\n\nresult = call('fs.write', {'path': '/output.json', 'content': json.dumps(sorted(ids), ensure_ascii=False)})\nif not isinstance(result, dict) or result.get('ok') is not True:\n    raise RuntimeError('fs.write failed')\nprint('done')\nPY\n",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_08b417b69509d076016aec7985e11c87d2b42404874dfe70a9": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 612,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 612,
+                  "output_tokens": 0
+                },
+                "rs_08b417b69509d076016aec7987389c87d2b21e469242f5f418": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "input_tokens": 2,
+                  "output_tokens": 36
+                },
+                "msg_08b417b69509d076016aec7988bb5887d29a4c1d39a9ff8705": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 0,
+                      "output_tokens": 195
+                    }
+                  ],
+                  "input_tokens": 0,
+                  "output_tokens": 195
+                }
+              }
+            },
+            "input_tokens": 614,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 231,
+            "output_tokens_details": {
+              "reasoning_tokens": 36
+            },
+            "total_tokens": 845
+          },
+          "wall_ms": 7143.733499979135
+        },
+        "evaluation": {
+          "passed": false,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 71736000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-686\", \"item-864\", \"item-927\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-686\", \"item-864\", \"item-927\"]"
+                }
+              },
+              "wall_ms": 85.38349997252226
+            },
+            {
+              "variant": 1,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 55846000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-197\", \"item-466\", \"item-807\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-197\", \"item-466\", \"item-807\"]"
+                }
+              },
+              "wall_ms": 62.22745799459517
+            },
+            {
+              "variant": 2,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 48928000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-426\", \"item-443\", \"item-656\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-426\", \"item-443\", \"item-656\"]"
+                }
+              },
+              "wall_ms": 54.32762496639043
+            }
+          ]
+        }
+      },
+      {
+        "generation": {
+          "ok": true,
+          "code": "#!/bin/sh\nset -eu\nexec python3 - <<'PY'\nimport json\nfrom tool_eval_adapter import tools\n\ndef call(name, args):\n    return json.loads(tools.call(name, json.dumps(args)))\n\nids = set()\ncursor = None\nwhile True:\n    page = call('api.page', {'cursor': cursor})\n    for item in page['items']:\n        ids.add(item['id'])\n    cursor = page['next']\n    if cursor is None:\n        break\n\nresult = call('fs.write', {'path': '/out.json', 'content': json.dumps(sorted(ids), ensure_ascii=False)})\nif not isinstance(result, dict) or result.get('ok') is not True:\n    raise RuntimeError('fs.write failed')\nprint('done')\nPY\n",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_077f955b34b68a32016aec798d542c87d282f6c17f5749804f": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 1305,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 1305,
+                  "output_tokens": 0
+                },
+                "rs_077f955b34b68a32016aec798e9f6887d2b7c9e2d66fbdfb04": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "input_tokens": 2,
+                  "output_tokens": 47
+                },
+                "msg_077f955b34b68a32016aec798ffa9887d285b1bf2fcc37f29e": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 0,
+                      "output_tokens": 195
+                    }
+                  ],
+                  "input_tokens": 0,
+                  "output_tokens": 195
+                }
+              }
+            },
+            "input_tokens": 1307,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 242,
+            "output_tokens_details": {
+              "reasoning_tokens": 47
+            },
+            "total_tokens": 1549
+          },
+          "wall_ms": 7260.690041002817
+        },
+        "evaluation": {
+          "passed": false,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 75987000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/out.json",
+                      "content": "[\"item-686\", \"item-864\", \"item-927\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/out.json": "[\"item-686\", \"item-864\", \"item-927\"]"
+                }
+              },
+              "wall_ms": 87.02883298974484
+            },
+            {
+              "variant": 1,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 54298000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/out.json",
+                      "content": "[\"item-197\", \"item-466\", \"item-807\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/out.json": "[\"item-197\", \"item-466\", \"item-807\"]"
+                }
+              },
+              "wall_ms": 61.33120896993205
+            },
+            {
+              "variant": 2,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 52066000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/out.json",
+                      "content": "[\"item-426\", \"item-443\", \"item-656\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/out.json": "[\"item-426\", \"item-443\", \"item-656\"]"
+                }
+              },
+              "wall_ms": 57.66154103912413
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": false,
+    "passed": false
+  },
+  {
+    "arm": "javascript",
+    "task": "pagination",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "const ids = new Set();\nlet cursor = null;\ndo {\n  const page = JSON.parse(tools.call('api.page', JSON.stringify({ cursor })));\n  for (const item of page.items) ids.add(item.id);\n  cursor = page.next;\n} while (cursor !== null);\nconst result = JSON.parse(tools.call('fs.write', JSON.stringify({ path: '/output.json', content: JSON.stringify(Array.from(ids).sort()) })));\nif (result.ok !== true) throw new Error('Write failed');\nprint('done\\n');",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_0cb2dadff2ff53f2016aec7987014487d2ac5096894d39d8dd": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 564,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 564,
+                  "output_tokens": 0
+                },
+                "rs_0cb2dadff2ff53f2016aec79888da087d291e1ece7fc1356b9": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "input_tokens": 2,
+                  "output_tokens": 25
+                },
+                "msg_0cb2dadff2ff53f2016aec7989cf3087d2bfbfa6a05bc6dab5": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 0,
+                      "output_tokens": 132
+                    }
+                  ],
+                  "input_tokens": 0,
+                  "output_tokens": 132
+                }
+              }
+            },
+            "input_tokens": 566,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 157,
+            "output_tokens_details": {
+              "reasoning_tokens": 25
+            },
+            "total_tokens": 723
+          },
+          "wall_ms": 5877.042999956757
+        },
+        "evaluation": {
+          "passed": false,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": false,
+              "execution_ok": false,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n\n",
+                "runtime_ns": 132594000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-686\",\"item-864\",\"item-927\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-686\",\"item-864\",\"item-927\"]"
+                }
+              },
+              "wall_ms": 138.73808301286772
+            },
+            {
+              "variant": 1,
+              "passed": false,
+              "execution_ok": false,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n\n",
+                "runtime_ns": 125855000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-197\",\"item-466\",\"item-807\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-197\",\"item-466\",\"item-807\"]"
+                }
+              },
+              "wall_ms": 130.74229197809473
+            },
+            {
+              "variant": 2,
+              "passed": false,
+              "execution_ok": false,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n\n",
+                "runtime_ns": 122154000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-426\",\"item-443\",\"item-656\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-426\",\"item-443\",\"item-656\"]"
+                }
+              },
+              "wall_ms": 127.9185829916969
+            }
+          ]
+        }
+      },
+      {
+        "generation": {
+          "ok": true,
+          "code": "const ids = new Set();\nlet cursor = null;\ndo {\n  const page = JSON.parse(tools.call('api.page', JSON.stringify({ cursor })));\n  for (const item of page.items) ids.add(item.id);\n  cursor = page.next;\n} while (cursor !== null);\nconst result = JSON.parse(tools.call('fs.write', JSON.stringify({ path: '/output.json', content: JSON.stringify(Array.from(ids).sort()) })));\nif (result.ok !== true) throw new Error('Write failed');\nprint('done');",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_0ee2ecc1ab5d23dd016aec7995079887d29c0e81c7c7a4e09f": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 1201,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 1201,
+                  "output_tokens": 0
+                },
+                "msg_0ee2ecc1ab5d23dd016aec79967de887d2809364a56a6c4bdc": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 2,
+                      "output_tokens": 128
+                    }
+                  ],
+                  "input_tokens": 2,
+                  "output_tokens": 128
+                }
+              }
+            },
+            "input_tokens": 1203,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 128,
+            "output_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "total_tokens": 1331
+          },
+          "wall_ms": 5254.281541972887
+        },
+        "evaluation": {
+          "passed": false,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 144410000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-686\",\"item-864\",\"item-927\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-686\",\"item-864\",\"item-927\"]"
+                }
+              },
+              "wall_ms": 157.16129099018872
+            },
+            {
+              "variant": 1,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 123169000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-197\",\"item-466\",\"item-807\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-197\",\"item-466\",\"item-807\"]"
+                }
+              },
+              "wall_ms": 128.23483400279656
+            },
+            {
+              "variant": 2,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 120695000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-426\",\"item-443\",\"item-656\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-426\",\"item-443\",\"item-656\"]"
+                }
+              },
+              "wall_ms": 126.68770796153694
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": false,
+    "passed": false
+  },
+  {
+    "arm": "monty",
+    "task": "pagination",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "ids = set()\ncursor = None\nwhile True:\n    page = json.loads(tools.call(\"api.page\", json.dumps({\"cursor\": cursor})))\n    for item in page[\"items\"]:\n        ids.add(item[\"id\"])\n    cursor = page[\"next\"]\n    if cursor is None:\n        break\nresult = json.loads(tools.call(\"fs.write\", json.dumps({\"path\": \"/output.json\", \"content\": json.dumps(sorted(ids))})))\nassert result.get(\"ok\") is True\nprint(\"done\")",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_060386eb73267d8a016aec798cf64c87d2a84bbaf580364281": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 571,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 571,
+                  "output_tokens": 0
+                },
+                "rs_060386eb73267d8a016aec798e301887d2b785f8e7af3bb2b3": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "input_tokens": 2,
+                  "output_tokens": 30
+                },
+                "msg_060386eb73267d8a016aec798f5a2c87d28d62fa3159073a30": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 0,
+                      "output_tokens": 134
+                    }
+                  ],
+                  "input_tokens": 0,
+                  "output_tokens": 134
+                }
+              }
+            },
+            "input_tokens": 573,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 164,
+            "output_tokens_details": {
+              "reasoning_tokens": 30
+            },
+            "total_tokens": 737
+          },
+          "wall_ms": 5774.400542024523
+        },
+        "evaluation": {
+          "passed": false,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 75804000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-686\", \"item-864\", \"item-927\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-686\", \"item-864\", \"item-927\"]"
+                }
+              },
+              "wall_ms": 81.11266599735245
+            },
+            {
+              "variant": 1,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 77271000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-197\", \"item-466\", \"item-807\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-197\", \"item-466\", \"item-807\"]"
+                }
+              },
+              "wall_ms": 83.04024999961257
+            },
+            {
+              "variant": 2,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 74647000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-426\", \"item-443\", \"item-656\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-426\", \"item-443\", \"item-656\"]"
+                }
+              },
+              "wall_ms": 79.25416604848579
+            }
+          ]
+        }
+      },
+      {
+        "generation": {
+          "ok": true,
+          "code": "ids = set()\ncursor = None\nwhile True:\n    page = json.loads(tools.call(\"api.page\", json.dumps({\"cursor\": cursor})))\n    for item in page[\"items\"]:\n        ids.add(item[\"id\"])\n    cursor = page[\"next\"]\n    if cursor is None:\n        break\nresult = json.loads(tools.call(\"fs.write\", json.dumps({\"path\": \"/output.json\", \"content\": json.dumps(sorted(ids))})))\nassert result.get(\"ok\") is True\nprint(\"done\")",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_0d247afe78f85345016aec799b213c87d181e29d1a39ea58e1": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 1211,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 1211,
+                  "output_tokens": 0
+                },
+                "rs_0d247afe78f85345016aec799c492087d181cece50c795243a": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "input_tokens": 2,
+                  "output_tokens": 65
+                },
+                "msg_0d247afe78f85345016aec799f5b1887d1a7c06210a9f32548": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 0,
+                      "output_tokens": 134
+                    }
+                  ],
+                  "input_tokens": 0,
+                  "output_tokens": 134
+                }
+              }
+            },
+            "input_tokens": 1213,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 199,
+            "output_tokens_details": {
+              "reasoning_tokens": 65
+            },
+            "total_tokens": 1412
+          },
+          "wall_ms": 6647.26925001014
+        },
+        "evaluation": {
+          "passed": false,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 100178000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-686\", \"item-864\", \"item-927\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-686\", \"item-864\", \"item-927\"]"
+                }
+              },
+              "wall_ms": 113.82066697115079
+            },
+            {
+              "variant": 1,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 75048000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-197\", \"item-466\", \"item-807\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-197\", \"item-466\", \"item-807\"]"
+                }
+              },
+              "wall_ms": 80.21566696697846
+            },
+            {
+              "variant": 2,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 73909000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-426\", \"item-443\", \"item-656\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-426\", \"item-443\", \"item-656\"]"
+                }
+              },
+              "wall_ms": 78.36362498346716
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": false,
+    "passed": false
+  },
+  {
+    "arm": "python",
+    "task": "pagination",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "ids = set()\ncursor = None\nwhile True:\n    page = json.loads(tools.call('api.page', json.dumps({'cursor': cursor})))\n    for item in page['items']:\n        ids.add(item['id'])\n    cursor = page['next']\n    if cursor is None:\n        break\nresult = json.loads(tools.call('fs.write', json.dumps({'path': '/output.json', 'content': json.dumps(sorted(ids))})))\nif result.get('ok') is not True:\n    raise RuntimeError('Write failed')\nprint('done')",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_0e2349acf43fa096016aec798d133487d2b84d11815cab6771": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 547,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 547,
+                  "output_tokens": 0
+                },
+                "rs_0e2349acf43fa096016aec798e642087d292c6b8a8a3ba3373": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "input_tokens": 2,
+                  "output_tokens": 25
+                },
+                "msg_0e2349acf43fa096016aec798f34f887d29fe53f9d1e561d33": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 0,
+                      "output_tokens": 140
+                    }
+                  ],
+                  "input_tokens": 0,
+                  "output_tokens": 140
+                }
+              }
+            },
+            "input_tokens": 549,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 165,
+            "output_tokens_details": {
+              "reasoning_tokens": 25
+            },
+            "total_tokens": 714
+          },
+          "wall_ms": 5558.681291004177
+        },
+        "evaluation": {
+          "passed": false,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 14302000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-686\", \"item-864\", \"item-927\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-686\", \"item-864\", \"item-927\"]"
+                }
+              },
+              "wall_ms": 19.881832995451987
+            },
+            {
+              "variant": 1,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 12437000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-197\", \"item-466\", \"item-807\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-197\", \"item-466\", \"item-807\"]"
+                }
+              },
+              "wall_ms": 18.0248329997994
+            },
+            {
+              "variant": 2,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 11207000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/output.json",
+                      "content": "[\"item-426\", \"item-443\", \"item-656\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/output.json": "[\"item-426\", \"item-443\", \"item-656\"]"
+                }
+              },
+              "wall_ms": 15.493165992666036
+            }
+          ]
+        }
+      },
+      {
+        "generation": {
+          "ok": true,
+          "code": "ids = set()\ncursor = None\nwhile True:\n    page = json.loads(tools.call('api.page', json.dumps({'cursor': cursor})))\n    for item in page['items']:\n        ids.add(item['id'])\n    cursor = page['next']\n    if cursor is None:\n        break\nresult = json.loads(tools.call('fs.write', json.dumps({'path': '/out.json', 'content': json.dumps(sorted(ids))})))\nif result.get('ok') is not True:\n    raise RuntimeError('Write failed')\nprint('done')",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_0f882175a72f470f016aec79a2148c87d193c049d5339b7907": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 1196,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 1196,
+                  "output_tokens": 0
+                },
+                "rs_0f882175a72f470f016aec79a3ebd887d1b812b2a9e00657e5": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "input_tokens": 2,
+                  "output_tokens": 106
+                },
+                "msg_0f882175a72f470f016aec79a82bd487d195a62277922baeff": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 0,
+                      "output_tokens": 140
+                    }
+                  ],
+                  "input_tokens": 0,
+                  "output_tokens": 140
+                }
+              }
+            },
+            "input_tokens": 1198,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 246,
+            "output_tokens_details": {
+              "reasoning_tokens": 106
+            },
+            "total_tokens": 1444
+          },
+          "wall_ms": 8570.238082960714
+        },
+        "evaluation": {
+          "passed": false,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 22547000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/out.json",
+                      "content": "[\"item-686\", \"item-864\", \"item-927\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/out.json": "[\"item-686\", \"item-864\", \"item-927\"]"
+                }
+              },
+              "wall_ms": 37.07925003254786
+            },
+            {
+              "variant": 1,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 16304000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/out.json",
+                      "content": "[\"item-197\", \"item-466\", \"item-807\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/out.json": "[\"item-197\", \"item-466\", \"item-807\"]"
+                }
+              },
+              "wall_ms": 24.19345802627504
+            },
+            {
+              "variant": 2,
+              "passed": false,
+              "execution_ok": true,
+              "output_ok": false,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 14325000,
+                "calls": [
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": null
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "second"
+                    }
+                  },
+                  {
+                    "name": "api.page",
+                    "args": {
+                      "cursor": "last"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "/out.json",
+                      "content": "[\"item-426\", \"item-443\", \"item-656\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "/out.json": "[\"item-426\", \"item-443\", \"item-656\"]"
+                }
+              },
+              "wall_ms": 21.946457971353084
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": false,
+    "passed": false
+  },
+  {
+    "arm": "javascript",
+    "task": "batch_edit",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "const paths=JSON.parse(tools.call('fs.list',JSON.stringify({prefix:'src/'}))); const changed=[]; for(const path of paths){ const text=tools.call('fs.read',JSON.stringify({path})); const content=text.split('FEATURE=false').join('FEATURE=true'); if(content!==text){ const result=JSON.parse(tools.call('fs.write',JSON.stringify({path,content}))); if(result.ok!==true) throw new Error('Write failed'); changed.push(path); }} changed.sort(); const result=JSON.parse(tools.call('fs.write',JSON.stringify({path:'output.json',content:JSON.stringify(changed)}))); if(result.ok!==true) throw new Error('Write failed'); print('done');",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_0e6ffe479f43d71d016aec7992789887d2832c49a8cd9e5546": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 579,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 579,
+                  "output_tokens": 0
+                },
+                "msg_0e6ffe479f43d71d016aec7993e88887d2ab9a8377dfeaa6b9": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 2,
+                      "output_tokens": 158
+                    }
+                  ],
+                  "input_tokens": 2,
+                  "output_tokens": 158
+                }
+              }
+            },
+            "input_tokens": 581,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 158,
+            "output_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "total_tokens": 739
+          },
+          "wall_ms": 5558.335374982562
+        },
+        "evaluation": {
+          "passed": true,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 180253000,
+                "calls": [
+                  {
+                    "name": "fs.list",
+                    "args": {
+                      "prefix": "src/"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/z.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/a.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/a.txt",
+                      "content": "item-686 FEATURE=true FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/\u00e9.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/\u00e9.txt",
+                      "content": "FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[\"src/a.txt\",\"src/\u00e9.txt\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "src/a.txt": "item-686 FEATURE=true FEATURE=true\n",
+                  "src/\u00e9.txt": "FEATURE=true\n",
+                  "output.json": "[\"src/a.txt\",\"src/\u00e9.txt\"]"
+                }
+              },
+              "wall_ms": 186.06424995232373
+            },
+            {
+              "variant": 1,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 179723000,
+                "calls": [
+                  {
+                    "name": "fs.list",
+                    "args": {
+                      "prefix": "src/"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/z.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/a.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/a.txt",
+                      "content": "item-197 FEATURE=true FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/\u00e9.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/\u00e9.txt",
+                      "content": "FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[\"src/a.txt\",\"src/\u00e9.txt\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "src/a.txt": "item-197 FEATURE=true FEATURE=true\n",
+                  "src/\u00e9.txt": "FEATURE=true\n",
+                  "output.json": "[\"src/a.txt\",\"src/\u00e9.txt\"]"
+                }
+              },
+              "wall_ms": 184.81766700278968
+            },
+            {
+              "variant": 2,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 175276000,
+                "calls": [
+                  {
+                    "name": "fs.list",
+                    "args": {
+                      "prefix": "src/"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/z.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/a.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/a.txt",
+                      "content": "item-656 FEATURE=true FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/\u00e9.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/\u00e9.txt",
+                      "content": "FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[\"src/a.txt\",\"src/\u00e9.txt\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "src/a.txt": "item-656 FEATURE=true FEATURE=true\n",
+                  "src/\u00e9.txt": "FEATURE=true\n",
+                  "output.json": "[\"src/a.txt\",\"src/\u00e9.txt\"]"
+                }
+              },
+              "wall_ms": 181.06733297463506
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": true,
+    "passed": true
+  },
+  {
+    "arm": "monty",
+    "task": "batch_edit",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "paths = json.loads(tools.call('fs.list', json.dumps({'prefix': 'src/'})))\nchanged = []\nfor path in paths:\n    text = tools.call('fs.read', json.dumps({'path': path}))\n    updated = text.replace('FEATURE=false', 'FEATURE=true')\n    if updated != text:\n        result = json.loads(tools.call('fs.write', json.dumps({'path': path, 'content': updated})))\n        if result.get('ok') is not True:\n            raise ValueError('Write failed')\n        changed.append(path)\nresult = json.loads(tools.call('fs.write', json.dumps({'path': 'output.json', 'content': json.dumps(sorted(changed))})))\nif result.get('ok') is not True:\n    raise ValueError('Write failed')\nprint('done')",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_0d8875d07893c01f016aec7992b7fc87d1b2a13f2016caf68b": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 586,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 586,
+                  "output_tokens": 0
+                },
+                "msg_0d8875d07893c01f016aec7993d9e487d1919e38c18c980d26": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 2,
+                      "output_tokens": 195
+                    }
+                  ],
+                  "input_tokens": 2,
+                  "output_tokens": 195
+                }
+              }
+            },
+            "input_tokens": 588,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 195,
+            "output_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "total_tokens": 783
+          },
+          "wall_ms": 6169.95999997016
+        },
+        "evaluation": {
+          "passed": true,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 80049000,
+                "calls": [
+                  {
+                    "name": "fs.list",
+                    "args": {
+                      "prefix": "src/"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/z.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/a.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/a.txt",
+                      "content": "item-686 FEATURE=true FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/\u00e9.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/\u00e9.txt",
+                      "content": "FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "src/a.txt": "item-686 FEATURE=true FEATURE=true\n",
+                  "src/\u00e9.txt": "FEATURE=true\n",
+                  "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                }
+              },
+              "wall_ms": 85.32600000035018
+            },
+            {
+              "variant": 1,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 74778000,
+                "calls": [
+                  {
+                    "name": "fs.list",
+                    "args": {
+                      "prefix": "src/"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/z.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/a.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/a.txt",
+                      "content": "item-197 FEATURE=true FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/\u00e9.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/\u00e9.txt",
+                      "content": "FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "src/a.txt": "item-197 FEATURE=true FEATURE=true\n",
+                  "src/\u00e9.txt": "FEATURE=true\n",
+                  "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                }
+              },
+              "wall_ms": 79.79479199275374
+            },
+            {
+              "variant": 2,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 74539000,
+                "calls": [
+                  {
+                    "name": "fs.list",
+                    "args": {
+                      "prefix": "src/"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/z.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/a.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/a.txt",
+                      "content": "item-656 FEATURE=true FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/\u00e9.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/\u00e9.txt",
+                      "content": "FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "src/a.txt": "item-656 FEATURE=true FEATURE=true\n",
+                  "src/\u00e9.txt": "FEATURE=true\n",
+                  "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                }
+              },
+              "wall_ms": 79.08291596686468
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": true,
+    "passed": true
+  },
+  {
+    "arm": "python",
+    "task": "batch_edit",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "paths = json.loads(tools.call('fs.list', json.dumps({'prefix': 'src/'})))\nchanged = []\nfor path in paths:\n    text = tools.call('fs.read', json.dumps({'path': path}))\n    updated = text.replace('FEATURE=false', 'FEATURE=true')\n    if updated != text:\n        result = json.loads(tools.call('fs.write', json.dumps({'path': path, 'content': updated})))\n        if result.get('ok') is not True:\n            raise RuntimeError('Write failed')\n        changed.append(path)\nresult = json.loads(tools.call('fs.write', json.dumps({'path': 'output.json', 'content': json.dumps(sorted(changed))})))\nif result.get('ok') is not True:\n    raise RuntimeError('Write failed')\nprint('done')",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_04044e4d1ef20e8f016aec7998766c87d29a81314fb62460b0": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 562,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 562,
+                  "output_tokens": 0
+                },
+                "msg_04044e4d1ef20e8f016aec799977c487d29816bfcfbddd48a3": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 2,
+                      "output_tokens": 195
+                    }
+                  ],
+                  "input_tokens": 2,
+                  "output_tokens": 195
+                }
+              }
+            },
+            "input_tokens": 564,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 195,
+            "output_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "total_tokens": 759
+          },
+          "wall_ms": 6324.253000027966
+        },
+        "evaluation": {
+          "passed": true,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 12799000,
+                "calls": [
+                  {
+                    "name": "fs.list",
+                    "args": {
+                      "prefix": "src/"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/z.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/a.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/a.txt",
+                      "content": "item-686 FEATURE=true FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/\u00e9.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/\u00e9.txt",
+                      "content": "FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "src/a.txt": "item-686 FEATURE=true FEATURE=true\n",
+                  "src/\u00e9.txt": "FEATURE=true\n",
+                  "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                }
+              },
+              "wall_ms": 19.124707963783294
+            },
+            {
+              "variant": 1,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 11535000,
+                "calls": [
+                  {
+                    "name": "fs.list",
+                    "args": {
+                      "prefix": "src/"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/z.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/a.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/a.txt",
+                      "content": "item-197 FEATURE=true FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/\u00e9.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/\u00e9.txt",
+                      "content": "FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "src/a.txt": "item-197 FEATURE=true FEATURE=true\n",
+                  "src/\u00e9.txt": "FEATURE=true\n",
+                  "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                }
+              },
+              "wall_ms": 17.189708014484495
+            },
+            {
+              "variant": 2,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 11051000,
+                "calls": [
+                  {
+                    "name": "fs.list",
+                    "args": {
+                      "prefix": "src/"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/z.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/a.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/a.txt",
+                      "content": "item-656 FEATURE=true FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/\u00e9.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/\u00e9.txt",
+                      "content": "FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "src/a.txt": "item-656 FEATURE=true FEATURE=true\n",
+                  "src/\u00e9.txt": "FEATURE=true\n",
+                  "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                }
+              },
+              "wall_ms": 15.860292012803257
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": true,
+    "passed": true
+  },
+  {
+    "arm": "shell",
+    "task": "batch_edit",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "#!/bin/sh\nset -eu\npython3 - <<'PY'\nimport json\nfrom tool_eval_adapter import tools\n\ndef call(name, args):\n    return tools.call(name, json.dumps(args))\n\ndef write(path, content):\n    result = json.loads(call('fs.write', {'path': path, 'content': content}))\n    if not isinstance(result, dict) or result.get('ok') is not True:\n        raise RuntimeError('Write failed: ' + path)\n\npaths = json.loads(call('fs.list', {'prefix': 'src/'}))\nchanged = []\nfor path in paths:\n    original = call('fs.read', {'path': path})\n    updated = original.replace('FEATURE=false', 'FEATURE=true')\n    if updated != original:\n        write(path, updated)\n        changed.append(path)\nwrite('output.json', json.dumps(sorted(changed)))\nprint('done')\nPY\n",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_0100da5b23e2f108016aec79995e3487d2a410febfaff35c70": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 627,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 627,
+                  "output_tokens": 0
+                },
+                "msg_0100da5b23e2f108016aec799a792c87d2a9ae26026515049f": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 2,
+                      "output_tokens": 220
+                    }
+                  ],
+                  "input_tokens": 2,
+                  "output_tokens": 220
+                }
+              }
+            },
+            "input_tokens": 629,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 220,
+            "output_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "total_tokens": 849
+          },
+          "wall_ms": 7192.763749975711
+        },
+        "evaluation": {
+          "passed": true,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 50710000,
+                "calls": [
+                  {
+                    "name": "fs.list",
+                    "args": {
+                      "prefix": "src/"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/z.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/a.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/a.txt",
+                      "content": "item-686 FEATURE=true FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/\u00e9.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/\u00e9.txt",
+                      "content": "FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "src/a.txt": "item-686 FEATURE=true FEATURE=true\n",
+                  "src/\u00e9.txt": "FEATURE=true\n",
+                  "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                }
+              },
+              "wall_ms": 55.74166600126773
+            },
+            {
+              "variant": 1,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 48053000,
+                "calls": [
+                  {
+                    "name": "fs.list",
+                    "args": {
+                      "prefix": "src/"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/z.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/a.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/a.txt",
+                      "content": "item-197 FEATURE=true FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/\u00e9.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/\u00e9.txt",
+                      "content": "FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "src/a.txt": "item-197 FEATURE=true FEATURE=true\n",
+                  "src/\u00e9.txt": "FEATURE=true\n",
+                  "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                }
+              },
+              "wall_ms": 53.29054204048589
+            },
+            {
+              "variant": 2,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 50060000,
+                "calls": [
+                  {
+                    "name": "fs.list",
+                    "args": {
+                      "prefix": "src/"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/z.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/a.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/a.txt",
+                      "content": "item-656 FEATURE=true FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "src/\u00e9.txt"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "src/\u00e9.txt",
+                      "content": "FEATURE=true\n"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                    }
+                  }
+                ],
+                "writes": {
+                  "src/a.txt": "item-656 FEATURE=true FEATURE=true\n",
+                  "src/\u00e9.txt": "FEATURE=true\n",
+                  "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+                }
+              },
+              "wall_ms": 55.132584006059915
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": true,
+    "passed": true
+  },
+  {
+    "arm": "monty",
+    "task": "bounded_retry",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "ids = json.loads(tools.call(\"fs.read\", json.dumps({\"path\": \"input.json\"})))\nresult = {}\nfor item_id in ids:\n    result[item_id] = None\n    for attempt in range(3):\n        response = json.loads(tools.call(\"api.check\", json.dumps({\"id\": item_id})))\n        if response.get(\"ok\") is True:\n            result[item_id] = response[\"value\"]\n            break\n        if response.get(\"retry\") is not True:\n            break\nwritten = json.loads(tools.call(\"fs.write\", json.dumps({\"path\": \"output.json\", \"content\": json.dumps(result)})))\nif written.get(\"ok\") is not True:\n    raise ValueError(\"Write failed\")\nprint(\"done\")",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_0d98d7c8eecf8955016aec799e829487d2af3d2b8d24f47aa4": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 607,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 607,
+                  "output_tokens": 0
+                },
+                "msg_0d98d7c8eecf8955016aec79a00c8887d2ba21acf31d604509": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 2,
+                      "output_tokens": 184
+                    }
+                  ],
+                  "input_tokens": 2,
+                  "output_tokens": 184
+                }
+              }
+            },
+            "input_tokens": 609,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 184,
+            "output_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "total_tokens": 793
+          },
+          "wall_ms": 6500.959749973845
+        },
+        "evaluation": {
+          "passed": true,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 79176000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "input.json"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-686"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-849"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-849"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-864"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-864"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-864"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "{\"item-686\": 10, \"item-849\": 20, \"item-864\": null}"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "{\"item-686\": 10, \"item-849\": 20, \"item-864\": null}"
+                }
+              },
+              "wall_ms": 84.4586250022985
+            },
+            {
+              "variant": 1,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 74637000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "input.json"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-197"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-222"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-222"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-466"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-466"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-466"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "{\"item-197\": 11, \"item-222\": 21, \"item-466\": null}"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "{\"item-197\": 11, \"item-222\": 21, \"item-466\": null}"
+                }
+              },
+              "wall_ms": 79.79400001931936
+            },
+            {
+              "variant": 2,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 74491000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "input.json"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-656"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-826"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-826"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-426"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-426"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-426"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "{\"item-656\": 12, \"item-826\": 22, \"item-426\": null}"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "{\"item-656\": 12, \"item-826\": 22, \"item-426\": null}"
+                }
+              },
+              "wall_ms": 78.77987500978634
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": true,
+    "passed": true
+  },
+  {
+    "arm": "python",
+    "task": "bounded_retry",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "ids = json.loads(tools.call('fs.read', json.dumps({'path': 'input.json'})))\nresult = {}\nfor identifier in ids:\n    value = None\n    for attempt in range(3):\n        response = json.loads(tools.call('api.check', json.dumps({'id': identifier})))\n        if response.get('ok') is True:\n            value = response['value']\n            break\n        if response.get('retry') is not True:\n            break\n    result[identifier] = value\nwritten = json.loads(tools.call('fs.write', json.dumps({'path': 'output.json', 'content': json.dumps(result)})))\nif written.get('ok') is not True:\n    raise RuntimeError('Write failed')\nprint('done')",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_007b9e6f12f03d07016aec79a07ad087d19dd0dd9d358495b6": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 583,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 583,
+                  "output_tokens": 0
+                },
+                "rs_007b9e6f12f03d07016aec79a29af087d18b102f5d45803bf7": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "input_tokens": 2,
+                  "output_tokens": 14
+                },
+                "msg_007b9e6f12f03d07016aec79a3112087d1826428ce2b024847": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 0,
+                      "output_tokens": 181
+                    }
+                  ],
+                  "input_tokens": 0,
+                  "output_tokens": 181
+                }
+              }
+            },
+            "input_tokens": 585,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 195,
+            "output_tokens_details": {
+              "reasoning_tokens": 14
+            },
+            "total_tokens": 780
+          },
+          "wall_ms": 7581.5050000092015
+        },
+        "evaluation": {
+          "passed": true,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 13333000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "input.json"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-686"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-849"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-849"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-864"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-864"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-864"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "{\"item-686\": 10, \"item-849\": 20, \"item-864\": null}"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "{\"item-686\": 10, \"item-849\": 20, \"item-864\": null}"
+                }
+              },
+              "wall_ms": 18.821583013050258
+            },
+            {
+              "variant": 1,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 11673000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "input.json"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-197"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-222"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-222"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-466"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-466"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-466"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "{\"item-197\": 11, \"item-222\": 21, \"item-466\": null}"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "{\"item-197\": 11, \"item-222\": 21, \"item-466\": null}"
+                }
+              },
+              "wall_ms": 17.421416996512562
+            },
+            {
+              "variant": 2,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 11209000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "input.json"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-656"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-826"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-826"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-426"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-426"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-426"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "{\"item-656\": 12, \"item-826\": 22, \"item-426\": null}"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "{\"item-656\": 12, \"item-826\": 22, \"item-426\": null}"
+                }
+              },
+              "wall_ms": 15.992750006262213
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": true,
+    "passed": true
+  },
+  {
+    "arm": "shell",
+    "task": "bounded_retry",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "#!/bin/sh\nset -eu\npython3 - <<'PY'\nimport json\nfrom tool_eval_adapter import tools\n\ndef call(name, args):\n    return tools.call(name, json.dumps(args))\n\nids = json.loads(call('fs.read', {'path': 'input.json'}))\nresult = {}\nfor ident in ids:\n    result[ident] = None\n    for attempt in range(3):\n        response = json.loads(call('api.check', {'id': ident}))\n        if response.get('ok') is True:\n            result[ident] = response['value']\n            break\n        if response.get('retry') is not True:\n            break\nwritten = json.loads(call('fs.write', {'path': 'output.json', 'content': json.dumps(result, ensure_ascii=True)}))\nif written.get('ok') is not True:\n    raise RuntimeError('Write failed')\nprint('done')\nPY\n",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_04af744e59c4b583016aec79a502b487d2b11d1eae8c4f022e": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 648,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 648,
+                  "output_tokens": 0
+                },
+                "msg_04af744e59c4b583016aec79a6633c87d297428c0b0d84637e": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 2,
+                      "output_tokens": 220
+                    }
+                  ],
+                  "input_tokens": 2,
+                  "output_tokens": 220
+                }
+              }
+            },
+            "input_tokens": 650,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 220,
+            "output_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "total_tokens": 870
+          },
+          "wall_ms": 6852.598957950249
+        },
+        "evaluation": {
+          "passed": true,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 48847000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "input.json"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-686"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-849"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-849"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-864"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-864"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-864"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "{\"item-686\": 10, \"item-849\": 20, \"item-864\": null}"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "{\"item-686\": 10, \"item-849\": 20, \"item-864\": null}"
+                }
+              },
+              "wall_ms": 53.98483300814405
+            },
+            {
+              "variant": 1,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 49850000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "input.json"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-197"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-222"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-222"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-466"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-466"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-466"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "{\"item-197\": 11, \"item-222\": 21, \"item-466\": null}"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "{\"item-197\": 11, \"item-222\": 21, \"item-466\": null}"
+                }
+              },
+              "wall_ms": 54.30329102091491
+            },
+            {
+              "variant": 2,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 49450000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "input.json"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-656"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-826"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-826"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-426"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-426"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-426"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "{\"item-656\": 12, \"item-826\": 22, \"item-426\": null}"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "{\"item-656\": 12, \"item-826\": 22, \"item-426\": null}"
+                }
+              },
+              "wall_ms": 53.95179201150313
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": true,
+    "passed": true
+  },
+  {
+    "arm": "javascript",
+    "task": "bounded_retry",
+    "repetition": 0,
+    "attempts": [
+      {
+        "generation": {
+          "ok": true,
+          "code": "const ids = JSON.parse(tools.call('fs.read', JSON.stringify({path:'input.json'})));\nconst result = Object.create(null);\nfor (const id of ids) {\n  result[id] = null;\n  for (let attempt = 0; attempt < 3; attempt++) {\n    const response = JSON.parse(tools.call('api.check', JSON.stringify({id})));\n    if (response.ok === true) {\n      result[id] = response.value;\n      break;\n    }\n    if (response.retry !== true) break;\n  }\n}\nconst written = JSON.parse(tools.call('fs.write', JSON.stringify({path:'output.json',content:JSON.stringify(result)})));\nif (written.ok !== true) throw new Error('Write failed');\nprint('done');",
+          "usage": {
+            "attribution": {
+              "items": {
+                "msg_0bed2ae12de12f25016aec79a7a13887d1bebce76a823681de": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 600,
+                      "output_tokens": 0
+                    }
+                  ],
+                  "input_tokens": 600,
+                  "output_tokens": 0
+                },
+                "msg_0bed2ae12de12f25016aec79a8ee3887d1852bb94c4cd0444e": {
+                  "cache_write_tokens": 0,
+                  "cached_tokens": 0,
+                  "content": [
+                    {
+                      "cache_write_tokens": 0,
+                      "cached_tokens": 0,
+                      "input_tokens": 2,
+                      "output_tokens": 185
+                    }
+                  ],
+                  "input_tokens": 2,
+                  "output_tokens": 185
+                }
+              }
+            },
+            "input_tokens": 602,
+            "input_tokens_details": {
+              "cache_write_tokens": 0,
+              "cached_tokens": 0
+            },
+            "output_tokens": 185,
+            "output_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "total_tokens": 787
+          },
+          "wall_ms": 6336.4611670258455
+        },
+        "evaluation": {
+          "passed": true,
+          "variants": [
+            {
+              "variant": 0,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 208550000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "input.json"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-686"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-849"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-849"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-864"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-864"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-864"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "{\"item-686\":10,\"item-849\":20,\"item-864\":null}"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "{\"item-686\":10,\"item-849\":20,\"item-864\":null}"
+                }
+              },
+              "wall_ms": 220.4232919611968
+            },
+            {
+              "variant": 1,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 197382000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "input.json"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-197"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-222"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-222"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-466"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-466"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-466"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "{\"item-197\":11,\"item-222\":21,\"item-466\":null}"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "{\"item-197\":11,\"item-222\":21,\"item-466\":null}"
+                }
+              },
+              "wall_ms": 202.78754201717675
+            },
+            {
+              "variant": 2,
+              "passed": true,
+              "execution_ok": true,
+              "output_ok": true,
+              "trace_ok": true,
+              "observed": {
+                "runtime_ok": true,
+                "invalid_call": false,
+                "stdout": "done\n",
+                "runtime_ns": 192517000,
+                "calls": [
+                  {
+                    "name": "fs.read",
+                    "args": {
+                      "path": "input.json"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-656"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-826"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-826"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-426"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-426"
+                    }
+                  },
+                  {
+                    "name": "api.check",
+                    "args": {
+                      "id": "item-426"
+                    }
+                  },
+                  {
+                    "name": "fs.write",
+                    "args": {
+                      "path": "output.json",
+                      "content": "{\"item-656\":12,\"item-826\":22,\"item-426\":null}"
+                    }
+                  }
+                ],
+                "writes": {
+                  "output.json": "{\"item-656\":12,\"item-826\":22,\"item-426\":null}"
+                }
+              },
+              "wall_ms": 197.9866669862531
+            }
+          ]
+        }
+      }
+    ],
+    "first_pass": true,
+    "passed": true
+  }
+]

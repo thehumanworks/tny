@@ -15,7 +15,9 @@ CPython build via a build-directory symlink; no source dependency is added.
 - Keep reproducible transport, code-mode and parallel-read experiments.
 
 No provider/model/effort defaults or permission/network defaults changed.
-No credential, response text, or private workspace content appears in results.
+No credential or private workspace content appears in results. The follow-up
+[tool-task evaluation](tool-evaluation.md) retains synthetic generated programs
+and capability traces for correctness and token-efficiency review.
 
 ## Local harness measurements
 
