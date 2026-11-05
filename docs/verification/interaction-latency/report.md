@@ -206,3 +206,28 @@ Direct dependencies: libSystem and libc++; TLS remains loaded at runtime.
   the same five assertion failures and 7 leaks / 6,640 bytes under
   `leaks --atExit`; the leak gate therefore has a second baseline blocker.
   No claim is made that failing-test cleanup leaks are harmless in general.
+
+## PR #233 macOS fixture correction
+
+The first CI run failed the new buffered-body test in the parser backend
+ownership sanitizer target. This was reproduced locally: 42 passed, one failed,
+one skipped. The fixture assumed a successful peer write made the entire batch
+immediately readable by the client; an early EAGAIN legitimately returned a
+normal timeout before the dispatch exhausted its budget.
+
+The corrected fixture waits for the specified receive-queue byte count without
+consuming parser input. It deliberately delivers headers before the body and
+checks normal waiting, then delivers the full body batch and checks immediate
+rescheduling. It additionally checks that the socket receive queue is empty
+while HTTP still holds the unfinished event, verifies all 12,000 text bytes
+are delivered on the next dispatch, and checks normal waiting again before
+sending the terminal event. No production scheduling logic changed.
+
+Validation: the exact `make test-parser-backend-ownership` target passed
+(43 passed, one expected skip), the normal OpenAI sanitizer suite passed
+(32/32), and the corrected test passed 100 consecutive ownership-sanitizer runs.
+Two temporary production mutants were both rejected: suppressing immediate
+rescheduling fails the zero-timeout assertion; retaining the yield flag across
+EAGAIN fails the normal-wait assertion. This preserves both latency and
+no-busy-loop coverage. Formatting and diff checks passed. See
+[fixture-validation.json](fixture-validation.json).

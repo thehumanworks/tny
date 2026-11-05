@@ -32,6 +32,7 @@
 #ifndef _WIN32
 #include <pthread.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <arpa/inet.h>
 #endif
 
@@ -1531,6 +1532,19 @@ static int native_pending_drive(pv_fixture *p, tny_engine *engine, native_pendin
 }
 
 #ifndef _WIN32
+/* A successful peer write does not guarantee that the client can read the
+ * whole batch yet. Observe the receive queue without consuming parser input. */
+static bool native_wait_queued(int fd, size_t expected) {
+    int64_t deadline = monotonic_ms() + 5000;
+    do {
+        int queued = 0;
+        if (ioctl(fd, FIONREAD, &queued) != 0) return false;
+        if (queued >= 0 && (size_t)queued >= expected) return true;
+        (void)tny_poll(NULL, 0, 1);
+    } while (monotonic_ms() < deadline);
+    return false;
+}
+
 /* Real TCP RST between turns deterministically exercises write-side keep-alive
  * replay. A separate thread owns all peer-side allocations, outside fault scopes. */
 typedef struct {
@@ -1625,6 +1639,7 @@ TEST native_buffered_body_reschedules_without_spinning(void) {
     ASSERT_EQ(0, getsockname(listener, (struct sockaddr *)&addr, &size));
     pv_fixture p;
     pv_open(&p);
+    p.decode_wire = true;
     char url[128], err[256];
     snprintf(url, sizeof url, "http://127.0.0.1:%u/v1", ntohs(addr.sin_port));
     free(p.ctx->base_url);
@@ -1645,16 +1660,30 @@ TEST native_buffered_body_reschedules_without_spinning(void) {
                 "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
                 "Content-Length: %zu\r\n\r\n",
                 body.len + strlen(end));
-    buf_append(&reply, body.data, body.len);
     ASSERT_EQ((ssize_t)reply.len, socket_write(fd, reply.data, reply.len));
+    struct pollfd client;
+    ASSERT_EQ(1, p.backend->pollfds(p.backend, &client, 1));
+    ASSERT(native_wait_queued(client.fd, reply.len));
+    /* Headers alone must park normally; no body budget has been exhausted. */
+    ASSERT_EQ(0, p.backend->dispatch(p.backend, NULL, 0));
+    ASSERT(p.backend->poll_timeout(p.backend) > 0);
+    ASSERT_FALSE(p.ended);
+    ASSERT_EQ((ssize_t)body.len, socket_write(fd, body.data, body.len));
+    ASSERT(native_wait_queued(client.fd, body.len));
     ASSERT_EQ(0, p.backend->dispatch(p.backend, NULL, 0));
     ASSERT_EQ(0, p.backend->poll_timeout(p.backend));
+    int queued = -1;
+    ASSERT_EQ(0, ioctl(client.fd, FIONREAD, &queued));
+    ASSERT_EQ(0, queued); /* the remaining body is inside HTTP, not the socket */
+    ASSERT_EQ(0, p.callback_text.len);
     ASSERT_FALSE(p.ended);
     /* Drain the remainder, then wait normally on the incomplete response. */
     ASSERT_EQ(0, p.backend->dispatch(p.backend, NULL, 0));
     ASSERT(p.backend->poll_timeout(p.backend) > 0);
     ASSERT_FALSE(p.ended);
+    ASSERT_EQ(12000, p.callback_text.len);
     ASSERT_EQ((ssize_t)strlen(end), socket_write(fd, end, strlen(end)));
+    ASSERT(native_wait_queued(client.fd, strlen(end)));
     ASSERT_EQ(0, p.backend->dispatch(p.backend, NULL, 0));
     ASSERT(p.ended);
     ASSERT_EQ(TNY_STOP_DONE, p.stop);

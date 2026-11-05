@@ -1,0 +1,35 @@
+{
+  "repeated_sanitizer_runs": 100,
+  "mutations": [
+    {
+      "mutation": "missing_immediate_reschedule",
+      "exit": 1,
+      "failure": [
+        "FAIL native_buffered_body_reschedules_without_spinning: 0 != p.backend->poll_timeout(p.backend) (tests/test_openai.c:1674)"
+      ]
+    },
+    {
+      "mutation": "spins_after_eagain",
+      "exit": 1,
+      "failure": [
+        "FAIL native_buffered_body_reschedules_without_spinning: p.backend->poll_timeout(p.backend) > 0 (tests/test_openai.c:1682)"
+      ]
+    }
+  ],
+  "original_ownership_suite": {
+    "passed": 42,
+    "failed": 1,
+    "skipped": 1
+  },
+  "corrected_ownership_suite": {
+    "passed": 43,
+    "failed": 0,
+    "skipped": 1
+  },
+  "normal_openai_suite": {
+    "passed": 32,
+    "failed": 0,
+    "skipped": 0
+  },
+  "production_source_changed": false
+}
