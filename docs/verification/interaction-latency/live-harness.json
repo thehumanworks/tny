@@ -1,0 +1,168 @@
+{
+  "model": "gpt-6.1-sol",
+  "effort": "low",
+  "pairs": [
+    {
+      "baseline": {
+        "exit": 0,
+        "events": [
+          {
+            "type": "tool_start",
+            "ms": 3291.174208978191
+          },
+          {
+            "type": "tool_end",
+            "ms": 3291.2107500014827
+          },
+          {
+            "type": "text_delta",
+            "ms": 6323.059750022367
+          },
+          {
+            "type": "usage",
+            "ms": 6490.497166989371
+          },
+          {
+            "type": "turn_end",
+            "ms": 6490.511375013739
+          }
+        ],
+        "valid": true
+      },
+      "candidate": {
+        "exit": 0,
+        "events": [
+          {
+            "type": "tool_start",
+            "ms": 4213.837667019106
+          },
+          {
+            "type": "tool_end",
+            "ms": 4213.852584012784
+          },
+          {
+            "type": "text_delta",
+            "ms": 6785.080834000837
+          },
+          {
+            "type": "usage",
+            "ms": 6978.019959002268
+          },
+          {
+            "type": "turn_end",
+            "ms": 6978.026958997361
+          }
+        ],
+        "valid": true
+      }
+    },
+    {
+      "candidate": {
+        "exit": 0,
+        "events": [
+          {
+            "type": "tool_start",
+            "ms": 3082.7018750132993
+          },
+          {
+            "type": "tool_end",
+            "ms": 3082.728583016433
+          },
+          {
+            "type": "text_delta",
+            "ms": 7221.3812920381315
+          },
+          {
+            "type": "usage",
+            "ms": 7402.067542017903
+          },
+          {
+            "type": "turn_end",
+            "ms": 7402.08570798859
+          }
+        ],
+        "valid": true
+      },
+      "baseline": {
+        "exit": 0,
+        "events": [
+          {
+            "type": "tool_start",
+            "ms": 4509.523375018034
+          },
+          {
+            "type": "tool_end",
+            "ms": 4509.5443750033155
+          },
+          {
+            "type": "text_delta",
+            "ms": 7083.6326670250855
+          },
+          {
+            "type": "usage",
+            "ms": 7287.422332970891
+          },
+          {
+            "type": "turn_end",
+            "ms": 7287.4280419782735
+          }
+        ],
+        "valid": true
+      }
+    },
+    {
+      "baseline": {
+        "exit": 0,
+        "events": [
+          {
+            "type": "tool_start",
+            "ms": 3827.191208023578
+          },
+          {
+            "type": "tool_end",
+            "ms": 3827.2134580183774
+          },
+          {
+            "type": "text_delta",
+            "ms": 6735.387417022139
+          },
+          {
+            "type": "usage",
+            "ms": 6869.59850002313
+          },
+          {
+            "type": "turn_end",
+            "ms": 6869.607458007522
+          }
+        ],
+        "valid": true
+      },
+      "candidate": {
+        "exit": 0,
+        "events": [
+          {
+            "type": "tool_start",
+            "ms": 3594.4460409809835
+          },
+          {
+            "type": "tool_end",
+            "ms": 3594.465082976967
+          },
+          {
+            "type": "text_delta",
+            "ms": 5919.674166012555
+          },
+          {
+            "type": "usage",
+            "ms": 6126.210874994285
+          },
+          {
+            "type": "turn_end",
+            "ms": 6126.223707979079
+          }
+        ],
+        "valid": true
+      }
+    }
+  ]
+}

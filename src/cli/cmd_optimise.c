@@ -111,7 +111,8 @@ int cmd_optimise(const cli_globals *g, int argc, char **argv) {
             if (tny_optimise_result(o, NULL, NULL) >= 0) break;
             struct pollfd fds[TNY_BACKEND_POLLFD_MAX];
             int n = tny_optimise_pollfds(o, fds, TNY_BACKEND_POLLFD_MAX);
-            if (tny_poll(fds, n > 0 ? (nfds_t)n : 0, 40) < 0 && errno != EINTR)
+            if (tny_poll(fds, n > 0 ? (nfds_t)n : 0, tny_optimise_poll_timeout(o, 40)) < 0 &&
+                errno != EINTR)
                 tny_optimise_cancel(o);
         }
         const char *text, *err;

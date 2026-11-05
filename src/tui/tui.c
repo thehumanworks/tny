@@ -1011,8 +1011,10 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         int no = tny_optimise_pollfds(t.optimise, fds + nfds, TNY_BACKEND_POLLFD_MAX);
         if (no > 0) nfds += (nfds_t)no;
         if (t.shell_fd >= 0) fds[nfds++] = (struct pollfd){t.shell_fd, POLLIN, 0};
-        int pr = tny_poll(fds, nfds,
-                          t.turn_active || t.dictation || t.optimise || t.shell_pid > 0 ? 40 : 400);
+        int wait_ms = t.turn_active || t.dictation || t.optimise || t.shell_pid > 0 ? 40 : 400;
+        if (rn_fd < 0 && t.turn_active) wait_ms = tny_engine_poll_timeout(t.engine, wait_ms);
+        wait_ms = tny_optimise_poll_timeout(t.optimise, wait_ms);
+        int pr = tny_poll(fds, nfds, wait_ms);
         if (pr < 0 && errno != EINTR) break;
 
         if (g_exit_signal) {

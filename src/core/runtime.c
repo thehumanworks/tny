@@ -1776,6 +1776,14 @@ int tny_engine_pollfds(tny_engine *e, struct pollfd *fds, int max) {
     return e->bk->pollfds(e->bk, fds, max);
 }
 
+int tny_engine_poll_timeout(tny_engine *e, int timeout_ms) {
+    if (!e || !e->active || !e->bk || !e->bk->poll_timeout) return timeout_ms;
+    int backend_timeout = e->bk->poll_timeout(e->bk);
+    return backend_timeout >= 0 && (timeout_ms < 0 || backend_timeout < timeout_ms)
+               ? backend_timeout
+               : timeout_ms;
+}
+
 int tny_engine_dispatch(tny_engine *e, struct pollfd *fds, int n) {
     if (!e || !e->active || !e->bk || !e->bk->dispatch) return 0;
     int rc = e->bk->dispatch(e->bk, fds, n);
@@ -1840,12 +1848,7 @@ tny_engine_next tny_engine_next_event(tny_engine *e, int timeout_ms, tny_owned_e
         }
         int remaining = (int)(deadline - engine_monotonic_ms(e));
         if (remaining < 0) remaining = 0;
-        if (e->bk->poll_timeout) {
-            int backend_timeout = e->bk->poll_timeout(e->bk);
-            if (backend_timeout >= 0) {
-                if (backend_timeout < remaining) remaining = backend_timeout;
-            }
-        }
+        remaining = tny_engine_poll_timeout(e, remaining);
         int pr = tny_poll(n ? fds : NULL, (nfds_t)n, remaining);
         if (pr < 0) {
             if (errno == EINTR) continue;

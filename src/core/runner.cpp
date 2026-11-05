@@ -1832,7 +1832,8 @@ static bool rn_consume_checkpoint(rn_state *r) {
             ne = tny_engine_pollfds(r.engine, fds + n, TNY_BACKEND_POLLFD_MAX);
             if (ne > 0) n += (nfds_t)ne;
         }
-        int pr = tny_poll(fds, n, r.turn_active ? 100 : 400);
+        int wait_ms = tny_engine_poll_timeout(r.engine, r.turn_active ? 100 : 400);
+        int pr = tny_poll(fds, n, wait_ms);
         if (pr < 0 && errno != EINTR) break;
 
         if (g_rn_stop) {

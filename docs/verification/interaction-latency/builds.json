@@ -1,0 +1,16 @@
+{
+  "baseline_revision": "0a40436d4091800ccae795c2d39c99f57758cad4",
+  "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+  "architecture": "arm64",
+  "python": "3.14.7",
+  "compiler": "Apple clang version 21.0.0 (clang-2100.3.27.1)",
+  "baseline": {
+    "bytes": 25328224,
+    "sha256": "a139eb51bc59e2d7bf61895b6b9d6a3f3e9189107adc7bd6cbb36faed42ad440"
+  },
+  "candidate": {
+    "bytes": 25328240,
+    "sha256": "c19f2dd9d1c660618425a0be684e6c77617fac00a48ed05b3ab889bd3c659ea4"
+  },
+  "source_diff_sha256": "5d66412a91e78356dcc7775b2dac0e338aa34bfcdf4308838c4bbb9f49fc5f77"
+}

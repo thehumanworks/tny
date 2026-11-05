@@ -80,13 +80,16 @@ Feature parity notes and deliberate deferrals:
 
 ## Time to first token
 
-Everything between Enter and the provider seeing the turn is pre-paid or
-overlapped (`docs/adr/0002`, `docs/adr/0004`): the TUI warms the host **and**
-creates/resumes the provider session in the background at startup, `tny ask`
-connects while it reads a piped prompt. Measured with
-`tests/bench/bench_ttft.py` (medians, scripted host, 400 ms injected
-RPC delay; the codex row dates from the retired app-server backend, whose
-spawn-vs-attach path no longer exists — codex is plain HTTPS now):
+The native runner starts lazily and reuses HTTP connections during a session.
+Current [interaction measurements](docs/verification/interaction-latency/report.md)
+separate startup, provider inference and tool continuation. A buffered-response
+scheduling fix removes a measured 100–200 ms pause on large tool-call frames;
+small live turns remain dominated by provider/model latency.
+
+The following table records historical prewarm work (ADRs 0002 and 0004),
+using `tests/bench/bench_ttft.py` and a scripted host with 400 ms injected
+RPC delay. Its Codex spawn/attach path has since been retired; these figures
+are not current native HTTP measurements.
 
 | Path | before | after |
 | --- | --- | --- |
@@ -94,8 +97,8 @@ spawn-vs-attach path no longer exists — codex is plain HTTPS now):
 | `ask` with piped stdin | 875 ms | **449 ms** |
 | codex one-shot (attach vs spawn) | 235 ms | **11 ms** |
 
-What remains is the model's own time to first token — client-side, tny is
-not the bottleneck.
+Reproduce current results with the benchmark commands in the linked report;
+harness-only measurements do not predict live model response time.
 
 ## Install with Nix
 

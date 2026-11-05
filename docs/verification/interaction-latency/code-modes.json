@@ -1,0 +1,215 @@
+{
+  "workload": "sum of squares 1..10000; every output checked",
+  "arms": {
+    "embedded_cpython": {
+      "median_tool_continuation_ms": 21.702833008021116,
+      "runs": [
+        {
+          "start_to_request_ms": 6.799082970246673,
+          "tool_continuation_ms": 17.713209032081068,
+          "total_ms": 25.635458005126566,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 14.316750050056726,
+          "tool_continuation_ms": 22.466166992671788,
+          "total_ms": 38.42758300015703,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 7.72729201707989,
+          "tool_continuation_ms": 19.907457986846566,
+          "total_ms": 28.99683400755748,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 15.758584020659328,
+          "tool_continuation_ms": 21.702833008021116,
+          "total_ms": 39.44604203570634,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 13.615917006973177,
+          "tool_continuation_ms": 25.068291986826807,
+          "total_ms": 40.20987497642636,
+          "start_to_tool_ms": null
+        }
+      ]
+    },
+    "host_shell": {
+      "median_tool_continuation_ms": 35.85804102476686,
+      "runs": [
+        {
+          "start_to_request_ms": 10.578458022791892,
+          "tool_continuation_ms": 36.95525001967326,
+          "total_ms": 49.03779103187844,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 13.646791980136186,
+          "tool_continuation_ms": 35.85804102476686,
+          "total_ms": 50.93774996930733,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 13.217250001616776,
+          "tool_continuation_ms": 35.49145796569064,
+          "total_ms": 50.085124967154115,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 12.799707998055965,
+          "tool_continuation_ms": 36.42104199388996,
+          "total_ms": 50.710916984826326,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 12.581749993842095,
+          "tool_continuation_ms": 34.36699998565018,
+          "total_ms": 48.396666010376066,
+          "start_to_tool_ms": null
+        }
+      ]
+    },
+    "host_python": {
+      "median_tool_continuation_ms": 45.109333004802465,
+      "runs": [
+        {
+          "start_to_request_ms": 12.900208006612957,
+          "tool_continuation_ms": 47.38445900147781,
+          "total_ms": 61.61470798542723,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 14.527709048707038,
+          "tool_continuation_ms": 49.4588750298135,
+          "total_ms": 65.37166703492403,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 13.450499973259866,
+          "tool_continuation_ms": 45.109333004802465,
+          "total_ms": 59.912291006185114,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 12.640834029298276,
+          "tool_continuation_ms": 38.864166010171175,
+          "total_ms": 52.74587502935901,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 12.913417012896389,
+          "tool_continuation_ms": 44.408833025954664,
+          "total_ms": 58.67733299965039,
+          "start_to_tool_ms": null
+        }
+      ]
+    },
+    "host_javascript": {
+      "median_tool_continuation_ms": 66.89933297457173,
+      "runs": [
+        {
+          "start_to_request_ms": 13.18195799831301,
+          "tool_continuation_ms": 67.29079101933166,
+          "total_ms": 81.8995829904452,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 14.936166990082711,
+          "tool_continuation_ms": 54.728625051211566,
+          "total_ms": 71.08470797538757,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 14.169375004712492,
+          "tool_continuation_ms": 60.311916982755065,
+          "total_ms": 75.81800001207739,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 14.198707998730242,
+          "tool_continuation_ms": 66.89933297457173,
+          "total_ms": 82.37687504151836,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 13.1451670313254,
+          "tool_continuation_ms": 67.51433300087228,
+          "total_ms": 81.8975840229541,
+          "start_to_tool_ms": null
+        }
+      ]
+    },
+    "monty_fresh_pool": {
+      "median_tool_continuation_ms": 92.80133398715407,
+      "runs": [
+        {
+          "start_to_request_ms": 13.25750001706183,
+          "tool_continuation_ms": 785.2120000170544,
+          "total_ms": 799.778500047978,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 15.147624944802374,
+          "tool_continuation_ms": 91.30166698014364,
+          "total_ms": 107.67787497024983,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 14.090707991272211,
+          "tool_continuation_ms": 93.31395797198638,
+          "total_ms": 108.58770803315565,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 14.181666017975658,
+          "tool_continuation_ms": 92.80133398715407,
+          "total_ms": 108.27174998121336,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 12.925708026159555,
+          "tool_continuation_ms": 92.66062499955297,
+          "total_ms": 106.74387501785532,
+          "start_to_tool_ms": null
+        }
+      ]
+    }
+  },
+  "monty_warm_lower_bound": {
+    "pool_start_ms": 1.7875420162454247,
+    "checkout_run_ms": [
+      5.9209580067545176,
+      0.5118749686516821,
+      0.543333007954061,
+      0.505958974827081,
+      0.5017499788664281,
+      0.44937501661479473,
+      0.44691702350974083,
+      0.4617919912561774,
+      0.43654104229062796,
+      0.44370797695592046,
+      0.47099997755140066,
+      0.507500022649765,
+      0.4700419958680868,
+      0.4658749676309526,
+      0.45250001130625606,
+      0.45895803486928344,
+      0.498417008202523,
+      0.49820798449218273,
+      0.4792920080944896,
+      0.4861669731326401,
+      0.4734169924631715,
+      0.46545802615582943,
+      0.46920799650251865,
+      0.5323329824022949,
+      0.4789999802596867,
+      0.4789590020664036,
+      0.47679198905825615,
+      0.4729999927803874,
+      0.4680419806391001,
+      0.45183300971984863
+    ]
+  }
+}
