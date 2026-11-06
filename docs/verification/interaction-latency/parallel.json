@@ -1,0 +1,75 @@
+{
+  "workload": "four independent 100ms loopback web_fetch calls",
+  "arms": {
+    "serial": {
+      "median_tool_continuation_ms": 454.063540964853,
+      "runs": [
+        {
+          "start_to_request_ms": 7.921040989458561,
+          "tool_continuation_ms": 446.3939170236699,
+          "total_ms": 457.7285830164328,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 16.320833994541317,
+          "tool_continuation_ms": 454.063540964853,
+          "total_ms": 473.4135839971714,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 13.360750046558678,
+          "tool_continuation_ms": 453.2493340084329,
+          "total_ms": 469.4680829998106,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 12.061582994647324,
+          "tool_continuation_ms": 455.5385419516824,
+          "total_ms": 468.8375410041772,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 15.138374990783632,
+          "tool_continuation_ms": 456.9572079926729,
+          "total_ms": 475.11262499028817,
+          "start_to_tool_ms": null
+        }
+      ]
+    },
+    "parallel": {
+      "median_tool_continuation_ms": 137.1182089787908,
+      "runs": [
+        {
+          "start_to_request_ms": 15.724249999038875,
+          "tool_continuation_ms": 146.09362499322742,
+          "total_ms": 163.68833399610594,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 9.723875031340867,
+          "tool_continuation_ms": 137.1182089787908,
+          "total_ms": 149.70566699048504,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 12.870625010691583,
+          "tool_continuation_ms": 145.2955410350114,
+          "total_ms": 161.02883301209658,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 8.011458965484053,
+          "tool_continuation_ms": 131.69545895652846,
+          "total_ms": 141.30079199094325,
+          "start_to_tool_ms": null
+        },
+        {
+          "start_to_request_ms": 13.645540981087834,
+          "tool_continuation_ms": 136.43895799759775,
+          "total_ms": 152.82929100794718,
+          "start_to_tool_ms": null
+        }
+      ]
+    }
+  }
+}

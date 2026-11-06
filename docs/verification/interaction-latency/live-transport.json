@@ -1,0 +1,169 @@
+{
+  "model": "gpt-6.1-sol",
+  "probe": "direct SIWC transport, not full harness",
+  "pairs": [
+    [
+      {
+        "transport": "sse",
+        "runs": [
+          {
+            "turn": 0,
+            "connect_ms": 482.7434169710614,
+            "ttft_ms": 2666.399875015486,
+            "complete_ms": 2811.9774170336314,
+            "input_tokens": 11
+          },
+          {
+            "turn": 1,
+            "connect_ms": 0,
+            "ttft_ms": 1995.1472909888253,
+            "complete_ms": 2105.066624993924,
+            "input_tokens": 27
+          },
+          {
+            "turn": 2,
+            "connect_ms": 0,
+            "ttft_ms": 2404.4268329744227,
+            "complete_ms": 2533.37045799708,
+            "input_tokens": 43
+          }
+        ]
+      },
+      {
+        "transport": "websocket",
+        "runs": [
+          {
+            "turn": 0,
+            "connect_ms": 906.541540985927,
+            "ttft_ms": 2576.4804169884883,
+            "complete_ms": 2747.3029589746147,
+            "input_tokens": 11
+          },
+          {
+            "turn": 1,
+            "connect_ms": 0,
+            "ttft_ms": 1486.9351249653846,
+            "complete_ms": 1599.4062909740023,
+            "input_tokens": 27
+          },
+          {
+            "turn": 2,
+            "connect_ms": 0,
+            "ttft_ms": 2351.6578749986365,
+            "complete_ms": 2478.7319589522667,
+            "input_tokens": 43
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "transport": "websocket",
+        "runs": [
+          {
+            "turn": 0,
+            "connect_ms": 1237.4087499920279,
+            "ttft_ms": 2498.7063750158995,
+            "complete_ms": 2596.02245897986,
+            "input_tokens": 11
+          },
+          {
+            "turn": 1,
+            "connect_ms": 0,
+            "ttft_ms": 1455.029500008095,
+            "complete_ms": 1552.0727079710923,
+            "input_tokens": 27
+          },
+          {
+            "turn": 2,
+            "connect_ms": 0,
+            "ttft_ms": 1407.5556250172667,
+            "complete_ms": 1510.7633750303648,
+            "input_tokens": 43
+          }
+        ]
+      },
+      {
+        "transport": "sse",
+        "runs": [
+          {
+            "turn": 0,
+            "connect_ms": 284.9039169959724,
+            "ttft_ms": 2363.2262499886565,
+            "complete_ms": 2526.1204169946723,
+            "input_tokens": 11
+          },
+          {
+            "turn": 1,
+            "connect_ms": 0,
+            "ttft_ms": 4711.898250039667,
+            "complete_ms": 4749.0196250146255,
+            "input_tokens": 27
+          },
+          {
+            "turn": 2,
+            "connect_ms": 0,
+            "ttft_ms": 5176.511124998797,
+            "complete_ms": 5321.114959020633,
+            "input_tokens": 43
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "transport": "sse",
+        "runs": [
+          {
+            "turn": 0,
+            "connect_ms": 287.3305000248365,
+            "ttft_ms": 2180.039750004653,
+            "complete_ms": 2334.661709028296,
+            "input_tokens": 11
+          },
+          {
+            "turn": 1,
+            "connect_ms": 0,
+            "ttft_ms": 2515.318499994464,
+            "complete_ms": 2655.915500014089,
+            "input_tokens": 27
+          },
+          {
+            "turn": 2,
+            "connect_ms": 0,
+            "ttft_ms": 2758.8622079929337,
+            "complete_ms": 3017.051625007298,
+            "input_tokens": 43
+          }
+        ]
+      },
+      {
+        "transport": "websocket",
+        "runs": [
+          {
+            "turn": 0,
+            "connect_ms": 927.4733330239542,
+            "ttft_ms": 1532.7862499980256,
+            "complete_ms": 1628.597291011829,
+            "input_tokens": 11
+          },
+          {
+            "turn": 1,
+            "connect_ms": 0,
+            "ttft_ms": 1471.1932499776594,
+            "complete_ms": 2149.471916956827,
+            "input_tokens": 27
+          },
+          {
+            "turn": 2,
+            "connect_ms": 0,
+            "ttft_ms": 1472.8033750434406,
+            "complete_ms": 1573.3523340313695,
+            "input_tokens": 43
+          }
+        ]
+      }
+    ]
+  ],
+  "measurement_note": "Request-byte metric omitted: corrected probe now snapshots payload size before mutating replay history. Timing and usage measurements unaffected."
+}

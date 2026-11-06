@@ -185,3 +185,10 @@ Turns work through browser fetch when the endpoint's CORS allows it. The login
 callback listener is native-only; on a tty the wasm build prints the link and
 accepts the pasted redirect URL. Sign-in state lives in the virtual home like
 any other store.
+
+## Latency experiments
+
+The native transport remains persistent HTTP/SSE. The SIWC WebSocket experiment
+and buffered-stream scheduling improvement are documented in
+[ADR 0216](../adr/0216-buffered-stream-latency-and-code-mode-experiments.md).
+WebSocket continuation is connection-local; it is not HTTP conversation storage.

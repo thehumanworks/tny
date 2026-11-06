@@ -302,3 +302,7 @@ stdenv.mkDerivation {
 # focus uses the existing mutation runner; core/edit suites cover the behavior.
 # test_execution_command.py's Linux owned-check cases use Python stdlib ctypes,
 # /proc, sh/sleep and the production binary. Existing inputs suffice; macOS skips.
+
+# Optional interaction benchmarks use the existing tests fileset and Python
+# stdlib/loopback fixtures. Monty/WebSocket probes require explicit external
+# packages and live opt-in; neither enters make test or the shipped closure.

@@ -270,3 +270,7 @@ in
 # focus uses the existing mutation runner; core/edit suites cover the behavior.
 # Strict owned-command checks extend existing process/execution sources and
 # tests/integration/test_execution_command.py; existing filesets include them.
+
+# Optional interaction benchmarks use the existing tests fileset and Python
+# stdlib/loopback fixtures. Monty/WebSocket probes require explicit external
+# packages and live opt-in; neither enters make test or the shipped closure.

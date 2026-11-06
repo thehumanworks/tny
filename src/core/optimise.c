@@ -194,6 +194,10 @@ failed:
     return NULL;
 }
 
+int tny_optimise_poll_timeout(tny_optimise *o, int timeout_ms) {
+    return o && o->result < 0 ? tny_engine_poll_timeout(o->engine, timeout_ms) : timeout_ms;
+}
+
 int tny_optimise_pollfds(tny_optimise *o, struct pollfd *fds, int max) {
     return o && o->result < 0 ? tny_engine_pollfds(o->engine, fds, max) : 0;
 }

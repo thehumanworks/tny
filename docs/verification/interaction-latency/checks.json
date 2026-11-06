@@ -1,0 +1,27 @@
+{
+  "affected_integrations": {
+    "test_openai.py": 0,
+    "test_openai_signin.py": 0,
+    "test_execution_code_mode.py": 0,
+    "test_host_code_mode.py": 0,
+    "test_terminal_cancel.py": 0,
+    "test_tui.py": 0,
+    "test_optimise.py": 0,
+    "test_ask_events_conformance.py": 0
+  },
+  "quality_exit": 0,
+  "candidate_full_unit": {
+    "passed": 742,
+    "failed": 1,
+    "skipped": 1
+  },
+  "baseline_full_unit": {
+    "passed": 742,
+    "failed": 1,
+    "skipped": 1
+  },
+  "unit_failure": "terminal_multiple_tasks_do_not_steal_other_children_or_fds",
+  "leaks_exit": 2,
+  "leaks_failure": "task_workspace_suite: five assertions; 7 leaks / 6640 bytes",
+  "baseline_leaks_failure": "task_workspace_suite: same five assertions; 7 leaks / 6640 bytes"
+}

@@ -32,6 +32,7 @@
 #ifndef _WIN32
 #include <pthread.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <arpa/inet.h>
 #endif
 
@@ -1531,6 +1532,19 @@ static int native_pending_drive(pv_fixture *p, tny_engine *engine, native_pendin
 }
 
 #ifndef _WIN32
+/* A successful peer write does not guarantee that the client can read the
+ * whole batch yet. Observe the receive queue without consuming parser input. */
+static bool native_wait_queued(int fd, size_t expected) {
+    int64_t deadline = monotonic_ms() + 5000;
+    do {
+        int queued = 0;
+        if (ioctl(fd, FIONREAD, &queued) != 0) return false;
+        if (queued >= 0 && (size_t)queued >= expected) return true;
+        (void)tny_poll(NULL, 0, 1);
+    } while (monotonic_ms() < deadline);
+    return false;
+}
+
 /* Real TCP RST between turns deterministically exercises write-side keep-alive
  * replay. A separate thread owns all peer-side allocations, outside fault scopes. */
 typedef struct {
@@ -1610,6 +1624,79 @@ static void native_replay_control(const tny_openai_control_request *request,
     }
 }
 #endif
+/* The peer remains open with no further bytes: kernel readability cannot
+ * stand in for HTTP/TLS buffered data after the 8 KiB fairness boundary. */
+TEST native_buffered_body_reschedules_without_spinning(void) {
+#ifdef _WIN32
+    SKIPm("loopback peer fixture uses POSIX sockets");
+#else
+    int listener = socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT(listener >= 0);
+    struct sockaddr_in addr = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
+    ASSERT_EQ(0, bind(listener, (struct sockaddr *)&addr, sizeof addr));
+    ASSERT_EQ(0, listen(listener, 1));
+    socklen_t size = sizeof addr;
+    ASSERT_EQ(0, getsockname(listener, (struct sockaddr *)&addr, &size));
+    pv_fixture p;
+    pv_open(&p);
+    p.decode_wire = true;
+    char url[128], err[256];
+    snprintf(url, sizeof url, "http://127.0.0.1:%u/v1", ntohs(addr.sin_port));
+    free(p.ctx->base_url);
+    p.ctx->base_url = xstrdup(url);
+    free(p.ctx->wire_api);
+    p.ctx->wire_api = xstrdup("responses");
+    ASSERT_EQ(0, p.backend->send(p.backend, "buffered", NULL, pv_event, &p, err, sizeof err));
+    int fd = accept(listener, NULL, NULL);
+    ASSERT(fd >= 0);
+    buf_t request = {0}, body = {0}, reply = {0};
+    ASSERT_EQ(1, native_read_request(fd, &request));
+    buf_appends(&body, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"");
+    for (int i = 0; i < 12000; i++) buf_appends(&body, "x");
+    buf_appends(&body, "\"}\n\n");
+    const char *end =
+        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n";
+    buf_appendf(&reply,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                "Content-Length: %zu\r\n\r\n",
+                body.len + strlen(end));
+    ASSERT_EQ((ssize_t)reply.len, socket_write(fd, reply.data, reply.len));
+    struct pollfd client;
+    ASSERT_EQ(1, p.backend->pollfds(p.backend, &client, 1));
+    ASSERT(native_wait_queued(client.fd, reply.len));
+    /* Headers alone must park normally; no body budget has been exhausted. */
+    ASSERT_EQ(0, p.backend->dispatch(p.backend, NULL, 0));
+    ASSERT(p.backend->poll_timeout(p.backend) > 0);
+    ASSERT_FALSE(p.ended);
+    ASSERT_EQ((ssize_t)body.len, socket_write(fd, body.data, body.len));
+    ASSERT(native_wait_queued(client.fd, body.len));
+    ASSERT_EQ(0, p.backend->dispatch(p.backend, NULL, 0));
+    ASSERT_EQ(0, p.backend->poll_timeout(p.backend));
+    int queued = -1;
+    ASSERT_EQ(0, ioctl(client.fd, FIONREAD, &queued));
+    ASSERT_EQ(0, queued); /* the remaining body is inside HTTP, not the socket */
+    ASSERT_EQ(0, p.callback_text.len);
+    ASSERT_FALSE(p.ended);
+    /* Drain the remainder, then wait normally on the incomplete response. */
+    ASSERT_EQ(0, p.backend->dispatch(p.backend, NULL, 0));
+    ASSERT(p.backend->poll_timeout(p.backend) > 0);
+    ASSERT_FALSE(p.ended);
+    ASSERT_EQ(12000, p.callback_text.len);
+    ASSERT_EQ((ssize_t)strlen(end), socket_write(fd, end, strlen(end)));
+    ASSERT(native_wait_queued(client.fd, strlen(end)));
+    ASSERT_EQ(0, p.backend->dispatch(p.backend, NULL, 0));
+    ASSERT(p.ended);
+    ASSERT_EQ(TNY_STOP_DONE, p.stop);
+    close(fd);
+    close(listener);
+    buf_free(&request);
+    buf_free(&body);
+    buf_free(&reply);
+    pv_close(&p);
+    PASS();
+#endif
+}
+
 TEST native_request_real_stale_replay_and_control_stop(void) {
 #ifdef _WIN32
     SKIPm("TCP RST peer fixture uses POSIX thread/socket APIs");
@@ -2490,6 +2577,7 @@ SUITE(openai_suite) {
     RUN_TEST(native_pending_transfer_preserves_source_on_failure);
     RUN_TEST(native_pending_private_completion_and_invalidation);
     RUN_TEST(native_request_constructor_allocation_sweep);
+    RUN_TEST(native_buffered_body_reschedules_without_spinning);
     RUN_TEST(native_request_real_stale_replay_and_control_stop);
     RUN_TEST(native_cancel_headers_raw_error_and_retry_waits);
     RUN_TEST(native_request_reentrant_first_control_cancel);

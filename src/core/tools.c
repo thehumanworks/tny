@@ -737,6 +737,7 @@ const char *tools_code_instructions(void) {
            "print(tools.call(\"read_file\", json.dumps({\"path\": \"README.md\"}))). Use None "
            "for JSON null.\n"
            "Compose dependent steps with Python variables, functions, loops and conditionals. "
+           "Batch independent operations in one cell to avoid extra model round trips. "
            "For independent reads use tools.parallel(json.dumps([{\"name\": \"read_file\", "
            "\"arguments\": {\"path\": \"README.md\"}}, {\"name\": \"file_info\", "
            "\"arguments\": {\"path\": \"src\"}}])). It returns JSON text containing results "
@@ -747,7 +748,11 @@ const char *tools_code_instructions(void) {
            "recursively call itself. A cell may make 64 nested calls; exceeding the call or "
            "memory budget ends the cell with an error.\n"
            "When a workflow will be useful repeatedly, save a parameterized reusable "
-           "workflow in the project. Do this when useful, without making a saved workflow a "
+           "script in ~/.tny/scripts/ (create it when needed), using shell, Python or JavaScript "
+           "as appropriate. Inspect existing scripts before reuse, pass workspace paths as "
+           "arguments, and never save credentials. Run host scripts with subprocess.run; "
+           "use independent subprocesses concurrently and wait for every exit status. "
+           "Do this when useful, without making a saved workflow a "
            "prerequisite for ordinary work.\n";
 }
 

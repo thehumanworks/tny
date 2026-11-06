@@ -20,6 +20,7 @@ typedef struct {
 } tny_optimise_request;
 
 tny_optimise *tny_optimise_start(const tny_ctx *, const tny_optimise_request *, char *, size_t);
+int tny_optimise_poll_timeout(tny_optimise *o, int timeout_ms);
 int tny_optimise_pollfds(tny_optimise *, struct pollfd *, int);
 void tny_optimise_step(tny_optimise *);
 void tny_optimise_cancel(tny_optimise *);

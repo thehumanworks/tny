@@ -80,6 +80,8 @@ void tny_engine_respond_permission(tny_engine *e, const char *id, tny_perm_decis
 /* Private external-loop integration. pollfds() fills backend interests;
  * dispatch() consumes readiness and normalizes transport death. */
 int tny_engine_pollfds(tny_engine *e, struct pollfd *fds, int max);
+/* Clamp the caller's wait to pending work/retry/stall deadlines. */
+int tny_engine_poll_timeout(tny_engine *e, int timeout_ms);
 int tny_engine_dispatch(tny_engine *e, struct pollfd *fds, int n);
 
 /* Pull one copied event, driving the same poll/dispatch engine. */

@@ -98,6 +98,7 @@ typedef struct {
                                 * own error message to diagnostics (opt-in; it may
                                 * echo request content) */
     char error_detail[400];
+    bool body_yielded;          /* budget exhausted: drain buffered bytes before sleeping */
     bool conn_reused;           /* this POST rode a kept-alive connection */
     bool wire_chat;             /* this POST rides the legacy chat wire */
     bool stream_done;           /* saw [DONE] / response.completed */
@@ -2156,6 +2157,7 @@ static int oa_pollfds(tny_backend *b, struct pollfd *fds, int max) {
 static int oa_poll_timeout(tny_backend *b) {
     oa_impl *o = b->impl;
     int64_t left;
+    if (o->state == ST_BODY && o->body_yielded) return 0;
     if (o->state == ST_RETRY_WAIT) left = o->retry_at_ms - monotonic_ms();
     else if (o->state == ST_BODY && o->error_status) left = o->error_deadline_ms - monotonic_ms();
     else if ((o->state == ST_HEADERS || o->state == ST_BODY) && oa_connection_get(o->connection) &&
@@ -2285,6 +2287,7 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         o->state = ST_BODY;
     }
 
+    o->body_yielded = false;
     /* Yield even when a provider can keep the socket permanently readable.
      * The caller must drain events and service stdin/cancel between batches;
      * waiting for EAGAIN starves both and can overflow the event queue. */
@@ -2388,6 +2391,10 @@ static int oa_dispatch(tny_backend *b, struct pollfd *fds, int n) {
         }
         return step_finished(o);
     }
+    /* HTTP/TLS may have read ahead after the fd stopped being readable.
+     * Yield to the caller for fairness, then probe once without sleeping.
+     * EAGAIN clears this flag on the next dispatch, avoiding a busy loop. */
+    o->body_yielded = true;
     return 0;
 }
 

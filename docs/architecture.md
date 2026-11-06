@@ -66,7 +66,9 @@ Wasm returns an unsupported-execution error because it cannot spawn this server.
 
 Independent nested reads can use `tools.parallel(calls_json)`: up to four
 fresh-exec workers, ordered owner-side admission/settlement and serial barriers
-for stateful tools. Provider-level Python cells remain serial. See
+for stateful tools. The prompt encourages batching independent work and saving reusable parameterized
+scripts under `~/.tny/scripts/`; host shell/Python/JavaScript scripts run through
+Python subprocesses. Provider-level Python cells remain serial. See
 [ADR 0204](adr/0204-parallel-read-tool-batches.md).
 
 ## Embedding boundary
@@ -150,7 +152,9 @@ Blocking waits use `tny_poll`; wasm's HTTP seam uses fetch and Asyncify with
 queued bytes, never JS re-entry into C. MCP shares this HTTP seam (remote-only
 on wasm). The native session runner starts lazily at the first turn. Context
 changes rebind an idle runner or defer rebind until the active turn settles.
-There is no provider-host prewarm thread. Bounded independent file work keeps
+Buffered provider reads schedule an immediate follow-up after each 8 KiB fairness
+budget; external runner/TUI loops honor the same backend timeout as the pull API
+(ADR 0216). There is no provider-host prewarm thread. Bounded independent file work keeps
 the joined worker policy of ADR 0132 (at most eight workers).
 
 ## Jev decision service

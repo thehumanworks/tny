@@ -1,0 +1,3542 @@
+[
+  {
+    "arm": "python",
+    "task": "join",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 13000000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "users.json"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "tickets.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"id\": \"item-686\", \"owner\": \"Ana\"}, {\"id\": \"item-849\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-864\", \"owner\": \"\\u674e\"}, {\"id\": \"item-141\", \"owner\": null}, {\"id\": \"item-927\", \"owner\": null}, {\"id\": \"item-651\", \"owner\": \"Ana\"}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"id\": \"item-686\", \"owner\": \"Ana\"}, {\"id\": \"item-849\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-864\", \"owner\": \"\\u674e\"}, {\"id\": \"item-141\", \"owner\": null}, {\"id\": \"item-927\", \"owner\": null}, {\"id\": \"item-651\", \"owner\": \"Ana\"}]"
+          }
+        },
+        "wall_ms": 18.880875024478883
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 12273000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "users.json"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "tickets.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"id\": \"item-197\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-222\", \"owner\": \"\\u674e\"}, {\"id\": \"item-466\", \"owner\": null}, {\"id\": \"item-607\", \"owner\": null}, {\"id\": \"item-807\", \"owner\": \"Ana\"}, {\"id\": \"item-263\", \"owner\": \"Zo\\u00eb\"}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"id\": \"item-197\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-222\", \"owner\": \"\\u674e\"}, {\"id\": \"item-466\", \"owner\": null}, {\"id\": \"item-607\", \"owner\": null}, {\"id\": \"item-807\", \"owner\": \"Ana\"}, {\"id\": \"item-263\", \"owner\": \"Zo\\u00eb\"}]"
+          }
+        },
+        "wall_ms": 17.53504096996039
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 12977000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "users.json"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "tickets.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"id\": \"item-656\", \"owner\": \"\\u674e\"}, {\"id\": \"item-826\", \"owner\": null}, {\"id\": \"item-426\", \"owner\": null}, {\"id\": \"item-940\", \"owner\": \"Ana\"}, {\"id\": \"item-443\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-504\", \"owner\": \"\\u674e\"}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"id\": \"item-656\", \"owner\": \"\\u674e\"}, {\"id\": \"item-826\", \"owner\": null}, {\"id\": \"item-426\", \"owner\": null}, {\"id\": \"item-940\", \"owner\": \"Ana\"}, {\"id\": \"item-443\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-504\", \"owner\": \"\\u674e\"}]"
+          }
+        },
+        "wall_ms": 18.323916010558605
+      }
+    ]
+  },
+  {
+    "arm": "shell",
+    "task": "join",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 51030000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "users.json"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "tickets.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"id\": \"item-686\", \"owner\": \"Ana\"}, {\"id\": \"item-849\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-864\", \"owner\": \"\\u674e\"}, {\"id\": \"item-141\", \"owner\": null}, {\"id\": \"item-927\", \"owner\": null}, {\"id\": \"item-651\", \"owner\": \"Ana\"}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"id\": \"item-686\", \"owner\": \"Ana\"}, {\"id\": \"item-849\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-864\", \"owner\": \"\\u674e\"}, {\"id\": \"item-141\", \"owner\": null}, {\"id\": \"item-927\", \"owner\": null}, {\"id\": \"item-651\", \"owner\": \"Ana\"}]"
+          }
+        },
+        "wall_ms": 56.38637504307553
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 51670000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "users.json"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "tickets.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"id\": \"item-197\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-222\", \"owner\": \"\\u674e\"}, {\"id\": \"item-466\", \"owner\": null}, {\"id\": \"item-607\", \"owner\": null}, {\"id\": \"item-807\", \"owner\": \"Ana\"}, {\"id\": \"item-263\", \"owner\": \"Zo\\u00eb\"}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"id\": \"item-197\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-222\", \"owner\": \"\\u674e\"}, {\"id\": \"item-466\", \"owner\": null}, {\"id\": \"item-607\", \"owner\": null}, {\"id\": \"item-807\", \"owner\": \"Ana\"}, {\"id\": \"item-263\", \"owner\": \"Zo\\u00eb\"}]"
+          }
+        },
+        "wall_ms": 56.56087497482076
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 50208000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "users.json"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "tickets.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"id\": \"item-656\", \"owner\": \"\\u674e\"}, {\"id\": \"item-826\", \"owner\": null}, {\"id\": \"item-426\", \"owner\": null}, {\"id\": \"item-940\", \"owner\": \"Ana\"}, {\"id\": \"item-443\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-504\", \"owner\": \"\\u674e\"}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"id\": \"item-656\", \"owner\": \"\\u674e\"}, {\"id\": \"item-826\", \"owner\": null}, {\"id\": \"item-426\", \"owner\": null}, {\"id\": \"item-940\", \"owner\": \"Ana\"}, {\"id\": \"item-443\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-504\", \"owner\": \"\\u674e\"}]"
+          }
+        },
+        "wall_ms": 55.350833979900926
+      }
+    ]
+  },
+  {
+    "arm": "javascript",
+    "task": "join",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 113735000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "users.json"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "tickets.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"id\":\"item-686\",\"owner\":\"Ana\"},{\"id\":\"item-849\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-864\",\"owner\":\"\u674e\"},{\"id\":\"item-141\",\"owner\":null},{\"id\":\"item-927\",\"owner\":null},{\"id\":\"item-651\",\"owner\":\"Ana\"}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"id\":\"item-686\",\"owner\":\"Ana\"},{\"id\":\"item-849\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-864\",\"owner\":\"\u674e\"},{\"id\":\"item-141\",\"owner\":null},{\"id\":\"item-927\",\"owner\":null},{\"id\":\"item-651\",\"owner\":\"Ana\"}]"
+          }
+        },
+        "wall_ms": 118.96925000473857
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 114645000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "users.json"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "tickets.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"id\":\"item-197\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-222\",\"owner\":\"\u674e\"},{\"id\":\"item-466\",\"owner\":null},{\"id\":\"item-607\",\"owner\":null},{\"id\":\"item-807\",\"owner\":\"Ana\"},{\"id\":\"item-263\",\"owner\":\"Zo\u00eb\"}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"id\":\"item-197\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-222\",\"owner\":\"\u674e\"},{\"id\":\"item-466\",\"owner\":null},{\"id\":\"item-607\",\"owner\":null},{\"id\":\"item-807\",\"owner\":\"Ana\"},{\"id\":\"item-263\",\"owner\":\"Zo\u00eb\"}]"
+          }
+        },
+        "wall_ms": 120.32674998044968
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 109761000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "users.json"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "tickets.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"id\":\"item-656\",\"owner\":\"\u674e\"},{\"id\":\"item-826\",\"owner\":null},{\"id\":\"item-426\",\"owner\":null},{\"id\":\"item-940\",\"owner\":\"Ana\"},{\"id\":\"item-443\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-504\",\"owner\":\"\u674e\"}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"id\":\"item-656\",\"owner\":\"\u674e\"},{\"id\":\"item-826\",\"owner\":null},{\"id\":\"item-426\",\"owner\":null},{\"id\":\"item-940\",\"owner\":\"Ana\"},{\"id\":\"item-443\",\"owner\":\"Zo\u00eb\"},{\"id\":\"item-504\",\"owner\":\"\u674e\"}]"
+          }
+        },
+        "wall_ms": 115.10795797221363
+      }
+    ]
+  },
+  {
+    "arm": "monty",
+    "task": "join",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 74807000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "users.json"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "tickets.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"id\": \"item-686\", \"owner\": \"Ana\"}, {\"id\": \"item-849\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-864\", \"owner\": \"\\u674e\"}, {\"id\": \"item-141\", \"owner\": null}, {\"id\": \"item-927\", \"owner\": null}, {\"id\": \"item-651\", \"owner\": \"Ana\"}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"id\": \"item-686\", \"owner\": \"Ana\"}, {\"id\": \"item-849\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-864\", \"owner\": \"\\u674e\"}, {\"id\": \"item-141\", \"owner\": null}, {\"id\": \"item-927\", \"owner\": null}, {\"id\": \"item-651\", \"owner\": \"Ana\"}]"
+          }
+        },
+        "wall_ms": 79.96033399831504
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 73608000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "users.json"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "tickets.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"id\": \"item-197\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-222\", \"owner\": \"\\u674e\"}, {\"id\": \"item-466\", \"owner\": null}, {\"id\": \"item-607\", \"owner\": null}, {\"id\": \"item-807\", \"owner\": \"Ana\"}, {\"id\": \"item-263\", \"owner\": \"Zo\\u00eb\"}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"id\": \"item-197\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-222\", \"owner\": \"\\u674e\"}, {\"id\": \"item-466\", \"owner\": null}, {\"id\": \"item-607\", \"owner\": null}, {\"id\": \"item-807\", \"owner\": \"Ana\"}, {\"id\": \"item-263\", \"owner\": \"Zo\\u00eb\"}]"
+          }
+        },
+        "wall_ms": 78.65529198898003
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 80212000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "users.json"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "tickets.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"id\": \"item-656\", \"owner\": \"\\u674e\"}, {\"id\": \"item-826\", \"owner\": null}, {\"id\": \"item-426\", \"owner\": null}, {\"id\": \"item-940\", \"owner\": \"Ana\"}, {\"id\": \"item-443\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-504\", \"owner\": \"\\u674e\"}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"id\": \"item-656\", \"owner\": \"\\u674e\"}, {\"id\": \"item-826\", \"owner\": null}, {\"id\": \"item-426\", \"owner\": null}, {\"id\": \"item-940\", \"owner\": \"Ana\"}, {\"id\": \"item-443\", \"owner\": \"Zo\\u00eb\"}, {\"id\": \"item-504\", \"owner\": \"\\u674e\"}]"
+          }
+        },
+        "wall_ms": 85.104042023886
+      }
+    ]
+  },
+  {
+    "arm": "python",
+    "task": "pagination",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11510000,
+          "calls": [
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": null
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "second"
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "last"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-686\", \"item-864\", \"item-927\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-686\", \"item-864\", \"item-927\"]"
+          }
+        },
+        "wall_ms": 16.854792018420994
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11245000,
+          "calls": [
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": null
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "second"
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "last"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-197\", \"item-466\", \"item-807\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-197\", \"item-466\", \"item-807\"]"
+          }
+        },
+        "wall_ms": 15.998040966223925
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11108000,
+          "calls": [
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": null
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "second"
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "last"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-426\", \"item-443\", \"item-656\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-426\", \"item-443\", \"item-656\"]"
+          }
+        },
+        "wall_ms": 15.963583020493388
+      }
+    ]
+  },
+  {
+    "arm": "shell",
+    "task": "pagination",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 49721000,
+          "calls": [
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": null
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "second"
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "last"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-686\", \"item-864\", \"item-927\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-686\", \"item-864\", \"item-927\"]"
+          }
+        },
+        "wall_ms": 54.69166598049924
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 49806000,
+          "calls": [
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": null
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "second"
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "last"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-197\", \"item-466\", \"item-807\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-197\", \"item-466\", \"item-807\"]"
+          }
+        },
+        "wall_ms": 54.91162498947233
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 55048000,
+          "calls": [
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": null
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "second"
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "last"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-426\", \"item-443\", \"item-656\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-426\", \"item-443\", \"item-656\"]"
+          }
+        },
+        "wall_ms": 60.43237500125542
+      }
+    ]
+  },
+  {
+    "arm": "javascript",
+    "task": "pagination",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 119045000,
+          "calls": [
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": null
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "second"
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "last"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-686\",\"item-864\",\"item-927\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-686\",\"item-864\",\"item-927\"]"
+          }
+        },
+        "wall_ms": 124.07279101898894
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 125333000,
+          "calls": [
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": null
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "second"
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "last"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-197\",\"item-466\",\"item-807\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-197\",\"item-466\",\"item-807\"]"
+          }
+        },
+        "wall_ms": 130.39562501944602
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 117866000,
+          "calls": [
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": null
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "second"
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "last"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-426\",\"item-443\",\"item-656\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-426\",\"item-443\",\"item-656\"]"
+          }
+        },
+        "wall_ms": 123.03808401338756
+      }
+    ]
+  },
+  {
+    "arm": "monty",
+    "task": "pagination",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 80611000,
+          "calls": [
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": null
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "second"
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "last"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-686\", \"item-864\", \"item-927\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-686\", \"item-864\", \"item-927\"]"
+          }
+        },
+        "wall_ms": 85.9660409623757
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 73952000,
+          "calls": [
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": null
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "second"
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "last"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-197\", \"item-466\", \"item-807\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-197\", \"item-466\", \"item-807\"]"
+          }
+        },
+        "wall_ms": 78.53208400774747
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 73698000,
+          "calls": [
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": null
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "second"
+              }
+            },
+            {
+              "name": "api.page",
+              "args": {
+                "cursor": "last"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-426\", \"item-443\", \"item-656\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-426\", \"item-443\", \"item-656\"]"
+          }
+        },
+        "wall_ms": 78.34595796884969
+      }
+    ]
+  },
+  {
+    "arm": "python",
+    "task": "batch_edit",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11794000,
+          "calls": [
+            {
+              "name": "fs.list",
+              "args": {
+                "prefix": "src/"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/z.txt"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/a.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/a.txt",
+                "content": "item-686 FEATURE=true FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/\u00e9.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/\u00e9.txt",
+                "content": "FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+              }
+            }
+          ],
+          "writes": {
+            "src/a.txt": "item-686 FEATURE=true FEATURE=true\n",
+            "src/\u00e9.txt": "FEATURE=true\n",
+            "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+          }
+        },
+        "wall_ms": 16.772165952716023
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11478000,
+          "calls": [
+            {
+              "name": "fs.list",
+              "args": {
+                "prefix": "src/"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/z.txt"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/a.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/a.txt",
+                "content": "item-197 FEATURE=true FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/\u00e9.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/\u00e9.txt",
+                "content": "FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+              }
+            }
+          ],
+          "writes": {
+            "src/a.txt": "item-197 FEATURE=true FEATURE=true\n",
+            "src/\u00e9.txt": "FEATURE=true\n",
+            "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+          }
+        },
+        "wall_ms": 16.16295799612999
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 13720000,
+          "calls": [
+            {
+              "name": "fs.list",
+              "args": {
+                "prefix": "src/"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/z.txt"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/a.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/a.txt",
+                "content": "item-656 FEATURE=true FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/\u00e9.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/\u00e9.txt",
+                "content": "FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+              }
+            }
+          ],
+          "writes": {
+            "src/a.txt": "item-656 FEATURE=true FEATURE=true\n",
+            "src/\u00e9.txt": "FEATURE=true\n",
+            "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+          }
+        },
+        "wall_ms": 19.616208039224148
+      }
+    ]
+  },
+  {
+    "arm": "shell",
+    "task": "batch_edit",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 50288000,
+          "calls": [
+            {
+              "name": "fs.list",
+              "args": {
+                "prefix": "src/"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/z.txt"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/a.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/a.txt",
+                "content": "item-686 FEATURE=true FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/\u00e9.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/\u00e9.txt",
+                "content": "FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+              }
+            }
+          ],
+          "writes": {
+            "src/a.txt": "item-686 FEATURE=true FEATURE=true\n",
+            "src/\u00e9.txt": "FEATURE=true\n",
+            "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+          }
+        },
+        "wall_ms": 55.906624998897314
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 49604000,
+          "calls": [
+            {
+              "name": "fs.list",
+              "args": {
+                "prefix": "src/"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/z.txt"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/a.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/a.txt",
+                "content": "item-197 FEATURE=true FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/\u00e9.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/\u00e9.txt",
+                "content": "FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+              }
+            }
+          ],
+          "writes": {
+            "src/a.txt": "item-197 FEATURE=true FEATURE=true\n",
+            "src/\u00e9.txt": "FEATURE=true\n",
+            "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+          }
+        },
+        "wall_ms": 54.655499989166856
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 48226000,
+          "calls": [
+            {
+              "name": "fs.list",
+              "args": {
+                "prefix": "src/"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/z.txt"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/a.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/a.txt",
+                "content": "item-656 FEATURE=true FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/\u00e9.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/\u00e9.txt",
+                "content": "FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+              }
+            }
+          ],
+          "writes": {
+            "src/a.txt": "item-656 FEATURE=true FEATURE=true\n",
+            "src/\u00e9.txt": "FEATURE=true\n",
+            "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+          }
+        },
+        "wall_ms": 53.36216697469354
+      }
+    ]
+  },
+  {
+    "arm": "javascript",
+    "task": "batch_edit",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 175422000,
+          "calls": [
+            {
+              "name": "fs.list",
+              "args": {
+                "prefix": "src/"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/z.txt"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/a.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/a.txt",
+                "content": "item-686 FEATURE=true FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/\u00e9.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/\u00e9.txt",
+                "content": "FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"src/a.txt\",\"src/\u00e9.txt\"]"
+              }
+            }
+          ],
+          "writes": {
+            "src/a.txt": "item-686 FEATURE=true FEATURE=true\n",
+            "src/\u00e9.txt": "FEATURE=true\n",
+            "output.json": "[\"src/a.txt\",\"src/\u00e9.txt\"]"
+          }
+        },
+        "wall_ms": 180.11633300920948
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 177364000,
+          "calls": [
+            {
+              "name": "fs.list",
+              "args": {
+                "prefix": "src/"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/z.txt"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/a.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/a.txt",
+                "content": "item-197 FEATURE=true FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/\u00e9.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/\u00e9.txt",
+                "content": "FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"src/a.txt\",\"src/\u00e9.txt\"]"
+              }
+            }
+          ],
+          "writes": {
+            "src/a.txt": "item-197 FEATURE=true FEATURE=true\n",
+            "src/\u00e9.txt": "FEATURE=true\n",
+            "output.json": "[\"src/a.txt\",\"src/\u00e9.txt\"]"
+          }
+        },
+        "wall_ms": 182.50570801319554
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 170892000,
+          "calls": [
+            {
+              "name": "fs.list",
+              "args": {
+                "prefix": "src/"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/z.txt"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/a.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/a.txt",
+                "content": "item-656 FEATURE=true FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/\u00e9.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/\u00e9.txt",
+                "content": "FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"src/a.txt\",\"src/\u00e9.txt\"]"
+              }
+            }
+          ],
+          "writes": {
+            "src/a.txt": "item-656 FEATURE=true FEATURE=true\n",
+            "src/\u00e9.txt": "FEATURE=true\n",
+            "output.json": "[\"src/a.txt\",\"src/\u00e9.txt\"]"
+          }
+        },
+        "wall_ms": 176.06658302247524
+      }
+    ]
+  },
+  {
+    "arm": "monty",
+    "task": "batch_edit",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 75706000,
+          "calls": [
+            {
+              "name": "fs.list",
+              "args": {
+                "prefix": "src/"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/z.txt"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/a.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/a.txt",
+                "content": "item-686 FEATURE=true FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/\u00e9.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/\u00e9.txt",
+                "content": "FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+              }
+            }
+          ],
+          "writes": {
+            "src/a.txt": "item-686 FEATURE=true FEATURE=true\n",
+            "src/\u00e9.txt": "FEATURE=true\n",
+            "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+          }
+        },
+        "wall_ms": 81.61904203006998
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 74703000,
+          "calls": [
+            {
+              "name": "fs.list",
+              "args": {
+                "prefix": "src/"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/z.txt"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/a.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/a.txt",
+                "content": "item-197 FEATURE=true FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/\u00e9.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/\u00e9.txt",
+                "content": "FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+              }
+            }
+          ],
+          "writes": {
+            "src/a.txt": "item-197 FEATURE=true FEATURE=true\n",
+            "src/\u00e9.txt": "FEATURE=true\n",
+            "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+          }
+        },
+        "wall_ms": 79.48516600299627
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 77305000,
+          "calls": [
+            {
+              "name": "fs.list",
+              "args": {
+                "prefix": "src/"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/z.txt"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/a.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/a.txt",
+                "content": "item-656 FEATURE=true FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "src/\u00e9.txt"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "src/\u00e9.txt",
+                "content": "FEATURE=true\n"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+              }
+            }
+          ],
+          "writes": {
+            "src/a.txt": "item-656 FEATURE=true FEATURE=true\n",
+            "src/\u00e9.txt": "FEATURE=true\n",
+            "output.json": "[\"src/a.txt\", \"src/\\u00e9.txt\"]"
+          }
+        },
+        "wall_ms": 82.1094160201028
+      }
+    ]
+  },
+  {
+    "arm": "python",
+    "task": "bounded_retry",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "retry_bound_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11877000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-686"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-849"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-849"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-864"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-864"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-864"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "{\"item-686\": 10, \"item-849\": 20, \"item-864\": null}"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "{\"item-686\": 10, \"item-849\": 20, \"item-864\": null}"
+          }
+        },
+        "wall_ms": 17.280291998758912
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "retry_bound_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11195000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-197"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-222"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-222"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-466"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-466"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-466"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "{\"item-197\": 11, \"item-222\": 21, \"item-466\": null}"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "{\"item-197\": 11, \"item-222\": 21, \"item-466\": null}"
+          }
+        },
+        "wall_ms": 15.893833013251424
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "retry_bound_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11318000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-656"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-826"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-826"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-426"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-426"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-426"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "{\"item-656\": 12, \"item-826\": 22, \"item-426\": null}"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "{\"item-656\": 12, \"item-826\": 22, \"item-426\": null}"
+          }
+        },
+        "wall_ms": 16.04012498864904
+      }
+    ]
+  },
+  {
+    "arm": "shell",
+    "task": "bounded_retry",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "retry_bound_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 50359000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-686"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-849"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-849"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-864"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-864"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-864"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "{\"item-686\": 10, \"item-849\": 20, \"item-864\": null}"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "{\"item-686\": 10, \"item-849\": 20, \"item-864\": null}"
+          }
+        },
+        "wall_ms": 54.99145801877603
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "retry_bound_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 52045000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-197"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-222"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-222"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-466"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-466"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-466"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "{\"item-197\": 11, \"item-222\": 21, \"item-466\": null}"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "{\"item-197\": 11, \"item-222\": 21, \"item-466\": null}"
+          }
+        },
+        "wall_ms": 56.97412497829646
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "retry_bound_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 50823000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-656"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-826"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-826"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-426"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-426"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-426"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "{\"item-656\": 12, \"item-826\": 22, \"item-426\": null}"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "{\"item-656\": 12, \"item-826\": 22, \"item-426\": null}"
+          }
+        },
+        "wall_ms": 55.93491601757705
+      }
+    ]
+  },
+  {
+    "arm": "javascript",
+    "task": "bounded_retry",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "retry_bound_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 189153000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-686"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-849"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-849"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-864"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-864"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-864"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "{\"item-686\":10,\"item-849\":20,\"item-864\":null}"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "{\"item-686\":10,\"item-849\":20,\"item-864\":null}"
+          }
+        },
+        "wall_ms": 194.6617080247961
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "retry_bound_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 193177000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-197"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-222"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-222"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-466"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-466"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-466"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "{\"item-197\":11,\"item-222\":21,\"item-466\":null}"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "{\"item-197\":11,\"item-222\":21,\"item-466\":null}"
+          }
+        },
+        "wall_ms": 198.31987499492243
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "retry_bound_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 195151000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-656"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-826"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-826"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-426"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-426"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-426"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "{\"item-656\":12,\"item-826\":22,\"item-426\":null}"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "{\"item-656\":12,\"item-826\":22,\"item-426\":null}"
+          }
+        },
+        "wall_ms": 200.20316605223343
+      }
+    ]
+  },
+  {
+    "arm": "monty",
+    "task": "bounded_retry",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "retry_bound_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 74166000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-686"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-849"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-849"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-864"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-864"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-864"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "{\"item-686\": 10, \"item-849\": 20, \"item-864\": null}"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "{\"item-686\": 10, \"item-849\": 20, \"item-864\": null}"
+          }
+        },
+        "wall_ms": 79.24287504283711
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "retry_bound_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 80466000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-197"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-222"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-222"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-466"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-466"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-466"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "{\"item-197\": 11, \"item-222\": 21, \"item-466\": null}"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "{\"item-197\": 11, \"item-222\": 21, \"item-466\": null}"
+          }
+        },
+        "wall_ms": 85.53279197076336
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "retry_bound_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 74910000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-656"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-826"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-826"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-426"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-426"
+              }
+            },
+            {
+              "name": "api.check",
+              "args": {
+                "id": "item-426"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "{\"item-656\": 12, \"item-826\": 22, \"item-426\": null}"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "{\"item-656\": 12, \"item-826\": 22, \"item-426\": null}"
+          }
+        },
+        "wall_ms": 79.91529098944739
+      }
+    ]
+  },
+  {
+    "arm": "python",
+    "task": "unicode",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11249000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\", \"length\": 5}, {\"prefix\": \"\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-686\", \"length\": 8}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\", \"length\": 5}, {\"prefix\": \"\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-686\", \"length\": 8}]"
+          }
+        },
+        "wall_ms": 15.97133302129805
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11037000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\\ud834\\udd1e\", \"length\": 5}, {\"prefix\": \"e\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-197\", \"length\": 8}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\\ud834\\udd1e\", \"length\": 5}, {\"prefix\": \"e\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-197\", \"length\": 8}]"
+          }
+        },
+        "wall_ms": 15.720625000540167
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11010000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\\ud834\\udd1eZ\", \"length\": 5}, {\"prefix\": \"e\\u0301\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-656\", \"length\": 8}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\\ud834\\udd1eZ\", \"length\": 5}, {\"prefix\": \"e\\u0301\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-656\", \"length\": 8}]"
+          }
+        },
+        "wall_ms": 15.623833052814007
+      }
+    ]
+  },
+  {
+    "arm": "shell",
+    "task": "unicode",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 49990000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\", \"length\": 5}, {\"prefix\": \"\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-686\", \"length\": 8}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\", \"length\": 5}, {\"prefix\": \"\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-686\", \"length\": 8}]"
+          }
+        },
+        "wall_ms": 54.72445901250467
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 53507000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\\ud834\\udd1e\", \"length\": 5}, {\"prefix\": \"e\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-197\", \"length\": 8}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\\ud834\\udd1e\", \"length\": 5}, {\"prefix\": \"e\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-197\", \"length\": 8}]"
+          }
+        },
+        "wall_ms": 58.666625001933426
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 50052000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\\ud834\\udd1eZ\", \"length\": 5}, {\"prefix\": \"e\\u0301\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-656\", \"length\": 8}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\\ud834\\udd1eZ\", \"length\": 5}, {\"prefix\": \"e\\u0301\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-656\", \"length\": 8}]"
+          }
+        },
+        "wall_ms": 55.33270799787715
+      }
+    ]
+  },
+  {
+    "arm": "javascript",
+    "task": "unicode",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 86506000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"prefix\":\"A\ud83d\ude42\u00e9\",\"length\":5},{\"prefix\":\"\",\"length\":3},{\"prefix\":\"\",\"length\":0},{\"prefix\":\"item-686\",\"length\":8}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"prefix\":\"A\ud83d\ude42\u00e9\",\"length\":5},{\"prefix\":\"\",\"length\":3},{\"prefix\":\"\",\"length\":0},{\"prefix\":\"item-686\",\"length\":8}]"
+          }
+        },
+        "wall_ms": 91.57579200109467
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 90686000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"prefix\":\"A\ud83d\ude42\u00e9\ud834\udd1e\",\"length\":5},{\"prefix\":\"e\",\"length\":3},{\"prefix\":\"\",\"length\":0},{\"prefix\":\"item-197\",\"length\":8}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"prefix\":\"A\ud83d\ude42\u00e9\ud834\udd1e\",\"length\":5},{\"prefix\":\"e\",\"length\":3},{\"prefix\":\"\",\"length\":0},{\"prefix\":\"item-197\",\"length\":8}]"
+          }
+        },
+        "wall_ms": 95.34487494966015
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 86105000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"prefix\":\"A\ud83d\ude42\u00e9\ud834\udd1eZ\",\"length\":5},{\"prefix\":\"e\u0301\",\"length\":3},{\"prefix\":\"\",\"length\":0},{\"prefix\":\"item-656\",\"length\":8}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"prefix\":\"A\ud83d\ude42\u00e9\ud834\udd1eZ\",\"length\":5},{\"prefix\":\"e\u0301\",\"length\":3},{\"prefix\":\"\",\"length\":0},{\"prefix\":\"item-656\",\"length\":8}]"
+          }
+        },
+        "wall_ms": 90.65358299994841
+      }
+    ]
+  },
+  {
+    "arm": "monty",
+    "task": "unicode",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 73964000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\", \"length\": 5}, {\"prefix\": \"\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-686\", \"length\": 8}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\", \"length\": 5}, {\"prefix\": \"\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-686\", \"length\": 8}]"
+          }
+        },
+        "wall_ms": 79.01041599689052
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 81286000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\\ud834\\udd1e\", \"length\": 5}, {\"prefix\": \"e\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-197\", \"length\": 8}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\\ud834\\udd1e\", \"length\": 5}, {\"prefix\": \"e\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-197\", \"length\": 8}]"
+          }
+        },
+        "wall_ms": 86.73970802919939
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 73721000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\\ud834\\udd1eZ\", \"length\": 5}, {\"prefix\": \"e\\u0301\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-656\", \"length\": 8}]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[{\"prefix\": \"A\\ud83d\\ude42\\u00e9\\ud834\\udd1eZ\", \"length\": 5}, {\"prefix\": \"e\\u0301\", \"length\": 3}, {\"prefix\": \"\", \"length\": 0}, {\"prefix\": \"item-656\", \"length\": 8}]"
+          }
+        },
+        "wall_ms": 78.81633401848376
+      }
+    ]
+  },
+  {
+    "arm": "python",
+    "task": "dependency_order",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11412000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-686\", \"item-849\", \"item-864\", \"item-141\", \"item-927\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-686\", \"item-849\", \"item-864\", \"item-141\", \"item-927\"]"
+          }
+        },
+        "wall_ms": 16.401458997279406
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11224000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[]"
+          }
+        },
+        "wall_ms": 16.03250001790002
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 11216000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-426\", \"item-443\", \"item-656\", \"item-826\", \"item-940\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-426\", \"item-443\", \"item-656\", \"item-826\", \"item-940\"]"
+          }
+        },
+        "wall_ms": 15.838416991755366
+      }
+    ]
+  },
+  {
+    "arm": "shell",
+    "task": "dependency_order",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 51733000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-686\", \"item-849\", \"item-864\", \"item-141\", \"item-927\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-686\", \"item-849\", \"item-864\", \"item-141\", \"item-927\"]"
+          }
+        },
+        "wall_ms": 56.56650004675612
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 49986000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[]"
+          }
+        },
+        "wall_ms": 55.16087496653199
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 50018000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-426\", \"item-443\", \"item-656\", \"item-826\", \"item-940\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-426\", \"item-443\", \"item-656\", \"item-826\", \"item-940\"]"
+          }
+        },
+        "wall_ms": 55.02345797140151
+      }
+    ]
+  },
+  {
+    "arm": "javascript",
+    "task": "dependency_order",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 86963000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-686\",\"item-849\",\"item-864\",\"item-141\",\"item-927\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-686\",\"item-849\",\"item-864\",\"item-141\",\"item-927\"]"
+          }
+        },
+        "wall_ms": 91.9567919918336
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 89659000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[]"
+          }
+        },
+        "wall_ms": 95.75308399507776
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 84754000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-426\",\"item-443\",\"item-656\",\"item-826\",\"item-940\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-426\",\"item-443\",\"item-656\",\"item-826\",\"item-940\"]"
+          }
+        },
+        "wall_ms": 89.71950004342943
+      }
+    ]
+  },
+  {
+    "arm": "monty",
+    "task": "dependency_order",
+    "passed": true,
+    "variants": [
+      {
+        "variant": 0,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 77889000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-686\", \"item-849\", \"item-864\", \"item-141\", \"item-927\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-686\", \"item-849\", \"item-864\", \"item-141\", \"item-927\"]"
+          }
+        },
+        "wall_ms": 82.80083403224126
+      },
+      {
+        "variant": 1,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 73726000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[]"
+          }
+        },
+        "wall_ms": 78.81050003925338
+      },
+      {
+        "variant": 2,
+        "passed": true,
+        "execution_ok": true,
+        "output_ok": true,
+        "trace_ok": true,
+        "observed": {
+          "runtime_ok": true,
+          "invalid_call": false,
+          "stdout": "done\n",
+          "runtime_ns": 73790000,
+          "calls": [
+            {
+              "name": "fs.read",
+              "args": {
+                "path": "input.json"
+              }
+            },
+            {
+              "name": "fs.write",
+              "args": {
+                "path": "output.json",
+                "content": "[\"item-426\", \"item-443\", \"item-656\", \"item-826\", \"item-940\"]"
+              }
+            }
+          ],
+          "writes": {
+            "output.json": "[\"item-426\", \"item-443\", \"item-656\", \"item-826\", \"item-940\"]"
+          }
+        },
+        "wall_ms": 78.55533401016146
+      }
+    ]
+  }
+]
