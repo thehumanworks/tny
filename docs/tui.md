@@ -413,7 +413,7 @@ Transcript spacing: one blank line between the echoed user prompt and the
 first agent output, and one blank line before the next model iteration
 after a tool batch.
 
-Auth: `/login` and `/logout` manage native Codex/Grok subscriptions; `/setup` configures an HTTP profile with an environment-variable name for its key.
+Auth: `/login` and `/logout` manage native Codex/Grok subscriptions and Sign in with ChatGPT on the openai profile; `/setup` configures an HTTP profile with an environment-variable name for its key. While `/login` waits, the TUI hands the terminal back in its pre-TUI line mode (canonical input, Ctrl-C raises SIGINT, bracketed paste off), so a redirect URL pasted from a browser on another machine is read when Enter is pressed and Ctrl-C aborts only the login; raw mode returns when the command ends.
 
 ## Rendering host streams
 

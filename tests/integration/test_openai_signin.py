@@ -32,9 +32,11 @@ The wasm build has no listening socket: it runs the store-seeded parts
 """
 
 import base64
+import fcntl
 import hashlib
 import json
 import os
+import pty
 import re
 import select
 import socket
@@ -42,6 +44,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import termios
 import threading
 import time
 import urllib.error
@@ -683,6 +686,102 @@ def case_consent(env, ws, home, issuer):
     )
 
 
+def controlling_tty():
+    os.setsid()
+    fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+
+def case_tui_paste(env, ws, home, issuer):
+    """Headless /login inside the TUI: the browser is elsewhere, so the user
+    pastes the redirect URL and presses Enter (a real terminal sends CR), or
+    aborts with Ctrl-C. Both must work while the TUI owns the terminal."""
+    seed_store(home, issuer)
+    Mock.reset(issuer=issuer)
+    port = free_port()
+    tenv = dict(env, TNY_OPENAI_CALLBACK_PORT=str(port), TERM="xterm-256color")
+    master, slave = pty.openpty()
+    p = subprocess.Popen(
+        [TNY, "--provider", "openai", "--cwd", ws],
+        env=tenv,
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+        close_fds=True,
+        preexec_fn=controlling_tty,  # Ctrl-C must reach the child's group
+    )
+    os.close(slave)
+    buf = b""
+
+    def until(needle, timeout=20.0):
+        nonlocal buf
+        deadline = time.time() + timeout
+        while needle not in buf:
+            if time.time() > deadline:
+                raise AssertionError(f"timeout waiting for {needle!r}; got {buf!r}")
+            r, _, _ = select.select([master], [], [], 0.2)
+            if r:
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError:
+                    chunk = b""
+                if not chunk and p.poll() is not None:
+                    raise AssertionError(f"tui exited ({p.returncode}): {buf!r}")
+                buf += chunk
+        at = buf.index(needle) + len(needle)
+        seen, buf = buf[:at], buf[at:]
+        return seen
+
+    try:
+        until(b"/help")
+        os.write(master, b"/login\r")
+        out = until(b"press Enter.")
+        line = next(
+            ln
+            for ln in out.decode(errors="replace").splitlines()
+            if "/api/accounts/authorize?" in ln
+        ).strip()
+        q = {
+            k: v[0]
+            for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(line).query).items()
+        }
+        Mock.st["nonce"] = q["nonce"]
+        Mock.st["challenge"] = q["code_challenge"]
+        # the prompt reads lines: canonical, CR->NL, signals, no bracketed paste
+        mode = termios.tcgetattr(master)
+        assert mode[3] & termios.ICANON and mode[3] & termios.ISIG, mode
+        assert mode[0] & termios.ICRNL, mode
+        assert b"\x1b[?2004l" in out, "bracketed paste left on for the prompt"
+        redirect = (
+            q["redirect_uri"]
+            + "?"
+            + urllib.parse.urlencode({"code": "auth-code-1", "state": q["state"]})
+        )
+        os.write(master, redirect.encode() + b"\r")
+        until(f"Signed in with ChatGPT as {EMAIL}".encode())
+        assert Mock.st["token_calls"], "pasted code was not exchanged"
+        until(b"\x1b[?2004h")  # back in the TUI: bracketed paste restored
+        mode = termios.tcgetattr(master)
+        assert not mode[3] & termios.ICANON and not mode[3] & termios.ISIG, mode
+
+        # Ctrl-C at the paste prompt aborts the login, not the TUI
+        os.write(master, b"/login\r")
+        until(b"press Enter.")
+        os.write(master, b"\x03")
+        until(b"login aborted")
+        time.sleep(0.3)
+        assert p.poll() is None, "Ctrl-C at the login prompt killed the TUI"
+        os.write(master, b"/quit\r")
+        p.wait(timeout=15)
+    finally:
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+        os.close(master)
+    print(
+        "ok  tui /login: pasted redirect URL + Enter signs in; Ctrl-C aborts the login"
+    )
+
+
 def case_errors(env, ws, home, issuer):
     seed_store(home, issuer)
     Mock.reset(
@@ -771,6 +870,7 @@ def main():
                 case_reauth(env, ws, home, issuer)
                 case_access_denied(env, ws)
                 case_consent(env, ws, home, issuer)
+                case_tui_paste(env, ws, home, issuer)
             case_errors(env, ws, home, issuer)
             case_logout(env, ws, home, issuer)
     finally:

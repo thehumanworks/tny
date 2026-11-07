@@ -314,7 +314,11 @@ static int run_cli(tui *t, int (*fn)(tny_ctx *, const cli_globals *, int, char *
             }
         }
     }
+    /* Login reads a pasted redirect URL line and aborts on Ctrl-C. */
+    bool cooked = t->tty && fn == cmd_login;
+    if (cooked) tui_terminal_cooked(true);
     int rc = fn(t->ctx, t->g, argc, argv);
+    if (cooked) tui_terminal_cooked(false);
     if (capture) {
         fflush(stdout);
         fflush(stderr);

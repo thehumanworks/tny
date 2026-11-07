@@ -23,7 +23,7 @@ EM_JS(int, js_tui_page, (void), { return Module.tnyOut ? 1 : 0; });
 
 /* ---- terminal ---- */
 
-static struct termios g_saved;
+static struct termios g_saved, g_raw_tio;
 static bool g_raw, g_restore_sgr, g_terminal_active, g_alternate_screen;
 static bool g_fullscreen_mouse, g_mouse_enabled, g_detail_screen;
 static volatile sig_atomic_t g_winch, g_sigint, g_exit_signal;
@@ -92,6 +92,18 @@ void tui_terminal_begin(tui *t) {
 
 void tui_terminal_end(void) { term_restore(); }
 
+/* An interactive CLI prompt (login's pasted redirect URL) reads lines with
+ * fgets and relies on Ctrl-C raising SIGINT. Raw mode breaks both: Enter
+ * arrives as '\r' (no ICRNL), Ctrl-C is a plain 0x03 byte (no ISIG), and
+ * bracketed paste wraps the URL in ESC[200~ ... ESC[201~. Hand back the
+ * pre-TUI line discipline for the prompt, then re-enter raw mode. */
+void tui_terminal_cooked(bool cooked) {
+    if (!g_raw) return;
+    fputs(cooked ? "\x1b[?2004l\x1b[?25h" : "\x1b[?2004h", stdout);
+    fflush(stdout);
+    tcsetattr(STDIN_FILENO, TCSADRAIN, cooked ? &g_saved : &g_raw_tio);
+}
+
 static void on_winch(int s) {
     (void)s;
     g_winch = 1;
@@ -128,6 +140,7 @@ static bool term_raw(bool restore_sgr) {
     r.c_cc[VMIN] = 1;
     r.c_cc[VTIME] = 0;
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &r) != 0) return false;
+    g_raw_tio = r;
     g_raw = true;
     g_restore_sgr = restore_sgr;
     atexit(term_restore);
