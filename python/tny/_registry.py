@@ -13,7 +13,10 @@ import inspect
 import re
 import sys
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar, overload
+
+# A decorated function keeps its own type, so editors still see its signature.
+_F = TypeVar("_F", bound=Callable[..., Any])
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
 HOST_PACKAGE = "_tny_tools"
@@ -67,9 +70,32 @@ class Group:
         self.tools: dict[str, Tool] = {}
         self.groups: dict[str, Group] = {}
 
+    @overload
+    def tool(
+        self,
+        fn: _F,
+        /,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        input_schema: dict[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> _F: ...
+    @overload
+    def tool(
+        self,
+        fn: None = None,
+        /,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        input_schema: dict[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> Callable[[_F], _F]: ...
     def tool(
         self,
         fn: Callable[..., Any] | None = None,
+        /,
         *,
         name: str | None = None,
         description: str | None = None,
@@ -217,11 +243,32 @@ def _group_for(module_name: str) -> Group:
 
 def _caller_module(depth: int = 2) -> str:
     frame = sys._getframe(depth)
-    return frame.f_globals.get("__name__", "__main__")
+    return str(frame.f_globals.get("__name__", "__main__"))
 
 
+@overload
+def tool(
+    fn: _F,
+    /,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    input_schema: dict[str, Any] | None = None,
+    timeout: float | None = None,
+) -> _F: ...
+@overload
+def tool(
+    fn: None = None,
+    /,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    input_schema: dict[str, Any] | None = None,
+    timeout: float | None = None,
+) -> Callable[[_F], _F]: ...
 def tool(
     fn: Callable[..., Any] | None = None,
+    /,
     *,
     name: str | None = None,
     description: str | None = None,

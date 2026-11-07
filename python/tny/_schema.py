@@ -22,9 +22,9 @@ from typing import Any, Callable
 from tny._registry import Param
 
 try:  # pydantic is optional inside and outside the host
-    import pydantic  # type: ignore[import-not-found]
+    import pydantic  # type: ignore[import-not-found,unused-ignore]
 except Exception:  # pragma: no cover - depends on the environment
-    pydantic = None  # type: ignore[assignment]
+    pydantic = None  # type: ignore[assignment,unused-ignore]
 
 _SECTION_RE = re.compile(
     r"^\s*(Args|Arguments|Parameters|Params|Keyword Args|Returns|Return|Yields|Raises|"
@@ -148,11 +148,11 @@ def type_schema(tp: Any) -> dict[str, Any]:
     args = typing.get_args(tp)
     if origin is typing.Annotated:
         description, extra = _param_meta(args[1:])
-        out = dict(type_schema(args[0]))
+        annotated: dict[str, Any] = dict(type_schema(args[0]))
         if description:
-            out["description"] = description
-        out.update(extra)
-        return out
+            annotated["description"] = description
+        annotated.update(extra)
+        return annotated
     if tp is None or tp is type(None):
         return {"type": "null"}
     if tp is bool:
@@ -336,7 +336,7 @@ def _inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
             return [resolve(v, seen) for v in node]
         return node
 
-    return resolve(schema, ())
+    return typing.cast(dict[str, Any], resolve(schema, ()))
 
 
 def _strip_titles(node: Any) -> Any:
@@ -456,7 +456,9 @@ class Compiled:
             arbitrary_types_allowed=True,
         )
         self.model = pydantic.create_model("Arguments", __config__=config, **fields)
-        schema = _strip_titles(_inline_refs(self.model.model_json_schema()))
+        schema: dict[str, Any] = _strip_titles(
+            _inline_refs(self.model.model_json_schema())
+        )
         schema.setdefault("properties", {})
         schema["additionalProperties"] = self.var_keyword
         return schema
@@ -586,7 +588,7 @@ def coerce(value: Any, tp: Any, where: str) -> Any:
                 raise ToolError(f"{where}: expected {len(args)} items")
             return tuple(
                 coerce(v, a, f"{where}[{i}]")
-                for i, (v, a) in enumerate(zip(value, args))
+                for i, (v, a) in enumerate(zip(value, args))  # noqa: B905 (lengths checked above)
             )
         inner = args[0] if args else Any
         items = [coerce(v, inner, f"{where}[{i}]") for i, v in enumerate(value)]

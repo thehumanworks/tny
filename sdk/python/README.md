@@ -48,6 +48,14 @@ dependency is `cffi>=1.16`; cffi is independently distributed under the MIT
 license. GitHub release artifacts retain this notice and the vendored-library
 notices.
 
+## Tool extensions
+
+The package also exports the tool-extension API (`tny.tool`, `tny.group`,
+`tny.proxy`, `tny.Param`, `tny.ToolError`), the same modules the tny binary
+embeds for its tool host. Installing it gives editors completions and type
+checking for extension code; see [docs/extensions.md](../../docs/extensions.md).
+These names need no native library.
+
 ## Native library and wheel policy
 
 Pure `py3-none-any` wheels contain no native artifact and discover an explicit,

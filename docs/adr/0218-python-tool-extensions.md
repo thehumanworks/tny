@@ -87,6 +87,16 @@ Pydantic is used when importable. Bundling pydantic-core into the static
 embedded interpreter is follow-up work; the built-in mapper keeps schemas and
 validation working without it.
 
+### Editor support (2026-11-07 addendum)
+
+The `tny` Python distribution (sdk/python) re-exports the extension API, and
+its `_registry.py`, `_schema.py` and `_mcp.py` are symlinks to `python/tny/`,
+so there is one source for the embedded host and for the package editors type
+check against. The decorators are typed with overloads over a bound TypeVar,
+so a decorated function keeps its signature. A separate stub-only or
+`tny-extensions` distribution was rejected: two distributions providing the
+`tny` import package would shadow each other.
+
 ## Verification
 
 `make test-tool-extensions` (Python unit tests for schemas, binding, naming,
@@ -94,3 +104,6 @@ isolation and the proxy client, run with and without pydantic) and
 `tests/integration/test_tool_extensions.py` (every surface against the
 binary: discovery, flags and help, code mode, `mcp serve`, proxies,
 permissions, off switches, cache invalidation, timeout and cancellation).
+`sdk/python/tests/typecheck_usage.py` (run with `mypy --strict` in CI) fails if a decorator erases the function type, and
+`sdk/python/tests/test_extension_api.py` checks the package's modules are the
+embedded ones.
