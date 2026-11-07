@@ -221,14 +221,14 @@ static int host_start_locked(const tny_ctx *ctx, const char *key, const char *pr
     char *argv[8];
     int argc = 0;
     argv[argc++] = self;
-    argv[argc++] = "--tool-host";
-    argv[argc++] = "serve";
+    argv[argc++] = (char *)"--tool-host";
+    argv[argc++] = (char *)"serve";
     if (project && dir_exists(project)) {
-        argv[argc++] = "--project";
+        argv[argc++] = (char *)"--project";
         argv[argc++] = (char *)project;
     }
     if (global && dir_exists(global)) {
-        argv[argc++] = "--global";
+        argv[argc++] = (char *)"--global";
         argv[argc++] = (char *)global;
     }
     argv[argc] = NULL;
