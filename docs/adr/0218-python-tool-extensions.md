@@ -95,7 +95,9 @@ so there is one source for the embedded host and for the package editors type
 check against. The decorators are typed with overloads over a bound TypeVar,
 so a decorated function keeps its signature. A separate stub-only or
 `tny-extensions` distribution was rejected: two distributions providing the
-`tny` import package would shadow each other.
+`tny` import package would shadow each other. The flake packages it as
+`python-tny` / `python3Packages.tny`, and `programs.tny` (Home Manager, NixOS,
+nix-darwin) installs it and a Neovim LSP plugin file pointing the server at it.
 
 ## Verification
 

@@ -65,6 +65,10 @@ code in one of two ways:
   basedpyright/pyright settings for Neovim in
   [nvim.lua](../examples/extensions/editor/nvim.lua).
 
+With Nix, `programs.tny.python.enable` and `programs.tny.neovim.enable` in the
+flake's Home Manager, NixOS or nix-darwin module do both for you
+([nix.md](nix.md#modules-programstny)).
+
 Decorators keep the function's own type, so `@tny.tool def f(x: int) -> str`
 still reads as `(x: int) -> str` and wrong arguments are flagged. The tool host
 runs CPython 3.14; set the checker's Python version to match.

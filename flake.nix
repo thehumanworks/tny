@@ -38,10 +38,21 @@
     {
       # For consumers who already compose an overlay list:
       #   nixpkgs.overlays = [ tny.overlays.default ];  then use pkgs.tny
-      overlays.default = final: _prev: {
+      # The overlay also adds the `tny` Python package to every Python set:
+      #   python3.withPackages (ps: [ ps.tny ])
+      overlays.default = final: prev: {
         tny = final.callPackage ./nix/package.nix { inherit version; };
         libtny = final.callPackage ./nix/libtny.nix { inherit version; };
+        pythonPackagesExtensions = prev.pythonPackagesExtensions ++ [
+          (pyfinal: _: { tny = pyfinal.callPackage ./nix/python-package.nix { }; })
+        ];
       };
+
+      # `programs.tny`: the binary, a Python with the typed `tny` package, and
+      # a Neovim LSP setup for tool extensions (docs/nix.md).
+      homeManagerModules.default = import ./nix/modules/home-manager.nix self;
+      nixosModules.default = import ./nix/modules/nixos.nix self;
+      darwinModules.default = import ./nix/modules/darwin.nix self;
 
       packages = forAllSystems (
         { pkgs, ... }:
@@ -57,6 +68,9 @@
           tny-unwrapped = tny.override { wrapRuntime = false; };
 
           libtny = pkgs.callPackage ./nix/libtny.nix { inherit version; };
+
+          # The `tny` Python package: SDK + typed tool-extension API.
+          python-tny = pkgs.python3Packages.callPackage ./nix/python-package.nix { };
         }
       );
 
@@ -86,7 +100,7 @@
         { pkgs, system }:
         {
           # tny itself carries the size-budget gate in its checkPhase.
-          inherit (self.packages.${system}) tny tny-unwrapped;
+          inherit (self.packages.${system}) tny tny-unwrapped python-tny;
 
           tests = pkgs.callPackage ./nix/tests.nix { inherit version; };
         }
