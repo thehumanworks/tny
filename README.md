@@ -183,3 +183,8 @@ The implementation contract lives in [docs/](docs/README.md): product scope,
 architecture, CLI/TUI specs, per-backend protocol notes,
 sessions/permissions/skills/MCP behavior, and measured size/speed.
 Update the contract and `site/` when behavior changes (`make site`).
+
+## License
+
+MIT — see [LICENSE](LICENSE). Bundled third-party components keep their own
+licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

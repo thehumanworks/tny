@@ -46,6 +46,9 @@ class MakeInstallTests(unittest.TestCase):
             # The executable embeds CPython (ADR 0179) and the pinned
             # libraries behind its stdlib modules (ADR 0180); their licenses ship.
             docs = prefix / "share/doc/tny"
+            self.assertEqual(  # tny's own MIT license ships with the binary
+                (docs / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes()
+            )
             self.assertEqual(
                 (docs / "CPython-LICENSE").read_bytes(),
                 (ROOT / "third_party/cpython/LICENSE").read_bytes(),

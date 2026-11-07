@@ -227,6 +227,8 @@ def validate_wheel(
                 raise SystemExit(
                     f"{path}: wheel license metadata remains unpublishable"
                 )
+            if "Classifier: Private ::" in metadata:
+                raise SystemExit(f"{path}: a Private :: classifier blocks PyPI upload")
     filename = path.name
     mac_match = re.search(r"macosx_(\d+)_(\d+)_arm64\.whl$", filename)
     if mac_match:

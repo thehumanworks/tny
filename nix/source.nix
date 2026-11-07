@@ -65,6 +65,7 @@ let
     ../scripts/cpython_runtime.sh # builds the pinned CPython for code cells
     ../scripts/cpython_freeze_stdlib.py # freezes its standard library
     ../scripts/install_licenses.sh # `make install` ships the embedded licenses
+    ../LICENSE # `make install` ships tny's own MIT license
     ../THIRD_PARTY_NOTICES.md # `make install` ships notices with the CPython license
     ../shell # installed workflows and the Zsh quick-ask widget
     ../sdk/native # private native execution worker, no CLI frontend

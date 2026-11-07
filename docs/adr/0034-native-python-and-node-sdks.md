@@ -58,9 +58,9 @@ version matrices, native dependency/rpath checks, artifact hashes, deployment
 floors, and issue-specific lifecycle stress are release gates. A hand-authored
 report or structurally valid JSON is not evidence.
 
-The repository currently grants no project license. Packages carry honest
-`LicenseRef-UNLICENSED` metadata and third-party notices; public package-registry
-publication waits for an owner licensing decision.
+The repository originally granted no project license, so packages carried
+`LicenseRef-UNLICENSED` metadata and registry publication waited for the owner.
+[ADR 0219](0219-mit-license.md) adopts MIT; packages now carry it.
 
 ## Consequences
 

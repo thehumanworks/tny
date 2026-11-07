@@ -22,8 +22,7 @@ approval in `ask` mode deny without a synchronous permission owner;
 Python has the host user's ordinary authority and is not mediated by nested
 tool permissions. See [the native worker contract](../../docs/adr/0215-native-sdk-tool-workers.md).
 
-The package is intentionally marked `UNLICENSED` until the repository adopts
-project licensing.
+The package is licensed under the MIT License; see `LICENSE`.
 
 ## Supported systems
 

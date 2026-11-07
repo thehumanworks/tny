@@ -149,6 +149,11 @@ class BuildPy(_build_py):
             for name in ("LICENSE", "LICENSE.txt", "LICENSE.md")
             if (repository / name).is_file()
         ]
+        # An sdist has no repository around it; its LICENSE is the root's
+        # bytes (sdk/python/LICENSE is a symlink resolved at sdist time).
+        local = Path(__file__).resolve().parent / "LICENSE"
+        if not root_licenses and local.is_file():
+            root_licenses = [local]
         if len(root_licenses) > 1:
             raise SetupError("repository has multiple candidate root licenses")
         if root_licenses:
