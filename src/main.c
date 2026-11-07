@@ -149,6 +149,15 @@ int main(int argc, char **argv) {
         if (ctx) rc = cmd_agents(ctx, &g, cargc, cargv);
         goto done;
     }
+    if (cmd &&
+        (strcmp(cmd, "tool") == 0 || strcmp(cmd, "memory") == 0 || strcmp(cmd, "skill") == 0)) {
+        /* No provider unless one is named: subagent then inherits it. */
+        cli_globals tool = g;
+        tool.standalone_web = !g.backend;
+        ctx = cli_make_ctx(&tool);
+        if (ctx) rc = cmd_tool(ctx, &g, cmd, cargc, cargv);
+        goto done;
+    }
     if (cmd && strcmp(cmd, "web") == 0) {
         cli_globals web = g;
         web.standalone_web = true;

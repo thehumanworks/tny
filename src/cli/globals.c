@@ -28,7 +28,7 @@ bool cli_is_command(const char *name) {
         "tasks",    "task",     "permissions",    "workspace", "status",    "doctor",   "usage",
         "cursor",   "mcp",      "login",          "logout",    "setup",     "agents",   "web",
         "jobs",     "mailbox",  "task-workspace", "team",      "swarm",     "settings", "help",
-        "optimise", "score",    "choose",         NULL};
+        "optimise", "score",    "choose",         "tool",      "memory",    "skill",    NULL};
     for (size_t i = 0; names[i]; i++)
         if (strcmp(name, names[i]) == 0) return true;
     return false;

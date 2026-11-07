@@ -43,7 +43,7 @@ typedef struct {
     bool ephemeral;         /* --ephemeral | --no-save */
     bool agents_dashboard;  /* tny agents entry; no prewarm */
     const char *agents_run; /* --run ID: job-backed DAG task tree, status only */
-    bool standalone_web;    /* web service entry; no conversation-provider resolution */
+    bool standalone_web;    /* web/tool service entry; no conversation-provider resolution */
     bool resume_picker;     /* -r */
     bool resume_last;       /* -c / --continue */
     const char *resume;     /* --resume value */
@@ -123,6 +123,9 @@ int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_logout(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_agents(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_web(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+/* `tny tool list|describe|call`, `tny memory`, `tny skill`: one nested tool
+ * without a provider or turn; `command` selects the entry (docs/cli.md, ADR 0217). */
+int cmd_tool(tny_ctx *ctx, const cli_globals *g, const char *command, int argc, char **argv);
 int cmd_tui(tny_ctx *ctx, const cli_globals *g);
 /* Interactive shell starting on an existing session (NULL = picker/new). */
 int cmd_tui_resume(tny_ctx *ctx, const cli_globals *g, const char *session_id);

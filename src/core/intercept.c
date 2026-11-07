@@ -746,6 +746,21 @@ static tny_intercept *parse_ask(char **argv, int argc, int i) {
     return ic_label(ic, "tny ask");
 }
 
+/* `tny tool …` is the out-of-turn surface for nested tools. Inside a turn the
+ * model already has tools.call(), which keeps each tool's own permission
+ * identity; a shell round trip would hide it behind `terminal`. */
+static tny_intercept *parse_tool(void) {
+    tny_intercept *ic = ic_new(TNY_INTERCEPT_REFUSED, "terminal");
+    if (!ic) return NULL;
+    ic->message = xstrdup("`tny tool` runs tools outside a turn; inside run_code call the tool "
+                          "directly with tools.call(name, arguments_json)");
+    if (!ic->message) {
+        tny_intercept_free(ic);
+        return NULL;
+    }
+    return ic_label(ic, "tny tool");
+}
+
 static tny_intercept *parse_web(char **argv, int argc, int i, bool json) {
     if (argc - i < 2 || argc - i > 3) return NULL;
     const char *action = argv[i++];
@@ -813,6 +828,7 @@ static tny_intercept *parse_verb(tools_env *env, const tny_words *w, const buf_t
     if (strcmp(verb, "ask-user") == 0) return parse_ask_user(argv, argc, i, json, payload);
     if (strcmp(verb, "speak") == 0) return parse_speak(argv, argc, i, json, payload);
     if (strcmp(verb, "ask") == 0) return parse_ask(argv, argc, i);
+    if (strcmp(verb, "tool") == 0) return parse_tool();
     return NULL;
 }
 
