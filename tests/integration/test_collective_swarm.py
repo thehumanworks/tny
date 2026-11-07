@@ -316,7 +316,6 @@ class CollectiveFlow(JobsFixture):
         self.scenario = "peers"
         self.last_calls, self.busy_retries = {}, {}
         self.busy_since = {}
-        self.contend_challenge = False
         self.contention_observed = threading.Event()
         self.env["PATH"] = (
             str(
@@ -464,10 +463,6 @@ class CollectiveFlow(JobsFixture):
             if step == 1:
                 assert len(outputs[0]) < 1024, "publication echoed fanout bodies"
                 assert all("text" not in m for m in payload(outputs[0])["messages"])
-                if self.contend_challenge:
-                    assert self.contention_observed.wait(10), (
-                        "challenge never returned MAILBOX_BUSY"
-                    )
                 return self.mail("challenge-wait", "wait", timeout_ms=10000)
             if step == 2:
                 assert "peer-counterexample" in outputs[-1], outputs
@@ -586,67 +581,6 @@ class CollectiveFlow(JobsFixture):
 
     def test_typed_peer_challenge_convergence(self):
         self.exercise("peers")
-
-    def test_typed_peer_context_survives_short_lock_contention(self):
-        # Public send first exhausts its 250ms budget. The independently timed
-        # release then crosses the old 250ms automatic-delivery budget, while
-        # staying inside the current 2s budget. No provider response releases it.
-        self.install_mailbox_contention(release_delay=0.35)
-        self.exercise("peers")
-        self.assertGreater(self.busy_retries.get("1", 0), 0)
-
-    def install_mailbox_contention(self, release_delay):
-        self.contend_challenge = True
-        extensions = self.home / ".tny/extensions"
-        extensions.mkdir(parents=True)
-        source = """import fcntl
-import os
-import threading
-import time
-from pathlib import Path
-from tny_ext import PreToolUseEvent, PostToolUseEvent, PostToolFailureEvent
-
-def setup(api):
-    held = None
-    contended = False
-
-    @api.on(PreToolUseEvent)
-    def before(event):
-        nonlocal held, contended
-        if not contended and event.tool_name == "team_mailbox" and event.arguments.get("id") == "challenge":
-            contended = True
-            path = Path(os.environ["HOME"]) / ".tny/jobs" / os.environ["TNY_TEAM_RUN"] / "state.lock"
-            held = path.open("r+")
-            fcntl.flock(held, fcntl.LOCK_EX)
-
-    def after(event):
-        nonlocal held
-        if held is not None:
-            lock = held
-            held = None
-            def release():
-                try:
-                    time.sleep(RELEASE_DELAY)
-                finally:
-                    fcntl.flock(lock, fcntl.LOCK_UN)
-                    lock.close()
-            if RELEASE_DELAY:
-                threading.Thread(target=release).start()
-            else:
-                release()
-
-    api.on(PostToolUseEvent, after)
-    api.on(PostToolFailureEvent, after)
-"""
-        (extensions / "mailbox_lock.py").write_text(
-            source.replace("RELEASE_DELAY", repr(release_delay))
-        )
-
-    def test_typed_peer_challenge_converges_after_real_lock_contention(self):
-        self.install_mailbox_contention(release_delay=0)
-        self.exercise("peers")
-        self.assertTrue(self.contention_observed.is_set())
-        self.assertGreater(self.busy_retries.get("1", 0), 0)
 
     def test_terminal_peer_challenge_convergence(self):
         self.exercise("peers", "terminal")

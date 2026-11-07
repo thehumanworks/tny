@@ -452,43 +452,6 @@ TARGETS = [
         "tests/integration/test_libtny_mutation_fault.py",
         "tools-fs-oom",
     ),
-    # extension control plane (#55): prompt/tool/permission precedence,
-    # exact-once native boundaries, suppressed resolved permissions, and
-    # terminal settlement after cancellation/deny.
-    (
-        "src/core/runtime.c",
-        ["fold_extension_result", "process_queued_extension_hooks"],
-        r"^(?!for ).*(permission|PERMISSION|suppressed|respond_permission|fold\.stop|fold\.blocked|deny|allow|selected)",
-        "tests/integration/test_extensions.py",
-        "extension-control",
-    ),
-    (
-        "src/core/runtime.c",
-        [
-            "native_pre_tool",
-            "native_permission",
-            "native_post_tool",
-            "native_observe",
-            "native_openai_control",
-        ],
-        r"^(?!for ).*(stop|deny|rewrite|replacement|annotation|result_|audited|control_|cancel_probe|native_control|PERMISSION)",
-        "tests/integration/test_extensions.py",
-        "extension-control",
-    ),
-    (
-        "src/core/runtime.c",
-        ["resolve_pending_terminal"],
-        r"continue_requested|TNY_STOP_DENIED|TNY_STOP_INTERRUPTED|\bstop\b",
-        "tests/integration/test_extensions.py",
-        "extension-control",
-    ),
-    (
-        "src/core/session.c",
-        ["session_replace_tool_arguments", "session_record_tool_audit"],
-        None,
-        "tests/integration/test_extensions.py",
-        "extension-control",
-    ),
     # background one-shots (docs/adr/0031): status record, lock truth, stop
     (
         "src/core/session.c",
@@ -521,13 +484,6 @@ TARGETS = [
         None,
         "tests/integration/test_background.py",
         "background",
-    ),
-    (
-        "src/core/tools.c",
-        ["tools_call_prepare", "tools_call_execute"],
-        None,
-        "tests/integration/test_extensions.py",
-        "extension-control",
     ),
     (
         "src/lib/custom_tools.cpp",
@@ -586,53 +542,6 @@ TARGETS = [
         "src/backends/openai/openai.c",
         ["take_steer", "oa_steer", "step_finished", "emit_turn_end"],
         r"steer",
-    ),
-    (
-        "src/backends/openai/openai.c",
-        ["run_tools"],
-        r"^(?!for ).*(response\.|TNY_OPENAI_PERMISSION|control_|tools_call_prepare|call\.verdict|\bPERM_(DENY|ALLOW|PROMPT)\b|execute_call|cancelled|finish_cancelled|session_replace_tool_arguments|session_save|permission_block)",
-        "tests/integration/test_extensions.py",
-        "extension-control",
-    ),
-    (
-        "src/backends/openai/openai.c",
-        ["permission_block"],
-        None,
-        "tests/integration/test_extensions.py",
-        "extension-control",
-    ),
-    (
-        "src/backends/openai/openai.c",
-        ["finish_tool_batch"],
-        r"tool_batch_control|session_save|o->cancelled|perm_blocked|emit_turn_end|batch_stop",
-        "tests/integration/test_extensions.py",
-        "extension-control",
-    ),
-    (
-        "src/backends/openai/openai.c",
-        [
-            "complete_tool",
-            "execute_call",
-            "finish_cancelled_call",
-            "tool_batch_control",
-        ],
-        r"^(?!for ).*(response\.|result|original_ok|effective_ok|transformed|cancelled|tool_batch_failed|session_add_tool_result|emit_tool_end|control_call|TNY_OPENAI_CONTROL)",
-        "tests/integration/test_extensions.py",
-        "extension-control",
-    ),
-    (
-        "src/backends/openai/openai.c",
-        ["provider_control", "start_post_mode"],
-        r"provider_attempt|provider_request_sequence|provider_control|TNY_OPENAI_CONTROL_PROVIDER|logical_request|attempt",
-        "tests/integration/test_extensions.py",
-        "extension-control",
-    ),
-    (
-        "src/backends/openai/openai.c",
-        ["subagent_control"],
-        None,
-        "tests/integration/test_ephemeral.py",
-        "extension-control",
     ),
     (
         "src/backends/openai/openai.c",
@@ -776,30 +685,6 @@ TARGETS = [
     # --fast capability (TNY_CAP_FAST): new functions whole, only the
     # tier/fast lines inside the pre-existing ones.
     ("src/core/backend.c", ["tny_backend_caps"], None),
-    # extension parity contract (#54): pure provider matrices, negotiated host
-    # setup, typed unsupported diagnostics, and side-effect-free doctor JSON.
-    (
-        "src/core/extension_caps.c",
-        [
-            "tny_extension_capability_get",
-            "tny_extension_capability_reason",
-            "tny_extension_capabilities_json",
-        ],
-        None,
-        "tests/integration/test_extension_contract.py",
-    ),
-    (
-        "src/core/extensions.c",
-        ["initialize_host", "append_action"],
-        r"jget_int\(schema|schema_valid|selected_provider|unsupported_capability|unavailable_capability",
-        "tests/integration/test_extension_capabilities.py",
-    ),
-    (
-        "src/cli/cmd_doctor.c",
-        ["cmd_doctor"],
-        r"NO_SPAWN|capabilit",
-        "tests/integration/test_extension_capabilities.py",
-    ),
     (
         "src/core/sandbox.c",
         [

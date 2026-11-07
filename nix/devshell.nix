@@ -29,7 +29,7 @@ mkShell {
     openssl.bin # tests/integration/test_https.py mints a throwaway cert
     patchelf
     pkg-config
-    python3 # integration fixtures, extension host, make site
+    python3 # integration fixtures, make site
     # `make quality` (docs/adr/0039). nixpkgs pins these to whatever the
     # channel carries, not to the exact versions in .mise.toml and
     # .github/workflows/ci.yml, so a formatting diff here is a channel skew,

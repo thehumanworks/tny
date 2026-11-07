@@ -140,8 +140,6 @@ def exercise_ephemeral_subagent(home, workspace, env):
                 "OPENAI_DEFAULT_MODEL": "mock-model",
             }
         )
-        extension_log = os.path.join(home, "subagent-events.jsonl")
-        child_env["TNY_TEST_SUBAGENT_LOG"] = extension_log
         run = subprocess.run(
             [
                 TNY,
@@ -171,24 +169,6 @@ def exercise_ephemeral_subagent(home, workspace, env):
         check(payload.get("output") == "PARENT-OK", payload)
         check(payload.get("ephemeral") is True, payload)
         check(payload.get("session_id") == "", payload)
-        events = [json.loads(line) for line in open(extension_log, encoding="utf-8")]
-        lifecycle = [
-            event
-            for event in events
-            if event["type"] in ("subagent_start", "subagent_end")
-        ]
-        check(
-            [event["type"] for event in lifecycle]
-            == ["subagent_start", "subagent_end"],
-            lifecycle,
-        )
-        check(lifecycle[0]["subagent_id"].startswith("code-"), lifecycle)
-        check(lifecycle[1]["subagent_id"] == lifecycle[0]["subagent_id"], lifecycle)
-        check(lifecycle[0]["action"] == "create", lifecycle)
-        check(lifecycle[1]["action"] == "create", lifecycle)
-        check(
-            lifecycle[1]["outcome"] == "done" and lifecycle[1]["ok"] is True, lifecycle
-        )
         sessions = os.path.join(home, ".tny", "sessions")
         check(
             not os.path.exists(sessions),
@@ -212,27 +192,6 @@ def run():
         for key in list(env):
             if key.endswith("_API_KEY") or key.endswith("_BASE_URL"):
                 env.pop(key)
-        extensions = os.path.join(home, ".tny", "extensions")
-        os.makedirs(extensions)
-        with open(
-            os.path.join(extensions, "subagent_log.py"), "w", encoding="utf-8"
-        ) as stream:
-            stream.write(
-                "import json, os\n"
-                "from tny_ext import SubagentStartEvent, SubagentEndEvent\n"
-                "def setup(api):\n"
-                "    def record(event):\n"
-                "        path = os.environ.get('TNY_TEST_SUBAGENT_LOG')\n"
-                "        if not path: return\n"
-                "        with open(path, 'a', encoding='utf-8') as out:\n"
-                "            out.write(json.dumps({'type': event.type, "
-                "'subagent_id': event.subagent_id, 'action': event.action, "
-                "'outcome': getattr(event, 'outcome', ''), "
-                "'ok': getattr(event, 'ok', False)}) + '\\n')\n"
-                "    api.on(SubagentStartEvent, record)\n"
-                "    api.on(SubagentEndEvent, record)\n"
-            )
-
         # Saved-state entry points fail before any backend connection.
         resumed = subprocess.run(
             base_cmd() + ["--ephemeral", "resume", "last"],

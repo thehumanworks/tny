@@ -13,8 +13,6 @@ typedef struct tny_owned_event {
     const char *session_id;
     const char *turn_id;
     size_t owned_bytes;
-    bool hooks_done;
-    bool suppressed;
     struct tny_owned_event *next;
 } tny_owned_event;
 /* Copy all payloads before return. NULL means OOM; no partial record escapes.

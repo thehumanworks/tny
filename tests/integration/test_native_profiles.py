@@ -73,7 +73,6 @@ def main():
             "HOME": str(home),
             "PATH": str(bins) + os.pathsep + os.defpath,
             "TMPDIR": str(root),
-            "TNY_EXTENSIONS": "0",
             "TNY_ISOLATE": "0",
             "TNY_PROVIDER_RETRIES": "0",
         }

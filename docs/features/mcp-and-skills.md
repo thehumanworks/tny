@@ -216,6 +216,7 @@ execution cell's MCP client, and the `--ssh` route:
 | `tny jobs cancel\|retry\|rm …` | the same service | `job_cancel` / `job_retry` / `job_rm` + job id |
 | `tny jobs …` that does not parse | refused with the reason: never handed to the shell, so the classifier cannot bypass the job identities | — |
 | `tny ask …` (no `-B`) | refused: a foreground nested agent inside a turn | — |
+| `tny tool …` | refused: use `tools.call` inside `run_code`, which keeps the tool's own identity | — |
 | `tny ask -B …`, and everything else | `/bin/sh`, unchanged | `terminal` + command |
 
 The result is the verb's own contract — an `exit: N` line then its stdout and
@@ -578,7 +579,7 @@ The resolved parent step budget is always inherited, including `--max-steps 0` (
 | `INVALID_RESPONSE` | The child exited 0 without a complete, well-formed turn result for the expected session (missing, malformed, truncated or unstored) |
 | `CANCELLED` | The parent turn was cancelled while the child ran |
 
-Validation, unsupported-action and context rejections happen before the permission gate and before any extension event or process. The others are answered inside the correlated `subagent_start` / `subagent_end` extension events that native `create`/`message` emit around the child; a pre-tool deny or stop occurs before the process is started. Host task/subagent events are only advertised when the pinned adapter supplies stable identity and a real terminal boundary.
+Validation, unsupported-action and context rejections happen before the permission gate and before any process. The others are answered after native `create`/`message` has started the child.
 
 **Execution modes.** `TNY_ISOLATE=0` keeps parent and child in-process turns (see `lifecycle` above). An ephemeral parent passes `--ephemeral` to its children: `create` works as a one-shot and says no resumable id was stored; `message`, `inspect` and `lifecycle` are `UNSUPPORTED_CONTEXT`. Shell tool profiles hide `subagent`; their fallback is `tny ask -B --json "…"` through `terminal` followed by `tny session <id> --wait`. Under `--ssh` a child would run its tools on this machine rather than the remote host, so the tool is hidden and refused. wasm cannot start processes: `inspect`/`lifecycle` read stored sessions, while `create`/`message` answer `UNSUPPORTED_CONTEXT`.
 

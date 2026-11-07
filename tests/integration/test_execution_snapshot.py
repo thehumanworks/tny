@@ -78,7 +78,7 @@ class ExecutionSnapshot(unittest.TestCase):
                         "before": len(history),
                         "summary": "Earlier task.",
                     }
-                    stored["extension_audit"] = [{"marker": "keep audit"}]
+                    stored["operator_note"] = [{"marker": "keep unknown field"}]
                     path.write_text(json.dumps(stored))
                     self.assertGreater(path.stat().st_size, 8 * 1024 * 1024)
                     owner.server.call_name = "run_code"
@@ -176,7 +176,7 @@ class ExecutionSnapshot(unittest.TestCase):
                         saved = json.loads(path.read_text())
                         self.assertEqual(saved["messages"][: len(history)], history)
                         self.assertEqual(
-                            saved["extension_audit"], stored["extension_audit"]
+                            saved["operator_note"], stored["operator_note"]
                         )
                 finally:
                     owner.doCleanups()

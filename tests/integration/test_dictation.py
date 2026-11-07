@@ -882,7 +882,7 @@ while True: time.sleep(1)
         )
         self.env["FIXTURE_CHAT_KEY"] = "fixture-chat-key"
         term = Term(
-            [self.tny, *prefix, "--provider", "grok", "--ephemeral", "--no-extensions"],
+            [self.tny, *prefix, "--provider", "grok", "--ephemeral"],
             self.env,
             str(cwd or self.home),
         )

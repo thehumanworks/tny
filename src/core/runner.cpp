@@ -7,7 +7,6 @@
 extern "C" {
 #include "core/runner.h"
 #include "core/checkpoint.h"
-#include "core/extensions.h"
 #include "util/jobs_host.h"
 #include "util/alloc.h"
 #include "util/process.h"
@@ -57,8 +56,8 @@ bool tny_isolation_enabled(const tny_ctx *ctx) {
 /* Shared with cmd_ask's in-process path so the foreground --json blob and
  * the stored session `result` stay the same bytes (docs/adr/0031 dec. 3). */
 char *tny_turn_result_json(tny_ctx *ctx, tny_engine *engine, tny_session_state *session,
-                           const char *output, const char *host_tools_items,
-                           const char *extension_items, const char *errline, int exit_code) {
+                           const char *output, const char *host_tools_items, const char *errline,
+                           int exit_code) {
     buf_t out;
     buf_init(&out);
     buf_appends(&out, "{\"output\":");
@@ -97,9 +96,6 @@ char *tny_turn_result_json(tny_ctx *ctx, tny_engine *engine, tny_session_state *
         buf_appends(&out, ",\"error\":");
         jescape(&out, errline);
     }
-    buf_appends(&out, ",\"extension_messages\":[");
-    if (extension_items) buf_appends(&out, extension_items);
-    buf_appends(&out, "]");
     buf_appends(&out, "}\n");
     return buf_detach(&out);
 }
@@ -327,7 +323,7 @@ typedef struct {
     int64_t started_ms;
     int64_t last_ckpt;
     /* recorder — the -B accumulation, one place for every mode */
-    buf_t output, thinking, host_tools, ext_msgs, errline;
+    buf_t output, thinking, host_tools, errline;
     tny::descriptor errpipe; /* read end of the fd-2 tee (host stderr, diagnostics) */
     buf_t erracc;            /* partial line from the tee */
     char pending_perm[128];  /* forwarded permission id awaiting a client */
@@ -684,10 +680,10 @@ static void rn_finalize(rn_state *r, tny_stop_reason stop, int exit_code) {
                          : stop == TNY_STOP_INTERRUPTED ? "interrupted"
                                                         : "error";
     if (stop == TNY_STOP_DONE) session_recovery_clear(r->session);
-    char *result = tny_turn_result_json(
-        r->ctx, r->engine, r->session, r->output.data ? r->output.data : "",
-        r->host_tools.len ? r->host_tools.data : NULL, r->ext_msgs.len ? r->ext_msgs.data : NULL,
-        r->errline.len ? r->errline.data : NULL, exit_code);
+    char *result =
+        tny_turn_result_json(r->ctx, r->engine, r->session, r->output.data ? r->output.data : "",
+                             r->host_tools.len ? r->host_tools.data : NULL,
+                             r->errline.len ? r->errline.data : NULL, exit_code);
     yyjson_mut_obj_remove_key(yyjson_mut_doc_get_root(r->session->doc), "continuation");
     session_set_status_finished(r->session, stname, exit_code, result);
     session_save(r->session);
@@ -715,7 +711,6 @@ static void rn_finalize(rn_state *r, tny_stop_reason stop, int exit_code) {
     buf_clear(&r->output);
     buf_clear(&r->thinking);
     buf_clear(&r->host_tools);
-    buf_clear(&r->ext_msgs);
     buf_clear(&r->errline);
     if (!r->serve || r->end_after_turn) {
         r->quit = true;
@@ -781,23 +776,8 @@ static void rn_on_event(rn_state *r, const tny_backend_event *ev) {
         }
         rn_broadcast_event(r, ev);
         break;
-    case TNY_EV_CUSTOM_MESSAGE:
-    case TNY_EV_USER_MESSAGE: {
-        if (r->ext_msgs.len) buf_appends(&r->ext_msgs, ",");
-        if (ev->kind == TNY_EV_CUSTOM_MESSAGE) {
-            buf_appends(&r->ext_msgs, "{\"kind\":\"custom\",\"custom_type\":");
-            jescape(&r->ext_msgs, ev->message_type ? ev->message_type : "tny_extension");
-            buf_appends(&r->ext_msgs, ",\"content\":");
-        } else {
-            buf_appends(&r->ext_msgs, "{\"kind\":\"user\",\"content\":");
-        }
-        char *owned = ev->text ? xstrndup(ev->text, ev->text_len) : NULL;
-        jescape(&r->ext_msgs, owned ? owned : "");
-        free(owned);
-        buf_appends(&r->ext_msgs, "}");
-        rn_broadcast_event(r, ev);
-        break;
-    }
+    case TNY_EV_CUSTOM_MESSAGE: /* reserved public kinds; nothing emits them */
+    case TNY_EV_USER_MESSAGE: break;
     case TNY_EV_ERROR: {
         buf_clear(&r->errline);
         buf_append(&r->errline, ev->text, ev->text_len);
@@ -897,7 +877,7 @@ static void rn_turn_begin(rn_state *r, const char *prompt, const char **images,
     if (continue_recovery) {
         char *rec = session_recovery_read(r->session);
         if (rec) {
-            session_set_extension_start(r->session, "recovery", NULL);
+            session_set_start(r->session, "recovery", NULL);
             buf_t b;
             buf_init(&b);
             buf_appends(&b, "{\"ev\":\"recovery\",\"text\":");
@@ -912,7 +892,6 @@ static void rn_turn_begin(rn_state *r, const char *prompt, const char **images,
     buf_clear(&r->output);
     buf_clear(&r->thinking);
     buf_clear(&r->host_tools);
-    buf_clear(&r->ext_msgs);
     buf_clear(&r->errline);
     if (tny_engine_start(r->engine, prompt, images, err, sizeof err) != 0) {
         buf_clear(&r->errline);
@@ -935,7 +914,6 @@ static void rn_hard_cancel(rn_state *r) {
          * before freeing the engine, which otherwise discards those events. */
         tny_engine_cancel(r->engine);
         rn_drain_engine(r);
-        tny_engine_preserve_session_on_free(r->engine);
         tny_engine_free(r->engine);
         r->engine = NULL;
     }
@@ -1471,10 +1449,8 @@ static yyjson_mut_doc *rn_checkpoint(rn_state *r) {
     yyjson_mut_obj_add_strcpy(d, root, "session_id", r->session->id);
     yyjson_mut_obj_add_strcpy(d, root, "thinking", r->thinking.data ? r->thinking.data : "");
     yyjson_mut_obj_add_strcpy(d, root, "output", r->output.data ? r->output.data : "");
-    yyjson_mut_obj_add_strcpy(d, root, "ext_msgs", r->ext_msgs.data ? r->ext_msgs.data : "");
-    yyjson_mut_obj_add_uint(d, root, "event_sequence", r->session->extension_event_sequence);
-    yyjson_mut_obj_add_uint(d, root, "agent_sequence", r->session->extension_agent_sequence);
-    yyjson_mut_obj_add_bool(d, root, "session_started", r->session->extension_session_started);
+    yyjson_mut_obj_add_uint(d, root, "event_sequence", r->session->event_sequence);
+    yyjson_mut_obj_add_uint(d, root, "agent_sequence", r->session->agent_sequence);
     yyjson_mut_obj_add_bool(d, root, "worktree_lock", r->worktree_lock.borrow() >= 0);
     yyjson_mut_val *grants = yyjson_mut_arr(d);
     for (int i = 0; i < r->perm->n_grants; i++)
@@ -1573,8 +1549,6 @@ static void rn_restart(rn_state *r) {
     tny_engine_handoff_free(r->engine);
     r->engine = NULL;
     mcp_shutdown_all();
-    tny_extensions_free(r->ctx->extensions);
-    r->ctx->extensions = NULL;
     rn_drain_errpipe(r);
     fflush(NULL);
     released = true;
@@ -1596,9 +1570,6 @@ failed:
     if (released) {
         char err[256];
         session_write_pid(r->session, getpid());
-        if (r->ctx->extensions_enabled)
-            r->ctx->extensions =
-                tny_extensions_new(r->ctx->tny_dir, r->ctx->cwd, r->ctx->extension_timeout_ms);
         if (rn_ensure_engine(r, err, sizeof err) != 0 ||
             tny_engine_restore(r->engine, jget(yyjson_doc_get_root(recovery), "engine")) != 0) {
             rn_broadcast_status(r,
@@ -1720,7 +1691,6 @@ static bool rn_consume_checkpoint(rn_state *r) {
     buf_init(&r.thinking);
     buf_init(&r.erracc);
     buf_init(&r.host_tools);
-    buf_init(&r.ext_msgs);
     buf_init(&r.errline);
     r.perm = perm_new(ctx);
     r.quit_code = 0;
@@ -1739,14 +1709,11 @@ static bool rn_consume_checkpoint(rn_state *r) {
             if (!g) _exit(2);
             perm_grant(r.perm, g, NULL);
         }
-        session->extension_event_sequence = (uint64_t)jget_int(restart, "event_sequence", 0);
-        session->extension_agent_sequence = (uint64_t)jget_int(restart, "agent_sequence", 0);
-        session->extension_session_started = jget_bool(restart, "session_started", false);
+        session->event_sequence = (uint64_t)jget_int(restart, "event_sequence", 0);
+        session->agent_sequence = (uint64_t)jget_int(restart, "agent_sequence", 0);
         buf_appends(&r.thinking,
                     jget_str(restart, "thinking") ? jget_str(restart, "thinking") : "");
         buf_appends(&r.output, jget_str(restart, "output") ? jget_str(restart, "output") : "");
-        buf_appends(&r.ext_msgs,
-                    jget_str(restart, "ext_msgs") ? jget_str(restart, "ext_msgs") : "");
         if (jget_bool(restart, "owner", false)) {
             r.cl[0].fd.adopt(6);
             r.cl[0].role = TNY_RUNNER_OWNER;
@@ -1891,8 +1858,6 @@ static bool rn_consume_checkpoint(rn_state *r) {
         rn_hard_cancel(&r);
     }
     if (r.engine) {
-        tny_engine_end_session(r.engine, r.serve ? "exit" : "done");
-        tny_engine_preserve_session_on_free(r.engine);
         tny_engine_free(r.engine);
         r.engine = NULL;
     }
@@ -1920,7 +1885,6 @@ static bool rn_consume_checkpoint(rn_state *r) {
     buf_free(&r.thinking);
     free(r.permission_summary);
     buf_free(&r.host_tools);
-    buf_free(&r.ext_msgs);
     buf_free(&r.errline);
     buf_free(&r.erracc);
     free(r.question_answer);

@@ -2526,7 +2526,6 @@ TEST failed_provider_switch_is_atomic(void) {
     tny_ctx_add_extra_header(ctx, "X-Fixture: retained");
     char *model = ctx->model, *key = ctx->api_key, *url = ctx->base_url;
     char **headers = ctx->extra_headers;
-    struct tny_extensions *extensions = ctx->extensions;
     ASSERT_FALSE(tny_codex_auth_present());
     ASSERT_EQ(-1, tny_resolve_backend(ctx, "codex"));
     ASSERT_STR_EQ("gateway", tny_provider_name(ctx));
@@ -2534,7 +2533,6 @@ TEST failed_provider_switch_is_atomic(void) {
     ASSERT_EQ(key, ctx->api_key);
     ASSERT_EQ(url, ctx->base_url);
     ASSERT_EQ(headers, ctx->extra_headers);
-    ASSERT_EQ(extensions, ctx->extensions);
     ASSERT_STR_EQ("saved-model", ctx->model);
     ASSERT_STR_EQ("fixture-secret", ctx->api_key);
     ASSERT_STR_EQ("X-Fixture: retained", ctx->extra_headers[0]);
@@ -6754,54 +6752,6 @@ TEST max_steps_default_and_overrides(void) {
     PASS();
 }
 
-TEST extension_config_default_and_overrides(void) {
-    ensure_env();
-    unsetenv("TNY_EXTENSIONS");
-    write_settings("{}");
-    tny_ctx *ctx = tny_ctx_load(g_ws);
-    ASSERT(ctx);
-    ASSERT(ctx->extensions_enabled);
-    ASSERT_EQ(0, ctx->max_extension_iterations);
-    ASSERT_EQ(5000, ctx->extension_timeout_ms);
-    tny_ctx_free(ctx);
-
-    write_settings("{\"extensions\":{\"enabled\":true,"
-                   "\"max_iterations\":7,\"timeout_ms\":1234}}");
-    ctx = tny_ctx_load(g_ws);
-    ASSERT(ctx);
-    ASSERT(ctx->extensions_enabled);
-    ASSERT_EQ(7, ctx->max_extension_iterations);
-    ASSERT_EQ(1234, ctx->extension_timeout_ms);
-    tny_ctx_free(ctx);
-
-    char *argv[] = {
-        "tny", "--max-extension-iterations", "unlimited", "--no-extensions", "ask", "hi", NULL};
-    cli_globals g = {0};
-    ASSERT_EQ(4, cli_parse_globals(6, argv, &g));
-    ASSERT_STR_EQ("unlimited", g.max_extension_iterations);
-    ASSERT(g.no_extensions);
-    g.cwd = g_ws;
-    ctx = cli_make_ctx(&g);
-    ASSERT(ctx);
-    ASSERT_FALSE(ctx->extensions_enabled);
-    ASSERT_EQ(0, ctx->max_extension_iterations);
-    tny_ctx_free(ctx);
-
-    setenv("TNY_EXTENSIONS", "off", 1);
-    ctx = tny_ctx_load(g_ws);
-    ASSERT(ctx);
-    ASSERT_FALSE(ctx->extensions_enabled);
-    tny_ctx_free(ctx);
-    unsetenv("TNY_EXTENSIONS");
-
-    ctx = tny_ctx_new_explicit(g_ws, g_home);
-    ASSERT(ctx);
-    ASSERT_FALSE(ctx->extensions_enabled);
-    tny_ctx_free(ctx);
-    write_settings("{}");
-    PASS();
-}
-
 TEST provider_profile_stored_api_key(void) {
     ensure_env();
     write_settings("{\"openai\":{\"api_key\":\"synthetic-stored\"}}");
@@ -7338,7 +7288,6 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
                                    ctx->swarm_definition_digest));
     ctx->no_self_improve = true;
     ctx->tool_profile = TNY_TOOLS_TERMINAL;
-    ctx->extensions_enabled = false;
     tny_ctx_add_extra_header(ctx, "X-Fixture: runtime-only");
     yyjson_mut_doc *doc = yyjson_mut_doc_new(jallocator());
     ASSERT(doc);
@@ -7994,7 +7943,6 @@ SUITE(core_suite) {
     RUN_TEST(tool_profile_filters_schema_enforces_and_keeps_custom_tools);
     RUN_TEST(purposeful_readonly_schema_preserves_authority_and_explicit_profiles);
     RUN_TEST(max_steps_default_and_overrides);
-    RUN_TEST(extension_config_default_and_overrides);
     RUN_TEST(env_defined_providers);
     RUN_TEST(builtin_grok_profile);
     RUN_TEST(grok_native_device_login);

@@ -42,8 +42,8 @@ files in this directory are the complete record.
 | [0024](0024-unlimited-steps-default.md) | The native agent loop is unlimited by default; `--max-steps` / `/max-steps` / `.tny.json` `"steps"` set an explicit cap (0 = unlimited everywhere, libtny included) |
 | [0025](0025-clipboard-images-paste-as-paths.md) | Ctrl-V materializes clipboard images and inserts the path as provider-neutral prompt text; `/image` remains the explicit attachment path |
 | [0026](0026-color-vs-attribute-sgr.md) | `NO_COLOR` gates SGR colors only — bold/dim/reverse are structural; `--color=always`/`CLICOLOR_FORCE` force, `--color=never`/`--no-color` silence all SGR; dumb mode announces itself |
-| [0027](0027-python-event-hooks.md) | Trusted global Python extensions consume versioned normalized events through one optional persistent host; `agent_end` may continue with visible context, `agent_settled` is final |
-| [0028](0028-extension-parity-contract.md) | Extension parity is capability-scoped; one versioned vocabulary, immutable provider matrix, deterministic folding, and explicit unsupported states govern all lanes |
+| [0027](0027-python-event-hooks.md) | Superseded by 0218. Trusted global Python extensions consume versioned normalized events through one optional persistent host; `agent_end` may continue with visible context, `agent_settled` is final |
+| [0028](0028-extension-parity-contract.md) | Superseded by 0218. Extension parity is capability-scoped; one versioned vocabulary, immutable provider matrix, deterministic folding, and explicit unsupported states govern all lanes |
 | [0029](0029-named-acp-agent-profiles.md) | Reusable ACP commands resolve as `acp:NAME`; requested models are applied through advertised session config options before the first prompt (catalog membership dropped by 0181) |
 | [0030](0030-settings-schema-and-acp-map.md) | Publish a settings JSON Schema; provider/model/effort/fast become user defaults; canonical ACP profiles use `acp.NAME` and `acp@NAME` with legacy compatibility |
 | [0031](0031-background-ask.md) | `tny ask -B` detaches the turn into a forked child keyed by the session id; flock is truth, pid file is control, session.json is the record; `session stop` signals the group, `--resume --steer` is interrupt-and-redirect |
@@ -226,3 +226,5 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0215: Native SDK tool workers](0215-native-sdk-tool-workers.md) — in-process libtny sessions with explicitly configured private native tool workers, not a CLI wrapper.
 
 - [0217: Codex image 2.6 default](0217-codex-image-2-6-default.md) — Codex image generation and editing default to GPT Image 2.6 Sunburst; Flare and older models stay explicit overrides.
+
+- [0218: Python tool extensions](0218-python-tool-extensions.md) — `@tny.tool` modules in `~/.tny/extensions/tools` and `<repo>/.tny/extensions/tools`, served by one embedded tool host to code mode, the CLI and MCP; replaces the event hooks of 0027/0028.

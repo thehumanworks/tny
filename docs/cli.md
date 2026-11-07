@@ -45,6 +45,13 @@ tny resume [last|<id>]      # interactive resume
 tny agents                  # all saved sessions; --json for scripts
 tny web search QUERY        # override, else Codex login, else DuckDuckGo
 tny web fetch URL           # bounded HTTP fetch
+tny tool list|describe NAME # native tool catalog (the model's tools.search/describe)
+tny tool call NAME '{json}' # run one native tool headlessly; - reads args from stdin
+tny tool check | new NAME   # diagnose or scaffold Python tool extensions
+tny MODULE [GROUP] TOOL ... # a Python tool extension (docs/extensions.md)
+tny mcp serve [--all]       # tool extensions over stdio MCP
+tny memory get|set|list     # persistent memory, outside a turn too
+tny skill show NAME         # print one discovered skill
 tny sessions
 tny session last|<id>
 tny session <id> --wait     # block until a background task finishes ([--timeout S])
@@ -95,8 +102,6 @@ tny --add-dir DIR           # repeatable, process-only
 tny --permission-mode ask|auto|yolo   # default: yolo (docs/adr/0001)
 tny --max-steps N|unlimited # cap native-loop model calls per turn
                             # (default: unlimited, docs/adr/0024)
-tny --max-extension-iterations N|unlimited # cap Python-hook follow-up turns
-tny --no-extensions         # skip ~/.tny/extensions for this process
 tny --fast                  # paid fast tier (TNY_CAP_FAST providers only)
 tny --provider openai --model gpt-6-astra --ultrafast ask "hi" # highest-speed tier
 tny --json                  # where listed
@@ -535,11 +540,7 @@ JSON object (keep field names stable):
   "session_id": "…",
   "ephemeral": false,
   "steps": 1,
-  "tool_calls": [{"name": "read_file", "status": "success"}],
-  "extension_messages": [
-    {"kind": "custom", "custom_type": "reviewer", "content": "…"},
-    {"kind": "user", "content": "verify again"}
-  ]
+  "tool_calls": [{"name": "read_file", "status": "success"}]
 }
 ```
 
@@ -601,7 +602,7 @@ CLI diagnostic (`kind`), never an event (`type`), so the two cannot be
 confused.
 
 `--progress=none` is independent of `--events`: it drops the successful human
-status, plan, tool and extension lines from stderr. Errors, permission
+status, plan and tool lines from stderr. Errors, permission
 refusals and the machine diagnostics above still print. It works with the
 default Markdown output and with `--json` too.
 
@@ -703,6 +704,15 @@ the default is off. Native `~/.tny/mcp.json` wins on name collision.
 Command lines and env values are omitted from the listing so secrets stay
 out of `--json`. wasm: the list still works; spawn stays the existing
 clean error.
+
+### `tny mcp serve [--all]`
+
+A stdio MCP server (newline-delimited JSON-RPC: `initialize`, `ping`,
+`tools/list`, `tools/call`) for the Python tool extensions, named with
+underscores (`jira.projects.list` is `jira_projects_list`). `--all` adds the
+native tools except `run_code` and the turn-bound ones. Calls run through
+`tools_execute` with the usual permission rules. Example client config:
+`{"command": "tny", "args": ["mcp", "serve"]}`.
 
 ### `tny mcp tools SERVER` / `tny mcp describe SERVER/TOOL`
 
@@ -1009,6 +1019,70 @@ independent search service and labels Codex or DuckDuckGo provenance. `web` appl
 local settings/permissions and ChatGPT flags without selecting or refreshing an
 unrelated chat provider. See [ADR 0109](adr/0109-provider-independent-codex-search.md). See [search providers](features/mcp-and-skills.md#web-search-providers).
 
+## `tny tool` (run one native tool headlessly)
+
+`tny tool` exposes the same nested tools the model reaches through
+`tools.call()` inside `run_code`, for scripts, CI and other agents. No provider,
+turn or session is started.
+
+```sh
+tny tool list [--json]                 # name + summary; --json is the full schema array
+tny tool describe grep_files           # one tool's {name, description, parameters}
+tny tool call read_file '{"path":"README.md"}'
+jq -n '{path:"notes.md",content:"hi"}' | tny tool call write_file - --json
+tny --ssh me@host tool call grep_files '{"pattern":"TODO"}'
+tny --provider opencode tool call subagent '{"action":"create","prompt":"…"}'
+```
+
+- **Same implementation.** Calls go through `tools_execute`: the permission
+  engine, workspace roots (`--cwd`, `--add-dir`), `--ssh` routing and bounded
+  result writer are the agent's. `ask` mode with no reviewer fails closed
+  exactly as in `tny ask`; permission rules and read-only workspaces apply.
+- **Catalog.** The list is the current nested catalog, so it follows
+  credentials and configuration (for example `image_generate` and `speak`
+  appear only with a Codex login, `web_search` only when configured). Tools
+  whose input or effect belongs to a live conversation turn — `read_image`,
+  `read_tool_result`, `search_transcript`, `ask_user_question` — are omitted
+  and `call` refuses them; use `tny ask --image PATH` for images.
+- **Provider.** None is resolved unless `--provider` is given; `subagent` then
+  inherits it, like a child of a parent turn.
+- **Output.** Text mode prints the tool result to stdout, or to stderr when it is
+  an `error:` result. `--json` prints `{"kind":"tool","name","ok","result"}`.
+  Exit 0 ok, 1 usage or unreadable arguments, 2 tool error or refusal, 130
+  interrupted. A `terminal` call reports the command's own exit code in its
+  result text rather than as tny's exit status.
+- **Shortcuts.** `tny memory get KEY | set KEY [VALUE] | list` and
+  `tny skill show NAME` are the same `memory` / `skill` calls; `set` without a
+  value reads stdin. Inside a turn these keep their in-process intercepts.
+- **Inside a turn** `tny tool …` run through the terminal tool is refused with a
+  pointer to `tools.call`, so a call never hides its own permission identity
+  behind `terminal`.
+- **wasm.** The command is part of the shared sources and runs the same nested
+  tools; process-owning tools keep their existing wasm errors. This surface is
+  covered by native tests only.
+
+See [ADR 0217](adr/0217-standalone-tool-cli.md).
+
+### Python tool extensions
+
+Extension tools ([extensions.md](extensions.md), [ADR 0218](adr/0218-python-tool-extensions.md))
+join the same catalog under their dotted names, so `tny tool list|describe|call`
+covers them. Each extension module is also a top-level command whose options
+come from the tool's input schema:
+
+```sh
+tny jira --help
+tny jira projects list --status done --tag a --tag b --no-archived
+echo '{"status":"done"}' | tny jira projects list - --json
+tny tool check            # reload, list tools, print import errors (exit 1 on errors)
+tny tool new call_advisor # starter module in <repo>/.tny/extensions/tools (--global: ~/.tny)
+```
+
+Built-in commands win over a module of the same name. `--no-tool-extensions`
+and `--no-project-tools` are global flags; `TNY_TOOL_EXTENSIONS=0|global` and
+settings `extensions.tools.enabled|project` do the same. Exit codes match
+`tny tool call`. wasm: no tool host, so extensions are off.
+
 ## Background one-shots (`tny ask -B`)
 
 `-B` / `--background` runs the identical ask turn detached and defers its
@@ -1224,11 +1298,6 @@ calls per turn; a capped turn stops with "step limit reached" on stderr and
 `--max-steps unlimited` (or `0`) clears a cap a repo set through the
 `.tny.json` `"steps"` limit. The interactive TUI exposes the same knob as
 `/max-steps set N` / `/max-steps clear`. The cap applies to every native HTTP profile.
-
-`--max-extension-iterations N` independently caps continuations requested by
-Python `agent_end` hooks; its default is unlimited and `0`/`unlimited` clears
-the cap. `--no-extensions` disables the trusted global hooks for the process.
-See [extensions.md](extensions.md).
 
 ## Help shape
 

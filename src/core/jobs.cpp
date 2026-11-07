@@ -2624,10 +2624,9 @@ static char *jobs_execution_scope(tny_ctx *ctx) {
     for (int i = 0; i < n_headers; i++) execution_scope_part(&b, ctx->extra_headers[i]);
     buf_appendf(&b, "dirs:%d;", ctx->n_extra_dirs);
     for (int i = 0; i < ctx->n_extra_dirs; i++) execution_scope_part(&b, ctx->extra_dirs[i]);
-    buf_appendf(&b, "policy:%d:%d:%d:%d:%d:%d:%d:%u:%zu;", ctx->perm_mode, ctx->tool_profile,
-                ctx->workspace_read_only, ctx->context_enabled, ctx->extensions_enabled,
-                ctx->max_extension_iterations, ctx->mcp_disabled, ctx->mcp_import_mask,
-                ctx->max_tool_result_bytes);
+    buf_appendf(&b, "policy:%d:%d:%d:%d:%d:%u:%zu;", ctx->perm_mode, ctx->tool_profile,
+                ctx->workspace_read_only, ctx->context_enabled, ctx->mcp_disabled,
+                ctx->mcp_import_mask, ctx->max_tool_result_bytes);
     buf_appendf(&b, "learning:%d;", !ctx->no_self_improve);
     yyjson_val *settings = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
     if (acp) {
@@ -2649,7 +2648,6 @@ static char *jobs_execution_scope(tny_ctx *ctx) {
                             jget(workspace, "permission"),
                             jget(settings, "jobs"),
                             jget(settings, "mcp"),
-                            jget(settings, "extensions"),
                             jget(jget(settings, tny_provider_name(ctx)), "api_key_env"),
                             ctx->repo_cfg ? yyjson_doc_get_root(ctx->repo_cfg) : NULL};
     for (size_t i = 0; i < sizeof policy / sizeof policy[0]; i++) {
@@ -2700,15 +2698,13 @@ static char *jobs_item_launch_snapshot(tny_ctx *parent, yyjson_val *item, char *
         if ((parent->settings && !ctx->settings) || (parent->repo_cfg && !ctx->repo_cfg))
             return NULL;
         /* Copy authority only, never the parent's selected provider overrides.
-         * This explicit context has no extension process or provider host. */
+         * This explicit context has no provider host. */
         ctx->perm_mode = parent->perm_mode;
         ctx->tool_profile = parent->tool_profile;
         ctx->max_steps = parent->max_steps;
         ctx->workspace_read_only = parent->workspace_read_only;
         ctx->context_enabled = parent->context_enabled;
         ctx->no_self_improve = parent->no_self_improve;
-        ctx->extensions_enabled = parent->extensions_enabled;
-        ctx->max_extension_iterations = parent->max_extension_iterations;
         ctx->mcp_disabled = parent->mcp_disabled;
         ctx->mcp_import_mask = parent->mcp_import_mask;
         ctx->max_tool_result_bytes = parent->max_tool_result_bytes;

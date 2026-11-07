@@ -30,11 +30,6 @@ The event vocabulary remains `text_delta`, `thinking`, `tool_start`, `tool_end`,
 `steer_rejected`. Public event layouts and reserved capability constants remain
 ABI-compatible; the reserved ACP capability is available again for optional client sessions.
 
-Extensions run at quiescent native boundaries: pre-tool, unresolved permission,
-post-tool, batch and allowlisted provider request/response edges. Callbacks do
-not re-enter the backend. Extension-free turns do not start the optional host
-Python extension service; model tool cells use their own embedded interpreter.
-
 Optional ACP clients ([ADR 0164](adr/0164-optional-acp-clients.md)) run an external
 agent over stdio. Only the verified Claude adapter is admitted, with external
 built-ins disabled, strict MCP configuration and a private scratch cwd. Its MCP
@@ -128,11 +123,14 @@ OS-specific spawn and pre-exec operations remain in the C host seams.
 | `~/.tny/mcp.json` | Authoritative stdio and Streamable HTTP MCP servers (never repo-local MCP). Foreign user/project configs load only when global `mcp.import_from` explicitly names their harness ([ADR 0052](adr/0052-mcp-import-from-harnesses.md)) |
 | `~/.tny/sessions/` | Transcripts and recovery checkpoints |
 | `~/.tny/skills/` | Managed skill installs |
-| `~/.tny/extensions/` | Trusted global Python event hooks (`*.py`, `*/index.py`) |
+| `~/.tny/extensions/tools/` | Python tool extensions: `NAME.py` or `NAME/__main__.py` modules of `@tny.tool` functions ([guide](extensions.md), [ADR 0218](adr/0218-python-tool-extensions.md)) |
+| `~/.tny/cache/tool-extensions/` | Extension catalogs keyed by a fingerprint of the module files, so listing tools does not start Python |
+| `~/.tny/logs/tool-extensions.log` | The tool host's stderr inside agent turns |
 | `~/.tny/tasks/` | User task-preset Markdown definitions (`NAME.md`) |
 | `~/.tny/worktrees/` | Managed Git checkouts; origin metadata and usage locks live in their private Git directories ([ADR 0080](adr/0080-managed-git-worktrees.md)) |
 | `<repo>/.tny.json` | Repo-safe limits only (steps, tool result bytes, sandbox, context on/off) |
 | `<repo>/.tny/tasks/` | Project task-preset Markdown definitions; project files cannot add authority or cost |
+| `<repo>/.tny/extensions/tools/` | Project tool extensions, trusted and loaded by default (`--no-project-tools` or settings `extensions.tools.project: false` turn them off); a project module shadows a global one of the same name |
 | `<repo>/AGENTS.md` | Project instructions (also `CLAUDE.md` as alias if present). Over `--ssh`, the remote cwd's file is used instead of this local path ([ADR 0040](adr/0040-ssh-agents-md.md)) |
 
 BYOK credentials come from environment variables (`OPENAI_API_KEY` or profile-specific names). Native Codex/Grok OAuth tokens use their login stores. MCP retains `header_env` / `bearer_token_env`. No API keys are persisted in settings or project JSON.
@@ -193,7 +191,7 @@ See [Dictation](dictation.md) and [ADR 0079](adr/0079-provider-independent-dicta
 
 `core/optimise.c` owns a separate explicit context, ephemeral session and native
 engine for rewriting drafts. It enforces file-reading/search tools and disables
-extensions, MCP, task presets and skill injection. `tui/tui_optimise.c` replaces
+tool extensions, MCP, task presets and skill injection. `tui/tui_optimise.c` replaces
 the composer only after a successful result, without submitting it. Model and
 credentials resolve independently of the conversation. CLI and TUI share the
 same polling/cancellation lifecycle on native and wasm builds.

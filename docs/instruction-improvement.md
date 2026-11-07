@@ -232,7 +232,7 @@ After authorizing provider use, replace the proposer argv with, for example:
 Set the outer `timeout_s` to at least **400** for this example. The adapter refuses
 to launch unless the outer budget leaves at least 75 seconds beyond `--timeout`
 for launch, observation and cancellation. The
-adapter selects a fresh private workspace, disables extensions, sets permission
+adapter selects a fresh private workspace, sets permission
 mode `ask`, caps native model steps (default 4), and uses `ask -B --json` plus
 `session --wait --json`. It requires a successful settled session, not just a
 successful launch. A failed wait or interrupt requests cancellation and observes

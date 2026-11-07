@@ -61,7 +61,7 @@ reproducible offline evidence from unmeasured live-model improvement.
 | [adr/0171-formal-verification-smt-lib.md](adr/0171-formal-verification-smt-lib.md) | SMT-LIB/Z3 formal verification boundary and runnable proof gate |
 | [adr/0172-release-site-metadata.md](adr/0172-release-site-metadata.md) | Site version from release tag, measured binary size and Pages republishing |
 | [sdk-toolkit.md](sdk-toolkit.md) | Standalone SDK image, audio, and prompt optimisation APIs |
-| [extensions.md](extensions.md) | Trusted Python event hooks, actions, ordering, provider limits |
+| [extensions.md](extensions.md) | Python tool extensions: `@tny.tool` modules for code mode, the CLI and MCP |
 
 ## Backends
 
@@ -77,7 +77,6 @@ reproducible offline evidence from unmeasured live-model improvement.
 | Doc | Why |
 | --- | --- |
 | [features/parity-with-fx.md](features/parity-with-fx.md) | Must-keep inventory vs deferrals |
-| [features/extension-hook-parity.md](features/extension-hook-parity.md) | Release-pinned Pi/Codex/Claude/fx hook classifications and provider capabilities |
 | [features/sessions.md](features/sessions.md) | Save, resume, compact, recover |
 | [features/permissions.md](features/permissions.md) | ask / auto / yolo, rules, sandbox |
 | [features/mcp-and-skills.md](features/mcp-and-skills.md) | MCP client, skills, subagents, tools |

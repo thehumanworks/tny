@@ -23,16 +23,15 @@ static tny_session_state *state_session(tny_ctx *ctx) {
     s->lock_fd = -1;
     s->id = xstrdup("test-session");
     s->dir = xstrdup("/unopened-session");
-    s->extension_start_reason = xstrdup("restored");
-    s->extension_event_sequence = 12;
-    s->extension_agent_sequence = 7;
-    s->extension_session_started = true;
+    s->start_reason = xstrdup("restored");
+    s->event_sequence = 12;
+    s->agent_sequence = 7;
     s->task_body = xstrdup("private task body");
     const char *input = "{\"messages\":[],\"team_cursors\":{},\"swarm_cap\":1}";
     yyjson_doc *d = jparse(input, strlen(input));
     s->doc = d ? yyjson_doc_mut_copy(d, jallocator()) : NULL;
     yyjson_doc_free(d);
-    if (!s->id || !s->dir || !s->doc || !s->task_body || !s->extension_start_reason) {
+    if (!s->id || !s->dir || !s->doc || !s->task_body || !s->start_reason) {
         session_close(s);
         return NULL;
     }
@@ -115,7 +114,7 @@ TEST execution_state_initial_and_delta_preserve_parent(void) {
     ASSERT(child.session);
     ASSERT_STR_EQ(parent.session->id, child.session->id);
     ASSERT_STR_EQ("private task body", child.session->task_body);
-    ASSERT_EQ(12u, child.session->extension_event_sequence);
+    ASSERT_EQ(12u, child.session->event_sequence);
     ASSERT_EQ(-1, child.session->lock_fd);
     ASSERT_EQ(0, child.n_pending_images);
     ASSERT_EQ(1, child.session->n_mem_results);
@@ -154,7 +153,7 @@ TEST execution_state_initial_and_delta_preserve_parent(void) {
     ASSERT_EQ(0, memcmp(parent.pending_capture[1].data, child.pending_capture[0].data, 8));
     ASSERT(parent.perm_blocked && parent.learning_fact.valid);
     ASSERT_EQ(456u, parent.learning_fact.intent);
-    ASSERT_EQ(12u, parent.session->extension_event_sequence);
+    ASSERT_EQ(12u, parent.session->event_sequence);
     free(h1);
     free(h2);
     free(h3);

@@ -28,7 +28,7 @@ bool cli_is_command(const char *name) {
         "tasks",    "task",     "permissions",    "workspace", "status",    "doctor",   "usage",
         "cursor",   "mcp",      "login",          "logout",    "setup",     "agents",   "web",
         "jobs",     "mailbox",  "task-workspace", "team",      "swarm",     "settings", "help",
-        "optimise", "score",    "choose",         NULL};
+        "optimise", "score",    "choose",         "tool",      "memory",    "skill",    NULL};
     for (size_t i = 0; names[i]; i++)
         if (strcmp(name, names[i]) == 0) return true;
     return false;
@@ -104,13 +104,12 @@ static int parse_globals(int argc, char **argv, cli_globals *g, bool diagnostics
         } else if (strcmp(a, "--max-steps") == 0) {
             if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
             g->max_steps = v;
-        } else if (strcmp(a, "--max-extension-iterations") == 0) {
-            if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
-            g->max_extension_iterations = v;
         } else if (strcmp(a, "--no-self-improve") == 0) {
             g->no_self_improve = true;
-        } else if (strcmp(a, "--no-extensions") == 0) {
-            g->no_extensions = true;
+        } else if (strcmp(a, "--no-tool-extensions") == 0) {
+            g->no_tool_ext = true;
+        } else if (strcmp(a, "--no-project-tools") == 0) {
+            g->no_project_tools = true;
         } else if (strcmp(a, "--fast") == 0) {
             g->fast = true;
         } else if (strcmp(a, "--ultrafast") == 0) {

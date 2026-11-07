@@ -1,7 +1,7 @@
 # 0027 — Python extensions consume versioned normalized events through one optional host
 
 Date: 2026-08-24
-Status: accepted
+Status: superseded by [ADR 0218](0218-python-tool-extensions.md) (2026-11-07); the event-hook runtime was removed
 
 ## Context
 

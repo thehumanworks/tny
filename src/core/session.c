@@ -304,14 +304,14 @@ tny_session_state *session_new(tny_ctx *ctx) {
     if (!s) return NULL;
     s->lock_fd = -1;
     s->ctx = ctx;
-    s->extension_start_reason = xstrdup("new");
+    s->start_reason = xstrdup("new");
     s->id = gen_id();
     char *root = sessions_root(ctx);
     s->dir = root && s->id ? path_join(root, s->id) : NULL;
     free(root);
     s->doc = yyjson_mut_doc_new(jallocator());
     yyjson_mut_val *doc_root = s->doc ? yyjson_mut_obj(s->doc) : NULL;
-    if (!s->extension_start_reason || !s->id || !s->dir || !s->doc || !doc_root) {
+    if (!s->start_reason || !s->id || !s->dir || !s->doc || !doc_root) {
         session_close(s);
         return NULL;
     }
@@ -384,13 +384,13 @@ tny_session_state *session_open(tny_ctx *ctx, const char *id_or_last) {
     }
     s->lock_fd = -1;
     s->ctx = ctx;
-    s->extension_start_reason = xstrdup("resume");
+    s->start_reason = xstrdup("resume");
     s->persisted = true;
     s->id = id;
     s->dir = dir;
     s->doc = yyjson_doc_mut_copy(doc, jallocator());
     yyjson_doc_free(doc);
-    if (!s->extension_start_reason || !s->doc) {
+    if (!s->start_reason || !s->doc) {
         session_close(s);
         return NULL;
     }
@@ -479,8 +479,8 @@ void session_close(tny_session_state *s) {
     session_lock_release(s);
     free(s->id);
     free(s->dir);
-    free(s->extension_start_reason);
-    free(s->extension_previous_session_id);
+    free(s->start_reason);
+    free(s->previous_session_id);
     free(s->task_body);
     yyjson_mut_doc_free(s->doc);
     for (int i = 0; i < s->n_mem_results; i++) {
@@ -1069,39 +1069,13 @@ int session_kill(tny_ctx *ctx, const char *id, pid_t expected_pid, char *err, si
     return 0;
 }
 
-void session_set_extension_start(tny_session_state *s, const char *reason,
-                                 const char *previous_session_id) {
+void session_set_start(tny_session_state *s, const char *reason, const char *previous_session_id) {
     if (!s) return;
-    free(s->extension_start_reason);
-    free(s->extension_previous_session_id);
-    s->extension_start_reason = xstrdup(reason && *reason ? reason : "new");
-    s->extension_previous_session_id =
+    free(s->start_reason);
+    free(s->previous_session_id);
+    s->start_reason = xstrdup(reason && *reason ? reason : "new");
+    s->previous_session_id =
         previous_session_id && *previous_session_id ? xstrdup(previous_session_id) : NULL;
-}
-
-static yyjson_mut_val *extension_audit(tny_session_state *s) {
-    yyjson_mut_val *audit = yyjson_mut_obj_get(root_of(s), "extension_audit");
-    if (audit && yyjson_mut_is_arr(audit)) return audit;
-    audit = yyjson_mut_arr(s->doc);
-    yyjson_mut_obj_put(root_of(s), yyjson_mut_strcpy(s->doc, "extension_audit"), audit);
-    return audit;
-}
-
-void session_record_prompt_audit(tny_session_state *s, const char *submission_id,
-                                 const char *submitted, const char *effective, bool blocked,
-                                 const char *extension, const char *reason) {
-    if (!s || (!blocked && (!submitted || !effective))) return;
-    yyjson_mut_val *entry = yyjson_mut_obj(s->doc);
-    yyjson_mut_obj_add_strcpy(s->doc, entry, "kind", "prompt");
-    yyjson_mut_obj_add_strcpy(s->doc, entry, "id", submission_id ? submission_id : "");
-    yyjson_mut_obj_add_bool(s->doc, entry, "blocked", blocked);
-    if (!blocked) {
-        yyjson_mut_obj_add_strcpy(s->doc, entry, "submitted", submitted);
-        yyjson_mut_obj_add_strcpy(s->doc, entry, "effective", effective);
-    }
-    if (extension && *extension) yyjson_mut_obj_add_strcpy(s->doc, entry, "extension", extension);
-    if (reason && *reason) yyjson_mut_obj_add_strcpy(s->doc, entry, "reason", reason);
-    yyjson_mut_arr_add_val(extension_audit(s), entry);
 }
 
 static yyjson_mut_val *skill_injections(tny_session_state *s) {
@@ -1192,44 +1166,6 @@ void session_replace_tool_arguments(tny_session_state *s, const char *tool_call_
             return;
         }
     }
-}
-
-void session_record_tool_audit(tny_session_state *s, const char *tool_call_id,
-                               const char *tool_name, const char *original_arguments,
-                               const char *effective_arguments, const char *control_extension,
-                               const char *control_reason, const char *original_result,
-                               bool original_ok, const char *effective_result, bool effective_ok,
-                               const char *replacement_extension, const char *annotations_json) {
-    if (!s) return;
-    yyjson_mut_val *entry = yyjson_mut_obj(s->doc);
-    yyjson_mut_obj_add_strcpy(s->doc, entry, "kind", "tool");
-    yyjson_mut_obj_add_strcpy(s->doc, entry, "id", tool_call_id ? tool_call_id : "");
-    yyjson_mut_obj_add_strcpy(s->doc, entry, "tool", tool_name ? tool_name : "tool");
-    yyjson_mut_obj_add_strcpy(s->doc, entry, "original_arguments",
-                              original_arguments ? original_arguments : "{}");
-    yyjson_mut_obj_add_strcpy(s->doc, entry, "effective_arguments",
-                              effective_arguments ? effective_arguments : "{}");
-    if (control_extension)
-        yyjson_mut_obj_add_strcpy(s->doc, entry, "control_extension", control_extension);
-    if (control_reason) yyjson_mut_obj_add_strcpy(s->doc, entry, "control_reason", control_reason);
-    yyjson_mut_obj_add_strcpy(s->doc, entry, "original_result",
-                              original_result ? original_result : "");
-    yyjson_mut_obj_add_bool(s->doc, entry, "original_ok", original_ok);
-    yyjson_mut_obj_add_strcpy(s->doc, entry, "effective_result",
-                              effective_result ? effective_result : "");
-    yyjson_mut_obj_add_bool(s->doc, entry, "effective_ok", effective_ok);
-    if (replacement_extension)
-        yyjson_mut_obj_add_strcpy(s->doc, entry, "replacement_extension", replacement_extension);
-    if (annotations_json) {
-        yyjson_doc *annotations = jparse(annotations_json, strlen(annotations_json));
-        yyjson_val *root = annotations ? yyjson_doc_get_root(annotations) : NULL;
-        if (yyjson_is_arr(root)) {
-            yyjson_mut_val *copy = yyjson_val_mut_copy(s->doc, root);
-            if (copy) yyjson_mut_obj_put(entry, yyjson_mut_strcpy(s->doc, "annotations"), copy);
-        }
-        yyjson_doc_free(annotations);
-    }
-    yyjson_mut_arr_add_val(extension_audit(s), entry);
 }
 
 char *session_store_result(tny_session_state *s, const char *data, size_t len) {

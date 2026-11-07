@@ -65,7 +65,7 @@ The overlay is the form to use with `environment.systemPackages` on NixOS or
 
 | Output | What |
 | --- | --- |
-| `packages.<system>.tny` (`default`) | CLI/TUI binary, Python extension host under `lib/tny/`, and Bash/Zsh workflow helpers under `share/tny/` |
+| `packages.<system>.tny` (`default`) | CLI/TUI binary, optional Python helpers under `lib/tny/`, and Bash/Zsh workflow helpers under `share/tny/` |
 | `packages.<system>.tny-unwrapped` | the same binary with no wrapper — see [Wrapping](#wrapping) |
 | `packages.<system>.libtny` | the active ABI-1 embedding library, header and `libtny.pc` ([libtny.md](libtny.md)); frozen ABI-0 compatibility remains in release artifacts |
 | `apps.<system>.tny` (`default`) | `nix run` entry point |
@@ -77,7 +77,7 @@ The overlay is the form to use with `environment.systemPackages` on NixOS or
 ## Without flakes
 
 ```sh
-nix-build -A tny                       # build/tny + the extension host
+nix-build -A tny                       # build/tny + its helpers
 nix-build -A libtny                    # the embedding library
 nix-build -A tny --argstr version 0.2.1
 nix-shell                              # the dev shell
@@ -90,10 +90,10 @@ against `<nixpkgs>`.
 
 No vendor agent binary is a runtime dependency. Provider traffic and native Codex/Grok OAuth use HTTP directly.
 
-`python3` is not required for tny itself. The extension host
-([extensions.md](extensions.md)) `execlp`s `python3` from PATH, and the
-default package supplies one through its wrapper; without it, extensions
-report unavailable and everything else works.
+`python3` is not required for tny itself. Code mode and tool extensions
+([extensions.md](extensions.md)) use the embedded interpreter. The optional
+instruction-evolution helpers `execlp` `python3` from PATH, and the default
+package supplies one through its wrapper.
 
 The wasm build is not packaged — `make wasm` needs emsdk
 ([ADR 0017](adr/0017-wasm-browser-parity.md)).

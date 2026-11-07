@@ -110,8 +110,7 @@ typedef struct {
     bool turn_ended;
     tny_stop_reason stop;
     buf_t errline;
-    buf_t host_tools;         /* TOOL_END log for host backends (JSON array items) */
-    buf_t extension_messages; /* visible custom/user messages, JSON items */
+    buf_t host_tools; /* TOOL_END log for host backends (JSON array items) */
     tny_engine *engine;
     tny_perm_mode perm_mode;
     bool print_usage;
@@ -180,28 +179,8 @@ static void ask_event_cb(const tny_backend_event *ev, void *ud) {
     case TNY_EV_STATUS:
         if (!st->quiet) fprintf(stderr, "%.*s\n", (int)ev->text_len, ev->text);
         break;
-    case TNY_EV_CUSTOM_MESSAGE:
-        /* the message itself still reaches the result blob and the stream */
-        if (!st->quiet) {
-            if (ev->message_type)
-                fprintf(stderr, "extension context (%s): %.*s\n", ev->message_type,
-                        (int)ev->text_len, ev->text);
-            else fprintf(stderr, "extension context: %.*s\n", (int)ev->text_len, ev->text);
-        }
-        if (st->extension_messages.len) buf_appends(&st->extension_messages, ",");
-        buf_appends(&st->extension_messages, "{\"kind\":\"custom\",\"custom_type\":");
-        jescape(&st->extension_messages, ev->message_type ? ev->message_type : "tny_extension");
-        buf_appends(&st->extension_messages, ",\"content\":");
-        jescape(&st->extension_messages, ev->text ? ev->text : "");
-        buf_appends(&st->extension_messages, "}");
-        break;
-    case TNY_EV_USER_MESSAGE:
-        if (!st->quiet) fprintf(stderr, "extension follow-up: %.*s\n", (int)ev->text_len, ev->text);
-        if (st->extension_messages.len) buf_appends(&st->extension_messages, ",");
-        buf_appends(&st->extension_messages, "{\"kind\":\"user\",\"content\":");
-        jescape(&st->extension_messages, ev->text ? ev->text : "");
-        buf_appends(&st->extension_messages, "}");
-        break;
+    case TNY_EV_CUSTOM_MESSAGE: /* reserved public kinds; nothing emits them */
+    case TNY_EV_USER_MESSAGE: break;
     case TNY_EV_STEER_REJECTED: /* ask never steers */ break;
     case TNY_EV_PLAN:
         if (!st->quiet) fprintf(stderr, "plan: %.*s\n", (int)ev->text_len, ev->text);
@@ -240,7 +219,6 @@ static char *ask_result_json(tny_ctx *ctx, ask_state *st, tny_engine *engine,
                              tny_session_state *session, int exit_code) {
     return tny_turn_result_json(ctx, engine, session, st->output.data ? st->output.data : "",
                                 st->host_tools.len ? st->host_tools.data : NULL,
-                                st->extension_messages.len ? st->extension_messages.data : NULL,
                                 st->errline.len ? st->errline.data : NULL, exit_code);
 }
 
@@ -364,15 +342,8 @@ static void ask_client_render(ask_client *a, const tny_runner_msg *m) {
         tny_runner_client_perm(a->rc, ev->perm_id, TNY_PERM_DECISION_DENY);
         break;
     case TNY_EV_STATUS: fprintf(stderr, "%.*s\n", (int)ev->text_len, ev->text); break;
-    case TNY_EV_CUSTOM_MESSAGE:
-        if (ev->message_type)
-            fprintf(stderr, "extension context (%s): %.*s\n", ev->message_type, (int)ev->text_len,
-                    ev->text);
-        else fprintf(stderr, "extension context: %.*s\n", (int)ev->text_len, ev->text);
-        break;
-    case TNY_EV_USER_MESSAGE:
-        fprintf(stderr, "extension follow-up: %.*s\n", (int)ev->text_len, ev->text);
-        break;
+    case TNY_EV_CUSTOM_MESSAGE: /* reserved public kinds; nothing emits them */
+    case TNY_EV_USER_MESSAGE: break;
     case TNY_EV_PLAN: fprintf(stderr, "plan: %.*s\n", (int)ev->text_len, ev->text); break;
     case TNY_EV_USAGE:
         if (!a->print_usage) break;
@@ -1038,7 +1009,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     ask_state st = {0};
     buf_init(&st.output);
     buf_init(&st.errline);
-    buf_init(&st.extension_messages);
     st.json = json;
     st.perm_mode = ctx->perm_mode;
     st.print_usage = print_usage;
@@ -1048,7 +1018,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     if (continue_recovery && session) {
         char *rec = session_recovery_read(session);
         if (rec) {
-            session_set_extension_start(session, "recovery", NULL);
+            session_set_start(session, "recovery", NULL);
             /* machine mode: stdout carries events only; the replayed partial
              * belongs to the previous turn and has no canonical event */
             if (!json && !events && !steer_takeover) {
@@ -1072,7 +1042,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         session_close(session);
         buf_free(&st.output);
         buf_free(&st.errline);
-        buf_free(&st.extension_messages);
         return 1;
     }
     char err[512];
@@ -1092,7 +1061,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_free(&prompt);
         buf_free(&st.output);
         buf_free(&st.errline);
-        buf_free(&st.extension_messages);
         return 1;
     }
     perm_engine *perm = perm_new(ctx);
@@ -1107,7 +1075,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_free(&prompt);
         buf_free(&st.output);
         buf_free(&st.errline);
-        buf_free(&st.extension_messages);
         return 1;
     }
     if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_CONNECTED, err, sizeof err) != 0) {
@@ -1120,7 +1087,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_free(&prompt);
         buf_free(&st.output);
         buf_free(&st.errline);
-        buf_free(&st.extension_messages);
         return 1;
     }
 
@@ -1137,7 +1103,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_free(&prompt);
         buf_free(&st.output);
         buf_free(&st.errline);
-        buf_free(&st.extension_messages);
         return 2;
     }
 
@@ -1157,7 +1122,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_free(&prompt);
         buf_free(&st.output);
         buf_free(&st.errline);
-        buf_free(&st.extension_messages);
         return 2;
     }
 
@@ -1262,6 +1226,5 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     buf_free(&prompt);
     buf_free(&st.output);
     buf_free(&st.errline);
-    buf_free(&st.extension_messages);
     return exit_code;
 }

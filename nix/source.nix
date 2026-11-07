@@ -50,9 +50,10 @@ let
 
   # `make release`, `make lib-shared-active`, `make install`, and
   # `make install-lib-active`.
-  # python/ is the pure-Python extension host that `make install` copies to
-  # lib/tny/; optional instruction-evolution controller/proposer modules live
-  # there too. libtny.pc.in and abi/ belong to the libtny install.
+  # python/ holds the `tny` tool-extension package that scripts/embed_python.sh
+  # builds into the binary (ADR 0218), plus the optional instruction-evolution
+  # controller/proposer modules that `make install` copies to lib/tny/.
+  # libtny.pc.in and abi/ belong to the libtny install.
   buildFiles = unions [
     ../Makefile
     ../abi
@@ -60,6 +61,7 @@ let
     ../libtny.pc.in
     ../python
     ../scripts/check_abi_baseline.py
+    ../scripts/embed_python.sh # embeds python/tny for the tool host
     ../scripts/cpython_runtime.sh # builds the pinned CPython for code cells
     ../scripts/cpython_freeze_stdlib.py # freezes its standard library
     ../scripts/install_licenses.sh # `make install` ships the embedded licenses
@@ -75,7 +77,7 @@ let
   # `make test` additionally drives the fixture suites, the event-schema check,
   # the parser/help flag alignment check, and the conformance contract. Several
   # suites read the contract itself:
-  # test_extension_contract.py against docs/features/, test_site.py by
+  # test_site.py by
   # regenerating site/ with scripts/site_build.py and diffing.
   # test_nix_ci_matrix.py checks Linux/macOS CI, release gates and optional
   # developer Nix. Include all workflows so filtered local checks enforce the
@@ -97,7 +99,7 @@ let
     # verify-dictation-proofs) runs separately in CI, not in this sandbox;
     # make verify-code-policy separately uses the declared Lean input to prove
     # source-linked production C policies. No proof step downloads dependencies.
-    ../examples # tests/extensions/test_examples.py loads every shipped example
+    ../examples
     ../flake.nix
     ../default.nix
     ../shell.nix

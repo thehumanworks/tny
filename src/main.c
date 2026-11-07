@@ -12,6 +12,7 @@
 #include "core/code_runtime.h"
 #include "core/execution.h"
 #include "core/execution_parallel.h"
+#include "core/tool_host.h"
 #include "util/process.h"
 #include "util/execution_command.h"
 #include "util/util.h"
@@ -22,6 +23,8 @@ int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--exec-tool") == 0) return tny_execution_tool_main();
     if (argc == 2 && strcmp(argv[1], "--exec-server") == 0) return tny_execution_server_main();
     if (argc == 2 && strcmp(argv[1], "--code-cell") == 0) return tny_code_cell_main();
+    if (argc >= 2 && strcmp(argv[1], "--tool-host") == 0)
+        return tny_tool_host_main(argc - 2, argv + 2);
     if (argc == 3 && strcmp(argv[1], "--acp-mcp-bridge") == 0)
         return tny_acp_bridge_relay_main(argv[2]);
     if (argc == 2 && strcmp(argv[1], "--runner-restart") == 0) return tny_runner_restart_main();
@@ -48,7 +51,8 @@ int main(int argc, char **argv) {
     char **cargv = cmd ? argv + ci + 1 : NULL;
 
     /* per-command --help without loading config */
-    if (cmd && cargc >= 1 && (strcmp(cargv[0], "--help") == 0 || strcmp(cargv[0], "-h") == 0)) {
+    if (cmd && cli_is_command(cmd) && cargc >= 1 &&
+        (strcmp(cargv[0], "--help") == 0 || strcmp(cargv[0], "-h") == 0)) {
         if (help_for(cmd)) return 0;
     }
     if (cmd && (strcmp(cmd, "help") == 0 || strcmp(cmd, "--help") == 0 || strcmp(cmd, "-h") == 0)) {
@@ -67,7 +71,16 @@ int main(int argc, char **argv) {
     tny_ctx *ctx = NULL;
     char *expanded_cwd = NULL;
     if (cmd && !cli_is_command(cmd)) {
-        fprintf(stderr, "tny: unknown command '%s'\n", cmd);
+        /* Not a built-in: maybe a Python tool extension module (ADR 0218).
+         * Built-in commands always win over a module of the same name. */
+        cli_globals tool = g;
+        tool.standalone_web = !g.backend;
+        ctx = cli_make_ctx(&tool);
+        rc = ctx ? cmd_tool_ext(ctx, &g, cmd, cargc, cargv) : 127;
+        if (rc == 127) {
+            fprintf(stderr, "tny: unknown command '%s'\n", cmd);
+            rc = 1;
+        }
         goto done;
     }
     /* Definition validation is deliberately context-free: no workspace,
@@ -147,6 +160,22 @@ int main(int argc, char **argv) {
         dashboard.agents_dashboard = true;
         ctx = cli_make_ctx(&dashboard);
         if (ctx) rc = cmd_agents(ctx, &g, cargc, cargv);
+        goto done;
+    }
+    if (cmd &&
+        (strcmp(cmd, "tool") == 0 || strcmp(cmd, "memory") == 0 || strcmp(cmd, "skill") == 0)) {
+        /* No provider unless one is named: subagent then inherits it. */
+        cli_globals tool = g;
+        tool.standalone_web = !g.backend;
+        ctx = cli_make_ctx(&tool);
+        if (ctx) rc = cmd_tool(ctx, &g, cmd, cargc, cargv);
+        goto done;
+    }
+    if (cmd && strcmp(cmd, "mcp") == 0 && cargc >= 1 && strcmp(cargv[0], "serve") == 0) {
+        cli_globals serve = g;
+        serve.standalone_web = !g.backend;
+        ctx = cli_make_ctx(&serve);
+        if (ctx) rc = cmd_mcp_serve(ctx, cargc - 1, cargv + 1);
         goto done;
     }
     if (cmd && strcmp(cmd, "web") == 0) {

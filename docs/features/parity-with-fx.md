@@ -1,6 +1,6 @@
 # Feature parity with fx
 
-fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https://fx.sh/llms.txt). The user-visible inventory and measured performance baseline below are the historical v0.0.3 bake-off captured 2026-08-18. They are not a product goal to beat fx ([ADR 0150](../adr/0150-agent-first-harness-and-measured-footprint.md)). The current v0.0.5 extension-hook baseline is tracked separately in [extension-hook-parity.md](extension-hook-parity.md).
+fx sources: [README](https://github.com/vercel-labs/fx), [fx.sh/llms.txt](https://fx.sh/llms.txt). The user-visible inventory and measured performance baseline below are the historical v0.0.3 bake-off captured 2026-08-18. They are not a product goal to beat fx ([ADR 0150](../adr/0150-agent-first-harness-and-measured-footprint.md)).
 
 ## v1 must match — status as built (2026-08-19, all `make test` green)
 

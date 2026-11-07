@@ -9,7 +9,7 @@ behavior is in the linked feature contract; ADRs explain decisions when needed.
 | Native HTTP protocol or recovery | [HTTP source map](backends/openai-source-map.md), `src/backends/openai/` | `make test-openai-errors`, `openai_suite`, local provider fixtures |
 | ChatGPT sign-in | `src/core/openai_{login,auth}.c`, [contract](backends/openai-chatgpt.md) | `tests/integration/test_openai_signin.py` |
 | Claude connection | `src/backends/acp/`, [contract](backends/acp.md) | `test_acp_client.py`, `test_acp_managed.py` |
-| Add/change an extension | `python/tny_ext/`, [plugin guide](extensions.md) | `make test-extensions-python`; explicit-path plugin check |
+| Add/change a tool extension or the `tny` Python package | `python/tny/`, `src/core/tool_extensions.c`, `src/core/tool_host.c`, `src/cli/cmd_tool_ext.c`, [guide](extensions.md) | `make test-tool-extensions`, `tests/integration/test_tool_extensions.py` |
 | Prompt reuse / context stability | `src/core/skills.c`, `learning.c`, native request builder | `skills_suite`, `learning_suite`, `tests/bench/bench_prefix_stability.py` |
 | Model-visible tool discovery | `src/core/tools.c`, `src/core/code_python.c` | `code_runtime_suite`, `test_execution_code_mode.py` |
 | Search scope / completeness | `core/tools_fs.c`, [contract](adr/0208-truthful-scoped-file-search.md) | `test_search_coverage.py`, `bench_search_coverage.py` |
@@ -36,9 +36,9 @@ ordinary regression tests pass.
 
 ## Extension decisions, not another runtime
 
-- Use **Python hooks** for event-driven policy, verification and bounded
-  continuation. They are explicit trusted user installations, not code loaded
-  automatically from an arbitrary checkout.
+- Use **tool extensions** (`@tny.tool` Python modules under
+  `~/.tny/extensions/tools/` or `<repo>/.tny/extensions/tools/`) to give agents
+  and scripts new tools, including Python proxies of existing MCP servers.
 - Use **MCP** for external tool services and **run_code** for composing host
   workflows. Search names/descriptions first; retrieve exact schemas only for
   relevant tools. Keep heavyweight tool results out of model context unless needed.

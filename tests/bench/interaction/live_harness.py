@@ -29,7 +29,6 @@ def run(binary):
                 "gpt-6.1-sol",
                 "--effort",
                 "low",
-                "--no-extensions",
                 "--no-self-improve",
                 "ask",
                 "--ephemeral",

@@ -228,7 +228,7 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`: the same matrix,
 packaged as `tny-<os>-<arch>[-musl].tar.gz` for Linux/macOS, plus `libtny1-*` / `libtny0-compat-*`, SDK wheels, npm
 tarballs, conformance reports, and `SHA256SUMS`, published as a GitHub
 release. The publish job flattens `dist/sdk/*` to the asset root before the
-globs run. Each CLI archive also carries the pure-Python extension host under
+globs run. Each CLI archive also carries the optional instruction-evolution helpers under
 `lib/tny/` and the sourceable Bash/Zsh workflow library under `share/tny/`;
 Python and the shells themselves are never bundled. The
 release request is recorded in root `release.json` (`{"version":"0.28.0"}`).

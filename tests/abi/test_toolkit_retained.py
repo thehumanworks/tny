@@ -55,7 +55,15 @@ class ToolkitRetainedArtifact(unittest.TestCase):
             root = Path(temporary)
             source = root / "source"
             source.mkdir()
-            for folder in ("src", "include", "third_party", "abi", "scripts", "tests"):
+            for folder in (
+                "src",
+                "include",
+                "third_party",
+                "abi",
+                "scripts",
+                "tests",
+                "python",
+            ):
                 shutil.copytree(
                     ROOT / folder,
                     source / folder,

@@ -1,7 +1,7 @@
 # 0028 — Extension parity is capability-scoped and versioned
 
 Date: 2026-08-25
-Status: accepted
+Status: superseded by [ADR 0218](0218-python-tool-extensions.md) (2026-11-07); the event-hook runtime was removed
 
 ## Context
 

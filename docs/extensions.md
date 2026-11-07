@@ -1,422 +1,243 @@
-# Python extensions and event hooks
+# Python tool extensions
 
-Extensions are tny's Python **plugin** seam. Use the existing `setup(api)`
-entry point for event-driven behavior; no second framework, provider loop,
-package manager, or C ABI change is needed.
+A tool extension is a Python module of `@tny.tool` functions. Drop it in an
+extension directory and the tool is available everywhere at once:
 
-tny extensions are trusted Python programs that observe normalized agent
-events and can request a small set of portable actions. The extension host
-requires an external Python interpreter; it does not reuse the embedded
-interpreter used by tool code cells. The architectural decision is
-[ADR 0027](adr/0027-python-event-hooks.md).
-The additive parity vocabulary, capability states, and provider authority
-rules are frozen by [ADR 0028](adr/0028-extension-parity-contract.md) and the
-[release-pinned manifest](features/extension-hook-parity.md).
+| Surface | How it is called |
+| --- | --- |
+| Code mode (`run_code`) | `tools.jira.projects.list(status="open")` or `tools.call("jira.projects.list", json.dumps({...}))`; `tools.search("jira")` finds it |
+| CLI | `tny jira projects list --status open`, or `tny tool call jira.projects.list '{"status":"open"}'` |
+| MCP | `tny mcp serve` serves it to any MCP client as `jira_projects_list` |
 
-> **Security warning:** extensions run with your full user permissions and are
-> not sandboxed. They can read environment variables and credentials, change
-> files, access the network, and run programs. Install only code you trust.
+The decision record is [ADR 0218](adr/0218-python-tool-extensions.md).
 
-## Discovery
+> **Trust.** Extensions run as you, with your files, network and credentials.
+> Project extensions load by default, like the rest of the repository you
+> chose to work in. Turn them off with `--no-project-tools`.
 
-The only v1 entry-point forms are:
-
-```text
-~/.tny/extensions/reviewer.py
-~/.tny/extensions/reviewer/index.py
-```
-
-`reviewer.py` and `reviewer/index.py` are the same extension name and therefore
-collide; tny reports the collision and loads neither. Project-local extensions,
-recursive scanning, and package entry points are not supported. This prevents
-checking out a repository from executing its extension code automatically.
-
-Extensions load by bytewise lexical extension name. One Python host remains
-alive for the tny process and invokes listeners in extension order, then
-registration order.
-
-If no extension exists, tny does not start Python. If an extension exists but
-the selected interpreter is unavailable, tny surfaces that fact and continues
-without extension hooks.
-
-## Typed entry point
-
-An extension exports `setup(api)`. The supplied object provides typed event
-dataclasses, action classes, constructors, and listener registration. The
-module's annotations allow editors and type checkers to validate extensions
-without tny shipping an interpreter.
-
-`api.capabilities` is an immutable `CapabilityView`. It contains the provider
-selected during setup plus native HTTP profile
-matrices. Capability entries have stable names, a current `supported`,
-`unsupported`, or `unavailable` state, and a reason. Unknown names, unknown
-future state strings, and optional fields are retained.
-
-```python
-def setup(api: ExtensionAPI) -> None:
-    selected = api.capabilities.selected
-    can_rewrite = selected is not None and selected.supports(
-        "extensions.tool.pre.rewrite"
-    )
-```
-
-The view is a setup snapshot. If the TUI later changes provider, use the
-runtime event's `event.provider` with
-`api.capabilities.for_provider(event.provider)`. Capability queries are static:
-they do not spawn Python/providers, probe endpoints, read credentials, or
-perform network I/O. `tny doctor --json` exposes the same matrix.
-
-Illustrative v1 shape:
-
-```python
-from tny_ext import AgentEndEvent, ExtensionAPI, continue_with, none
-
-
-def setup(api: ExtensionAPI) -> None:
-    @api.on(AgentEndEvent)
-    def verify(event: AgentEndEvent):
-        if event.stop == "done" and not tests_look_complete(event):
-            return continue_with(
-                "Check the remaining test failures before finishing.",
-                message_kind="custom",
-                custom_type="reviewer_follow_up",
-            )
-        return none()
-```
-
-This example selects a visible custom item attributed to `reviewer`. The
-default `continue_with(...)` form instead selects a visible user follow-up.
-Neither form inserts hidden system context.
-
-The public Python names and normalized event/action schemas remain at major 1;
-capabilities begin at major 1. “Extensions v2” is a roadmap name, not a schema
-major. The private host handshake negotiates all three majors. Legacy
-protocol-1 initialization remains valid; an explicitly incompatible major is
-reported and extensions fail open. Extensions must ignore optional fields they
-do not use and handle new event, capability, and state values with a fallback.
-
-The installed host adds its own `lib/tny` directory to `sys.path`, so runtime
-imports need no `pip install`. For editor/type-checker resolution, add that
-same directory to the editor's Python extra paths (or add this checkout's
-`python/` directory while developing tny itself). The package includes the
-PEP 561 `py.typed` marker.
-
-## Working examples
-
-[`examples/extensions/`](../examples/extensions/README.md) contains tested,
-copyable extensions for JSONL event logging, file-backed project context,
-stopping after a failed tool, a one-shot verification continuation, and a
-stateful directory package with relative imports. The examples are loaded and
-invoked through the real Python host by `tests/extensions/test_examples.py`.
-
-## Develop and check a plugin offline
-
-Start with a working example, inspect the API, and check the explicit file
-before installing it. From this checkout:
+## Quick start
 
 ```sh
-PYTHONPATH=python python3 -m tny_ext catalog
-PYTHONPATH=python python3 -m tny_ext catalog --json
-PYTHONPATH=python python3 -m tny_ext check examples/extensions/verify_once.py --json
-PYTHONPATH=python python3 -m tny_ext check examples/extensions/ci_guard --json
-make test-extensions-python
+tny tool new call_advisor          # writes .tny/extensions/tools/call_advisor.py
+tny call_advisor "hello" --times 2
 ```
-
-For an installed copy, replace `PYTHONPATH=python` with the install's
-`<prefix>/lib/tny` directory. No `pip install` is needed. `--help` is available
-at the top level and for each command.
-
-`catalog` derives event names, action kinds, Python class names, and field
-types from the shipped API itself. Its JSON separates the common event
-envelope from event-specific fields. It does **not** discover, import, or run
-any user extension. This is an API vocabulary, not a promise that every
-provider supports every action; use the capability matrix for that.
-
-**`check` executes the selected extension's imports and `setup(api)` with your
-full user permissions. It is not static analysis, a sandbox, or a security
-audit. Only check code you trust.** The checker itself does not start inference
-or call registered handlers, but arbitrary import/setup code can perform I/O,
-run programs, or block. It loads only paths you explicitly pass, in that order;
-it never scans a checkout or your global extensions directory. Checking a
-project file is not installation or permission for automatic project discovery.
-
-The checker uses the same loader as the persistent runtime host, including
-relative imports, async setup, and redirecting ordinary setup stdout to
-stderr. It reports setup/import failures and callbacks that cannot accept one
-positional event. Unknown event names are warnings, not errors, so future
-events remain usable. Zero handlers and uninspectable callback signatures
-also produce warnings. Handler return values, runtime effects, installation
-name collisions, and provider action support still need runtime tests.
-
-`--json` writes one report to stdout with `schema_version`, `ok`,
-`extensions`, and `diagnostics`. Diagnostics include severity, code, entry,
-message, and event/registration index when relevant. Exit status is `0` for a
-passing check (possibly with warnings), `1` for load/signature errors, and `2`
-for invalid command arguments or capability input. A failing entry does not
-suppress checks of later entries.
-
-By default setup receives an empty capability view, not simulated support.
-For plugins that register handlers conditionally, supply a saved snapshot:
-
-```sh
-tny doctor --json > /tmp/tny-doctor.json
-PYTHONPATH=python python3 -m tny_ext check ./reviewer.py \
-  --capabilities /tmp/tny-doctor.json --json
-```
-
-`--capabilities` accepts either full doctor JSON or its
-`extensions.capabilities` object. This only selects setup branches for a
-local check; it does not change tny's configuration or permissions. Check the
-runtime capability view again for actions during real turns.
-
-The same helpers are reusable from tests without a CLI subprocess:
 
 ```python
-from tny_ext.development import check_extensions, extension_catalog
+# ~/.tny/extensions/tools/call_advisor.py
+import tny
 
-report = check_extensions(["./reviewer.py"])
-assert report.ok, report.diagnostics
-catalog = extension_catalog()
+
+@tny.tool
+def call_advisor(question: str, depth: int = 1) -> str:
+    """Ask the advisor one question.
+
+    Args:
+        question: What to ask.
+        depth: How hard to think, 1 to 3.
+    """
+    return f"advice on {question}"
 ```
 
-`CheckReport`, `ExtensionSummary`, and `CheckDiagnostic` are frozen dataclasses.
-`report.to_dict()` returns a JSON-serializable report. `api.on(...)` preserves
-the decorated callback's type and identity in both direct and decorator forms.
-The Python authoring tools are native development helpers; they do not enable
-Python extensions in wasm, where the existing unsupported behavior is unchanged.
+The name, description and input schema come from the function name, the
+docstring and the signature. Pass them explicitly when you want something
+else: `@tny.tool(name="ask", description="...", input_schema={...})`.
 
-## Normalized event envelope
+## Where extensions live
 
-Every event has these common fields:
-
-| Field | Meaning |
+| Directory | Scope |
 | --- | --- |
-| `schema_version` | Normalized event major/minor version |
-| `event_id` | Opaque unique event ID |
-| `type` | Stable event discriminator |
-| `sequence` | Monotonic order within the tny session |
-| `provider` | Selected backend family |
-| `session_id` | Stable tny session identity |
-| `turn_id` | Provider/tny turn identity when applicable |
-| `timestamp_ms` | Monotonic event time relative to process start |
-| `payload` | Event-specific typed data |
+| `<repo>/.tny/extensions/tools/` | Project: shared with the repository |
+| `~/.tny/extensions/tools/` | Global: yours, in every workspace |
 
-The typed events are:
+A module is either a file `NAME.py` or a folder `NAME/` whose entry point is
+`NAME/__main__.py`. Names starting with `.` or `_` are ignored, so `_helpers.py`
+is a safe place for shared code. When both directories define the same name,
+the project module wins and `tny tool check` reports the shadowing.
 
-| Family | Events |
-| --- | --- |
-| Input/session | `user_prompt_submit`, `session_start`, `session_end` |
-| Agent request | `before_agent_start`, `agent_start`, `agent_end`, `agent_settled`, `turn_start`, `turn_end` |
-| Messages/stream | `message_start`, `message_update`, `message_end`, `text_delta`, `thinking`, `plan`, `status`, `steer_rejected` |
-| Tools | `pre_tool_use`, `tool_start`, `tool_progress`, `tool_end`, `post_tool_use`, `post_tool_failure`, `post_tool_batch` |
-| Interaction | `permission_request` |
-| Configuration | `pre_compact`, `post_compact`, `compact_failed`, `model_change`, `effort_change`, `instructions_change`, `workspace_change` |
-| Collaboration | `subagent_start`, `subagent_end` |
-| Provider/accounting | `provider_request`, `provider_response`, `usage`, `error` |
+## Names and groups
 
-Tool events carry the normalized tool name, correlation ID, bounded detail,
-and completion result available from the backend. `agent_end` carries observed
-assistant output, a normalized message view, and stop reason.
-`before_agent_start` always exposes the outgoing prompt; system prompt, image,
-and provider option fields are typed but may be empty where a host owns them.
-Unknown event names become `UnknownEvent` and preserve their complete payload.
+The module name is the top-level name. How the tools under it are named:
 
-Raw provider payloads never cross the Python boundary. Native provider events
-contain an allowlist only: fixed method/endpoint kind, status, wire kind, model
-step, and stable logical-request/attempt correlation. Headers, URLs, bodies,
-cookies, credentials, and provider error text are excluded.
+- A module with exactly one tool, and no groups, is called by its module name:
+  `call_advisor.py` with one tool gives `call_advisor`.
+- Otherwise each tool is `MODULE.TOOL`: `jira.py` with `whoami` and `search`
+  gives `jira.whoami` and `jira.search`.
+- `tny.group("projects")` nests a group, and so does a submodule of a folder
+  module: `jira/projects.py` imported from `jira/__main__.py` gives
+  `jira.projects.list`.
 
-## Candidate end and final settlement
+```python
+# jira/__main__.py
+import tny
+from . import projects  # tools in jira/projects.py nest under jira.projects
 
-One top-level user request can contain several provider turns:
 
-```text
-agent_start
-  text/tool/reasoning events ... turn_end
-  agent_end (candidate)
-    continue? -> visible user follow-up or custom extension context
-  text/tool/reasoning events ... turn_end
-  agent_end (candidate)
-agent_settled (exactly once)
+@tny.tool
+def whoami() -> str:
+    "The signed-in user."
+    ...
 ```
 
-`agent_end` is the only portable veto point after a provider turn ends. Its
-payload includes the current extension iteration count and configured maximum.
-`extensions.max_iterations` defaults to `0`, meaning unlimited. A positive
-value caps extension-requested continuations for one top-level user request.
-The cap is separate from the native tool/model step limit.
+```python
+# jira/projects.py
+import os
+import tny
 
-`agent_settled` is observational and fires exactly once. User cancellation,
-an exhausted positive continuation cap, or the absence of a continuation
-request settles the agent.
 
-## Actions
-
-Listeners return one of:
-
-| Constructor/result kind | Effect |
-| --- | --- |
-| `none()` / `none` | No change |
-| `context(content, custom_type, display)` / `context` | Add Pi-style custom context, visible by default |
-| `continue_with(content, message_kind, custom_type, display)` / `continue` | At `agent_end`, add a visible user or custom item and start another provider turn |
-| `stop(reason)` / `stop` | Request asynchronous cancellation; terminal events still drain |
-
-ADR 0028 freezes these additive control actions. Native OpenAI implements every
-listed control. Host adapters accept only the observation or real permission
-surface reported by their capability matrix; returning an unavailable or
-unsupported action produces a visible typed diagnostic and acts as `none`.
-
-| Constructor / kind | Contracted boundary | Capability |
-| --- | --- | --- |
-| `transform_prompt(prompt)` / `prompt_transform` | replace submitted text before persistence/send | `extensions.prompt.transform` |
-| `block_prompt(reason)` / `prompt_block` | reject submitted text before persistence/send | `extensions.prompt.block` |
-| `rewrite_tool(arguments)` / `tool_rewrite` | replace native tool arguments before validation/permission | `extensions.tool.pre.rewrite` |
-| `deny_tool(reason)` / `tool_deny` | prevent the exact native tool call from executing | `extensions.tool.pre.deny` |
-| `decide_permission(decision, reason)` / `permission_decision` | allow-once, deny, or abstain on a real request | matching `extensions.permission.*` key |
-| `annotate_tool(content, display)` / `tool_annotate` | add attributed post-tool metadata | `extensions.tool.post.annotate` |
-| `replace_tool_result(content, is_error)` / `tool_result_replace` | select next-model result while retaining original | `extensions.tool.post.replace` |
-
-All supported profiles run the native loop and expose its tool and permission capabilities. Legacy protocol adapters are removed.
-
-All matching listeners run before actions are folded. Context items retain
-listener order. `stop` wins over continuation. Multiple continuation
-requests create one next provider turn containing each extension's visible
-context in order.
-
-For the additive control plane, precedence is cancellation/`stop`, explicit
-prompt/tool/permission deny, last valid transform/rewrite/replacement,
-allow-once, ordered annotations/context, then abstain/none/failure. A folded
-deny remains denied after a handler timeout or host restart and can never be
-turned into an allow.
-
-`before_agent_start` accepts `context` or `stop`. Normal stream/tool/status
-events accept `context` (queued to the next portable turn boundary) or
-`stop`. Only `agent_end` accepts `continue`. Session lifecycle,
-`agent_start`, and `agent_settled` are observational. An unsupported result is
-reported and treated as `none`.
-
-Exceptions, timeouts, malformed results, and host failures are reported with
-the extension and event name, then fail open. They never interrupt the agent,
-and a failing listener does not suppress later listeners. If timeout or host
-death requires a replacement Python process, tny reloads the global
-extensions, reports that process-local extension state was reset, and resumes
-the remaining listener order. Returning an action on an event that does not
-accept it is a visible diagnostic and otherwise acts like `none`.
-
-Context cannot alter a provider request already on the wire. It is queued for
-the next model/turn boundary, even where one provider offers a richer steering
-operation.
-
-## Native tool transaction
-
-Native calls run serially in provider batch order, including provider-declared
-parallel calls. Each call has one stable provider/tool ID and this transaction:
-
-```text
-proposal
-  -> pre_tool_use (observe, last rewrite, sticky deny, or stop)
-  -> reparse + schema validation
-  -> permission classification on the effective name and every target
-  -> permission_request only if still unresolved
-  -> tool_start -> execute -> tool_end
-  -> post_tool_use | post_tool_failure
-  -> persist effective result
-post_tool_batch
-  -> save the complete batch
-  -> next provider request, or terminal
+@tny.tool(name="list")  # `list` is a builtin, so name it explicitly
+def list_projects(status: str = "open") -> list[dict]:
+    "List projects."
+    token = os.environ["JIRA_TOKEN"]  # secrets come from the environment
+    ...
 ```
 
-An extension `allow_once` is bound to that effective call only and never writes
-a session grant or persistent rule. `abstain` leaves the ordinary frontend
-decision path intact. A deny/stop never reaches built-in, shell, MCP, skill,
-subagent, or future custom-tool execution. Rename/copy permission identity
-includes both paths; selected MCP identity is `mcp:<server>/<tool>`.
+Native tools (`read_file`, `terminal`, ...) and built-in commands (`tny ask`,
+`tny status`, ...) always win over an extension of the same name.
 
-Rewritten arguments are placed in provider history only after schema validation.
-The top-level `extension_audit` ledger retains the immutable provider proposal,
-effective arguments, original result, effective next-model result, action
-attribution, error flags, and ordered annotations. It is never serialized as a
-provider message. Replacements and annotations are bounded to 64 KiB. JSON CLI
-tool summaries add original/effective status and a transformation marker only
-when a transaction was transformed, preserving the prior shape otherwise.
+## Schemas and validation
 
-Cancellation and extension stop use the same result/batch finalizer. Remaining
-provider calls receive correlated interrupted results and post/batch observation
-before the single interrupted terminal. CLI/TUI signal probes are checked after
-every bounded Python control call and before execution or a later POST.
+Supported annotations: `str`, `int`, `float`, `bool`, `None`, `list[...]`,
+`set[...]`, `tuple[...]`, `dict[str, ...]`, unions and `Optional`, `Literal`,
+`enum.Enum`, dataclasses, `TypedDict`, pydantic models, `datetime`, `date`,
+`uuid.UUID` and `pathlib.Path`. Parameters without a default are required.
 
-## Configuration
+Describe a parameter in the docstring (`Args:` in Google style, NumPy
+`Parameters`, or Sphinx `:param x:`), or inline:
 
-Global `settings.json` may contain:
+```python
+from typing import Annotated
+import tny
+
+
+@tny.tool
+def create(key: Annotated[str, tny.Param(description="Project key", examples=("TNY",))]) -> str:
+    ...
+```
+
+Arguments are validated before your function runs, and converted to the
+annotated types (an enum member, a dataclass instance, a pydantic model). When
+pydantic is importable, a pydantic model built from the signature does both
+the schema and the validation; otherwise a built-in mapper produces the same
+schema shape and checks types. A `**kwargs` parameter allows extra arguments.
+
+## Results and errors
+
+- A `str` return is the result. Any other value is returned as JSON, and a
+  `dict` is also MCP `structuredContent`.
+- With no return value, whatever the tool printed is the result. When a value
+  is returned, printed text goes to stderr instead.
+- `raise tny.ToolError("message")` returns `message` as a tool error.
+- Any other exception returns `Type: message (file.py:line)` as an error, with
+  the traceback on stderr.
+- `async def` tools are run to completion.
+- `@tny.tool(timeout=600)` raises the time limit for one tool (seconds). The
+  default is 300 seconds, or `TNY_TOOL_TIMEOUT_MS`.
+
+In the CLI, stderr is your terminal. Inside agent turns it is appended to
+`~/.tny/logs/tool-extensions.log`.
+
+## Exposing an existing MCP server
+
+```python
+# github.py — the server's tools appear as github.create_issue, ...
+import os
+import tny
+
+tny.proxy(
+    ["github-mcp-server", "stdio"],
+    env={"GITHUB_TOKEN": os.environ["GITHUB_TOKEN"]},
+    exclude=["delete_repository"],
+)
+```
+
+`tny.proxy(command=[...])` starts a stdio server; `tny.proxy(url="https://...",
+headers={...})` uses Streamable HTTP. `include=` and `exclude=` filter remote
+tool names and `rename={"remote": "local"}` renames them. Without `name=`, the
+tools sit directly under the module; `tny.proxy(..., name="gh")` nests them
+one level deeper, and a module can mix proxies with its own `@tny.tool`s. The
+server is contacted when the catalog is rebuilt and on calls; keep secrets in
+the environment, not in the file.
+
+## The command line
+
+```sh
+tny jira --help                           # the module's commands
+tny jira projects list --help             # one tool's options, from its schema
+tny jira projects list --status done --tag a --tag b --archived
+tny jira projects create TNY              # required parameters can be positional
+echo '{"status":"done"}' | tny jira projects list -   # JSON object on stdin
+tny jira whoami --json                    # {"kind":"tool","name":...,"ok":...,"result":...}
+```
+
+Options map to parameters: `--max-results` sets `max_results`; booleans take
+`--flag` / `--no-flag`; list parameters repeat (`--tag a --tag b`) or take a
+JSON array; object parameters take JSON. Flags override fields read from
+stdin. Exit codes match `tny tool call`: 0 ok, 1 usage error, 2 tool error,
+130 interrupted.
+
+Other commands:
+
+- `tny tool list` and `tny tool describe NAME` include extension tools.
+- `tny tool check [--json]` reloads every extension and prints its tools,
+  warnings and import errors with tracebacks; it exits 1 when a module fails.
+- `tny tool new NAME [--global]` writes a starter module.
+- `tny mcp serve [--all]` serves the extension tools over stdio MCP, for
+  example to another agent harness. `--all` adds tny's native tools.
+
+## Code mode
+
+Agents see extension tools in the nested catalog of `run_code`:
+
+```python
+print(tools.search("jira"))                       # names and descriptions
+print(tools.describe("jira.projects.list"))       # the full schema
+print(tools.jira.projects.list(status="open"))    # attribute form, keyword arguments
+print(tools.call("call_advisor", json.dumps({"question": "why?"})))
+```
+
+Every call goes through the same permission engine, result bounds and
+cancellation as native tools.
+
+## Permissions
+
+Extension tools use the `tool` permission category, with the dotted name
+written as a path. The default mode is yolo; in `ask` or `auto` mode, rules
+apply and the last matching rule wins:
 
 ```json
-{
-  "extensions": {
-    "enabled": true,
-    "max_iterations": 0,
-    "timeout_ms": 5000
-  }
-}
+{"permission": {"tool": {"jira/*": "allow", "jira/projects/delete": "deny"}}}
 ```
 
-`max_iterations: 0` is unlimited. A positive value caps extension follow-up
-turns for one top-level user request. `timeout_ms` applies to each handler.
-The CLI overrides are `--max-extension-iterations N` and `--no-extensions`;
-`TNY_EXTENSIONS=off` also disables loading. Repo `.tny.json` has no authority
-over global extensions.
+A session grant ("don't ask again") covers one tool, keyed
+`tool:jira/projects/list`.
 
-## Provider behavior
+## Turning extensions off
 
-| Provider | Turn completion | Continue action | Stop confirmation | Important limit |
-| --- | --- | --- | --- | --- |
-| Native Responses/Chat (openai, codex, grok and configured profiles) | tny finishes its tool/model loop | another native model iteration with visible context | tny drains/synthesizes terminal | only backend where tny owns tools |
-| OpenRouter/generic compatible | terminal SSE/provider close | next HTTP model iteration | abort may not stop every upstream | mid-stream errors may still use HTTP 200 |
-
-Provider terminal events remain true. `continue` creates a later turn; it
-does not rewrite or reopen the completed provider turn. Session-end hooks are
-tny lifecycle events because providers do not share a session-close event.
-
-For the complete 29-key current matrix, run `tny doctor --json` or see
-[extension-hook-parity.md](features/extension-hook-parity.md). `unsupported`
-means the selected provider cannot provide the semantic control;
-`unavailable` means the frozen contract is not implemented or enabled in this
-runtime. An observation capability can be supported while its rewrite/deny or
-replace companions are unsupported, which is the precise meaning of
-host-owned observational-only behavior.
-
-After #55, native OpenAI supports every key except the two project-local keys,
-which remain unavailable for #59. All providers share prompt/session/turn/
-message/model/effort/instruction/workspace observation and control at tny-owned
-boundaries. Provider-owned tool, permission, compaction, subagent, and redacted
-wire cells remain unavailable or unsupported until their adapter lane proves a
-real protocol surface.
-
-## libtny and wasm
-
-libtny ABI 0 never discovers or executes `~/.tny/extensions`; a public
-authority opt-in is deferred. CLI and TUI use hooks through
-the shared private runtime engine.
-
-Python extensions are unavailable in wasm. Explicitly requesting them returns
-an unsupported error; normal wasm operation does not start or emulate a Python
-host.
-
-## Verification matrix
-
-| Lane | Required proof |
+| Switch | Effect |
 | --- | --- |
-| Discovery | exact two entry forms, lexical order, duplicate-name collision, no project loading |
-| Interpreter | zero spawn with no extensions; missing interpreter reports once and agent succeeds |
-| Host lifecycle | one host across turns/sessions; clean shutdown; protocol/stdout isolation |
-| Event schema | fixture for every v1 family, stable IDs/sequence, unknown optional fields tolerated |
-| Ordering | extension order, listener order, context fold order, stop precedence |
-| Failure isolation | exception, timeout, invalid action, broken pipe, and host exit all fail open; later listeners run |
-| Continuation | visible custom attribution, explicit user follow-up, multiple messages, positive cap, `0` unlimited |
-| Settlement | repeated candidate `agent_end`, exactly one final `agent_settled`, user cancel wins |
-| Native provider | prompt/tool rewrite and deny, permission allow/deny/abstain, post replacement/annotation, deterministic parallel batch, cancellation, recovery/resume, redacted request attempts, and Responses/Chat regressions |
-| Codex | item lifecycle, reasoning/tool deltas, usage, error-before-completed, interrupt |
-| OpenRouter | comments, reasoning details, final usage, HTTP error and HTTP-200 mid-stream error |
-| libtny | ABI 0 stays off, owner-thread behavior unchanged, no surprise stdout/stderr |
-| wasm | default agent parity unchanged; explicit extension request fails cleanly |
-| Security | isolated fixture demonstrates environment/file/process authority; warning present in help/docs |
-| Regression | unit, integration, mutation, size, startup, and wasm suites remain green |
+| `--no-tool-extensions`, `TNY_TOOL_EXTENSIONS=0` | No extensions at all |
+| `--no-project-tools`, `TNY_TOOL_EXTENSIONS=global` | Only `~/.tny/extensions/tools/` |
+| settings `{"extensions":{"tools":{"enabled":false}}}` | No extensions at all |
+| settings `{"extensions":{"tools":{"project":false}}}` | Only global extensions |
+
+Extensions are also off in library (`libtny`) embeds, during prompt
+optimisation, and on wasm, where no tool host can run.
+
+## How it works
+
+The `tny` package is built into the binary. The first time a process needs
+an extension tool, it starts one tool host, `tny --tool-host serve`, which
+imports the modules in the embedded CPython 3.14 and answers MCP requests on a
+pipe. The host lives as long as its tny process. A timed-out or cancelled call
+kills the host and the next call starts a fresh one.
+
+The catalog is cached in `~/.tny/cache/tool-extensions/`, keyed by a
+fingerprint of every module file (path, size, mtime, inode) and the tny
+version, so listing tools does not start Python until a file changes.
+Proxy listings are re-read only when files change or on `tny tool check`;
+catalogs with proxy failures are never cached.
+
+The decorators only attach metadata, so a module still imports and its
+functions run as plain Python outside tny. To unit test an extension, put
+tny's `python/` directory on `sys.path` (it holds the same `tny` package that
+is built into the binary) and call the functions directly.

@@ -56,12 +56,7 @@ int cmd_status_ephemeral(tny_ctx *ctx, const cli_globals *g, int argc, char **ar
         } else {
             buf_appends(&b, "null");
         }
-        buf_appendf(&b,
-                    ",\"sessions\":%d,\"agent_step_limit\":%d,"
-                    "\"extensions_enabled\":%s,"
-                    "\"extension_iteration_limit\":%d}\n",
-                    n, ctx->max_steps, ctx->extensions_enabled ? "true" : "false",
-                    ctx->max_extension_iterations);
+        buf_appendf(&b, ",\"sessions\":%d,\"agent_step_limit\":%d}\n", n, ctx->max_steps);
         fwrite(b.data, 1, b.len, stdout);
         buf_free(&b);
     } else {
@@ -86,9 +81,6 @@ int cmd_status_ephemeral(tny_ctx *ctx, const cli_globals *g, int argc, char **ar
         else printf("task:       none\n");
         for (int i = 0; i < ctx->n_extra_dirs; i++) printf("extra dir:  %s\n", ctx->extra_dirs[i]);
         printf("sessions:   %d saved (not loaded by this process)\n", n);
-        printf("extensions: %s (continuations: ", ctx->extensions_enabled ? "enabled" : "disabled");
-        if (ctx->max_extension_iterations > 0) printf("max %d)\n", ctx->max_extension_iterations);
-        else printf("unlimited)\n");
     }
     return 0;
 }

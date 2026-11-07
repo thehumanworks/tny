@@ -1,7 +1,6 @@
 /* args.c — leading global flags (docs/cli.md). */
 #include "cli/cli.h"
 #include "core/backend.h"
-#include "core/extensions.h"
 #include "core/jobs.h"
 #include "core/openai_auth.h"
 #include "core/ssh.h"
@@ -81,23 +80,9 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         }
         ctx->max_steps = v; /* explicit flag beats the .tny.json "steps" cap */
     }
-    if (g->max_extension_iterations) {
-        int v = tny_parse_max_steps(g->max_extension_iterations);
-        if (v < 0) {
-            fprintf(stderr, "tny: --max-extension-iterations takes a positive "
-                            "integer or 'unlimited'\nExample: tny "
-                            "--max-extension-iterations 8 ask \"hi\"\n");
-            tny_ctx_free(ctx);
-            return NULL;
-        }
-        ctx->max_extension_iterations = v;
-    }
     if (g->no_self_improve) ctx->no_self_improve = true;
-    if (g->no_extensions) {
-        ctx->extensions_enabled = false;
-        tny_extensions_free(ctx->extensions);
-        ctx->extensions = NULL;
-    }
+    if (g->no_tool_ext) ctx->tool_extensions_disabled = true;
+    if (g->no_project_tools) ctx->project_tools_disabled = true;
     if (g->perm_mode) {
         tny_perm_mode requested;
         char nested_error[256];

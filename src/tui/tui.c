@@ -165,7 +165,6 @@ void tui_drop_backend(tui *t) {
      * restart — dropping now would kill the live turn (docs/adr/0053). */
     tui_runner_invalidate(t);
     if (!t->engine) return;
-    tny_engine_preserve_session_on_free(t->engine);
     tny_engine_free(t->engine);
     t->engine = NULL;
 }
@@ -506,19 +505,8 @@ void tui_handle_backend_event(tui *t, const tny_backend_event *ev) {
         tui_note(t, "%s", line);
         if (t->trace) tui_sys(t, line);
         break;
-    case TNY_EV_CUSTOM_MESSAGE:
-        tui_bol(t);
-        tui_linef(t, "%s◆ %s%s %.*s", tui_attr(t, "\x1b[2m"),
-                  ev->message_type ? ev->message_type : "extension", tui_attr(t, "\x1b[0m"),
-                  (int)ev->text_len, ev->text);
-        t->gap = 1;
-        break;
-    case TNY_EV_USER_MESSAGE:
-        tui_bol(t);
-        tui_linef(t, "%s› %.*s%s %sextension%s", tui_attr(t, "\x1b[1m"), (int)ev->text_len,
-                  ev->text, tui_attr(t, "\x1b[0m"), tui_attr(t, "\x1b[2m"), tui_attr(t, "\x1b[0m"));
-        t->gap = 1;
-        break;
+    case TNY_EV_CUSTOM_MESSAGE: /* reserved public kinds; nothing emits them */
+    case TNY_EV_USER_MESSAGE: break;
     case TNY_EV_ERROR:
         snprintf(line, sizeof line, "%.*s", (int)ev->text_len, ev->text);
         tui_err(t, line);
@@ -600,7 +588,6 @@ void tui_new_session(tui *t, bool clear_screen) {
         return;
     }
     char *previous = t->session && t->session->id ? xstrdup(t->session->id) : NULL;
-    if (t->engine) tny_engine_end_session(t->engine, clear_screen ? "clear" : "new");
     bool had_runner = t->rc != NULL;
     tui_drop_backend(t);
     if (t->session) {
@@ -615,8 +602,7 @@ void tui_new_session(tui *t, bool clear_screen) {
     free(t->ctx->retrieval_state);
     t->ctx->retrieval_state = NULL;
     t->session = session_new(t->ctx);
-    if (t->session)
-        session_set_extension_start(t->session, clear_screen ? "clear" : "new", previous);
+    if (t->session) session_set_start(t->session, clear_screen ? "clear" : "new", previous);
     free(previous);
     tui_runner_defer_rebind(t);
     t->in_tok = t->out_tok = 0;
@@ -646,7 +632,6 @@ static bool ensure_backend(tui *t) {
     tny_engine_set_cancel_probe(engine, tui_cancel_probe, t);
     tny_backend *bk = tny_backend_create((tny_backend_id)t->ctx->backend, t->ctx);
     if (!bk || tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_FRESH, err, sizeof err) != 0) {
-        tny_engine_preserve_session_on_free(engine);
         tny_engine_free(engine);
         tui_err(t, err);
         return false;
@@ -1111,7 +1096,6 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     t.turn_active = false;     /* cancellation requested above; now end the runner */
     tui_runner_invalidate(&t); /* runner mode: sends `end` — the runner cancels
                                 * any live turn, finalizes, saves, and exits */
-    if (t.engine) tny_engine_end_session(t.engine, "exit");
     tui_drop_backend(&t);
     if (t.session) {
         if (!had_runner && !t.background_view && !t.session_readonly && t.session->lock_fd >= 0)

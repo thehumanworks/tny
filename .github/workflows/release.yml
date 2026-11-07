@@ -148,10 +148,9 @@ jobs:
           ./dist/tny-${{ matrix.triple }} ask --help >/dev/null
           # Ship a tar.gz with the binary named plain `tny` so mise (and
           # humans) get a clean bin after extraction; exec bit survives tar.
-          mkdir -p dist/stage/lib/tny/tny_ext dist/stage/share/tny
+          mkdir -p dist/stage/lib/tny dist/stage/share/tny
           cp dist/tny-${{ matrix.triple }} dist/stage/tny
-          cp python/tny_extension_host.py python/tny_improve.py python/tny_improve_propose.py dist/stage/lib/tny/
-          cp python/tny_ext/*.py python/tny_ext/py.typed dist/stage/lib/tny/tny_ext/
+          cp python/tny_improve.py python/tny_improve_propose.py dist/stage/lib/tny/
           cp shell/tny-workflows.sh dist/stage/share/tny/
           # The executable embeds CPython and its pinned libraries (ADR 0179, 0180).
           sh scripts/install_licenses.sh dist/stage/share/doc/tny
@@ -382,10 +381,9 @@ jobs:
               && make size-check STATIC=1 \
               && make pack TRIPLE='"${{ matrix.triple }}"' STATIC=1 \
               && ./dist/tny-'"${{ matrix.triple }}"' --version \
-              && mkdir -p dist/stage/lib/tny/tny_ext dist/stage/share/tny \
+              && mkdir -p dist/stage/lib/tny dist/stage/share/tny \
               && cp dist/tny-'"${{ matrix.triple }}"' dist/stage/tny \
-              && cp python/tny_extension_host.py python/tny_improve.py python/tny_improve_propose.py dist/stage/lib/tny/ \
-              && cp python/tny_ext/*.py python/tny_ext/py.typed dist/stage/lib/tny/tny_ext/ \
+              && cp python/tny_improve.py python/tny_improve_propose.py dist/stage/lib/tny/ \
               && cp shell/tny-workflows.sh dist/stage/share/tny/ \
               && sh scripts/install_licenses.sh dist/stage/share/doc/tny \
               && tar -C dist/stage -czf dist/tny-'"${{ matrix.triple }}"'.tar.gz tny lib share'

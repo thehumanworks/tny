@@ -26,15 +26,15 @@ typedef struct {
     char *swarm_source;            /* absolute selection provenance */
     char swarm_definition_digest[65];
     int swarm_participants;
-    const char *task;                     /* --task NAME */
-    const char *perm_mode;                /* --permission-mode | --yolo | --auto */
-    const char *max_steps;                /* --max-steps N|unlimited (0 = no cap) */
-    const char *max_extension_iterations; /* 0/unlimited = no cap */
-    bool no_extensions;                   /* --no-extensions */
-    bool no_self_improve;                 /* --no-self-improve */
-    bool ultrafast;                       /* --ultrafast (OpenAI Responses only) */
-    bool fast;                            /* --fast (providers with TNY_CAP_FAST) */
-    const char **add_dirs;                /* --add-dir, repeatable */
+    const char *task;      /* --task NAME */
+    const char *perm_mode; /* --permission-mode | --yolo | --auto */
+    const char *max_steps; /* --max-steps N|unlimited (0 = no cap) */
+    bool no_self_improve;  /* --no-self-improve */
+    bool no_tool_ext;      /* --no-tool-extensions */
+    bool no_project_tools; /* --no-project-tools */
+    bool ultrafast;        /* --ultrafast (OpenAI Responses only) */
+    bool fast;             /* --fast (providers with TNY_CAP_FAST) */
+    const char **add_dirs; /* --add-dir, repeatable */
     int n_add_dirs;
     bool json;              /* --json */
     int tui_mode;           /* 0=settings, 1=inline, 2=fullscreen */
@@ -45,7 +45,7 @@ typedef struct {
     bool ephemeral;         /* --ephemeral | --no-save */
     bool agents_dashboard;  /* tny agents entry; no prewarm */
     const char *agents_run; /* --run ID: job-backed DAG task tree, status only */
-    bool standalone_web;    /* web service entry; no conversation-provider resolution */
+    bool standalone_web;    /* web/tool service entry; no conversation-provider resolution */
     bool resume_picker;     /* -r */
     bool resume_last;       /* -c / --continue */
     const char *resume;     /* --resume value */
@@ -125,6 +125,19 @@ int cmd_login(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_logout(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_agents(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_web(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
+/* `tny tool list|describe|call`, `tny memory`, `tny skill`: one nested tool
+ * without a provider or turn; `command` selects the entry (docs/cli.md, ADR 0217). */
+int cmd_tool(tny_ctx *ctx, const cli_globals *g, const char *command, int argc, char **argv);
+/* One tool verb (list|describe|call) with a fresh permission engine and
+ * SIGINT/SIGTERM cancellation; exit codes as in docs/cli.md. */
+int cmd_tool_session(tny_ctx *ctx, const char *verb, const char *name, const char *args, bool json);
+/* Python tool extensions (cmd_tool_ext.c, ADR 0218). */
+int cmd_tool_check(tny_ctx *ctx, bool json);
+int cmd_tool_new(tny_ctx *ctx, int argc, char **argv);
+/* `tny MODULE [GROUP...] TOOL [--flag value...]`; 127 when no extension
+ * module is called `module` (the caller reports an unknown command). */
+int cmd_tool_ext(tny_ctx *ctx, const cli_globals *g, const char *module, int argc, char **argv);
+int cmd_mcp_serve(tny_ctx *ctx, int argc, char **argv);
 int cmd_tui(tny_ctx *ctx, const cli_globals *g);
 /* Interactive shell starting on an existing session (NULL = picker/new). */
 int cmd_tui_resume(tny_ctx *ctx, const cli_globals *g, const char *session_id);

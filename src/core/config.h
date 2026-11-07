@@ -13,7 +13,6 @@
 #define TNY_MCP_IMPORT_GROK   (1u << 2)
 #define TNY_MCP_IMPORT_CURSOR (1u << 3)
 
-struct tny_extensions;
 struct tny_host_services_state;
 struct custom_tool_registry;
 
@@ -75,14 +74,6 @@ typedef struct tny_ctx {
     bool prompt_optimisation; /* internal read-only draft service, not a user tool profile */
     struct tny_host_services_state *host_services; /* borrowed from lib runtime */
     struct custom_tool_registry *custom_tools;     /* borrowed from lib runtime */
-
-    /* optional Python extensions (~/.tny/extensions). CLI contexts enable
-     * discovery by default; explicit/libtny contexts keep it off unless a
-     * later public ABI opts in. A zero continuation cap means unlimited. */
-    bool extensions_enabled;
-    int max_extension_iterations;
-    int extension_timeout_ms;
-    struct tny_extensions *extensions; /* process-owned persistent host */
 
     /* openai-compatible provider */
     char *base_url;
@@ -184,7 +175,12 @@ typedef struct tny_ctx {
     int n_instruction_paths;
     char instructions_digest[17];
     bool instructions_snapshot_ready;
-    bool mcp_disabled;            /* explicit embedding disables ambient MCP */
+    bool mcp_disabled; /* explicit embedding disables ambient MCP */
+    /* Python tool extensions (ADR 0218): settings extensions.tools.enabled /
+     * .project, TNY_TOOL_EXTENSIONS=0|global, --no-tool-extensions and
+     * --no-project-tools turn them off. */
+    bool tool_extensions_disabled;
+    bool project_tools_disabled;
     unsigned mcp_import_mask;     /* explicit settings mcp.import_from opt-ins */
     unsigned mcp_import_order[4]; /* source bits, in user-authored order */
     int n_mcp_import_sources;

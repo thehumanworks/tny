@@ -21,3 +21,12 @@ char *tny_code_python_run(const char *code, const tny_code_python_host *host) {
 unsigned long long tny_code_python_heap_bytes(void) { return 0; }
 
 void tny_code_python_fini(void) {}
+
+int tny_code_python_host_main(const tny_python_module *modules, size_t count, int argc,
+                              char **argv) {
+    (void)modules;
+    (void)count;
+    (void)argc;
+    (void)argv;
+    return 2;
+}

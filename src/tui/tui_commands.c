@@ -551,13 +551,12 @@ static void cmd_resume_id(tui *t, const char *id) {
         return;
     }
     char *previous = t->session && t->session->id ? xstrdup(t->session->id) : NULL;
-    if (t->engine) tny_engine_end_session(t->engine, "resume");
     tui_drop_backend(t); /* old engine still owns the old session until here */
     if (t->session) session_close(t->session);
     tui_tools_view_close(t);
     tui_tools_free(t);
     t->session = s;
-    session_set_extension_start(s, "resume", previous);
+    session_set_start(s, "resume", previous);
     free(previous);
     int64_t in_tok = 0, out_tok = 0;
     session_get_usage(s, &in_tok, &out_tok);
@@ -793,8 +792,8 @@ void tui_command(tui *t, const char *line) {
         else if (t->rc && t->turn_active) tui_sys(t, "finish the turn first");
         else {
             if (t->rc) tui_runner_invalidate(t); /* same stale-copy rule as /rename */
-            int rc = t->engine ? tny_engine_compact(t->engine, true, "manual")
-                               : session_compact(t->session, true);
+            int rc =
+                t->engine ? tny_engine_compact(t->engine, true) : session_compact(t->session, true);
             if (!t->engine && rc >= 0) session_save(t->session);
             if (tui_runner_mode(t) && !t->engine) tui_runner_defer_rebind(t);
             if (rc > 0) tui_sys(t, "transcript compacted");
@@ -806,14 +805,11 @@ void tui_command(tui *t, const char *line) {
     } else if (strcmp(c, "model") == 0) {
         if (arg && *arg) {
             tui_runner_invalidate(t);
-            char *previous = t->ctx->model ? xstrdup(t->ctx->model) : NULL;
             free(t->ctx->model);
             t->ctx->model = xstrdup(arg);
             t->ctx->model_from_flag = false;   /* explicit choice, persist it */
             tny_settings_remember_use(t->ctx); /* saved per provider */
-            tny_engine_model_changed(t->engine, previous, t->ctx->model, "command");
-            free(previous);
-            drop_backend(t); /* rebind so the new model reaches the host */
+            drop_backend(t);                   /* rebind so the new model reaches the host */
             tui_sys(t, "model set");
         } else {
             tui_linef(t, "  model: %s", t->ctx->model ? t->ctx->model : "default");
@@ -857,9 +853,6 @@ void tui_command(tui *t, const char *line) {
                 if (t->turn_active) tui_sys(t, "finish the turn first");
                 else {
                     tui_runner_invalidate(t);
-                    char *previous_model = t->ctx->model ? xstrdup(t->ctx->model) : NULL;
-                    char *previous_effort =
-                        t->ctx->reasoning_effort ? xstrdup(t->ctx->reasoning_effort) : NULL;
                     /* full resolve: also swaps in the provider's saved model */
                     char *resolve_args[] = {arg};
                     int resolved = run_cli(t, resolve_provider, 1, resolve_args);
@@ -868,16 +861,10 @@ void tui_command(tui *t, const char *line) {
                                    "diagnostic)");
                         if (!t->engine) tui_runner_defer_rebind(t);
                     } else {
-                        tny_engine_model_changed(t->engine, previous_model, t->ctx->model,
-                                                 "provider");
-                        tny_engine_effort_changed(t->engine, previous_effort,
-                                                  t->ctx->reasoning_effort, "provider");
                         drop_backend(t);
                         tny_settings_remember_use(t->ctx);
                         tui_sys(t, "provider switched");
                     }
-                    free(previous_model);
-                    free(previous_effort);
                 }
             }
         }
@@ -928,7 +915,6 @@ void tui_command(tui *t, const char *line) {
                        "— /models lists provider levels");
         } else {
             tui_runner_invalidate(t);
-            char *previous = t->ctx->reasoning_effort ? xstrdup(t->ctx->reasoning_effort) : NULL;
             free(t->ctx->reasoning_effort);
             t->ctx->reasoning_effort = strcmp(arg, "default") == 0 ? NULL : xstrdup(arg);
             /* /provider re-resolves the backend; an explicit /effort
@@ -936,8 +922,6 @@ void tui_command(tui *t, const char *line) {
              * settings.json default (docs/adr/0015) */
             t->ctx->effort_explicit = true;
             t->ctx->effort_from_settings = false;
-            tny_engine_effort_changed(t->engine, previous, t->ctx->reasoning_effort, "command");
-            free(previous);
             if (!t->engine) tui_runner_defer_rebind(t);
             if (!t->ctx->reasoning_effort) tui_linef(t, "  reasoning effort: provider default");
             else
@@ -1003,8 +987,8 @@ void tui_command(tui *t, const char *line) {
             }
         } else if (t->turn_active ||
                    (t->session && (session_turns(t->session) > 0 ||
-                                   (t->session->extension_start_reason &&
-                                    strcmp(t->session->extension_start_reason, "resume") == 0)))) {
+                                   (t->session->start_reason &&
+                                    strcmp(t->session->start_reason, "resume") == 0)))) {
             tui_err(t, "task selection is session-scoped; start /new before changing it");
         } else if (strcmp(arg, "clear") == 0) {
             task_selection_state previous;
@@ -1084,11 +1068,7 @@ void tui_command(tui *t, const char *line) {
         char *av[4];
         int ac = arg ? tokenize(arg, av, 4) : 0;
         if (ac) tui_runner_invalidate(t);
-        int rc = run_cli(t, cmd_workspace, ac, av);
-        if (rc == 0 && ac) {
-            const char *path = ac > 1 ? av[1] : NULL;
-            tny_engine_workspace_changed(t->engine, av[0], path);
-        }
+        run_cli(t, cmd_workspace, ac, av);
         tui_files_free(t);
         if (ac && !t->engine) tui_runner_defer_rebind(t);
     } else if (strcmp(c, "setup") == 0) {

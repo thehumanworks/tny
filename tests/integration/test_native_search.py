@@ -188,7 +188,6 @@ def run_case(mode, unsolicited=False):
             result = subprocess.run(
                 [
                     TNY,
-                    "--no-extensions",
                     "--provider",
                     "openai" if mode == "ordinary" else "codex",
                     "ask",

@@ -7,11 +7,11 @@ turn can reach is asserted as an exact string: INVALID_ARGUMENT,
 UNSUPPORTED_ACTION, UNSUPPORTED_CONTEXT (ephemeral parent, shell tool
 profile), SESSION_NOT_FOUND, SESSION_BUSY (a live child and the parent's own
 id), CHILD_FAILED and CANCELLED. Validation and unsupported-action rejections
-start no child and emit no subagent lifecycle event; missing and busy ids start
+start no child; missing and busy ids start
 no child and create or change no session. A child whose
 provider echoes the dummy key and a secret-bearing gateway URL fails without
-those sentinels reaching the tool result, the parent's session files,
-extension events or any child argv.
+those sentinels reaching the tool result, the parent's session files or any
+child argv.
 
 AUTH_UNAVAILABLE (the parent itself could not have connected), LAUNCH_FAILED
 (the child is this very executable) and INVALID_RESPONSE (a real tny child
@@ -116,36 +116,6 @@ def e_cancelled(sid):
     )
 
 
-EXTENSION = (
-    "import json, os\n"
-    "from tny_ext import (SubagentStartEvent, SubagentEndEvent, PostToolUseEvent,\n"
-    "                     PostToolFailureEvent)\n"
-    "FIELDS = ('subagent_id', 'action', 'outcome', 'ok', 'tool_name', 'result')\n"
-    "def setup(api):\n"
-    "    def record(event):\n"
-    "        path = os.environ.get('TNY_TEST_SUBAGENT_LOG')\n"
-    "        if not path: return\n"
-    "        row = {'type': event.type}\n"
-    "        row.update({f: getattr(event, f) for f in FIELDS if hasattr(event, f)})\n"
-    "        with open(path, 'a', encoding='utf-8') as out:\n"
-    "            out.write(json.dumps(row) + '\\n')\n"
-    "    for kind in (SubagentStartEvent, SubagentEndEvent, PostToolUseEvent,\n"
-    "                 PostToolFailureEvent):\n"
-    "        api.on(kind, record)\n"
-)
-
-
-def events(path):
-    if not os.path.exists(path):
-        return []
-    with open(path, encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
-
-
-def subagent_events(path):
-    return [e for e in events(path) if e["type"] in ("subagent_start", "subagent_end")]
-
-
 def tree_text(root):
     """Every byte under root, for sentinel scans of session records/logs."""
     chunks = []
@@ -167,11 +137,10 @@ def parent_session(home, scenario, ids):
     raise Fail(f"{scenario}: parent session not found among {ids}")
 
 
-def diag_rejections(provider, home, workspace, log):
+def diag_rejections(provider, home, workspace):
     """Invalid, unsupported and missing-id calls: exact strings, no child, no
-    new or changed session; only the runtime missing-id message is framed by
-    the usual lifecycle events."""
-    env = fx.base_env(home, provider, TNY_TEST_SUBAGENT_LOG=log)
+    new or changed session."""
+    env = fx.base_env(home, provider)
     s = "rejections"
     calls = [
         (
@@ -209,21 +178,6 @@ def diag_rejections(provider, home, workspace, log):
         check(got == want, f"{args}: {got!r} != {want!r}")
     child = [r for r in provider.requests if r.get("role") == "child"]
     check(not child, f"a rejected call reached a child: {child}")
-    # Validation/unsupported rejections happen before the tool starts, so no
-    # lifecycle event; a message to a missing id is a runtime answer inside
-    # the usual correlated start/end pair.
-    lifecycle = [
-        (e["type"], e["subagent_id"], e["action"], e.get("ok"))
-        for e in subagent_events(log)
-    ]
-    check(
-        lifecycle
-        == [
-            ("subagent_start", MISSING_ID, "message", None),
-            ("subagent_end", MISSING_ID, "message", False),
-        ],
-        lifecycle,
-    )
     added = set(fx.session_dirs(home)) - before
     check(len(added) == 1 and MISSING_ID not in added, f"sessions created: {added}")
 
@@ -384,7 +338,7 @@ def diag_busy(provider, home, workspace):
     check(not provider.child_requests("self"), "self message started a child")
 
 
-def diag_secret_echo(provider, home, workspace, log):
+def diag_secret_echo(provider, home, workspace):
     """The child's provider echoes the key and a secret-bearing gateway URL;
     only the stable CHILD_FAILED line reaches the parent."""
     env = fx.base_env(
@@ -393,7 +347,6 @@ def diag_secret_echo(provider, home, workspace, log):
         OPENAI_API_KEY=SECRET_KEY,
         OPENAI_BASE_URL=provider.url(SECRET_PATH),
         TNY_DEBUG_PROVIDER_ERRORS="1",
-        TNY_TEST_SUBAGENT_LOG=log,
     )
     s = "echo"
     provider.plan(
@@ -425,7 +378,6 @@ def diag_secret_echo(provider, home, workspace, log):
         "tool results": "\n".join(provider.results[s]),
         "parent stdout/stderr": json.dumps(payload),
         "parent session files": tree_text(fx.session_dirs(home)[parent]),
-        "extension events": json.dumps(events(log)),
         "child argv": json.dumps(
             [r["argv"] for r in provider.requests if r.get("tag") in ("fail1", "fail2")]
         ),
@@ -433,22 +385,6 @@ def diag_secret_echo(provider, home, workspace, log):
     for where, text in surfaces.items():
         for sentinel in SENTINELS:
             check(sentinel not in text, f"{sentinel!r} leaked into {where}")
-    lifecycle = [
-        (e["type"], e["action"], e.get("outcome"), e.get("ok"))
-        for e in subagent_events(log)
-    ]
-    check(
-        lifecycle
-        == [
-            ("subagent_start", "create", None, None),
-            ("subagent_end", "create", "error", False),
-            ("subagent_start", "message", None, None),
-            ("subagent_end", "message", "error", False),
-        ],
-        lifecycle,
-    )
-    check(subagent_events(log)[2]["subagent_id"] == sid, subagent_events(log))
-
     # Without the opt-in, the child's own records hold no sentinel either.
     env.pop("TNY_DEBUG_PROVIDER_ERRORS")
     s = "echo-default"
@@ -628,19 +564,11 @@ def run():
     try:
         with tempfile.TemporaryDirectory(prefix="tny-subagent-diagnostics-") as tmp:
             home, workspace = fx.make_home(tmp)
-            extensions = os.path.join(home, ".tny", "extensions")
-            os.makedirs(extensions)
-            with open(
-                os.path.join(extensions, "subagent_log.py"), "w", encoding="utf-8"
-            ) as f:
-                f.write(EXTENSION)
-            diag_rejections(
-                provider, home, workspace, os.path.join(tmp, "rejections.jsonl")
-            )
+            diag_rejections(provider, home, workspace)
             diag_selectors(provider, home, workspace)
             diag_contexts(provider, tmp)
             diag_busy(provider, home, workspace)
-            diag_secret_echo(provider, home, workspace, os.path.join(tmp, "echo.jsonl"))
+            diag_secret_echo(provider, home, workspace)
             diag_cancel(provider, home, workspace)
             diag_short_timeout(provider, home, workspace)
     finally:

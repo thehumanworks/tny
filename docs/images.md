@@ -48,7 +48,7 @@ reports preview `not_attempted`. On oversize, explicitly export a smaller,
 separate artifact and select that record. There is no implicit conversion,
 regeneration, retry, or manual attachment fallback.
 
-Cancellation, denial, extension stops, persistence errors, policy changes and
+Cancellation, denial, persistence errors, policy changes and
 step exhaustion report `IMAGE_PREVIEW_NOT_DELIVERED` before clearing pending
 bytes and constructed-but-unsent image messages. A later turn cannot inherit
 them. Manual attachment uses its existing queue semantics, but runner-socket
@@ -343,8 +343,7 @@ request, ends the turn failed, and only afterwards releases the batch — so no
 stale pixels survive into a later turn and nothing holds the 64 MiB bound
 indefinitely. A cancelled, stopped, denied or step-limited turn that had
 accepted a preview reports the same non-delivery for that turn. Terminal cleanup
-also covers tool-result persistence failure, provider-request extension stops,
-and hard cancellation. A constructed but unsent image message is removed from
+also covers tool-result persistence failure and hard cancellation. A constructed but unsent image message is removed from
 the transcript, not just from the pending queue. Only successfully submitted
 bytes remain as history; submission is not proof of perception. Control op,
 role, id, path and hash validation uses the full decoded JSON string and rejects

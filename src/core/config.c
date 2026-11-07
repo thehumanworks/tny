@@ -2,7 +2,6 @@
 #include "core/agent_presets.h"
 #include "core/tasks.h"
 #include "core/backend.h"
-#include "core/extensions.h"
 #include "core/instructions.h"
 #include "core/openai_auth.h"
 #include "net/net.h"
@@ -736,9 +735,6 @@ static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
             return NULL;
         }
     }
-    ctx->extensions_enabled = true;
-    ctx->max_extension_iterations = 0; /* unlimited by default */
-    ctx->extension_timeout_ms = 5000;
     ctx->max_tool_result_bytes = 32768;
     if (!load_result_budget(sroot, "settings.json", &ctx->max_tool_result_bytes) ||
         !load_result_budget(wso, "settings.json workspace", &ctx->max_tool_result_bytes) ||
@@ -783,20 +779,18 @@ static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
     tny_tool_profile_ignore(ctx, "wasm");
 #endif
 
-    /* Extensions are global user code, never repo authority. Configuration
-     * therefore comes only from settings/env/CLI, not .tny.json. */
-    yyjson_val *ext = jget(sroot, "extensions");
-    if (ext && yyjson_is_obj(ext)) {
-        ctx->extensions_enabled = jget_bool(ext, "enabled", true);
-        int64_t cap = jget_int(ext, "max_iterations", 0);
-        int64_t timeout = jget_int(ext, "timeout_ms", 5000);
-        if (cap >= 0 && cap <= 1000000) ctx->max_extension_iterations = (int)cap;
-        if (timeout >= 1 && timeout <= 600000) ctx->extension_timeout_ms = (int)timeout;
-    }
-    const char *ext_env = getenv("TNY_EXTENSIONS");
-    if (ext_env &&
-        (strcmp(ext_env, "0") == 0 || strcmp(ext_env, "false") == 0 || strcmp(ext_env, "off") == 0))
-        ctx->extensions_enabled = false;
+    yyjson_val *tool_ext = jget(jget(sroot, "extensions"), "tools");
+    yyjson_val *tool_ext_on = jget(tool_ext, "enabled");
+    yyjson_val *tool_ext_project = jget(tool_ext, "project");
+    if (tool_ext_on && yyjson_is_bool(tool_ext_on) && !yyjson_get_bool(tool_ext_on))
+        ctx->tool_extensions_disabled = true;
+    if (tool_ext_project && yyjson_is_bool(tool_ext_project) && !yyjson_get_bool(tool_ext_project))
+        ctx->project_tools_disabled = true;
+    const char *tool_ext_env = getenv("TNY_TOOL_EXTENSIONS");
+    if (tool_ext_env && (strcmp(tool_ext_env, "0") == 0 || strcmp(tool_ext_env, "off") == 0))
+        ctx->tool_extensions_disabled = true;
+    else if (tool_ext_env && strcmp(tool_ext_env, "global") == 0)
+        ctx->project_tools_disabled = true;
 
     /* Foreign MCP profiles can name executables and carry credentials. Only
      * this global user setting can authorize reading them; repo config never
@@ -873,13 +867,6 @@ static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
         }
     }
     if (collect_instructions) (void)instructions_refresh(ctx);
-    if (ctx->extensions_enabled) {
-        tny_extensions *extensions =
-            tny_extensions_new(ctx->tny_dir, ctx->cwd, ctx->extension_timeout_ms);
-        if (extensions && tny_extensions_get_state(extensions) != TNY_EXTENSIONS_EMPTY)
-            ctx->extensions = extensions;
-        else tny_extensions_free(extensions);
-    }
     return ctx;
 }
 
@@ -905,10 +892,7 @@ tny_ctx *tny_ctx_new_explicit(const char *cwd, const char *state_dir) {
     ctx->provider_name = xstrdup("openai");
     ctx->perm_mode = TNY_MODE_ASK;
     ctx->tool_profile = TNY_TOOLS_ALL;
-    ctx->max_steps = 0;              /* unlimited unless the embedder sets a cap */
-    ctx->extensions_enabled = false; /* explicit embedders opt into authority */
-    ctx->max_extension_iterations = 0;
-    ctx->extension_timeout_ms = 5000;
+    ctx->max_steps = 0; /* unlimited unless the embedder sets a cap */
     ctx->max_tool_result_bytes = 32768;
     ctx->context_enabled = true;
     ctx->mcp_disabled = true;
@@ -1278,7 +1262,7 @@ static int resolve_provider(tny_ctx *ctx, const char *flag_value, const char *wi
 }
 
 /* The stage borrows non-provider state. Never pass it to tny_ctx_free:
- * settings, extension manager and workspace ownership stay with the live ctx. */
+ * settings and workspace ownership stay with the live ctx. */
 static void provider_fields_free(tny_ctx *ctx) {
     for (char **p = ctx->agent_argv; p && *p; ++p) secure_free(*p);
     free(ctx->agent_argv);
@@ -1371,7 +1355,6 @@ int tny_resolve_backend_wire(tny_ctx *ctx, const char *flag_value, const char *w
     ctx->effort_from_settings = stage.effort_from_settings;
     ctx->service_tier_from_settings = stage.service_tier_from_settings;
     ctx->image_input = stage.image_input;
-    tny_extensions_set_provider(ctx->extensions, (tny_backend_id)ctx->backend);
     return rc;
 fail:
     provider_fields_free(&stage);
@@ -1617,7 +1600,6 @@ int tny_provider_write_profile(tny_ctx *ctx, const char *name, const tny_provide
                                            "permission_mode",
                                            "effort",
                                            "image_input",
-                                           "extensions",
                                            "ui",
                                            "acp",
                                            "last_provider",
@@ -1818,7 +1800,6 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->sandbox_mode);
     free(ctx->tny_dir);
     free(ctx->settings_path);
-    tny_extensions_free(ctx->extensions);
     yyjson_doc_free(ctx->settings);
     yyjson_doc_free(ctx->repo_cfg);
     free(ctx);
