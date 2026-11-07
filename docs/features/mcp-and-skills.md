@@ -216,6 +216,7 @@ execution cell's MCP client, and the `--ssh` route:
 | `tny jobs cancel\|retry\|rm …` | the same service | `job_cancel` / `job_retry` / `job_rm` + job id |
 | `tny jobs …` that does not parse | refused with the reason: never handed to the shell, so the classifier cannot bypass the job identities | — |
 | `tny ask …` (no `-B`) | refused: a foreground nested agent inside a turn | — |
+| `tny tool …` | refused: use `tools.call` inside `run_code`, which keeps the tool's own identity | — |
 | `tny ask -B …`, and everything else | `/bin/sh`, unchanged | `terminal` + command |
 
 The result is the verb's own contract — an `exit: N` line then its stdout and

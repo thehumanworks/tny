@@ -23,6 +23,9 @@ if not TNY.is_absolute():
 COMMAND_PARSERS = {
     "agents": ("cmd_agents",),
     "web": ("cmd_web",),
+    "tool": ("cmd_tool",),
+    "memory": ("cmd_tool",),
+    "skill": ("cmd_tool",),
     "ask": ("cmd_ask",),
     "ask-user": ("cmd_ask_user",),
     "backends": ("cmd_backends",),
