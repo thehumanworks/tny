@@ -112,6 +112,8 @@ static tny_ctx *fixture(bool full) {
     c->workspace_read_only = true;
     c->instructions_snapshot_ready = true;
     c->mcp_disabled = true;
+    c->tool_extensions_disabled = true;
+    c->project_tools_disabled = true;
     c->mcp_import_warned = true;
     c->openai_signin = true;
     c->openai_signin_key = UINT64_C(0xfedcba9876543210);
@@ -161,7 +163,7 @@ static void complete_schema(tny_ctx *c) {
     yyjson_val *r = yyjson_doc_get_root(d);
     /* Legacy contexts omit the two nullable definition strings but retain the
      * explicit empty digest and zero participant count. */
-    REQUIRE(yyjson_obj_size(r) == 75);
+    REQUIRE(yyjson_obj_size(r) == 74);
     REQUIRE(yyjson_is_arr(jget(r, "agent_argv")) && yyjson_arr_size(jget(r, "agent_argv")) == 0);
     REQUIRE(yyjson_is_bool(jget(r, "agent_from_profile")) &&
             yyjson_get_bool(jget(r, "agent_from_profile")) == c->agent_from_profile);
@@ -261,6 +263,10 @@ static void complete_schema(tny_ctx *c) {
                 c->instructions_snapshot_ready);
     REQUIRE(yyjson_is_bool(jget(r, "mcp_disabled")) &&
             yyjson_get_bool(jget(r, "mcp_disabled")) == c->mcp_disabled);
+    REQUIRE(yyjson_is_bool(jget(r, "tool_extensions_disabled")) &&
+            yyjson_get_bool(jget(r, "tool_extensions_disabled")) == c->tool_extensions_disabled);
+    REQUIRE(yyjson_is_bool(jget(r, "project_tools_disabled")) &&
+            yyjson_get_bool(jget(r, "project_tools_disabled")) == c->project_tools_disabled);
     REQUIRE(yyjson_is_bool(jget(r, "mcp_import_warned")) &&
             yyjson_get_bool(jget(r, "mcp_import_warned")) == c->mcp_import_warned);
     REQUIRE(yyjson_is_bool(jget(r, "openai_signin")) &&
@@ -302,7 +308,7 @@ static void complete_schema(tny_ctx *c) {
                 c->mcp_import_order[i]);
     yyjson_doc_free(d);
     d = snapshot(c, true);
-    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 65);
+    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 64);
     REQUIRE(jget_str(yyjson_doc_get_root(d), "retrieval_state") &&
             !strcmp(jget_str(yyjson_doc_get_root(d), "retrieval_state"), c->retrieval_state));
     REQUIRE(!jget(yyjson_doc_get_root(d), "acp_cleanup_file"));
@@ -740,7 +746,7 @@ static void swarm_metadata_ownership(void) {
     for (int public_only = 0; public_only <= 1; public_only++) {
         yyjson_doc *d = snapshot(c, public_only != 0);
         yyjson_val *r = yyjson_doc_get_root(d);
-        REQUIRE(yyjson_obj_size(r) == (public_only ? 65u : 77u));
+        REQUIRE(yyjson_obj_size(r) == (public_only ? 64u : 76u));
         REQUIRE(jget_str(r, "swarm_definition") &&
                 !strcmp(jget_str(r, "swarm_definition"), c->swarm_definition));
         REQUIRE(jget_str(r, "swarm_source") &&
