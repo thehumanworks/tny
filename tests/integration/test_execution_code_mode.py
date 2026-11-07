@@ -1013,6 +1013,7 @@ class ExecutionCodeMode(unittest.TestCase):
 
     def test_optional_reasons_do_not_leak_into_nested_arguments(self):
         (self.workspace / "fixture").write_text("reason-fixture")
+        (self.home / ".tny").mkdir(parents=True, exist_ok=True)
         for wire in ("responses", "chat"):
             for enabled in (True, False):
                 with self.subTest(wire=wire, enabled=enabled):

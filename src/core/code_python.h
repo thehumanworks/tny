@@ -8,6 +8,7 @@
 
 #include "core/code_runtime.h"
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef struct {
     const char *catalog;   /* borrowed JSON array of permitted tool schemas */
@@ -32,5 +33,17 @@ char *tny_code_python_run(const char *code, const tny_code_python_host *host);
 /* Bytes currently charged to the interpreter heap budget (diagnostics). */
 unsigned long long tny_code_python_heap_bytes(void);
 void tny_code_python_fini(void);
+
+/* One module of the embedded `tny` package (scripts/embed_python.sh). */
+typedef struct {
+    const char *name;
+    bool is_package;
+    const char *source;
+} tny_python_module;
+/* Tool host process body (ADR 0218): imports the embedded package and runs
+ * tny._host.main(argv). Returns the process exit status; 2 when this build
+ * has no interpreter. */
+int tny_code_python_host_main(const tny_python_module *modules, size_t count, int argc,
+                              char **argv);
 
 #endif

@@ -4,6 +4,7 @@
  * workspace roots and --ssh routing, without a provider or a turn
  * (docs/cli.md, ADR 0217). */
 #include "cli/cli.h"
+#include "core/tool_extensions.h"
 #include "core/tools.h"
 #include "json/json.h"
 #include <errno.h>
@@ -27,6 +28,7 @@ static bool tool_cancelled(void *ud) {
 
 static int usage(void) {
     fputs("tny: usage: tny tool list [--json] | describe NAME | call NAME [ARGS_JSON|-] [--json]\n"
+          "       tny tool check [--json] | new NAME [--global]\n"
           "Example: tny tool call read_file '{\"path\":\"README.md\"}'\n",
           stderr);
     return 1;
@@ -265,6 +267,11 @@ int cmd_tool(tny_ctx *ctx, const cli_globals *g, const char *command, int argc, 
         } else if (strcmp(verb, "describe") == 0) {
             if (argc != 2) return usage();
             name = argv[1];
+        } else if (strcmp(verb, "check") == 0) {
+            if (argc != 1) return usage();
+            return cmd_tool_check(ctx, json);
+        } else if (strcmp(verb, "new") == 0) {
+            return cmd_tool_new(ctx, argc - 1, argv + 1);
         } else if (strcmp(verb, "call") == 0) {
             if (argc < 2 || argc > 3) return usage();
             name = argv[1];
@@ -296,11 +303,16 @@ int cmd_tool(tny_ctx *ctx, const cli_globals *g, const char *command, int argc, 
         }
     }
 
+    int rc = cmd_tool_session(ctx, verb, name, args, json);
+    free(args);
+    return rc;
+}
+
+int cmd_tool_session(tny_ctx *ctx, const char *verb, const char *name, const char *args,
+                     bool json) {
     perm_engine *perm = perm_new(ctx);
-    if (!perm) {
-        free(args);
-        return 1;
-    }
+    if (!perm) return 1;
+    tny_tool_ext_set_stderr(STDERR_FILENO); /* extension prints reach the terminal */
     interrupted = 0;
     struct sigaction sa = {0}, oldint = {0}, oldterm = {0};
     sa.sa_handler = tool_signal;
@@ -314,9 +326,9 @@ int cmd_tool(tny_ctx *ctx, const cli_globals *g, const char *command, int argc, 
     else if (strcmp(verb, "describe") == 0) rc = tool_describe(&env, name);
     else rc = tool_run(&env, name, args ? args : "{}", json);
     tools_discard_pending_images(&env);
+    tny_tool_ext_shutdown();
     if (have_int) sigaction(SIGINT, &oldint, NULL);
     if (have_term) sigaction(SIGTERM, &oldterm, NULL);
     perm_free(perm);
-    free(args);
     return rc;
 }

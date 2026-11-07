@@ -14,6 +14,7 @@
 #include "core/intercept.h"
 #include "core/subagent.h"
 #include "lib/custom_tools.h"
+#include "core/tool_extensions.h"
 #include "util/alloc.h"
 #include "util/util.h"
 
@@ -617,6 +618,40 @@ static char *append_custom_schema(char *base, custom_tool_registry *registry) {
     return buf_detach(&merged);
 }
 
+/* A first-party tool name: native tools win over extensions of that name. */
+static bool native_tool_name(const char *name) {
+    if (!name || strcmp(name, "run_code") == 0) return true;
+    buf_t needle;
+    buf_init(&needle);
+    buf_appendf(&needle, "\"function\":{\"name\":\"%s\"", name);
+    bool hit = needle.data && strstr(SCHEMA_JSON, needle.data) != NULL;
+    buf_free(&needle);
+    return hit;
+}
+
+static bool skip_extension_name(const char *name, void *ud) {
+    custom_tool_registry *registry = ud;
+    return native_tool_name(name) || (registry && custom_tools_find(registry, name));
+}
+
+static char *append_extension_schema(char *base, tools_env *env) {
+    if (!base || !env || !env->ctx || !tny_tool_ext_enabled(env->ctx)) return base;
+    char *ext = tny_tool_ext_functions_json(env->ctx, skip_extension_name, env->ctx->custom_tools);
+    if (!ext || strcmp(ext, "[]") == 0) {
+        free(ext);
+        return base;
+    }
+    size_t base_len = strlen(base), ext_len = strlen(ext);
+    buf_t merged;
+    buf_init(&merged);
+    if (base_len > 1) buf_append(&merged, base, base_len - 1);
+    if (base_len > 2) buf_appends(&merged, ",");
+    buf_append(&merged, ext + 1, ext_len - 1);
+    free(base);
+    free(ext);
+    return buf_detach(&merged);
+}
+
 char *tools_catalog_json(tools_env *env) {
     if (env && env->ctx &&
         (env->ctx->prompt_optimisation || env->ctx->mcp_disabled || env->ctx->library_mode ||
@@ -641,14 +676,17 @@ char *tools_catalog_json(tools_env *env) {
             char *json = jwrite(mut);
             yyjson_mut_doc_free(mut);
             yyjson_doc_free(doc);
-            return json ? append_custom_schema(json, env->ctx->custom_tools) : NULL;
+            return json ? append_extension_schema(
+                              append_custom_schema(json, env->ctx->custom_tools), env)
+                        : NULL;
         }
         yyjson_mut_doc_free(mut);
         yyjson_doc_free(doc);
         return NULL; /* Never expose disabled tools on an allocation failure. */
     }
-    return append_custom_schema(xstrdup(SCHEMA_JSON),
-                                env && env->ctx ? env->ctx->custom_tools : NULL);
+    return append_extension_schema(
+        append_custom_schema(xstrdup(SCHEMA_JSON), env && env->ctx ? env->ctx->custom_tools : NULL),
+        env);
 }
 
 #define CODE_NUMBER_TEXT_INNER(value) #value
@@ -735,7 +773,9 @@ const char *tools_code_instructions(void) {
            "tools.call(name, arguments_json) takes two strings, a tool name and JSON object "
            "text, and synchronously returns the tool's text result. For example: "
            "print(tools.call(\"read_file\", json.dumps({\"path\": \"README.md\"}))). Use None "
-           "for JSON null.\n"
+           "for JSON null. Each tool is also an attribute taking keyword arguments: "
+           "tools.read_file(path=\"README.md\"); dotted names such as "
+           "tools.jira.projects.list(status=\"open\") reach user tool extensions.\n"
            "Compose dependent steps with Python variables, functions, loops and conditionals. "
            "Batch independent operations in one cell to avoid extra model round trips. "
            "For independent reads use tools.parallel(json.dumps([{\"name\": \"read_file\", "
@@ -935,7 +975,26 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         return -1;
     }
     call->custom = custom_tools_find(env->ctx->custom_tools, call->name);
-    if (call->custom) {
+    char *ext_schema = !call->custom && !native_tool_name(call->name)
+                           ? tny_tool_ext_schema(env->ctx, call->name)
+                           : NULL;
+    if (ext_schema) {
+        /* Python tool extensions (ADR 0218): one permission category, the
+         * dotted name as a path so rules can match jira/... names. */
+        yyjson_doc *schema = jparse(ext_schema, strlen(ext_schema));
+        free(ext_schema);
+        int valid = validate_parameters(call->name, call->args,
+                                        schema ? yyjson_doc_get_root(schema) : NULL, &call->error);
+        yyjson_doc_free(schema);
+        if (valid != 0) return -1;
+        call->extension = true;
+        free(call->permission_tool);
+        call->permission_tool = xstrdup("tool");
+        call->detail = xstrdup(call->name);
+        if (!call->permission_tool || !call->detail) return -1;
+        for (char *c = call->detail; *c; c++)
+            if (*c == '.') *c = '/';
+    } else if (call->custom) {
         if (!args_json || strlen(args_json) > custom_tool_argument_limit(call->custom)) {
             call->error = tool_err("arguments for %s exceed the registered limit", call->name);
             return -1;
@@ -1067,7 +1126,7 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
             free(why);
             return -1;
         }
-    } else call->detail = call_detail(env, call->name, call->args);
+    } else if (!call->extension) call->detail = call_detail(env, call->name, call->args);
     if (strcmp(call->name, "rename_file") == 0 || strcmp(call->name, "copy_file") == 0)
         call->detail2 = path_detail(env, call->args, "new_path");
     /* A first-party tny verb typed into `terminal` becomes the typed tool it
@@ -1155,6 +1214,24 @@ char *tools_call_execute(tools_env *env, tools_call *call) {
     }
     if (call->intercept) return tny_intercept_execute(env, call->intercept);
 
+    if (call->extension) {
+        bool is_error = false;
+        char *arguments = call->doc ? yyjson_write(call->doc, 0, NULL) : NULL;
+        if (!arguments) return tool_err("could not copy tool arguments");
+        char *result = tny_tool_ext_call(env->ctx, name, arguments, env->cancelled,
+                                         env->cancelled_ud, &is_error);
+        free(arguments);
+        if (!result) return NULL;
+        if (is_error && !str_starts(result, "error:")) {
+            char *wrapped = tool_err("%s", result);
+            free(result);
+            result = wrapped;
+            if (!result) return NULL;
+        }
+        char *bounded = tool_bound_result(env, result, strlen(result));
+        free(result);
+        return bounded;
+    }
     if (call->custom) {
         char *result = NULL;
         bool is_error = false;

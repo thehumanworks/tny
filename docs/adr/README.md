@@ -224,3 +224,5 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0213: Recoverable transcript provenance](0213-recoverable-transcript-provenance.md) — bounded original-message discovery and exact source recovery before semantic compaction.
 
 - [0215: Native SDK tool workers](0215-native-sdk-tool-workers.md) — in-process libtny sessions with explicitly configured private native tool workers, not a CLI wrapper.
+
+- [0218: Python tool extensions](0218-python-tool-extensions.md) — `@tny.tool` modules in `~/.tny/extensions/tools` and `<repo>/.tny/extensions/tools`, served by one embedded tool host to code mode, the CLI and MCP; replaces the event hooks of 0027/0028.

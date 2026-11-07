@@ -47,6 +47,9 @@ tny web search QUERY        # override, else Codex login, else DuckDuckGo
 tny web fetch URL           # bounded HTTP fetch
 tny tool list|describe NAME # native tool catalog (the model's tools.search/describe)
 tny tool call NAME '{json}' # run one native tool headlessly; - reads args from stdin
+tny tool check | new NAME   # diagnose or scaffold Python tool extensions
+tny MODULE [GROUP] TOOL ... # a Python tool extension (docs/extensions.md)
+tny mcp serve [--all]       # tool extensions over stdio MCP
 tny memory get|set|list     # persistent memory, outside a turn too
 tny skill show NAME         # print one discovered skill
 tny sessions
@@ -702,6 +705,15 @@ Command lines and env values are omitted from the listing so secrets stay
 out of `--json`. wasm: the list still works; spawn stays the existing
 clean error.
 
+### `tny mcp serve [--all]`
+
+A stdio MCP server (newline-delimited JSON-RPC: `initialize`, `ping`,
+`tools/list`, `tools/call`) for the Python tool extensions, named with
+underscores (`jira.projects.list` is `jira_projects_list`). `--all` adds the
+native tools except `run_code` and the turn-bound ones. Calls run through
+`tools_execute` with the usual permission rules. Example client config:
+`{"command": "tny", "args": ["mcp", "serve"]}`.
+
 ### `tny mcp tools SERVER` / `tny mcp describe SERVER/TOOL`
 
 ```text
@@ -1050,6 +1062,26 @@ tny --provider opencode tool call subagent '{"action":"create","prompt":"…"}'
   covered by native tests only.
 
 See [ADR 0217](adr/0217-standalone-tool-cli.md).
+
+### Python tool extensions
+
+Extension tools ([extensions.md](extensions.md), [ADR 0218](adr/0218-python-tool-extensions.md))
+join the same catalog under their dotted names, so `tny tool list|describe|call`
+covers them. Each extension module is also a top-level command whose options
+come from the tool's input schema:
+
+```sh
+tny jira --help
+tny jira projects list --status done --tag a --tag b --no-archived
+echo '{"status":"done"}' | tny jira projects list - --json
+tny tool check            # reload, list tools, print import errors (exit 1 on errors)
+tny tool new call_advisor # starter module in <repo>/.tny/extensions/tools (--global: ~/.tny)
+```
+
+Built-in commands win over a module of the same name. `--no-tool-extensions`
+and `--no-project-tools` are global flags; `TNY_TOOL_EXTENSIONS=0|global` and
+settings `extensions.tools.enabled|project` do the same. Exit codes match
+`tny tool call`. wasm: no tool host, so extensions are off.
 
 ## Background one-shots (`tny ask -B`)
 

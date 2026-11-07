@@ -21,6 +21,7 @@
 #include "yyjson.h"
 #include <stdatomic.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -558,6 +559,33 @@ int tny_code_python_init(void) {
     return 0;
 }
 
+/* Attribute access names nested tools (ADR 0218): tools.jira.projects.list(
+ * status="open") is tools.call("jira.projects.list", json.dumps({...})). */
+static const char TOOLS_ATTRIBUTES[] = "import json as _json\n"
+                                       "class _ToolPath:\n"
+                                       "    __slots__ = ('_name',)\n"
+                                       "    def __init__(self, name):\n"
+                                       "        self._name = name\n"
+                                       "    def __getattr__(self, part):\n"
+                                       "        if part.startswith('__'):\n"
+                                       "            raise AttributeError(part)\n"
+                                       "        return _ToolPath(self._name + '.' + part)\n"
+                                       "    def __call__(self, **arguments):\n"
+                                       "        return call(self._name, _json.dumps(arguments))\n"
+                                       "    def __repr__(self):\n"
+                                       "        return '<tool ' + self._name + '>'\n"
+                                       "def __getattr__(name):\n"
+                                       "    if name.startswith('__'):\n"
+                                       "        raise AttributeError(name)\n"
+                                       "    return _ToolPath(name)\n";
+
+static bool add_tool_attributes(PyObject *tools) {
+    PyObject *dict = PyModule_GetDict(tools);
+    PyObject *done = dict ? PyRun_String(TOOLS_ATTRIBUTES, Py_file_input, dict, dict) : NULL;
+    Py_XDECREF(done);
+    return done != NULL;
+}
+
 /* A fresh __main__ with the tools bridge and json pre-bound, as the prompt
  * promises; `import tools` also works. Everything else is ordinary CPython. */
 static PyObject *cell_globals(void) {
@@ -571,7 +599,7 @@ static PyObject *cell_globals(void) {
     bool ok = json && PyDict_SetItemString(globals, "__builtins__", builtins) == 0 &&
               PyModule_AddFunctions(tools, tools_methods) == 0 &&
               PyModule_AddObjectRef(tools, "CellLimitError", cell.limit_error) == 0 &&
-              PyDict_SetItemString(modules, "tools", tools) == 0 &&
+              add_tool_attributes(tools) && PyDict_SetItemString(modules, "tools", tools) == 0 &&
               PyDict_SetItemString(globals, "tools", tools) == 0 &&
               PyDict_SetItemString(globals, "json", json) == 0;
     Py_XINCREF(globals);
@@ -761,6 +789,96 @@ char *tny_code_python_run(const char *code, const tny_code_python_host *host) {
     }
     cell.host = NULL;
     return text;
+}
+
+/* Tool host (ADR 0218) -------------------------------------------------- */
+
+/* Serves the embedded `tny` package from memory ahead of the frozen stdlib,
+ * then hands control to tny._host.main(argv). */
+static const char HOST_BOOTSTRAP[] =
+    "import sys, importlib.abc, importlib.util\n"
+    "class _TnyLoader(importlib.abc.Loader):\n"
+    "    def __init__(self, source, origin):\n"
+    "        self.source, self.origin = source, origin\n"
+    "    def create_module(self, spec):\n"
+    "        return None\n"
+    "    def exec_module(self, module):\n"
+    "        exec(compile(self.source, self.origin, 'exec'), module.__dict__)\n"
+    "class _TnyFinder:\n"
+    "    @classmethod\n"
+    "    def find_spec(cls, name, path=None, target=None):\n"
+    "        entry = __tny_sources__.get(name)\n"
+    "        if entry is None:\n"
+    "            return None\n"
+    "        is_package, source = entry\n"
+    "        origin = '<tny>/' + name.replace('.', '/') + ('/__init__.py' if is_package else "
+    "'.py')\n"
+    "        spec = importlib.util.spec_from_loader(name, _TnyLoader(source, origin),\n"
+    "                                               origin=origin, is_package=is_package)\n"
+    "        return spec\n"
+    "sys.meta_path.insert(0, _TnyFinder)\n"
+    "import tny._host\n"
+    "__tny_status__ = tny._host.main(__tny_argv__)\n";
+
+int tny_code_python_host_main(const tny_python_module *modules, size_t count, int argc,
+                              char **argv) {
+    if (tny_code_python_init() != 0) {
+        fputs("tny: tool host: Python runtime initialization failed\n", stderr);
+        return 2;
+    }
+    PyObject *globals = PyDict_New();
+    PyObject *sources = PyDict_New();
+    PyObject *args = PyList_New(0);
+    PyObject *builtins = PyImport_ImportModule("builtins");
+    bool ok = globals && sources && args && builtins &&
+              PyDict_SetItemString(globals, "__builtins__", builtins) == 0 &&
+              PyDict_SetItemString(globals, "__name__", PyUnicode_FromString("__tny_host__")) == 0;
+    for (size_t i = 0; ok && i < count; ++i) {
+        PyObject *source = PyUnicode_FromString(modules[i].source);
+        PyObject *entry =
+            source ? Py_BuildValue("(OO)", modules[i].is_package ? Py_True : Py_False, source)
+                   : NULL;
+        ok = entry && PyDict_SetItemString(sources, modules[i].name, entry) == 0;
+        Py_XDECREF(entry);
+        Py_XDECREF(source);
+    }
+    for (int i = 0; ok && i < argc; ++i) {
+        PyObject *arg = PyUnicode_DecodeFSDefault(argv[i]);
+        ok = arg && PyList_Append(args, arg) == 0;
+        Py_XDECREF(arg);
+    }
+    ok = ok && PyDict_SetItemString(globals, "__tny_sources__", sources) == 0 &&
+         PyDict_SetItemString(globals, "__tny_argv__", args) == 0;
+    int status = 2;
+    PyObject *result = ok ? PyRun_String(HOST_BOOTSTRAP, Py_file_input, globals, globals) : NULL;
+    if (result) {
+        PyObject *code = PyDict_GetItemString(globals, "__tny_status__");
+        status = code && PyLong_Check(code) ? (int)PyLong_AsLong(code) : 0;
+    } else if (PyErr_ExceptionMatches(PyExc_SystemExit)) {
+        PyObject *error = PyErr_GetRaisedException();
+        PyObject *code = error ? PyObject_GetAttrString(error, "code") : NULL;
+        if (!code || code == Py_None) status = 0;
+        else if (PyLong_Check(code)) status = (int)PyLong_AsLong(code);
+        else {
+            PyObject *text = PyObject_Str(code);
+            const char *message = text ? PyUnicode_AsUTF8(text) : NULL;
+            if (message) fprintf(stderr, "%s\n", message);
+            Py_XDECREF(text);
+            status = 1;
+        }
+        Py_XDECREF(code);
+        Py_XDECREF(error);
+    } else {
+        PyErr_Print();
+    }
+    PyErr_Clear();
+    Py_XDECREF(result);
+    Py_XDECREF(builtins);
+    Py_XDECREF(args);
+    Py_XDECREF(sources);
+    Py_XDECREF(globals);
+    fflush(stderr);
+    return status;
 }
 
 void tny_code_python_fini(void) {

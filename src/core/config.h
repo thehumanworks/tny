@@ -175,7 +175,12 @@ typedef struct tny_ctx {
     int n_instruction_paths;
     char instructions_digest[17];
     bool instructions_snapshot_ready;
-    bool mcp_disabled;            /* explicit embedding disables ambient MCP */
+    bool mcp_disabled; /* explicit embedding disables ambient MCP */
+    /* Python tool extensions (ADR 0218): settings extensions.tools.enabled /
+     * .project, TNY_TOOL_EXTENSIONS=0|global, --no-tool-extensions and
+     * --no-project-tools turn them off. */
+    bool tool_extensions_disabled;
+    bool project_tools_disabled;
     unsigned mcp_import_mask;     /* explicit settings mcp.import_from opt-ins */
     unsigned mcp_import_order[4]; /* source bits, in user-authored order */
     int n_mcp_import_sources;

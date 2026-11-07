@@ -779,6 +779,19 @@ static tny_ctx *ctx_load(const char *cwd_flag, bool collect_instructions) {
     tny_tool_profile_ignore(ctx, "wasm");
 #endif
 
+    yyjson_val *tool_ext = jget(jget(sroot, "extensions"), "tools");
+    yyjson_val *tool_ext_on = jget(tool_ext, "enabled");
+    yyjson_val *tool_ext_project = jget(tool_ext, "project");
+    if (tool_ext_on && yyjson_is_bool(tool_ext_on) && !yyjson_get_bool(tool_ext_on))
+        ctx->tool_extensions_disabled = true;
+    if (tool_ext_project && yyjson_is_bool(tool_ext_project) && !yyjson_get_bool(tool_ext_project))
+        ctx->project_tools_disabled = true;
+    const char *tool_ext_env = getenv("TNY_TOOL_EXTENSIONS");
+    if (tool_ext_env && (strcmp(tool_ext_env, "0") == 0 || strcmp(tool_ext_env, "off") == 0))
+        ctx->tool_extensions_disabled = true;
+    else if (tool_ext_env && strcmp(tool_ext_env, "global") == 0)
+        ctx->project_tools_disabled = true;
+
     /* Foreign MCP profiles can name executables and carry credentials. Only
      * this global user setting can authorize reading them; repo config never
      * can. An absent/invalid list leaves the mask at zero, so no foreign path

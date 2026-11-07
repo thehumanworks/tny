@@ -44,7 +44,7 @@ COMMAND_PARSERS = {
     "mailbox": ("cmd_mailbox", "tny_team_mailbox_parse_argv"),
     "task-workspace": ("cmd_task_workspace", "tny_workspace_parse_argv"),
     "logout": ("cmd_logout",),
-    "mcp": ("cmd_mcp",),
+    "mcp": ("cmd_mcp", "cmd_mcp_serve"),
     "models": ("cmd_models",),
     "permissions": ("cmd_permissions",),
     "provider": ("cmd_provider",),
@@ -82,6 +82,8 @@ PARSED_WITHOUT_HELP = {
         # Private Python code-cell child: fd 3 socket from its execution server.
         "--code-cell",
         "--child-context",
+        # Private Python tool extension host, started by the owning process.
+        "--tool-host",
         # Private ACP stdio MCP relay, launched only with runtime-owned IPC.
         "--acp-mcp-bridge",
         # Private lossless argv grammar for owned child launch snapshots.
@@ -90,6 +92,9 @@ PARSED_WITHOUT_HELP = {
     # Private bounded stdin envelope from the existing owned subagent launcher.
     "ask": {"--preset-input"},
     "image": {"--job-no-replace"},
+    # memory and skill share cmd_tool's parser; --global belongs to `tny tool new`.
+    "memory": {"--global"},
+    "skill": {"--global"},
     "provider": {"--api-key"},
 }
 

@@ -106,6 +106,10 @@ static int parse_globals(int argc, char **argv, cli_globals *g, bool diagnostics
             g->max_steps = v;
         } else if (strcmp(a, "--no-self-improve") == 0) {
             g->no_self_improve = true;
+        } else if (strcmp(a, "--no-tool-extensions") == 0) {
+            g->no_tool_ext = true;
+        } else if (strcmp(a, "--no-project-tools") == 0) {
+            g->no_project_tools = true;
         } else if (strcmp(a, "--fast") == 0) {
             g->fast = true;
         } else if (strcmp(a, "--ultrafast") == 0) {

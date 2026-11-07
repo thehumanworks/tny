@@ -74,6 +74,19 @@ confines writes and is enforced by the kernel. Likewise, path-precise `edit`
 rules bind the typed file tools, `tny edit`, and the sandbox write set; they
 do **not** constrain writes an arbitrary shell command performs.
 
+## Python tool extensions
+
+Extension tools ([extensions.md](../extensions.md)) share one rule category,
+`tool`, and their dotted name is the detail written as a path, so rules can
+cover a whole module or group (last match wins):
+
+```json
+{"permission": {"tool": {"jira/*": "allow", "jira/projects/delete": "deny"}}}
+```
+
+A session grant covers one tool (`tool:jira/projects/list`). As everywhere,
+the default yolo mode allows the call without consulting rules.
+
 ## Verbs typed into `terminal`
 
 A single simple `tny` verb inside a `terminal` command is dispatched

@@ -474,7 +474,7 @@ verify-acp-proofs:
 verify-execution-protocol:
 	python3 tests/formal/check_execution_protocol.py
 
-.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-sdk-examples test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
+.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-tool-extensions test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-sdk-examples test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
 all: release
 
@@ -785,6 +785,9 @@ test-conformance-contract:
 	python3 sdk/conformance/check.py
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 		-s tests/conformance -p 'test_*.py' -v
+
+test-tool-extensions:
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/tool_extensions/test_tny_python.py
 
 test-shell-workflows:
 	$(BASH) tests/shell/test_workflows.sh
@@ -1244,7 +1247,7 @@ test-subagent-e2e: release
 verify-subagents-live: release
 	python3 tests/integration/live_subagent_check.py --live --tny '$(abspath $(BIN))' --output '$(BUILD)/subagents-live.json'
 
-test: test-code-mode-language verify-formal dictation-fixture test-unit test-openai-errors test-event-schema test-conformance-contract test-install-prefix test-help-flags test-shell-quick-ask release
+test: test-code-mode-language verify-formal dictation-fixture test-unit test-openai-errors test-event-schema test-conformance-contract test-tool-extensions test-install-prefix test-help-flags test-shell-quick-ask release
 	tests/integration/run.sh
 
 size: release
@@ -1664,3 +1667,13 @@ test-size-policy:
 	python3 tests/packaging/test_size_budget.py
 
 test test-unit: test-size-policy
+
+# Python tool extensions (ADR 0218): python/tny is embedded into the binary so
+# the tool host needs no installed package. Every object dir that compiles
+# tool_host.c depends on the generated header.
+PY_PKG_H   = $(GEN)/tny_python_pkg.h
+PY_PKG_SRC := $(sort $(wildcard python/tny/*.py))
+$(PY_PKG_H): scripts/embed_python.sh $(PY_PKG_SRC)
+	@mkdir -p $(@D)
+	@sh scripts/embed_python.sh $@ $(PY_PKG_SRC)
+$(foreach d,$(OBJ_REL) $(OBJ_DBG) $(OBJ_PIC) $(OBJ_FAULT_PIC) $(OBJ_FAULT_SAN_PIC) $(OBJ_TSAN_PIC) $(OBJ_FUZZ) $(OBJ_WASM),$(d)/src/core/tool_host.o): $(PY_PKG_H)

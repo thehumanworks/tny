@@ -9,7 +9,7 @@ behavior is in the linked feature contract; ADRs explain decisions when needed.
 | Native HTTP protocol or recovery | [HTTP source map](backends/openai-source-map.md), `src/backends/openai/` | `make test-openai-errors`, `openai_suite`, local provider fixtures |
 | ChatGPT sign-in | `src/core/openai_{login,auth}.c`, [contract](backends/openai-chatgpt.md) | `tests/integration/test_openai_signin.py` |
 | Claude connection | `src/backends/acp/`, [contract](backends/acp.md) | `test_acp_client.py`, `test_acp_managed.py` |
-| Add/change a tool extension or the `tny` Python package | `python/tny/`, `src/core/tool_ext*.c`, [guide](extensions.md) | `make test-tool-extensions`, `tests/integration/test_tool_extensions.py` |
+| Add/change a tool extension or the `tny` Python package | `python/tny/`, `src/core/tool_extensions.c`, `src/core/tool_host.c`, `src/cli/cmd_tool_ext.c`, [guide](extensions.md) | `make test-tool-extensions`, `tests/integration/test_tool_extensions.py` |
 | Prompt reuse / context stability | `src/core/skills.c`, `learning.c`, native request builder | `skills_suite`, `learning_suite`, `tests/bench/bench_prefix_stability.py` |
 | Model-visible tool discovery | `src/core/tools.c`, `src/core/code_python.c` | `code_runtime_suite`, `test_execution_code_mode.py` |
 | Search scope / completeness | `core/tools_fs.c`, [contract](adr/0208-truthful-scoped-file-search.md) | `test_search_coverage.py`, `bench_search_coverage.py` |

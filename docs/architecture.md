@@ -123,11 +123,14 @@ OS-specific spawn and pre-exec operations remain in the C host seams.
 | `~/.tny/mcp.json` | Authoritative stdio and Streamable HTTP MCP servers (never repo-local MCP). Foreign user/project configs load only when global `mcp.import_from` explicitly names their harness ([ADR 0052](adr/0052-mcp-import-from-harnesses.md)) |
 | `~/.tny/sessions/` | Transcripts and recovery checkpoints |
 | `~/.tny/skills/` | Managed skill installs |
-| `~/.tny/extensions/` | Trusted global Python event hooks (`*.py`, `*/index.py`) |
+| `~/.tny/extensions/tools/` | Python tool extensions: `NAME.py` or `NAME/__main__.py` modules of `@tny.tool` functions ([guide](extensions.md), [ADR 0218](adr/0218-python-tool-extensions.md)) |
+| `~/.tny/cache/tool-extensions/` | Extension catalogs keyed by a fingerprint of the module files, so listing tools does not start Python |
+| `~/.tny/logs/tool-extensions.log` | The tool host's stderr inside agent turns |
 | `~/.tny/tasks/` | User task-preset Markdown definitions (`NAME.md`) |
 | `~/.tny/worktrees/` | Managed Git checkouts; origin metadata and usage locks live in their private Git directories ([ADR 0080](adr/0080-managed-git-worktrees.md)) |
 | `<repo>/.tny.json` | Repo-safe limits only (steps, tool result bytes, sandbox, context on/off) |
 | `<repo>/.tny/tasks/` | Project task-preset Markdown definitions; project files cannot add authority or cost |
+| `<repo>/.tny/extensions/tools/` | Project tool extensions, trusted and loaded by default (`--no-project-tools` or settings `extensions.tools.project: false` turn them off); a project module shadows a global one of the same name |
 | `<repo>/AGENTS.md` | Project instructions (also `CLAUDE.md` as alias if present). Over `--ssh`, the remote cwd's file is used instead of this local path ([ADR 0040](adr/0040-ssh-agents-md.md)) |
 
 BYOK credentials come from environment variables (`OPENAI_API_KEY` or profile-specific names). Native Codex/Grok OAuth tokens use their login stores. MCP retains `header_env` / `bearer_token_env`. No API keys are persisted in settings or project JSON.

@@ -135,6 +135,7 @@ typedef struct {
     char *error;   /* validation error when prepare returns -1 */
     perm_verdict verdict;
     struct tny_tool_registration *custom;
+    bool extension; /* a Python tool extension (core/tool_extensions.h) */
     struct custom_tool_pending *custom_call;
     /* Set when a `terminal` command was recognised as a first-party tny verb
      * and runs in-process instead (docs/adr/0063). */

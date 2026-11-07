@@ -97,6 +97,8 @@ constexpr bool_field bools[] = {
     {"workspace_read_only", &tny_ctx::workspace_read_only},
     {"instructions_snapshot_ready", &tny_ctx::instructions_snapshot_ready},
     {"mcp_disabled", &tny_ctx::mcp_disabled},
+    {"tool_extensions_disabled", &tny_ctx::tool_extensions_disabled},
+    {"project_tools_disabled", &tny_ctx::project_tools_disabled},
     {"mcp_import_warned", &tny_ctx::mcp_import_warned},
     {"openai_signin", &tny_ctx::openai_signin},
 };

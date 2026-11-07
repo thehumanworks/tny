@@ -50,8 +50,10 @@ let
 
   # `make release`, `make lib-shared-active`, `make install`, and
   # `make install-lib-active`.
-  # python/ holds the optional instruction-evolution controller/proposer
-  # modules that `make install` copies to lib/tny/. libtny.pc.in and abi/ belong to the libtny install.
+  # python/ holds the `tny` tool-extension package that scripts/embed_python.sh
+  # builds into the binary (ADR 0218), plus the optional instruction-evolution
+  # controller/proposer modules that `make install` copies to lib/tny/.
+  # libtny.pc.in and abi/ belong to the libtny install.
   buildFiles = unions [
     ../Makefile
     ../abi
@@ -59,6 +61,7 @@ let
     ../libtny.pc.in
     ../python
     ../scripts/check_abi_baseline.py
+    ../scripts/embed_python.sh # embeds python/tny for the tool host
     ../scripts/cpython_runtime.sh # builds the pinned CPython for code cells
     ../scripts/cpython_freeze_stdlib.py # freezes its standard library
     ../scripts/install_licenses.sh # `make install` ships the embedded licenses
