@@ -12,6 +12,17 @@ from ._binding import (
 from ._binding import (
     discover_library as discover_library,
 )
+
+# Python tool extensions (docs/extensions.md): the same modules the tny binary
+# embeds for its tool host, so editors type-check extension code against them.
+from ._registry import Group as Group
+from ._registry import Param as Param
+from ._registry import Proxy as Proxy
+from ._registry import Tool as Tool
+from ._registry import ToolError as ToolError
+from ._registry import group as group
+from ._registry import proxy as proxy
+from ._registry import tool as tool
 from .aio import AsyncRuntime as AsyncRuntime
 from .aio import AsyncSession as AsyncSession
 from .aio import AsyncToolRegistration as AsyncToolRegistration
@@ -158,4 +169,13 @@ __all__ = (
     "build_conformance_report",
     "discover_library",
     "write_conformance_report",
+    # Python tool extensions
+    "Group",
+    "Param",
+    "Proxy",
+    "Tool",
+    "ToolError",
+    "group",
+    "proxy",
+    "tool",
 ) + _event_all

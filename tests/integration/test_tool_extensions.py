@@ -437,6 +437,30 @@ class ToolExtensionsTest(unittest.TestCase):
 
     # -- cache, timeout, cancellation -------------------------------------------
 
+    def test_shipped_examples_work(self) -> None:
+        """examples/extensions/tools is what docs/extensions.md points users at."""
+        shutil.rmtree(self.global_dir)
+        shutil.rmtree(self.project_dir)
+        shutil.copytree(ROOT / "examples" / "extensions" / "tools", self.global_dir)
+        notes = {"NOTES_FILE": str(Path(self.temp.name) / "notes.json")}
+        check = self.tny("tool", "check")
+        self.assertEqual(0, check.returncode, check.stdout + check.stderr)
+        self.assertEqual(
+            ["notes.add", "notes.list", "notes.tags.list", "weather"],
+            sorted(n for n in self.names() if n.startswith(("notes", "weather"))),
+        )
+        weather = self.tny("weather", "Lisbon", "--days", "3")
+        self.assertEqual(0, weather.returncode, weather.stderr)
+        self.assertIn("Lisbon: sunny for 3 day(s)", weather.stdout)
+        bad = self.tny("weather", "Lisbon", "--days", "9")
+        self.assertNotEqual(0, bad.returncode)
+        self.assertIn("days must be between 1 and 7", bad.stdout + bad.stderr)
+        added = self.tny("notes", "add", "buy milk", "--tag", "home", env=notes)
+        self.assertEqual(0, added.returncode, added.stderr)
+        tags = self.tny("notes", "tags", "list", "--json", env=notes)
+        self.assertEqual(0, tags.returncode, tags.stderr)
+        self.assertIn("home", tags.stdout)
+
     def test_catalog_cache_skips_python_until_a_module_changes(self) -> None:
         self.names()
         first = self.marker.read_text().count("imported")

@@ -42,6 +42,32 @@ The name, description and input schema come from the function name, the
 docstring and the signature. Pass them explicitly when you want something
 else: `@tny.tool(name="ask", description="...", input_schema={...})`.
 
+## Examples and editor support
+
+[examples/extensions/tools](../examples/extensions/tools) holds working
+extensions to copy into an extension directory: `weather.py` (one tool) and
+`notes/` (a folder module with a group and a private `_store.py` helper).
+`tests/integration/test_tool_extensions.py` runs them through the real binary.
+
+Inside tny, `import tny` resolves to the package embedded in the binary. For
+completions and type checking in an editor, give the language server the same
+code in one of two ways:
+
+- **Install it.** The `tny` Python package ([sdk/python](../sdk/python))
+  exports `tool`, `group`, `proxy`, `Param`, `ToolError` and the rest from the
+  very modules the binary embeds, with `py.typed`. Install it into the
+  environment your editor uses: `pip install -e <tny checkout>/sdk/python`.
+- **Point at a checkout.** Without installing anything, add the checkout's
+  `python/` directory to the server's import paths, for example a
+  `pyrightconfig.json` next to your extensions
+  ([example](../examples/extensions/editor/pyrightconfig.json)), or the
+  basedpyright/pyright settings for Neovim in
+  [nvim.lua](../examples/extensions/editor/nvim.lua).
+
+Decorators keep the function's own type, so `@tny.tool def f(x: int) -> str`
+still reads as `(x: int) -> str` and wrong arguments are flagged. The tool host
+runs CPython 3.14; set the checker's Python version to match.
+
 ## Where extensions live
 
 | Directory | Scope |

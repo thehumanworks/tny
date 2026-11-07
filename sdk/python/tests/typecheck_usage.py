@@ -135,3 +135,38 @@ def workflow_accounting_types(workflow: tny.Workflow, usage: tny.UsageEvent) -> 
 async def session_accounting_types(session: tny.AsyncSession) -> None:
     snapshot: tny.UsageEvent | None = session.last_usage
     _ = snapshot
+
+
+# Python tool extensions: decorators keep the decorated function's own type,
+# so --strict reports "Returning Any" if a decorator ever erases it.
+@tny.tool
+def ext_forecast(city: str, days: int = 1) -> str:
+    """Forecast for a city."""
+    return f"{city}: {days}"
+
+
+@tny.tool(name="alerts", timeout=5)
+def ext_alerts(city: str) -> list[str]:
+    return [city]
+
+
+ext_projects = tny.group("projects")
+
+
+@ext_projects.tool
+def ext_list(status: str = "open") -> list[str]:
+    return [status]
+
+
+@ext_projects.tool(description="Archive one project.")
+def ext_archive(key: str) -> bool:
+    if not key:
+        raise tny.ToolError("key is required")
+    return True
+
+
+def extension_tools_keep_signatures() -> str:
+    alerts: list[str] = ext_alerts("Lisbon")
+    archived: bool = ext_archive("TNY")
+    assert archived
+    return ext_forecast("Lisbon", days=2) + ext_list()[0] + alerts[0]
