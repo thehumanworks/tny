@@ -253,6 +253,9 @@ TEST decision_table_intercepts_only_documented_shapes(void) {
     ASSERT_EQ(0, classify(&f, "tny image export --help"));
     ASSERT_EQ(TNY_INTERCEPT_ASK_USER, classify(&f, "tny ask-user 'which branch?'"));
     ASSERT_EQ(TNY_INTERCEPT_REFUSED, classify(&f, "tny ask 'do the thing'"));
+    /* out-of-turn tool surface: inside a turn, tools.call keeps identities */
+    ASSERT_EQ(TNY_INTERCEPT_REFUSED, classify(&f, "tny tool call delete_file '{\"path\":\"x\"}'"));
+    ASSERT_EQ(TNY_INTERCEPT_REFUSED, classify(&f, "tny tool list"));
 
     /* left to the shell */
     ASSERT_EQ(0, classify(&f, "tny ask -B 'do the thing'"));

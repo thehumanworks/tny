@@ -31,6 +31,10 @@ void help_root(void) {
           "  resume [last|<id>]     Resume a session interactively\n"
           "  agents                 All saved sessions; --json lists state\n"
           "  web search|fetch TEXT  Search the web or fetch a URL\n"
+          "  tool list|describe|call\n"
+          "                         Run any native tool headlessly (files, search, ...)\n"
+          "  memory get|set|list    Read or write persistent memory\n"
+          "  skill show NAME        Print one discovered skill\n"
           "  sessions               List saved sessions for this workspace\n"
           "  session <last|id>      Inspect one saved session\n"
           "  providers | backends   List configured providers and doctor hints\n"
@@ -629,6 +633,28 @@ bool help_for(const char *command) {
             "the authoritative job record in run; it never infers membership from sessions.\n"
             "\nExamples:\n  tny agents\n  tny agents --json\n"
             "  tny agents --run RUN_ID --json\n";
+    else if (strcmp(command, "tool") == 0)
+        text = "Usage: tny tool list [--json]\n       tny tool describe NAME\n"
+               "       tny tool call NAME [ARGS_JSON|-] [--json]\n\n"
+               "Run one native tool headlessly: the same nested tools the model reaches "
+               "through tools.call(), with the same permission rules, workspace roots and "
+               "--ssh routing. No provider or turn is started. ARGS_JSON is one JSON object "
+               "(default {}); `-` or a pipe reads it from stdin. Exit 0 ok, 2 tool error, "
+               "130 interrupted. Tools that belong to a live turn (ask_user_question, "
+               "read_image, read_tool_result, search_transcript) report an error.\n"
+               "\nExamples:\n  tny tool list\n"
+               "  tny tool describe grep_files\n"
+               "  tny tool call grep_files '{\"pattern\":\"TODO\"}'\n"
+               "  echo '{\"path\":\"notes.md\",\"content\":\"hi\"}' | tny tool call write_file - "
+               "--json\n";
+    else if (strcmp(command, "memory") == 0)
+        text = "Usage: tny memory get KEY | set KEY [VALUE] | list [--json]\n\n"
+               "Read or write ~/.tny/memories.json through the memory tool. Without VALUE, set "
+               "reads the value from stdin.\n\nExamples:\n  tny memory list\n"
+               "  printf 'tabs' | tny memory set indent\n  tny memory get indent\n";
+    else if (strcmp(command, "skill") == 0)
+        text = "Usage: tny skill show NAME [--json]\n\nPrint one discovered skill through the "
+               "skill tool.\n\nExample:\n  tny skill show review\n";
     else if (strcmp(command, "web") == 0)
         text = "Usage: tny web search|fetch TEXT [--json]\n\nSearch uses explicit overrides, else "
                "the Codex login for any provider/model; without that login, DuckDuckGo. "

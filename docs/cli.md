@@ -45,6 +45,10 @@ tny resume [last|<id>]      # interactive resume
 tny agents                  # all saved sessions; --json for scripts
 tny web search QUERY        # override, else Codex login, else DuckDuckGo
 tny web fetch URL           # bounded HTTP fetch
+tny tool list|describe NAME # native tool catalog (the model's tools.search/describe)
+tny tool call NAME '{json}' # run one native tool headlessly; - reads args from stdin
+tny memory get|set|list     # persistent memory, outside a turn too
+tny skill show NAME         # print one discovered skill
 tny sessions
 tny session last|<id>
 tny session <id> --wait     # block until a background task finishes ([--timeout S])
@@ -1008,6 +1012,50 @@ Builtin Codex retains inline hosted search; the explicit CLI always uses the
 independent search service and labels Codex or DuckDuckGo provenance. `web` applies
 local settings/permissions and ChatGPT flags without selecting or refreshing an
 unrelated chat provider. See [ADR 0109](adr/0109-provider-independent-codex-search.md). See [search providers](features/mcp-and-skills.md#web-search-providers).
+
+## `tny tool` (run one native tool headlessly)
+
+`tny tool` exposes the same nested tools the model reaches through
+`tools.call()` inside `run_code`, for scripts, CI and other agents. No provider,
+turn or session is started.
+
+```sh
+tny tool list [--json]                 # name + summary; --json is the full schema array
+tny tool describe grep_files           # one tool's {name, description, parameters}
+tny tool call read_file '{"path":"README.md"}'
+jq -n '{path:"notes.md",content:"hi"}' | tny tool call write_file - --json
+tny --ssh me@host tool call grep_files '{"pattern":"TODO"}'
+tny --provider opencode tool call subagent '{"action":"create","prompt":"…"}'
+```
+
+- **Same implementation.** Calls go through `tools_execute`: the permission
+  engine, workspace roots (`--cwd`, `--add-dir`), `--ssh` routing and bounded
+  result writer are the agent's. `ask` mode with no reviewer fails closed
+  exactly as in `tny ask`; permission rules and read-only workspaces apply.
+- **Catalog.** The list is the current nested catalog, so it follows
+  credentials and configuration (for example `image_generate` and `speak`
+  appear only with a Codex login, `web_search` only when configured). Tools
+  whose input or effect belongs to a live conversation turn — `read_image`,
+  `read_tool_result`, `search_transcript`, `ask_user_question` — are omitted
+  and `call` refuses them; use `tny ask --image PATH` for images.
+- **Provider.** None is resolved unless `--provider` is given; `subagent` then
+  inherits it, like a child of a parent turn.
+- **Output.** Text mode prints the tool result to stdout, or to stderr when it is
+  an `error:` result. `--json` prints `{"kind":"tool","name","ok","result"}`.
+  Exit 0 ok, 1 usage or unreadable arguments, 2 tool error or refusal, 130
+  interrupted. A `terminal` call reports the command's own exit code in its
+  result text rather than as tny's exit status.
+- **Shortcuts.** `tny memory get KEY | set KEY [VALUE] | list` and
+  `tny skill show NAME` are the same `memory` / `skill` calls; `set` without a
+  value reads stdin. Inside a turn these keep their in-process intercepts.
+- **Inside a turn** `tny tool …` run through the terminal tool is refused with a
+  pointer to `tools.call`, so a call never hides its own permission identity
+  behind `terminal`.
+- **wasm.** The command is part of the shared sources and runs the same nested
+  tools; process-owning tools keep their existing wasm errors. This surface is
+  covered by native tests only.
+
+See [ADR 0217](adr/0217-standalone-tool-cli.md).
 
 ## Background one-shots (`tny ask -B`)
 
