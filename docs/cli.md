@@ -1413,8 +1413,8 @@ before any side effect. See [jobs.md](jobs.md) and `tny jobs --help`.
 generates one image using the ChatGPT login.
 `printf 'Make it blue' | tny image edit --image robot.png --output-file blue.png`
 edits from local references. `--image-provider` selects independently of the
-chat provider; Codex defaults to `gpt-image-2.5-sunburst` with `high` quality.
-Use `--model gpt-image-2.5-flare` to override the image model and `--quality`
+chat provider; Codex defaults to `gpt-image-2.6-sunburst` with `high` quality.
+Use `--model gpt-image-2.6-flare` to override the image model and `--quality`
 to select `auto`, `low`, `medium`, `high`, `xhigh`, or `max`.
 `--check` checks local credentials
 without a request. Neither operation needs a runner socket.

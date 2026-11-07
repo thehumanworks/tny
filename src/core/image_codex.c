@@ -1,5 +1,5 @@
 /* Codex Images API, transport pinned to rust-v0.154.0-alpha.3 (ADR 0074).
- * Model and quality defaults follow ADR 0084. */
+ * Quality default follows ADR 0084; model default follows ADR 0217. */
 #include "core/image_provider.h"
 #include "core/image.h"
 #include "json/json.h"
@@ -181,5 +181,5 @@ done:
     return rc;
 }
 
-const tny_image_provider tny_image_codex = {"codex", "gpt-image-2.5-sunburst",
+const tny_image_provider tny_image_codex = {"codex", "gpt-image-2.6-sunburst",
                                             TNY_IMAGE_REFERENCES_MAX, available, render};
