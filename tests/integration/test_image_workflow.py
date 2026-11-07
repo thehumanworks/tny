@@ -1324,7 +1324,7 @@ class Manifest(ImageFixture):
         self.assertEqual(record["requested"]["size"], "64x48")
         self.assertIsNone(record["requested"]["model"])
         self.assertEqual(record["effective"]["size"], "64x48")
-        self.assertEqual(record["effective"]["model"], "gpt-image-2.5-sunburst")
+        self.assertEqual(record["effective"]["model"], "gpt-image-2.6-sunburst")
         self.assertEqual(record["result"]["width"], 64)
         self.assertEqual(record["result"]["height"], 48)
         self.assertEqual(record["result"]["mime_type"], "image/png")
