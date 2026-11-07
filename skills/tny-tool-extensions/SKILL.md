@@ -92,7 +92,9 @@ def status(env: Env = Env.STAGING) -> dict[str, str]:
 
 
 @tny.tool(timeout=900)  # seconds; the default limit is 300
-def start(ref: str, env: Env, strategy: Literal["rolling", "blue-green"] = "rolling") -> str:
+def start(
+    ref: str, env: Env, strategy: Literal["rolling", "blue-green"] = "rolling"
+) -> str:
     """Deploy a git ref.
 
     Args:
@@ -155,6 +157,7 @@ Use a folder when the tools share a client, configuration or helpers. The entry 
 ```python
 # .tny/extensions/tools/jira/__main__.py
 """Jira tools."""
+
 import tny
 
 from . import projects  # noqa: F401  (registers jira.projects.*)
@@ -189,6 +192,7 @@ def create(key: str, title: str = "") -> str:
 ```python
 # .tny/extensions/tools/jira/_client.py
 """Shared helper: the leading underscore keeps it out of the catalog."""
+
 import os
 from dataclasses import dataclass, field
 
@@ -237,7 +241,11 @@ class Filters(TypedDict, total=False):
 @tny.tool
 def order(items: list[Item], note: str | None = None) -> dict[str, Any]:
     """Place an order. Items arrive as Item instances."""
-    return {"skus": [i.sku for i in items], "count": sum(i.quantity for i in items), "note": note}
+    return {
+        "skus": [i.sku for i in items],
+        "count": sum(i.quantity for i in items),
+        "note": note,
+    }
 
 
 @tny.tool
@@ -273,29 +281,31 @@ def raw_tool(**kwargs: Any) -> dict[str, Any]:
 ```python
 # .tny/extensions/tools/github.py
 """github.create_issue, github.search_code, ... from the GitHub MCP server."""
+
 import os
 
 import tny
 
 tny.proxy(
-    ["github-mcp-server", "stdio"],                     # a stdio server
+    ["github-mcp-server", "stdio"],  # a stdio server
     env={"GITHUB_TOKEN": os.environ.get("GITHUB_TOKEN", "")},
-    exclude=["delete_repository"],                      # or include=[...]
-    rename={"search_code": "grep"},                     # remote name -> local name
+    exclude=["delete_repository"],  # or include=[...]
+    rename={"search_code": "grep"},  # remote name -> local name
 )
 ```
 
 ```python
 # .tny/extensions/tools/linear.py
 """Mix a remote server (nested as linear.api.*) with local tools."""
+
 import os
 
 import tny
 
 tny.proxy(
-    url="https://mcp.linear.app/mcp",                   # Streamable HTTP
+    url="https://mcp.linear.app/mcp",  # Streamable HTTP
     headers={"Authorization": f"Bearer {os.environ.get('LINEAR_TOKEN', '')}"},
-    name="api",                                         # nest under linear.api
+    name="api",  # nest under linear.api
     timeout=60,
 )
 
