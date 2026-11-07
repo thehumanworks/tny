@@ -87,7 +87,7 @@ session-socket behavior; generate/edit are standalone and require no socket.
 | Option | Contract |
 | --- | --- |
 | `--image-provider NAME` | Image adapter, default `codex`; unsupported names fail before network I/O |
-| `--model NAME` | Image model; Codex defaults to `gpt-image-2.5-sunburst`, independently of global chat `--model`; override with e.g. `gpt-image-2.5-flare` |
+| `--model NAME` | Image model; Codex defaults to `gpt-image-2.6-sunburst`, independently of global chat `--model`; override with e.g. `gpt-image-2.6-flare` |
 | `--quality LEVEL` | `auto`, `low`, `medium`, `high` (default), `xhigh`, `max` |
 | `--size SIZE` | Provider-specific size string, e.g. `1024x1024`; default `auto`; forwarded as a provider hint, without local resizing |
 | `--strict-size` | Fail instead of saving unless the image is exactly the requested `WIDTHxHEIGHT` |
@@ -105,7 +105,7 @@ also pass `--quality`. Explicit `auto` is forwarded unchanged. For example:
 
 ```sh
 printf 'An orange robot reading under a tree' |
-  tny image generate --model gpt-image-2.5-flare --quality medium --output-file robot.png
+  tny image generate --model gpt-image-2.6-flare --quality medium --output-file robot.png
 printf 'Make the robot blue; preserve the composition' |
   tny image edit --image robot.png --quality xhigh --output-file blue.png
 ```
@@ -123,7 +123,7 @@ and API keys do not select or redirect the image adapter. Global
 Plain output is the destination path followed by a newline. JSON success:
 
 ```json
-{"kind":"image","ok":true,"operation":"generate","provider":"codex","model":"gpt-image-2.5-sunburst","path":"robot.png","mime_type":"image/png","bytes":123456,"requested_size":"3440x1440","effective_size":"3440x1440","width":1935,"height":811,"size_status":"mismatch","native":true,"transform":null,"operation_id":"4e531a053753dd2f","manifest_path":"/work/robot.png.tny-image-4e531a053753dd2f.json","seed":null,"request_id":null}
+{"kind":"image","ok":true,"operation":"generate","provider":"codex","model":"gpt-image-2.6-sunburst","path":"robot.png","mime_type":"image/png","bytes":123456,"requested_size":"3440x1440","effective_size":"3440x1440","width":1935,"height":811,"size_status":"mismatch","native":true,"transform":null,"operation_id":"4e531a053753dd2f","manifest_path":"/work/robot.png.tny-image-4e531a053753dd2f.json","seed":null,"request_id":null}
 ```
 
 Check output is `{"kind":"image","available":true}` (or false). Errors go to
@@ -376,7 +376,7 @@ pointer and no copy of the image bytes anywhere else.
  "committed":true,
  "references":[{"path":"/work/robot.png","sha256":"…","source_manifest":null,"source_operation":null}],
  "requested":{"provider":"codex","model":null,"quality":"high","size":"1024x1024"},
- "effective":{"provider":"codex","model":"gpt-image-2.5-sunburst","size":"1024x1024"},
+ "effective":{"provider":"codex","model":"gpt-image-2.6-sunburst","size":"1024x1024"},
  "result":{"width":1024,"height":1024,"mime_type":"image/png","bytes":123456,"size_status":"match"},
  "actual":{"seed":null,"request_id":null},"error":null,"source":null,
  "artifacts":[{"role":"native","path":"/work/blue.png","sha256":"…","width":1024,"height":1024,
@@ -849,6 +849,7 @@ unlimited image generation. See [OpenAI's image documentation](https://learn.cha
 Architecture: [ADR 0074](adr/0074-extensible-image-service.md),
 [ADR 0075](adr/0075-image-cli-and-agent-tools.md),
 [ADR 0084](adr/0084-codex-image-defaults.md),
+[ADR 0217](adr/0217-codex-image-2-6-default.md),
 [ADR 0088](adr/0088-image-dimensions-and-generation-manifests.md),
 [ADR 0096](adr/0096-captured-image-queue-and-preview-lifecycle.md). Fixture
 verification: `tests/test_image_service.c`, `tests/integration/test_image_service.py`
