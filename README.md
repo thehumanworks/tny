@@ -30,9 +30,10 @@ Sign in with ChatGPT flow uses the public Responses API. Legacy Codex credential
 no longer silently choose the old provider; explicit legacy selections remain
 compatible. See [migration and credential boundaries](docs/backends/openai-chatgpt.md).
 
-Extensions use the existing typed Python API, not a second agent runtime. Inspect
-the event/action catalog or validate explicitly trusted plugins before a turn
-with `python -m tny_ext`; see the [plugin authoring guide](docs/extensions.md).
+Tool extensions are plain Python modules with `@tny.tool` functions. Agents call
+them from code mode (`tools.call("jira.projects.list", ...)`), people run them as
+CLI commands (`tny jira projects list`), and `tny mcp serve` exposes them to other
+harnesses; see the [tool extension guide](docs/extensions.md).
 Agents changing the harness can start with the [development map](docs/development-map.md)
 and its targeted checks rather than traversing the entire codebase.
 

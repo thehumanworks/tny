@@ -481,7 +481,6 @@ class AcpClientTest(unittest.TestCase):
                 "acp",
                 "--agent",
                 str(AGENT),
-                "--no-extensions",
             ],
             env,
             str(self.workspace),
@@ -952,34 +951,6 @@ class AcpClientTest(unittest.TestCase):
         self.assertEqual((remote / "remote.txt").read_text(), "REMOTE-ACP-WRITE")
         self.assertFalse((self.workspace / "remote.txt").exists())
         self.assertIn(str(remote), json.dumps(facts["tool_results"][1]))
-
-    def test_extensions_rewrite_and_replace_tool_result(self):
-        directory = self.home / ".tny/extensions"
-        directory.mkdir()
-        (
-            directory / "fixture.py"
-        ).write_text("""from tny_ext import PreToolUseEvent, PostToolUseEvent, rewrite_tool, replace_tool_result
-
-def setup(api):
-    @api.on(PreToolUseEvent)
-    def before(event):
-        if event.tool_name == 'write_file':
-            return rewrite_tool({'path': 'rewritten.txt', 'content': 'HOOK-WRITTEN'})
-    @api.on(PostToolUseEvent)
-    def after(event):
-        if event.tool_name == 'write_file':
-            return replace_tool_result('HOOK-RESULT')
-""")
-        calls = [
-            {
-                "name": "write_file",
-                "arguments": {"path": "original.txt", "content": "ORIGINAL"},
-            }
-        ]
-        self.ask(env={"ACP_FIXTURE_MCP": "1", "ACP_FIXTURE_CALLS": json.dumps(calls)})
-        self.assertFalse((self.workspace / "original.txt").exists())
-        self.assertEqual((self.workspace / "rewritten.txt").read_text(), "HOOK-WRITTEN")
-        self.assertIn("HOOK-RESULT", json.dumps(self.state_json()["tool_results"]))
 
     def test_context_and_imported_mcp_roundtrip(self):
         from test_mcp_call import FAKE_SERVER

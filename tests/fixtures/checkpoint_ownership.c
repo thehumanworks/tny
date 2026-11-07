@@ -1,7 +1,6 @@
 /* Checkpoint C facade exercised against the complete injected C/C++ graph. */
 #include "core/checkpoint.h"
 #include "core/backend.h"
-#include "core/extensions.h"
 #include "core/runtime.h"
 #include "core/perm.h"
 #include "core/session.h"
@@ -104,7 +103,6 @@ static tny_ctx *fixture(bool full) {
     c->force_color = true;
     c->library_mode = false;
     c->prompt_optimisation = true;
-    c->extensions_enabled = true;
     c->service_tier_explicit = true;
     c->service_tier_from_settings = true;
     c->task_explicit = true;
@@ -118,8 +116,6 @@ static tny_ctx *fixture(bool full) {
     c->openai_signin = true;
     c->openai_signin_key = UINT64_C(0xfedcba9876543210);
     c->backend = TNY_BK_OPENAI;
-    c->max_extension_iterations = 17;
-    c->extension_timeout_ms = 3210;
     c->max_steps = 73;
     c->image_input = TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED;
     c->max_tool_result_bytes = 123456;
@@ -245,8 +241,6 @@ static void complete_schema(tny_ctx *c) {
             yyjson_get_bool(jget(r, "library_mode")) == c->library_mode);
     REQUIRE(yyjson_is_bool(jget(r, "prompt_optimisation")) &&
             yyjson_get_bool(jget(r, "prompt_optimisation")) == c->prompt_optimisation);
-    REQUIRE(yyjson_is_bool(jget(r, "extensions_enabled")) &&
-            yyjson_get_bool(jget(r, "extensions_enabled")) == c->extensions_enabled);
     REQUIRE(yyjson_is_bool(jget(r, "service_tier_explicit")) &&
             yyjson_get_bool(jget(r, "service_tier_explicit")) == c->service_tier_explicit);
     REQUIRE(yyjson_is_bool(jget(r, "service_tier_from_settings")) &&
@@ -275,11 +269,6 @@ static void complete_schema(tny_ctx *c) {
             yyjson_get_uint(jget(r, "openai_signin_key")) == c->openai_signin_key);
     REQUIRE(yyjson_is_int(jget(r, "backend")) &&
             yyjson_get_uint(jget(r, "backend")) == (uint64_t)c->backend);
-    REQUIRE(yyjson_is_int(jget(r, "max_extension_iterations")) &&
-            yyjson_get_uint(jget(r, "max_extension_iterations")) ==
-                (uint64_t)c->max_extension_iterations);
-    REQUIRE(yyjson_is_int(jget(r, "extension_timeout_ms")) &&
-            yyjson_get_uint(jget(r, "extension_timeout_ms")) == (uint64_t)c->extension_timeout_ms);
     REQUIRE(yyjson_is_int(jget(r, "max_steps")) &&
             yyjson_get_uint(jget(r, "max_steps")) == (uint64_t)c->max_steps);
     REQUIRE(yyjson_is_int(jget(r, "perm_mode")) &&
@@ -355,11 +344,6 @@ static void roundtrip(tny_ctx *c) {
     }
     REQUIRE(restored->no_self_improve == c->no_self_improve);
     REQUIRE(!c->settings || restored->settings != c->settings);
-    REQUIRE(!c->extensions_enabled || restored->extensions);
-    if (c->extensions_enabled) {
-        REQUIRE(tny_extensions_entry_count(restored->extensions) == 2);
-        REQUIRE(tny_extensions_get_state(restored->extensions) == TNY_EXTENSIONS_DORMANT);
-    }
     tny_ctx_free(restored);
     yyjson_doc_free(expected);
 }
@@ -578,10 +562,7 @@ static void sweep(tny_ctx *c, int operation) {
         REQUIRE(memcmp(&bytes, c, sizeof bytes) == 0);
         fault_at(0);
         same(c, before);
-        if (result) {
-            same(result, before);
-            REQUIRE(!c->extensions_enabled || result->extensions);
-        }
+        if (result) same(result, before);
         tny_ctx_free(result);
         yyjson_mut_doc_free(out);
         if (index == count) break;
@@ -741,42 +722,8 @@ static void bench(void) {
            (double)(clock() - start) / CLOCKS_PER_SEC);
     tny_ctx_free(c);
 }
-static void fixture_file(const char *relative) {
-    char path[512];
-    snprintf(path, sizeof path, "%s/%s", fixture_dir, relative);
-    FILE *file = fopen(path, "w");
-    REQUIRE(file);
-    REQUIRE(fputs("# inert checkpoint fixture\n", file) >= 0);
-    REQUIRE(fclose(file) == 0);
-}
-static void setup(void) {
-    REQUIRE(mkdtemp(fixture_dir));
-    char path[512];
-    const char *dirs[] = {"extensions", "extensions/package", "extensions/collision"};
-    for (size_t i = 0; i < sizeof dirs / sizeof dirs[0]; ++i) {
-        snprintf(path, sizeof path, "%s/%s", fixture_dir, dirs[i]);
-        REQUIRE(mkdir(path, 0700) == 0);
-    }
-    fixture_file("extensions/simple.py");
-    fixture_file("extensions/package/index.py");
-    fixture_file("extensions/collision.py");
-    fixture_file("extensions/collision/index.py");
-}
-static void cleanup(void) {
-    const char *files[] = {"extensions/simple.py", "extensions/package/index.py",
-                           "extensions/collision.py", "extensions/collision/index.py"};
-    const char *dirs[] = {"extensions/package", "extensions/collision", "extensions"};
-    char path[512];
-    for (size_t i = 0; i < sizeof files / sizeof files[0]; ++i) {
-        snprintf(path, sizeof path, "%s/%s", fixture_dir, files[i]);
-        REQUIRE(unlink(path) == 0);
-    }
-    for (size_t i = 0; i < sizeof dirs / sizeof dirs[0]; ++i) {
-        snprintf(path, sizeof path, "%s/%s", fixture_dir, dirs[i]);
-        REQUIRE(rmdir(path) == 0);
-    }
-    REQUIRE(rmdir(fixture_dir) == 0);
-}
+static void setup(void) { REQUIRE(mkdtemp(fixture_dir)); }
+static void cleanup(void) { REQUIRE(rmdir(fixture_dir) == 0); }
 static void swarm_metadata_ownership(void) {
     tny_ctx *c = fixture(true);
     set_string(&c->swarm_definition,

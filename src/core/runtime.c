@@ -5,8 +5,6 @@
 #include "core/tasks.h"
 
 #include "backends/openai/openai.h"
-#include "core/extension_caps.h"
-#include "core/extensions.h"
 #include "lib/host_services.h"
 #include "util/alloc.h"
 #include "util/tny_poll.h"
@@ -54,26 +52,11 @@ struct tny_engine {
     bool forcing_error;
     tny_stop_reason stop;
     char *prompt_text;
-    char *prepared_requeue_text;
-    char *native_observed_permission_id;
 
-    tny_extensions *extensions;
-    bool extensions_started;
-    bool extension_stop_requested;
-    bool extension_cancel_sent;
-    uint64_t submission_sequence;
-    int extension_continuations;
     tny_owned_event *pending_terminal;
-    buf_t turn_text;
-    buf_t acp_text; /* durable external-agent answer, independent of extension observers */
+    buf_t acp_text; /* durable external-agent answer */
     bool acp_iteration_pending;
-    buf_t message_text;
-    char *current_message_id;
-    bool message_started;
     bool turn_started;
-    bool preserve_session_on_free;
-    bool restart_initialization_pending;
-    buf_t extension_followup;
 
     tny_owned_event *head;
     tny_owned_event *tail;
@@ -99,11 +82,11 @@ static char *dup_bytes(const char *s, size_t n) {
 static char *dup_cstr(const char *s) { return s ? dup_bytes(s, strlen(s)) : NULL; }
 
 static tny_owned_event *event_copy(tny_engine *e, const tny_backend_event *ev) {
-    uint64_t sequence = ++e->session->extension_event_sequence;
+    uint64_t sequence = ++e->session->event_sequence;
     int64_t timestamp_ms = engine_monotonic_ms(e);
     char turn_id[160];
-    snprintf(turn_id, sizeof turn_id, "%s:%llu:%d", e->session->id,
-             (unsigned long long)e->session->extension_agent_sequence, e->extension_continuations);
+    snprintf(turn_id, sizeof turn_id, "%s:%llu:0", e->session->id,
+             (unsigned long long)e->session->agent_sequence);
     tny_owned_event *o =
         tny_owned_event_copy(ev, tny_provider_name(e->ctx), e->session->id, turn_id, 0);
     if (o) {
@@ -154,13 +137,10 @@ static bool ensure_oom_reserves(tny_engine *e) {
 }
 
 static void prepare_reserved_event(tny_engine *e, tny_owned_event *o) {
-    o->sequence = ++e->session->extension_event_sequence;
+    o->sequence = ++e->session->event_sequence;
     o->timestamp_ms = engine_monotonic_ms(e);
-    tny_owned_event_set_turn(o, e->session->id, e->session->extension_agent_sequence,
-                             e->extension_continuations);
+    tny_owned_event_set_turn(o, e->session->id, e->session->agent_sequence, 0);
     o->next = NULL;
-    o->hooks_done = true;
-    o->suppressed = false;
 }
 
 static bool is_reserved_kind(tny_event_kind kind) {
@@ -183,9 +163,8 @@ static void queue_event(tny_engine *e, const tny_backend_event *ev) {
         return;
     }
 
-    /* A provider terminal is only a candidate agent end. Hold it outside the
-     * frontend queue until Python hooks have observed every preceding event
-     * and agent_end has either continued or allowed settlement. */
+    /* Hold the provider terminal outside the frontend queue until fallible
+     * finalization (session persistence) has succeeded. */
     if (ev->kind == TNY_EV_TURN_END && e->pending_terminal) return;
 
     tny_owned_event *copy = event_copy(e, ev);
@@ -215,10 +194,6 @@ static void queue_event(tny_engine *e, const tny_backend_event *ev) {
 static void backend_event(const tny_backend_event *ev, void *ud) {
     tny_engine *e = ud;
     if (e->terminal) return; /* suppress duplicate or post-terminal events */
-    if (ev->kind == TNY_EV_STEER_REJECTED && ev->text) {
-        free(e->prepared_requeue_text);
-        e->prepared_requeue_text = dup_bytes(ev->text, ev->text_len);
-    }
     if (e->bk && e->bk->id == TNY_BK_ACP && ev->kind == TNY_EV_TEXT_DELTA && ev->text) {
         if (ev->text_len > ACP_TRANSCRIPT_BYTES_MAX - e->acp_text.len) {
             const char *message = "ACP transcript exceeds the 8 MiB limit";
@@ -237,15 +212,7 @@ static void backend_event(const tny_backend_event *ev, void *ud) {
             return;
         }
     }
-    tny_owned_event *before = e->tail;
     queue_event(e, ev);
-    if (ev->kind == TNY_EV_PERMISSION && ev->perm_id && e->native_observed_permission_id &&
-        strcmp(ev->perm_id, e->native_observed_permission_id) == 0 && e->tail &&
-        e->tail != before) {
-        e->tail->hooks_done = true; /* native control already folded it */
-        free(e->native_observed_permission_id);
-        e->native_observed_permission_id = NULL;
-    }
 }
 
 static void synth_error(tny_engine *e, tny_event_error_kind code, const char *text) {
@@ -265,529 +232,6 @@ static void synth_terminal(tny_engine *e, tny_stop_reason stop) {
     queue_event(e, &ev);
 }
 
-typedef enum {
-    EXT_PHASE_PROMPT,
-    EXT_PHASE_BEFORE_START,
-    EXT_PHASE_STREAM,
-    EXT_PHASE_PERMISSION,
-    EXT_PHASE_AGENT_END,
-    EXT_PHASE_OBSERVE
-} extension_phase;
-
-typedef struct {
-    bool stop;
-    bool blocked;
-    bool transformed;
-    bool permission_decided;
-    tny_extension_permission_decision permission_decision;
-    char extension[129];
-    char reason[513];
-} extension_fold;
-
-static const char *event_error_name(tny_event_error_kind code) {
-    switch (code) {
-    case TNY_EVENT_ERROR_IO: return "io";
-    case TNY_EVENT_ERROR_PROTOCOL: return "protocol";
-    case TNY_EVENT_ERROR_BACKPRESSURE: return "backpressure";
-    case TNY_EVENT_ERROR_AUTH: return "auth";
-    case TNY_EVENT_ERROR_INTERNAL: return "internal";
-    case TNY_EVENT_ERROR_OOM: return "oom";
-    default: return "unknown";
-    }
-}
-
-static void event_json_begin(tny_engine *e, buf_t *b, const char *type) {
-    uint64_t seq = ++e->session->extension_event_sequence;
-    char event_id[160];
-    char turn_id[160];
-    snprintf(event_id, sizeof event_id, "%s:%llu", e->session->id, (unsigned long long)seq);
-    snprintf(turn_id, sizeof turn_id, "%s:%llu:%d", e->session->id,
-             (unsigned long long)e->session->extension_agent_sequence, e->extension_continuations);
-    buf_appends(b, "{\"schema_version\":1,\"event_id\":");
-    jescape(b, event_id);
-    buf_appends(b, ",\"type\":");
-    jescape(b, type);
-    buf_appendf(b, ",\"sequence\":%llu,\"provider\":", (unsigned long long)seq);
-    jescape(b, tny_provider_name(e->ctx));
-    buf_appends(b, ",\"session_id\":");
-    jescape(b, e->session->id);
-    buf_appends(b, ",\"turn_id\":");
-    jescape(b, turn_id);
-    buf_appendf(b, ",\"timestamp_ms\":%lld,\"payload\":{", (long long)engine_monotonic_ms(e));
-}
-
-static char *backend_event_json(tny_engine *e, const tny_backend_event *ev) {
-    buf_t b;
-    buf_init(&b);
-    event_json_begin(e, &b, tny_event_kind_name(ev->kind));
-    switch (ev->kind) {
-    case TNY_EV_TEXT_DELTA:
-    case TNY_EV_THINKING:
-    case TNY_EV_PLAN:
-    case TNY_EV_STATUS:
-    case TNY_EV_STEER_REJECTED:
-    case TNY_EV_CUSTOM_MESSAGE:
-    case TNY_EV_USER_MESSAGE:
-        buf_appends(&b, "\"text\":");
-        jescape(&b, ev->text ? ev->text : "");
-        if (ev->message_id) {
-            buf_appends(&b, ",\"message_id\":");
-            jescape(&b, ev->message_id);
-        }
-        if (ev->message_type) {
-            buf_appends(&b, ",\"custom_type\":");
-            jescape(&b, ev->message_type);
-        }
-        break;
-    case TNY_EV_TOOL_START:
-    case TNY_EV_TOOL_END:
-    case TNY_EV_TOOL_PROGRESS:
-        buf_appends(&b, "\"tool_name\":");
-        jescape(&b, ev->tool_name ? ev->tool_name : "tool");
-        buf_appends(&b, ",\"tool_id\":");
-        jescape(&b, ev->tool_id ? ev->tool_id : "");
-        buf_appends(&b, ",\"detail\":");
-        jescape(&b, ev->tool_detail ? ev->tool_detail : "");
-        if (ev->tool_reason) {
-            buf_appends(&b, ",\"reason\":");
-            jescape(&b, ev->tool_reason);
-        }
-        if (ev->kind == TNY_EV_TOOL_END)
-            buf_appendf(&b, ",\"ok\":%s", ev->tool_ok ? "true" : "false");
-        break;
-    case TNY_EV_PERMISSION:
-        buf_appends(&b, "\"permission_id\":");
-        jescape(&b, ev->perm_id ? ev->perm_id : "");
-        buf_appends(&b, ",\"summary\":");
-        jescape(&b, ev->perm_summary ? ev->perm_summary : "");
-        buf_appendf(&b, ",\"options\":%d", ev->perm_options);
-        break;
-    case TNY_EV_USAGE:
-        buf_appendf(&b,
-                    "\"input_tokens\":%lld,\"output_tokens\":%lld,"
-                    "\"context_used\":%lld,\"context_size\":%lld",
-                    (long long)ev->in_tokens, (long long)ev->out_tokens,
-                    (long long)ev->context_used, (long long)ev->context_size);
-        if (ev->has_cost) buf_appendf(&b, ",\"cost\":%.12g", ev->cost);
-        buf_appendf(&b, ",\"tokens_reported\":%s,\"cost_cumulative\":%s",
-                    ev->tokens_unreported ? "false" : "true",
-                    ev->cost_cumulative ? "true" : "false");
-        if (ev->cost_currency) {
-            buf_appends(&b, ",\"cost_currency\":");
-            jescape(&b, ev->cost_currency);
-        }
-        break;
-    case TNY_EV_TURN_END:
-        buf_appends(&b, "\"stop\":{\"reason\":");
-        jescape(&b, tny_stop_reason_name(ev->stop));
-        buf_appends(&b, "}");
-        break;
-    case TNY_EV_ERROR:
-        buf_appends(&b, "\"message\":");
-        /* Provider error bodies/messages can echo credentials or request
-         * content. Python receives only the stable allowlisted category. */
-        jescape(&b, ev->error_code == TNY_EVENT_ERROR_AUTH       ? "provider authentication error"
-                    : ev->error_code == TNY_EVENT_ERROR_IO       ? "provider I/O error"
-                    : ev->error_code == TNY_EVENT_ERROR_PROTOCOL ? "provider protocol error"
-                    : ev->error_code == TNY_EVENT_ERROR_BACKPRESSURE ? "runtime backpressure"
-                                                                     : "runtime internal error");
-        buf_appends(&b, ",\"error_code\":");
-        jescape(&b, event_error_name(ev->error_code));
-        break;
-    }
-    buf_appends(&b, "}}");
-    return buf_detach(&b);
-}
-
-static char *lifecycle_event_json(tny_engine *e, const char *type, const char *prompt,
-                                  const tny_backend_event *terminal) {
-    buf_t b;
-    buf_init(&b);
-    event_json_begin(e, &b, type);
-    bool comma = false;
-    if (prompt) {
-        buf_appends(&b, "\"prompt\":");
-        jescape(&b, prompt);
-        comma = true;
-    }
-    if (terminal) {
-        if (comma) buf_appends(&b, ",");
-        buf_appends(&b, "\"stop\":{\"reason\":");
-        jescape(&b, tny_stop_reason_name(terminal->stop));
-        buf_appends(&b, "},\"output_text\":");
-        jescape(&b, e->turn_text.data ? e->turn_text.data : "");
-        buf_appends(&b, ",\"messages\":[{\"role\":\"assistant\",\"content\":");
-        jescape(&b, e->turn_text.data ? e->turn_text.data : "");
-        buf_appends(&b, "}]");
-        buf_appendf(&b,
-                    ",\"continuation_count\":%d,"
-                    "\"max_continuations\":%d",
-                    e->extension_continuations, e->ctx->max_extension_iterations);
-    }
-    buf_appends(&b, "}}");
-    return buf_detach(&b);
-}
-
-static char *session_event_json(tny_engine *e, const char *type, const char *reason,
-                                const char *previous_session_id) {
-    buf_t b;
-    buf_init(&b);
-    event_json_begin(e, &b, type);
-    buf_appends(&b, "\"reason\":");
-    jescape(&b, reason ? reason : "unknown");
-    if (previous_session_id && *previous_session_id) {
-        buf_appends(&b, ",\"previous_session_id\":");
-        jescape(&b, previous_session_id);
-    }
-    buf_appends(&b, "}}");
-    return buf_detach(&b);
-}
-
-static char *prompt_submit_json(tny_engine *e, const char *prompt, const char **images,
-                                const char *source, char *submission_id, size_t submission_id_len) {
-    snprintf(submission_id, submission_id_len, "%s:%llu:prompt:%llu", e->session->id,
-             (unsigned long long)e->session->extension_agent_sequence,
-             (unsigned long long)++e->submission_sequence);
-    buf_t b;
-    buf_init(&b);
-    event_json_begin(e, &b, "user_prompt_submit");
-    buf_appends(&b, "\"prompt\":");
-    jescape(&b, prompt);
-    buf_appends(&b, ",\"source\":");
-    jescape(&b, source ? source : "user");
-    buf_appends(&b, ",\"submission_id\":");
-    jescape(&b, submission_id);
-    buf_appends(&b, ",\"images\":[");
-    for (int i = 0; images && images[i]; i++) {
-        if (i) buf_appends(&b, ",");
-        buf_appends(&b, "{\"path\":");
-        jescape(&b, images[i]);
-        buf_appends(&b, "}");
-    }
-    buf_appends(&b, "]}}");
-    return buf_detach(&b);
-}
-
-static char *turn_start_json(tny_engine *e, const char *source) {
-    buf_t b;
-    buf_init(&b);
-    event_json_begin(e, &b, "turn_start");
-    buf_appendf(&b, "\"iteration\":%d,\"source\":", e->extension_continuations);
-    jescape(&b, source ? source : "user");
-    buf_appends(&b, "}}");
-    return buf_detach(&b);
-}
-
-static char *message_event_json(tny_engine *e, const char *type, const char *message_id,
-                                const char *text) {
-    buf_t b;
-    buf_init(&b);
-    event_json_begin(e, &b, type);
-    buf_appends(&b, "\"message_id\":");
-    jescape(&b, message_id ? message_id : "");
-    buf_appends(&b, ",\"role\":\"assistant\",\"content_type\":\"text\"");
-    if (text) {
-        buf_appends(&b, ",\"text\":");
-        jescape(&b, text);
-    }
-    buf_appends(&b, "}}");
-    return buf_detach(&b);
-}
-
-static char *compact_event_json(tny_engine *e, const char *type, const char *trigger,
-                                int before_count, int after_count, const char *summary,
-                                const char *error) {
-    buf_t b;
-    buf_init(&b);
-    event_json_begin(e, &b, type);
-    buf_appends(&b, "\"trigger\":");
-    jescape(&b, trigger ? trigger : "manual");
-    if (strcmp(type, "pre_compact") == 0) {
-        buf_appendf(&b, ",\"message_count\":%d", before_count);
-    } else if (strcmp(type, "post_compact") == 0) {
-        buf_appendf(&b,
-                    ",\"before_count\":%d,\"after_count\":%d,"
-                    "\"summary\":",
-                    before_count, after_count);
-        char *bounded = summary
-                            ? dup_bytes(summary, strlen(summary) < 16384 ? strlen(summary) : 16384)
-                            : xstrdup("");
-        jescape(&b, bounded ? bounded : "");
-        free(bounded);
-    } else {
-        buf_appends(&b, ",\"error\":");
-        jescape(&b, error ? error : "compaction failed");
-    }
-    buf_appends(&b, "}}");
-    return buf_detach(&b);
-}
-
-static char *selection_event_json(tny_engine *e, const char *type, const char *previous,
-                                  const char *current, const char *source) {
-    buf_t b;
-    buf_init(&b);
-    event_json_begin(e, &b, type);
-    buf_appends(&b, "\"previous\":");
-    jescape(&b, previous ? previous : "default");
-    buf_appends(&b, ",\"current\":");
-    jescape(&b, current ? current : "default");
-    buf_appends(&b, ",\"source\":");
-    jescape(&b, source ? source : "runtime");
-    buf_appends(&b, "}}");
-    return buf_detach(&b);
-}
-
-static char *workspace_event_json(tny_engine *e, const char *action, const char *path) {
-    buf_t b;
-    buf_init(&b);
-    event_json_begin(e, &b, "workspace_change");
-    buf_appends(&b, "\"action\":");
-    jescape(&b, action ? action : "update");
-    buf_appends(&b, ",\"path\":");
-    jescape(&b, path ? path : "");
-    buf_appends(&b, ",\"directories\":[");
-    for (int i = 0; i < e->ctx->n_extra_dirs; i++) {
-        if (i) buf_appends(&b, ",");
-        jescape(&b, e->ctx->extra_dirs[i]);
-    }
-    buf_appends(&b, "]}}");
-    return buf_detach(&b);
-}
-
-static char *instructions_event_json(tny_engine *e) {
-    buf_t b;
-    buf_init(&b);
-    event_json_begin(e, &b, "instructions_change");
-    buf_appends(&b, "\"paths\":[");
-    for (int i = 0; i < e->ctx->n_instruction_paths; i++) {
-        if (i) buf_appends(&b, ",");
-        jescape(&b, e->ctx->instruction_paths[i]);
-    }
-    buf_appends(&b, "],\"digest\":");
-    jescape(&b, e->ctx->instructions_digest);
-    buf_appendf(&b, ",\"count\":%d}}", e->ctx->n_instruction_paths);
-    return buf_detach(&b);
-}
-
-static void queue_internal(tny_engine *e, const tny_backend_event *ev) {
-    tny_owned_event *before = e->tail;
-    queue_event(e, ev);
-    if (e->tail && e->tail != before) e->tail->hooks_done = true;
-}
-
-static void extension_status(tny_engine *e, const char *extension, const char *event,
-                             const char *code, const char *message) {
-    buf_t b;
-    buf_init(&b);
-    buf_appendf(&b, "extension %.100s hook %.80s failed (%.40s): %.300s",
-                extension ? extension : "extension", event ? event : "event", code ? code : "error",
-                message ? message : "no detail");
-    tny_backend_event ev = {0};
-    ev.kind = TNY_EV_STATUS;
-    ev.text = b.data;
-    ev.text_len = b.len;
-    queue_internal(e, &ev);
-    buf_free(&b);
-}
-
-static void append_custom_context(buf_t *prompt, const tny_extension_action *action) {
-    if (prompt->len) buf_appends(prompt, "\n\n");
-    buf_appendf(prompt, "[Context from tny extension %s",
-                action->extension ? action->extension : "extension");
-    if (action->custom_type) buf_appendf(prompt, " (%s)", action->custom_type);
-    buf_appends(prompt, "]\n");
-    buf_appends(prompt, action->content ? action->content : "");
-    buf_appends(prompt, "\n[End extension context]");
-}
-
-static void append_user_followup(buf_t *prompt, const tny_extension_action *action) {
-    if (prompt->len) buf_appends(prompt, "\n\n");
-    buf_appends(prompt, action->content ? action->content : "");
-}
-
-static void queue_action_message(tny_engine *e, const tny_extension_action *action, bool custom) {
-    if (!action->display || !action->content) return;
-    tny_backend_event ev = {0};
-    ev.kind = custom ? TNY_EV_CUSTOM_MESSAGE : TNY_EV_USER_MESSAGE;
-    ev.text = action->content;
-    ev.text_len = strlen(action->content);
-    ev.message_type =
-        custom ? (action->custom_type ? action->custom_type : action->extension) : NULL;
-    queue_internal(e, &ev);
-}
-
-static extension_fold fold_extension_result(tny_engine *e, const char *event, extension_phase phase,
-                                            tny_extension_result *result, buf_t *target) {
-    extension_fold fold = {0};
-    for (size_t i = 0; i < result->failure_count; i++) {
-        tny_extension_failure *f = &result->failures[i];
-        extension_status(e, f->extension, event, f->code, f->message);
-    }
-    for (size_t i = 0; i < result->action_count; i++) {
-        tny_extension_action *a = &result->actions[i];
-        if (a->kind != TNY_EXTENSION_ACTION_STOP) continue;
-        if (phase != EXT_PHASE_OBSERVE) fold.stop = true;
-        else
-            extension_status(e, a->extension, event, "invalid_action",
-                             "stop is not accepted on this event");
-    }
-    /* Stop has deterministic precedence: do not publish or queue context that
-     * will not be delivered. */
-    if (fold.stop) return fold;
-    for (size_t i = 0; i < result->action_count; i++) {
-        tny_extension_action *a = &result->actions[i];
-        if (a->kind != TNY_EXTENSION_ACTION_PROMPT_BLOCK) continue;
-        if (phase != EXT_PHASE_PROMPT) {
-            extension_status(e, a->extension, event, "invalid_action",
-                             "prompt_block is accepted only on user_prompt_submit");
-            continue;
-        }
-        fold.blocked = true;
-        snprintf(fold.extension, sizeof fold.extension, "%s",
-                 a->extension ? a->extension : "extension");
-        snprintf(fold.reason, sizeof fold.reason, "%s", a->reason ? a->reason : "prompt blocked");
-    }
-    /* Explicit block beats every transformation/context action. */
-    if (fold.blocked) return fold;
-    if (phase == EXT_PHASE_PERMISSION) {
-        const tny_extension_action *allow = NULL;
-        const tny_extension_action *deny = NULL;
-        for (size_t i = 0; i < result->action_count; i++) {
-            tny_extension_action *action = &result->actions[i];
-            if (action->kind == TNY_EXTENSION_ACTION_STOP) continue;
-            if (action->kind != TNY_EXTENSION_ACTION_PERMISSION_DECISION) {
-                extension_status(e, action->extension, event, "invalid_action",
-                                 "only a permission decision or stop is accepted");
-                continue;
-            }
-            if (action->permission_decision == TNY_EXTENSION_PERMISSION_DENY) deny = action;
-            else if (action->permission_decision == TNY_EXTENSION_PERMISSION_ALLOW_ONCE)
-                allow = action;
-        }
-        const tny_extension_action *selected = deny ? deny : allow;
-        if (selected) {
-            fold.permission_decided = true;
-            fold.permission_decision = selected->permission_decision;
-            snprintf(fold.extension, sizeof fold.extension, "%s",
-                     selected->extension ? selected->extension : "extension");
-            snprintf(fold.reason, sizeof fold.reason, "%s",
-                     selected->reason ? selected->reason : "");
-        }
-        return fold;
-    }
-    for (size_t i = 0; i < result->action_count; i++) {
-        tny_extension_action *a = &result->actions[i];
-        if (a->kind == TNY_EXTENSION_ACTION_STOP) { continue; }
-        if (a->kind == TNY_EXTENSION_ACTION_PROMPT_BLOCK) continue;
-        if (a->kind == TNY_EXTENSION_ACTION_PROMPT_TRANSFORM) {
-            if (phase != EXT_PHASE_PROMPT || !target) {
-                extension_status(e, a->extension, event, "invalid_action",
-                                 "prompt_transform is accepted only on user_prompt_submit");
-                continue;
-            }
-            buf_clear(target);
-            buf_appends(target, a->content ? a->content : "");
-            fold.transformed = true;
-            snprintf(fold.extension, sizeof fold.extension, "%s",
-                     a->extension ? a->extension : "extension");
-            continue;
-        }
-        if (a->kind == TNY_EXTENSION_ACTION_CONTEXT) {
-            if (phase == EXT_PHASE_OBSERVE || phase == EXT_PHASE_PROMPT) {
-                extension_status(e, a->extension, event, "invalid_action",
-                                 "context is not accepted on this event");
-                continue;
-            }
-            buf_t *destination = phase == EXT_PHASE_BEFORE_START ? target : &e->extension_followup;
-            append_custom_context(destination, a);
-            queue_action_message(e, a, true);
-            continue;
-        }
-        if (a->kind == TNY_EXTENSION_ACTION_CONTINUE) {
-            if (phase != EXT_PHASE_AGENT_END) {
-                extension_status(e, a->extension, event, "invalid_action",
-                                 "continue is accepted only on agent_end");
-                continue;
-            }
-            bool custom = a->message_kind == TNY_EXTENSION_MESSAGE_CUSTOM;
-            if (custom) append_custom_context(&e->extension_followup, a);
-            else append_user_followup(&e->extension_followup, a);
-            queue_action_message(e, a, custom);
-            continue;
-        }
-        if (a->kind >= TNY_EXTENSION_ACTION_TOOL_REWRITE)
-            extension_status(e, a->extension, event, "invalid_action",
-                             "tool control action is not accepted on this event");
-    }
-    return fold;
-}
-
-static extension_fold invoke_extensions(tny_engine *e, const char *event, const char *json,
-                                        extension_phase phase, buf_t *target) {
-    extension_fold fold = {0};
-    if (!e->extensions || !json) return fold;
-    tny_extension_result result;
-    if (tny_extensions_invoke(e->extensions, event, json, &result) != 0) {
-        extension_status(e, "extension-host", event, "manager_error",
-                         "could not invoke extension handlers");
-        return fold;
-    }
-    fold = fold_extension_result(e, event, phase, &result, target);
-    tny_extension_result_free(&result);
-    if (fold.stop) e->extension_stop_requested = true;
-    return fold;
-}
-
-static void extensions_session_start(tny_engine *e) {
-    if (!e->extensions || e->session->extension_session_started) return;
-    e->session->extension_session_started = true;
-    e->extensions_started = true;
-    char *json = session_event_json(e, "session_start", e->session->extension_start_reason,
-                                    e->session->extension_previous_session_id);
-    if (!json) return;
-    (void)invoke_extensions(e, "session_start", json, EXT_PHASE_OBSERVE, NULL);
-    free(json);
-    json = instructions_event_json(e);
-    if (json) {
-        (void)invoke_extensions(e, "instructions_change", json, EXT_PHASE_OBSERVE, NULL);
-        free(json);
-    }
-}
-
-static extension_fold prepare_user_prompt(tny_engine *e, const char *prompt, const char **images,
-                                          const char *source, buf_t *effective) {
-    extension_fold fold = {0};
-    buf_clear(effective);
-    buf_appends(effective, prompt);
-    if (!e->extensions) return fold;
-    extensions_session_start(e);
-    char submission_id[192];
-    char *json = prompt_submit_json(e, prompt, images, source, submission_id, sizeof submission_id);
-    if (json) {
-        fold = invoke_extensions(e, "user_prompt_submit", json, EXT_PHASE_PROMPT, effective);
-        free(json);
-    }
-    if (fold.transformed || fold.blocked) {
-        session_record_prompt_audit(e->session, submission_id, prompt,
-                                    effective->data ? effective->data : "", fold.blocked,
-                                    fold.extension, fold.reason);
-    }
-    if (fold.blocked) {
-        buf_t status;
-        buf_init(&status);
-        buf_appendf(&status, "extension %s blocked prompt: %s",
-                    fold.extension[0] ? fold.extension : "extension",
-                    fold.reason[0] ? fold.reason : "blocked");
-        tny_backend_event ev = {0};
-        ev.kind = TNY_EV_STATUS;
-        ev.text = status.data;
-        ev.text_len = status.len;
-        queue_internal(e, &ev);
-        buf_free(&status);
-    }
-    return fold;
-}
-
 /* ACP owns its remote conversation, while tny still needs a durable local
  * answer for job results, dependency hashes, inspection and ordinary resume.
  * Only normalized assistant text is stored; no native model-call usage is inferred. */
@@ -803,57 +247,12 @@ static int persist_acp_iteration(tny_engine *e) {
 }
 
 static int start_backend_iteration(tny_engine *e, const char *prompt, const char **images,
-                                   const char *source, char *err, size_t errlen) {
-    extensions_session_start(e);
-
-    buf_t effective;
-    buf_init(&effective);
-    bool stop = false;
-    char *json = lifecycle_event_json(e, "before_agent_start", prompt, NULL);
-    if (json) {
-        extension_fold fold =
-            invoke_extensions(e, "before_agent_start", json, EXT_PHASE_BEFORE_START, &effective);
-        stop = fold.stop;
-        free(json);
-    }
-    if (effective.len) buf_appends(&effective, "\n\n");
-    buf_appends(&effective, prompt);
-    if (buf_oom(&effective) || tny_alloc_scope_failed()) {
-        if (err && errlen) snprintf(err, errlen, "out of memory");
-        buf_free(&effective);
-        return -1;
-    }
-
-    buf_clear(&e->turn_text);
-    buf_clear(&e->message_text);
-    free(e->current_message_id);
-    e->current_message_id = NULL;
-    e->message_started = false;
-    e->turn_started = false;
-    if (stop) {
-        e->active = true;
-        e->extension_stop_requested = true;
-        synth_terminal(e, TNY_STOP_INTERRUPTED);
-        buf_free(&effective);
-        return 0;
-    }
-    json = lifecycle_event_json(e, "agent_start", effective.data, NULL);
-    if (json) {
-        (void)invoke_extensions(e, "agent_start", json, EXT_PHASE_OBSERVE, NULL);
-        free(json);
-    }
-
-    json = turn_start_json(e, source);
-    if (json) {
-        (void)invoke_extensions(e, "turn_start", json, EXT_PHASE_OBSERVE, NULL);
-        free(json);
-    }
-
+                                   char *err, size_t errlen) {
     e->active = true;
     e->turn_started = true;
     if (e->bk->id == TNY_BK_ACP) {
         buf_clear(&e->acp_text);
-        session_add_text(e->session, "user", effective.data ? effective.data : "");
+        session_add_text(e->session, "user", prompt);
         e->acp_iteration_pending = true;
         if (tny_alloc_scope_failed() || session_save(e->session) != 0) {
             e->forcing_error = true;
@@ -861,12 +260,10 @@ static int start_backend_iteration(tny_engine *e, const char *prompt, const char
                 synth_error(e, TNY_EVENT_ERROR_IO, "could not persist ACP prompt");
                 synth_terminal(e, TNY_STOP_ERROR);
             }
-            buf_free(&effective);
             return 0;
         }
     }
-    int rc = e->bk->send(e->bk, effective.data, images, backend_event, e, err, errlen);
-    buf_free(&effective);
+    int rc = e->bk->send(e->bk, prompt, images, backend_event, e, err, errlen);
     if (rc != 0) {
         e->forcing_error = true;
         synth_error(e, TNY_EVENT_ERROR_IO, err && *err ? err : "backend send failed");
@@ -874,393 +271,6 @@ static int start_backend_iteration(tny_engine *e, const char *prompt, const char
         return 0; /* a started lifecycle always drains to a terminal event */
     }
     return 0;
-}
-
-static void end_extension_message(tny_engine *e) {
-    if (!e->extensions || !e->message_started) return;
-    char *json = message_event_json(e, "message_end", e->current_message_id,
-                                    e->message_text.data ? e->message_text.data : "");
-    if (json) {
-        (void)invoke_extensions(e, "message_end", json, EXT_PHASE_OBSERVE, NULL);
-        free(json);
-    }
-    e->message_started = false;
-    free(e->current_message_id);
-    e->current_message_id = NULL;
-    buf_clear(&e->message_text);
-}
-
-static void start_extension_message(tny_engine *e, const tny_backend_event *ev) {
-    const char *id = ev->message_id;
-    char generated[192];
-    if (!id || !*id) {
-        snprintf(generated, sizeof generated, "%s:%llu:%d:message", e->session->id,
-                 (unsigned long long)e->session->extension_agent_sequence,
-                 e->extension_continuations);
-        id = generated;
-    }
-    if (e->message_started && e->current_message_id && strcmp(e->current_message_id, id) == 0)
-        return;
-    end_extension_message(e);
-    e->current_message_id = xstrdup(id);
-    e->message_started = e->current_message_id != NULL;
-    if (!e->message_started) return;
-    char *json = message_event_json(e, "message_start", id, NULL);
-    if (json) {
-        (void)invoke_extensions(e, "message_start", json, EXT_PHASE_OBSERVE, NULL);
-        free(json);
-    }
-}
-
-static void process_queued_extension_hooks(tny_engine *e) {
-    if (!e->extensions || (e->terminal && e->forcing_error)) return;
-    for (tny_owned_event *owned = e->head; owned; owned = owned->next) {
-        if (owned->hooks_done) continue;
-        owned->hooks_done = true;
-        if (owned->ev.kind == TNY_EV_TEXT_DELTA && owned->ev.text) {
-            start_extension_message(e, &owned->ev);
-            buf_append(&e->turn_text, owned->ev.text, owned->ev.text_len);
-            buf_append(&e->message_text, owned->ev.text, owned->ev.text_len);
-        }
-        char *json = backend_event_json(e, &owned->ev);
-        if (!json) continue;
-        if (owned->ev.kind == TNY_EV_PERMISSION) {
-            extension_fold permission =
-                invoke_extensions(e, "permission_request", json, EXT_PHASE_PERMISSION, NULL);
-            free(json);
-            if (permission.stop || permission.permission_decided) {
-                owned->suppressed = true;
-                tny_perm_decision decision =
-                    permission.permission_decision == TNY_EXTENSION_PERMISSION_ALLOW_ONCE
-                        ? TNY_PERM_DECISION_ALLOW
-                        : TNY_PERM_DECISION_DENY;
-                if (!permission.stop && e->bk && e->bk->respond_permission && owned->ev.perm_id)
-                    e->bk->respond_permission(e->bk, owned->ev.perm_id, decision);
-            }
-            continue;
-        }
-        (void)invoke_extensions(e, tny_event_kind_name(owned->ev.kind), json, EXT_PHASE_STREAM,
-                                NULL);
-        free(json);
-        if (owned->ev.kind == TNY_EV_TEXT_DELTA && owned->ev.text && e->message_started) {
-            json = message_event_json(e, "message_update", e->current_message_id, owned->ev.text);
-            if (json) {
-                (void)invoke_extensions(e, "message_update", json, EXT_PHASE_STREAM, NULL);
-                free(json);
-            }
-        }
-    }
-}
-
-static void native_control_failures(tny_engine *e, const char *event,
-                                    tny_extension_result *result) {
-    for (size_t i = 0; i < result->failure_count; i++) {
-        tny_extension_failure *failure = &result->failures[i];
-        extension_status(e, failure->extension, event, failure->code, failure->message);
-    }
-}
-
-static bool native_invoke(tny_engine *e, const char *event, const char *json,
-                          tny_extension_result *result) {
-    memset(result, 0, sizeof *result);
-    if (!e->extensions) return false;
-    if (tny_extensions_invoke(e->extensions, event, json, result) == 0) return true;
-    extension_status(e, "extension-host", event, "manager_error",
-                     "could not invoke extension handlers");
-    return false;
-}
-
-static void native_invalid_action(tny_engine *e, const char *event,
-                                  const tny_extension_action *action, const char *message) {
-    extension_status(e, action->extension, event, "invalid_action", message);
-}
-
-static void native_set_attribution(tny_openai_control_response *response,
-                                   const tny_extension_action *action);
-
-static bool native_has_stop(tny_engine *e, const char *event, tny_extension_result *result,
-                            tny_openai_control_response *response) {
-    bool stop = e->extension_stop_requested;
-    const tny_extension_action *selected = NULL;
-    for (size_t i = 0; i < result->action_count; i++) {
-        if (result->actions[i].kind == TNY_EXTENSION_ACTION_STOP) {
-            stop = true;
-            selected = &result->actions[i];
-        }
-    }
-    if (stop) e->extension_stop_requested = true;
-    if (selected && response) native_set_attribution(response, selected);
-    (void)event;
-    return stop;
-}
-
-static char *native_control_json(tny_engine *e, const tny_openai_control_request *request,
-                                 const char *event) {
-    buf_t b;
-    buf_init(&b);
-    event_json_begin(e, &b, event);
-    switch (request->kind) {
-    case TNY_OPENAI_CONTROL_PRE_TOOL: {
-        yyjson_doc *args = request->arguments_json
-                               ? jparse(request->arguments_json, strlen(request->arguments_json))
-                               : NULL;
-        yyjson_val *root = args ? yyjson_doc_get_root(args) : NULL;
-        bool valid = root && yyjson_is_obj(root);
-        buf_appends(&b, "\"tool_name\":");
-        jescape(&b, request->tool_name ? request->tool_name : "tool");
-        buf_appends(&b, ",\"tool_id\":");
-        jescape(&b, request->tool_id ? request->tool_id : "");
-        buf_appendf(&b,
-                    ",\"arguments\":%s,\"original_arguments\":%s,"
-                    "\"provider_owned\":false,\"arguments_valid\":%s",
-                    valid ? request->arguments_json : "{}", valid ? request->arguments_json : "{}",
-                    valid ? "true" : "false");
-        yyjson_doc_free(args);
-        break;
-    }
-    case TNY_OPENAI_CONTROL_PERMISSION:
-        buf_appends(&b, "\"permission_id\":");
-        jescape(&b, request->tool_id ? request->tool_id : "");
-        buf_appends(&b, ",\"summary\":");
-        jescape(&b, request->permission_summary ? request->permission_summary : "");
-        buf_appendf(&b, ",\"options\":%d", request->permission_options);
-        break;
-    case TNY_OPENAI_CONTROL_POST_TOOL:
-        buf_appends(&b, "\"tool_name\":");
-        jescape(&b, request->tool_name ? request->tool_name : "tool");
-        buf_appends(&b, ",\"tool_id\":");
-        jescape(&b, request->tool_id ? request->tool_id : "");
-        buf_appends(&b, ",\"result\":");
-        jescape(&b, request->result ? request->result : "");
-        buf_appendf(&b, ",\"original_ok\":%s", request->original_ok ? "true" : "false");
-        break;
-    case TNY_OPENAI_CONTROL_TOOL_BATCH:
-        buf_appendf(&b, "\"tool_ids\":%s,\"failed\":%d",
-                    request->tool_ids_json ? request->tool_ids_json : "[]", request->failed_tools);
-        break;
-    case TNY_OPENAI_CONTROL_PROVIDER_REQUEST:
-        buf_appends(&b, "\"method\":");
-        jescape(&b, request->method ? request->method : "POST");
-        buf_appends(&b, ",\"endpoint\":");
-        jescape(&b, request->endpoint ? request->endpoint : "");
-        buf_appends(&b, ",\"metadata\":{");
-        buf_appendf(&b,
-                    "\"stream\":%s,\"step\":%d,\"wire_api\":", request->stream ? "true" : "false",
-                    request->step);
-        jescape(&b, request->wire_api ? request->wire_api : "responses");
-        buf_appends(&b, ",\"logical_request_id\":");
-        jescape(&b, request->logical_request_id ? request->logical_request_id : "");
-        buf_appendf(&b, ",\"attempt\":%d}", request->attempt);
-        break;
-    case TNY_OPENAI_CONTROL_PROVIDER_RESPONSE:
-        buf_appendf(&b,
-                    "\"status\":%d,\"metadata\":{\"stream\":%s,"
-                    "\"connection_reused\":%s,\"wire_api\":",
-                    request->status, request->stream ? "true" : "false",
-                    request->connection_reused ? "true" : "false");
-        jescape(&b, request->wire_api ? request->wire_api : "responses");
-        buf_appends(&b, ",\"logical_request_id\":");
-        jescape(&b, request->logical_request_id ? request->logical_request_id : "");
-        buf_appendf(&b, ",\"attempt\":%d}", request->attempt);
-        break;
-    case TNY_OPENAI_CONTROL_SUBAGENT_START:
-        buf_appends(&b, "\"subagent_id\":");
-        jescape(&b, request->subagent_id ? request->subagent_id : "");
-        buf_appends(&b, ",\"action\":");
-        jescape(&b, request->subagent_action ? request->subagent_action : "create");
-        break;
-    case TNY_OPENAI_CONTROL_SUBAGENT_END:
-        buf_appends(&b, "\"subagent_id\":");
-        jescape(&b, request->subagent_id ? request->subagent_id : "");
-        buf_appends(&b, ",\"action\":");
-        jescape(&b, request->subagent_action ? request->subagent_action : "create");
-        buf_appends(&b, ",\"outcome\":");
-        jescape(&b, request->subagent_outcome ? request->subagent_outcome : "done");
-        buf_appendf(&b, ",\"ok\":%s", request->subagent_ok ? "true" : "false");
-        break;
-    }
-    buf_appends(&b, "}}");
-    return buf_detach(&b);
-}
-
-static void native_set_attribution(tny_openai_control_response *response,
-                                   const tny_extension_action *action) {
-    free(response->extension);
-    free(response->reason);
-    response->extension = dup_cstr(action->extension);
-    response->reason = dup_cstr(action->reason);
-}
-
-static void native_pre_tool(tny_engine *e, const char *json,
-                            tny_openai_control_response *response) {
-    tny_extension_result result = {0};
-    if (!native_invoke(e, "pre_tool_use", json, &result)) return;
-    native_control_failures(e, "pre_tool_use", &result);
-    if (native_has_stop(e, "pre_tool_use", &result, response)) {
-        tny_extension_result_free(&result);
-        return;
-    }
-    const tny_extension_action *deny = NULL;
-    const tny_extension_action *rewrite = NULL;
-    for (size_t i = 0; i < result.action_count; i++) {
-        tny_extension_action *action = &result.actions[i];
-        if (action->kind == TNY_EXTENSION_ACTION_STOP) continue;
-        if (action->kind == TNY_EXTENSION_ACTION_TOOL_DENY) deny = action;
-        else if (action->kind == TNY_EXTENSION_ACTION_TOOL_REWRITE) rewrite = action;
-        else
-            native_invalid_action(e, "pre_tool_use", action,
-                                  "only tool rewrite, deny, or stop is accepted");
-    }
-    if (deny) {
-        response->deny = true;
-        native_set_attribution(response, deny);
-    } else if (rewrite) {
-        response->arguments_json = dup_cstr(rewrite->arguments_json);
-        native_set_attribution(response, rewrite);
-    }
-    tny_extension_result_free(&result);
-}
-
-static void native_permission(tny_engine *e, const char *json,
-                              tny_openai_control_response *response) {
-    tny_extension_result result = {0};
-    if (!native_invoke(e, "permission_request", json, &result)) return;
-    native_control_failures(e, "permission_request", &result);
-    if (native_has_stop(e, "permission_request", &result, response)) {
-        tny_extension_result_free(&result);
-        return;
-    }
-    const tny_extension_action *deny = NULL;
-    const tny_extension_action *allow = NULL;
-    for (size_t i = 0; i < result.action_count; i++) {
-        tny_extension_action *action = &result.actions[i];
-        if (action->kind == TNY_EXTENSION_ACTION_STOP) continue;
-        if (action->kind != TNY_EXTENSION_ACTION_PERMISSION_DECISION) {
-            native_invalid_action(e, "permission_request", action,
-                                  "only a permission decision or stop is accepted");
-            continue;
-        }
-        if (action->permission_decision == TNY_EXTENSION_PERMISSION_DENY) deny = action;
-        else if (action->permission_decision == TNY_EXTENSION_PERMISSION_ALLOW_ONCE) allow = action;
-    }
-    if (deny) {
-        response->permission = TNY_OPENAI_PERMISSION_DENY;
-        native_set_attribution(response, deny);
-    } else if (allow) {
-        response->permission = TNY_OPENAI_PERMISSION_ALLOW_ONCE;
-        native_set_attribution(response, allow);
-    }
-    tny_extension_result_free(&result);
-}
-
-static void native_post_tool(tny_engine *e, const tny_openai_control_request *request,
-                             const char *event, const char *json,
-                             tny_openai_control_response *response) {
-    tny_extension_result result = {0};
-    (void)native_invoke(e, event, json, &result);
-    native_control_failures(e, event, &result);
-    bool stop = native_has_stop(e, event, &result, response);
-    const tny_extension_action *replacement = NULL;
-    buf_t annotations;
-    buf_init(&annotations);
-    buf_appends(&annotations, "[");
-    int annotation_count = 0;
-    for (size_t i = 0; !stop && i < result.action_count; i++) {
-        tny_extension_action *action = &result.actions[i];
-        if (action->kind == TNY_EXTENSION_ACTION_STOP) continue;
-        if (action->kind == TNY_EXTENSION_ACTION_TOOL_RESULT_REPLACE) {
-            replacement = action;
-            continue;
-        }
-        if (action->kind == TNY_EXTENSION_ACTION_TOOL_ANNOTATE) {
-            if (annotation_count > 0) buf_appends(&annotations, ",");
-            annotation_count++;
-            buf_appends(&annotations, "{\"extension\":");
-            jescape(&annotations, action->extension ? action->extension : "extension");
-            buf_appends(&annotations, ",\"content\":");
-            jescape(&annotations, action->content ? action->content : "");
-            buf_appendf(&annotations, ",\"display\":%s}", action->display ? "true" : "false");
-            queue_action_message(e, action, true);
-            continue;
-        }
-        native_invalid_action(e, event, action,
-                              "only tool annotation, replacement, or stop is accepted");
-    }
-    buf_appends(&annotations, "]");
-    if (!stop && replacement) {
-        response->result = dup_cstr(replacement->content);
-        response->result_replaced = response->result != NULL;
-        response->result_is_error = replacement->is_error;
-        native_set_attribution(response, replacement);
-    }
-    const char *effective = response->result_replaced ? response->result : request->result;
-    bool effective_ok =
-        response->result_replaced ? !response->result_is_error : request->original_ok;
-    bool audited =
-        response->result_replaced || annotation_count > 0 || request->control_extension != NULL ||
-        request->control_reason != NULL ||
-        strcmp(request->original_arguments_json ? request->original_arguments_json : "{}",
-               request->arguments_json ? request->arguments_json : "{}") != 0;
-    if (audited) {
-        session_record_tool_audit(e->session, request->tool_id, request->tool_name,
-                                  request->original_arguments_json, request->arguments_json,
-                                  request->control_extension, request->control_reason,
-                                  request->result, request->original_ok, effective, effective_ok,
-                                  response->extension, annotations.data);
-    }
-    buf_free(&annotations);
-    tny_extension_result_free(&result);
-}
-
-static void native_observe(tny_engine *e, const char *event, const char *json) {
-    tny_extension_result result = {0};
-    if (!native_invoke(e, event, json, &result)) return;
-    native_control_failures(e, event, &result);
-    (void)native_has_stop(e, event, &result, NULL);
-    for (size_t i = 0; i < result.action_count; i++) {
-        if (result.actions[i].kind != TNY_EXTENSION_ACTION_STOP)
-            native_invalid_action(e, event, &result.actions[i], "this event is observational");
-    }
-    tny_extension_result_free(&result);
-}
-
-static void native_openai_control(const tny_openai_control_request *request,
-                                  tny_openai_control_response *response, void *ud) {
-    tny_engine *e = ud;
-    if (!e || !request || !response) return;
-    if (!e->extensions) return;
-    process_queued_extension_hooks(e);
-    const char *event = NULL;
-    switch (request->kind) {
-    case TNY_OPENAI_CONTROL_PRE_TOOL:
-        end_extension_message(e);
-        event = "pre_tool_use";
-        break;
-    case TNY_OPENAI_CONTROL_PERMISSION:
-        free(e->native_observed_permission_id);
-        e->native_observed_permission_id = dup_cstr(request->tool_id);
-        event = "permission_request";
-        break;
-    case TNY_OPENAI_CONTROL_POST_TOOL:
-        event = request->original_ok ? "post_tool_use" : "post_tool_failure";
-        break;
-    case TNY_OPENAI_CONTROL_TOOL_BATCH: event = "post_tool_batch"; break;
-    case TNY_OPENAI_CONTROL_PROVIDER_REQUEST: event = "provider_request"; break;
-    case TNY_OPENAI_CONTROL_PROVIDER_RESPONSE: event = "provider_response"; break;
-    case TNY_OPENAI_CONTROL_SUBAGENT_START: event = "subagent_start"; break;
-    case TNY_OPENAI_CONTROL_SUBAGENT_END: event = "subagent_end"; break;
-    }
-    if (!event) return;
-    char *json = native_control_json(e, request, event);
-    if (!json) return;
-    if (request->kind == TNY_OPENAI_CONTROL_PRE_TOOL) native_pre_tool(e, json, response);
-    else if (request->kind == TNY_OPENAI_CONTROL_PERMISSION) native_permission(e, json, response);
-    else if (request->kind == TNY_OPENAI_CONTROL_POST_TOOL)
-        native_post_tool(e, request, event, json, response);
-    else native_observe(e, event, json);
-    free(json);
-    if (e->extension_stop_requested) response->stop = true;
-    if (e->cancel_probe && e->cancel_probe(e->cancel_probe_ud)) { response->stop = true; }
 }
 
 static void finalize_turn(tny_engine *e);
@@ -1283,84 +293,18 @@ static void commit_pending_terminal(tny_engine *e) {
     e->terminal = true;
     atomic_store_explicit(&e->cancel_armed, false, memory_order_release);
     e->stop = terminal->ev.stop;
-    terminal->hooks_done = true;
     append_owned(e, terminal);
 }
 
-/* Returns true when the resolver queued or started work that needs another
- * pass through after_backend before settlement. */
-static bool resolve_pending_terminal(tny_engine *e) {
-    if (!e->pending_terminal) return false;
+static void resolve_pending_terminal(tny_engine *e) {
+    if (!e->pending_terminal) return;
     if (persist_acp_iteration(e) != 0 && !tny_alloc_scope_failed()) {
         e->forcing_error = true;
         e->pending_terminal->ev.stop = TNY_STOP_ERROR;
         synth_error(e, TNY_EVENT_ERROR_IO, "could not persist ACP answer");
     }
-    if (!e->extensions) {
-        commit_pending_terminal(e);
-        return false;
-    }
-    tny_backend_event *terminal = &e->pending_terminal->ev;
-    end_extension_message(e);
-
-    char *json = NULL;
-    if (e->turn_started) {
-        json = backend_event_json(e, terminal);
-        if (json) {
-            (void)invoke_extensions(e, "turn_end", json, EXT_PHASE_STREAM, NULL);
-            free(json);
-        }
-
-        json = lifecycle_event_json(e, "agent_end", NULL, terminal);
-        if (json) {
-            (void)invoke_extensions(e, "agent_end", json, EXT_PHASE_AGENT_END,
-                                    &e->extension_followup);
-            free(json);
-        }
-    }
-
-    bool continue_requested = e->turn_started && e->extension_followup.len > 0;
-    if (terminal->stop == TNY_STOP_INTERRUPTED || terminal->stop == TNY_STOP_DENIED)
-        continue_requested = false;
-    if (e->extension_stop_requested) continue_requested = false;
-    int limit = e->ctx->max_extension_iterations;
-    if (continue_requested && limit > 0 && e->extension_continuations >= limit) {
-        tny_backend_event status = {0};
-        const char *message = "extension continuation limit reached; agent settled";
-        status.kind = TNY_EV_STATUS;
-        status.text = message;
-        status.text_len = strlen(message);
-        queue_internal(e, &status);
-        continue_requested = false;
-    }
-
-    if (continue_requested) {
-        char *prompt = xstrdup(e->extension_followup.data);
-        buf_clear(&e->extension_followup);
-        tny_owned_event_free(e->pending_terminal);
-        e->pending_terminal = NULL;
-        e->extension_continuations++;
-        e->extension_stop_requested = false;
-        e->extension_cancel_sent = false;
-        char err[512];
-        int rc = start_backend_iteration(e, prompt, NULL, "continuation", err, sizeof err);
-        free(prompt);
-        if (rc == 0) return true;
-        e->forcing_error = true;
-        synth_error(e, TNY_EVENT_ERROR_IO, err[0] ? err : "extension continuation failed");
-        synth_terminal(e, TNY_STOP_ERROR);
-        return true;
-    }
-
-    buf_clear(&e->extension_followup);
-    json = lifecycle_event_json(e, "agent_settled", NULL, terminal);
-    if (json) {
-        (void)invoke_extensions(e, "agent_settled", json, EXT_PHASE_OBSERVE, NULL);
-        free(json);
-    }
     commit_pending_terminal(e);
     e->turn_started = false;
-    return false;
 }
 
 static void finalize_turn(tny_engine *e) {
@@ -1395,18 +339,7 @@ static void after_backend(tny_engine *e, int dispatch_rc) {
         synth_error(e, TNY_EVENT_ERROR_IO, "backend transport failed");
         synth_terminal(e, TNY_STOP_ERROR);
     }
-    for (;;) {
-        process_queued_extension_hooks(e);
-        if (e->extension_stop_requested && !e->extension_cancel_sent && !e->pending_terminal &&
-            e->bk && e->bk->cancel) {
-            e->extension_cancel_sent = true;
-            e->bk->cancel(e->bk);
-            /* A host may confirm asynchronously; return to its poll loop. */
-        }
-        if (!e->pending_terminal) break;
-        if (resolve_pending_terminal(e)) continue;
-        break;
-    }
+    resolve_pending_terminal(e);
     finalize_turn(e);
 }
 
@@ -1425,16 +358,11 @@ tny_engine *tny_engine_new(tny_ctx *ctx, tny_session_state *session, perm_engine
     e->cancel_wake.write_fd = -1;
     atomic_init(&e->cancel_requested, false);
     atomic_init(&e->cancel_armed, false);
-    buf_init(&e->turn_text);
     buf_init(&e->acp_text);
-    buf_init(&e->message_text);
-    buf_init(&e->extension_followup);
     if (!ensure_oom_reserves(e)) {
         tny_engine_free(e);
         return NULL;
     }
-    if (ctx->extensions_enabled && !ctx->library_mode)
-        e->extensions = ctx->extensions; /* borrowed; ctx outlives engine */
     return e;
 }
 
@@ -1471,7 +399,7 @@ int tny_engine_prepare(tny_engine *e, tny_backend *prepared, tny_engine_prepare_
     if (bk->id == TNY_BK_OPENAI)
         tny_backend_openai_bind(bk, e->session, e->perm, e->prompt, e->prompt_ud, e->ask_user,
                                 e->ask_user_ud, e->control_pump, e->control_pump_ud,
-                                e->session_sock, e->session_id, native_openai_control, e);
+                                e->session_sock, e->session_id, NULL, NULL);
     if (bk->id == TNY_BK_OPENAI) tny_backend_openai_set_tool_cancel(bk, native_tool_cancelled, e);
     if (bk->id == TNY_BK_ACP) {
         tools_env env = {.ctx = e->ctx,
@@ -1487,7 +415,7 @@ int tny_engine_prepare(tny_engine *e, tny_backend *prepared, tny_engine_prepare_
                          .session_id = e->session_id,
                          .cancelled = native_tool_cancelled,
                          .cancelled_ud = e};
-        tny_acp_bridge_bind(tny_backend_acp_bridge(bk), &env, native_openai_control, e);
+        tny_acp_bridge_bind(tny_backend_acp_bridge(bk), &env, NULL, NULL);
     }
     if (state != TNY_ENGINE_PREPARE_RESUMED && bk->create_or_resume) {
         const char *ptr = session_host_pointer(e->session);
@@ -1607,43 +535,16 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
     e->terminal_popped = false;
     e->forcing_error = false;
     e->stop = TNY_STOP_ERROR;
-    e->extension_stop_requested = false;
-    e->extension_cancel_sent = false;
-    e->extension_continuations = 0;
     atomic_store_explicit(&e->cancel_requested, false, memory_order_release);
     tny_wake_drain(&e->cancel_wake);
-    free(e->native_observed_permission_id);
-    e->native_observed_permission_id = NULL;
-    e->session->extension_agent_sequence++;
-    buf_clear(&e->extension_followup);
+    e->session->agent_sequence++;
     buf_t effective;
     buf_init(&effective);
-    extension_fold prompt_fold = {0};
-    if (e->prepared_requeue_text && strcmp(e->prepared_requeue_text, prompt) == 0) {
-        buf_appends(&effective, prompt); /* mutating hook already consumed */
-        free(e->prepared_requeue_text);
-        e->prepared_requeue_text = NULL;
-    } else {
-        prompt_fold = prepare_user_prompt(e, prompt, images, "user", &effective);
-    }
+    buf_appends(&effective, prompt);
     if (buf_oom(&effective) || tny_alloc_scope_failed()) {
         if (err && errlen) snprintf(err, errlen, "out of memory");
         buf_free(&effective);
         return -1;
-    }
-    if (prompt_fold.stop || prompt_fold.blocked) {
-        e->active = true;
-        e->turn_started = false;
-        e->extension_stop_requested = prompt_fold.stop;
-        session_save(e->session);
-        if (prompt_fold.blocked) {
-            free(e->prompt_text);
-            e->prompt_text = NULL; /* blocked text never becomes session title */
-        }
-        synth_terminal(e, prompt_fold.blocked ? TNY_STOP_DENIED : TNY_STOP_INTERRUPTED);
-        buf_free(&effective);
-        after_backend(e, 0);
-        return 0;
     }
     /* Skill mentions (docs/adr/0056): `/name` or `$name` in the typed text
      * puts that SKILL.md ahead of the user turn for every backend — the
@@ -1669,7 +570,7 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
             }
         }
     }
-    int rc = start_backend_iteration(e, effective.data, images, "user", err, errlen);
+    int rc = start_backend_iteration(e, effective.data, images, err, errlen);
     if (rc == 0 && n_skill_names && e->turn_started)
         session_record_skill_injection(e->session, skill_message_index, skill_names, n_skill_names,
                                        prompt);
@@ -1679,7 +580,6 @@ int tny_engine_start(tny_engine *e, const char *prompt, const char **images, cha
         tny_owned_event *queued;
         while ((queued = tny_engine_pop_event(e))) tny_owned_event_free(queued);
         e->terminal_popped = false;
-        buf_clear(&e->extension_followup);
         return -1; /* start failure creates no event stream */
     }
     if (e->active) atomic_store_explicit(&e->cancel_armed, true, memory_order_release);
@@ -1692,32 +592,16 @@ int tny_engine_steer(tny_engine *e, const char *text, char *err, size_t errlen) 
         if (err && errlen) snprintf(err, errlen, "turn cannot accept steering");
         return -1;
     }
-    buf_t effective;
-    buf_init(&effective);
-    extension_fold fold = prepare_user_prompt(e, text, NULL, "steer", &effective);
-    if (fold.blocked) {
-        session_save(e->session);
-        buf_free(&effective);
-        after_backend(e, 0);
-        return 0;
-    }
-    if (fold.stop) {
-        e->extension_stop_requested = true;
-        buf_free(&effective);
-        after_backend(e, 0);
-        return 0;
-    }
-    int rc = e->bk->steer(e->bk, effective.data, err, errlen);
+    int rc = e->bk->steer(e->bk, text, err, errlen);
     if (rc != 0) {
         tny_backend_event rejected = {0};
         rejected.kind = TNY_EV_STEER_REJECTED;
-        rejected.text = effective.data;
-        rejected.text_len = effective.len;
+        rejected.text = text;
+        rejected.text_len = strlen(text);
         backend_event(&rejected, e);
         after_backend(e, 0);
-        rc = 0; /* runtime owns the transformed text and queued rejection */
+        rc = 0; /* runtime owns the queued rejection */
     }
-    buf_free(&effective);
     return rc;
 }
 
@@ -1735,8 +619,6 @@ void tny_engine_fail_oom(tny_engine *e) {
     e->overflow_pending = false;
     e->forcing_error = true;
     e->finalize_pending = false; /* persistence is not emergency settlement */
-    e->extension_stop_requested = false;
-    e->extension_cancel_sent = true;
     /* Publish settlement before cancel: backend cancellation callbacks must
      * not construct another event while the reserved pair is being used. */
     e->terminal = true;
@@ -1793,15 +675,6 @@ int tny_engine_dispatch(tny_engine *e, struct pollfd *fds, int n) {
 
 tny_owned_event *tny_engine_pop_event(tny_engine *e) {
     if (!e) return NULL;
-    while (e->head && e->head->suppressed) {
-        tny_owned_event *suppressed = e->head;
-        e->head = suppressed->next;
-        if (!e->head) e->tail = NULL;
-        e->queue_count--;
-        e->queue_bytes -= suppressed->owned_bytes;
-        suppressed->next = NULL;
-        tny_owned_event_free(suppressed);
-    }
     if (!e->head) return NULL;
     tny_owned_event *o = e->head;
     e->head = o->next;
@@ -1898,117 +771,29 @@ char *tny_engine_openai_usage_json(tny_engine *e) {
     return e->bk->id == TNY_BK_OPENAI ? tny_backend_openai_usage_json(e->bk) : NULL;
 }
 
-void tny_engine_preserve_session_on_free(tny_engine *e) {
-    if (e) e->preserve_session_on_free = true;
-}
-
-void tny_engine_end_session(tny_engine *e, const char *reason) {
-    if (!e || !e->extensions || !e->session->extension_session_started) return;
-    char *json = session_event_json(e, "session_end", reason && *reason ? reason : "exit", NULL);
-    if (json) {
-        (void)invoke_extensions(e, "session_end", json, EXT_PHASE_OBSERVE, NULL);
-        free(json);
-    }
-    e->session->extension_session_started = false;
-    e->extensions_started = false;
-}
-
-int tny_engine_compact(tny_engine *e, bool force, const char *trigger) {
+int tny_engine_compact(tny_engine *e, bool force) {
     if (!e || !e->session || e->active) return -1;
     if (!session_compact_needed(e->session, force)) return 0;
-    int before = session_message_count(e->session);
-    bool observable = e->extensions && e->session->extension_session_started &&
-                      tny_extension_capability_get((tny_backend_id)e->ctx->backend,
-                                                   TNY_EXT_CAP_LIFECYCLE_COMPACTION_OBSERVE) ==
-                          TNY_EXT_CAP_SUPPORTED;
-    if (observable) {
-        char *json = compact_event_json(e, "pre_compact", trigger, before, before, NULL, NULL);
-        if (json) {
-            (void)invoke_extensions(e, "pre_compact", json, EXT_PHASE_OBSERVE, NULL);
-            free(json);
-        }
-    }
     if (tny_alloc_scope_failed()) return -1;
     int changed = session_compact(e->session, force);
     if (tny_alloc_scope_failed()) return -1;
     int saved = changed >= 0 ? session_save(e->session) : -1;
     if (tny_alloc_scope_failed()) return -1;
-    if (changed >= 0 && saved == 0) {
-        if (changed && observable) {
-            const char *summary = NULL;
-            int boundary = session_compact_boundary(e->session, &summary);
-            int after = session_message_count(e->session) - boundary + 1;
-            char *json =
-                compact_event_json(e, "post_compact", trigger, before, after, summary, NULL);
-            if (json) {
-                (void)invoke_extensions(e, "post_compact", json, EXT_PHASE_OBSERVE, NULL);
-                free(json);
-            }
-        }
-        return changed;
-    }
-    if (observable) {
-        char *json = compact_event_json(e, "compact_failed", trigger, before, before, NULL,
-                                        "session persistence failed");
-        if (json) {
-            (void)invoke_extensions(e, "compact_failed", json, EXT_PHASE_OBSERVE, NULL);
-            free(json);
-        }
-    }
-    return -1;
-}
-
-static void notify_selection_change(tny_engine *e, const char *type, const char *previous,
-                                    const char *current, const char *source) {
-    if (!e || !e->extensions || !e->session->extension_session_started) return;
-    const char *before = previous ? previous : "default";
-    const char *after = current ? current : "default";
-    if (strcmp(before, after) == 0) return;
-    char *json = selection_event_json(e, type, previous, current, source);
-    if (json) {
-        (void)invoke_extensions(e, type, json, EXT_PHASE_OBSERVE, NULL);
-        free(json);
-    }
-}
-
-void tny_engine_model_changed(tny_engine *e, const char *previous, const char *current,
-                              const char *source) {
-    notify_selection_change(e, "model_change", previous, current, source);
-}
-
-void tny_engine_effort_changed(tny_engine *e, const char *previous, const char *current,
-                               const char *source) {
-    notify_selection_change(e, "effort_change", previous, current, source);
-}
-
-void tny_engine_workspace_changed(tny_engine *e, const char *action, const char *path) {
-    if (!e || !e->extensions || !e->session->extension_session_started) return;
-    char *json = workspace_event_json(e, action, path);
-    if (json) {
-        (void)invoke_extensions(e, "workspace_change", json, EXT_PHASE_OBSERVE, NULL);
-        free(json);
-    }
+    return changed >= 0 && saved == 0 ? changed : -1;
 }
 
 void tny_engine_free(tny_engine *e) {
     if (!e) return;
     atomic_store_explicit(&e->cancel_armed, false, memory_order_release);
     if (e->active) tny_engine_cancel(e);
-    if (!e->preserve_session_on_free) tny_engine_end_session(e, "exit");
     drop_backend(e);
     tny_owned_event *event;
     while ((event = tny_engine_pop_event(e))) tny_owned_event_free(event);
     tny_owned_event_free(e->pending_terminal);
     tny_owned_event_free(e->oom_error_reserve);
     tny_owned_event_free(e->oom_terminal_reserve);
-    buf_free(&e->turn_text);
     buf_free(&e->acp_text);
-    buf_free(&e->message_text);
-    buf_free(&e->extension_followup);
     free(e->prompt_text);
-    free(e->prepared_requeue_text);
-    free(e->native_observed_permission_id);
-    free(e->current_message_id);
     tny_wake_close(&e->cancel_wake);
     free(e);
 }
@@ -2025,20 +810,7 @@ yyjson_mut_val *tny_engine_checkpoint(tny_engine *e, yyjson_mut_doc *d) {
     if (!native) return NULL;
     yyjson_mut_obj_add_val(d, r, "native", native);
     if (e->prompt_text) yyjson_mut_obj_add_strcpy(d, r, "prompt_text", e->prompt_text);
-    if (e->prepared_requeue_text)
-        yyjson_mut_obj_add_strcpy(d, r, "prepared_requeue_text", e->prepared_requeue_text);
-    if (e->current_message_id)
-        yyjson_mut_obj_add_strcpy(d, r, "current_message_id", e->current_message_id);
-    yyjson_mut_obj_add_strcpy(d, r, "turn_text", e->turn_text.data ? e->turn_text.data : "");
-    yyjson_mut_obj_add_strcpy(d, r, "message_text",
-                              e->message_text.data ? e->message_text.data : "");
-    yyjson_mut_obj_add_strcpy(d, r, "extension_followup",
-                              e->extension_followup.data ? e->extension_followup.data : "");
-    yyjson_mut_obj_add_bool(d, r, "extensions_started", e->extensions_started);
-    yyjson_mut_obj_add_bool(d, r, "message_started", e->message_started);
     yyjson_mut_obj_add_bool(d, r, "turn_started", e->turn_started);
-    yyjson_mut_obj_add_uint(d, r, "submission_sequence", e->submission_sequence);
-    yyjson_mut_obj_add_int(d, r, "extension_continuations", e->extension_continuations);
     return r;
 }
 
@@ -2049,44 +821,14 @@ int tny_engine_restore(tny_engine *e, yyjson_val *r) {
         return -1;
     free(e->prompt_text);
     e->prompt_text = jget_str(r, "prompt_text") ? xstrdup(jget_str(r, "prompt_text")) : NULL;
-    free(e->prepared_requeue_text);
-    e->prepared_requeue_text =
-        jget_str(r, "prepared_requeue_text") ? xstrdup(jget_str(r, "prepared_requeue_text")) : NULL;
-    free(e->current_message_id);
-    e->current_message_id =
-        jget_str(r, "current_message_id") ? xstrdup(jget_str(r, "current_message_id")) : NULL;
-    buf_clear(&e->turn_text);
-    buf_appends(&e->turn_text, jget_str(r, "turn_text") ? jget_str(r, "turn_text") : "");
-    buf_clear(&e->message_text);
-    buf_appends(&e->message_text, jget_str(r, "message_text") ? jget_str(r, "message_text") : "");
-    buf_clear(&e->extension_followup);
-    buf_appends(&e->extension_followup,
-                jget_str(r, "extension_followup") ? jget_str(r, "extension_followup") : "");
-    e->extensions_started = jget_bool(r, "extensions_started", false);
-    e->message_started = jget_bool(r, "message_started", false);
     e->turn_started = jget_bool(r, "turn_started", false);
-    e->submission_sequence = (uint64_t)jget_int(r, "submission_sequence", 0);
-    e->extension_continuations = (int)jget_int(r, "extension_continuations", 0);
     e->active = true;
     e->terminal = e->terminal_popped = false;
-    e->restart_initialization_pending = true;
     return 0;
 }
 
 int tny_engine_continue(tny_engine *e) {
     if (!tny_engine_parked(e)) return -1;
-    if (e->restart_initialization_pending) {
-        e->restart_initialization_pending = false;
-        if (e->extensions) {
-            /* A new interpreter needs a distinct resume initialization. This
-             * does not resubmit the prompt or start another agent/turn. */
-            char *json = session_event_json(e, "session_start", "background_resume", NULL);
-            if (json) {
-                (void)invoke_extensions(e, "session_start", json, EXT_PHASE_OBSERVE, NULL);
-                free(json);
-            }
-        }
-    }
     int rc = tny_backend_openai_continue(e->bk);
     after_backend(e, rc);
     return rc;
@@ -2095,6 +837,5 @@ int tny_engine_continue(tny_engine *e) {
 void tny_engine_handoff_free(tny_engine *e) {
     if (!tny_engine_parked(e)) return;
     e->active = false; /* ownership transfer, never a cancelled turn */
-    tny_engine_preserve_session_on_free(e);
     tny_engine_free(e);
 }

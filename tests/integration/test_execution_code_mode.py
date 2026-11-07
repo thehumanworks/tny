@@ -1012,19 +1012,6 @@ class ExecutionCodeMode(unittest.TestCase):
                 self.assert_schema(wire)
 
     def test_optional_reasons_do_not_leak_into_nested_arguments(self):
-        directory = self.home / ".tny/extensions"
-        directory.mkdir(parents=True)
-        log = self.home / "arguments.jsonl"
-        (directory / "observe.py").write_text(
-            "import json\nfrom tny_ext import PreToolUseEvent, ToolStartEvent\n"
-            "def setup(api):\n"
-            "    @api.on(PreToolUseEvent)\n"
-            "    def before(event):\n"
-            f"        with open({str(log)!r}, 'a') as out: out.write(json.dumps(dict(name=event.tool_name, arguments=event.arguments)) + '\\n')\n"
-            "    @api.on(ToolStartEvent)\n"
-            "    def started(event):\n"
-            f"        with open({str(log)!r}, 'a') as out: out.write(json.dumps(dict(start=event.tool_name, reason=event.payload.get('reason'), detail=event.detail)) + '\\n')\n"
-        )
         (self.workspace / "fixture").write_text("reason-fixture")
         for wire in ("responses", "chat"):
             for enabled in (True, False):
@@ -1055,24 +1042,6 @@ class ExecutionCodeMode(unittest.TestCase):
                         else body["instructions"]
                     )
                     self.assertEqual("For each tool call, include" in prompt, enabled)
-        observed = [json.loads(line) for line in log.read_text().splitlines()]
-        nested = [
-            entry["arguments"] for entry in observed if entry.get("name") == "read_file"
-        ]
-        self.assertEqual(len(nested), 12)
-        self.assertTrue(all(args == {"path": "fixture"} for args in nested), nested)
-        starts = [entry for entry in observed if "start" in entry]
-        self.assertEqual(
-            [entry["reason"] for entry in starts],
-            ["Inspect fixtures", "Read fixture", None, "Read independently"] * 4,
-        )
-        self.assertTrue(
-            all(
-                json.loads(entry["detail"]) == {"path": "fixture"}
-                for entry in starts
-                if entry["start"] == "read_file"
-            )
-        )
 
     def test_direct_calls_fail_closed_on_both_wires(self):
         for wire in ("responses", "chat"):
@@ -1232,31 +1201,6 @@ with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
         self.assertLess(len(output.encode()), 70000)
         self.assertIn("bytes of output omitted", output)
         self.assertIn("after\n", output)
-
-    def test_nested_permission_and_pretool_hooks_use_owner(self):
-        directory = self.home / ".tny/extensions"
-        directory.mkdir(parents=True)
-        log = self.home / "hook.log"
-        (directory / "guard.py").write_text(
-            "from tny_ext import PreToolUseEvent, PermissionRequestEvent, deny_tool, decide_permission\n"
-            "def setup(api):\n"
-            "    @api.on(PreToolUseEvent)\n"
-            "    def before(event):\n"
-            f"        with open({str(log)!r}, 'a') as out: out.write(event.tool_name + '\\n')\n"
-            "        if event.tool_name == 'delete_file': return deny_tool('nested hook denial')\n"
-            "    @api.on(PermissionRequestEvent)\n"
-            "    def permission(event): return decide_permission('allow_once', 'nested fixture approval')\n"
-        )
-        result = self.run_code(
-            'print(tools.call("write_file", \'{"path":"protected.txt","content":"kept"}\'))\n'
-            'print(tools.call("delete_file", \'{"path":"protected.txt"}\'))',
-            flags=("--permission-mode", "ask"),
-        )
-        self.assertEqual((self.workspace / "protected.txt").read_text(), "kept")
-        self.assertIn("denied", result)
-        observed = log.read_text().splitlines()
-        self.assertIn("write_file", observed)
-        self.assertIn("delete_file", observed)
 
     def test_concurrent_contexts_do_not_share_profile_or_workspace(self):
         other = ExecutionCodeMode(methodName="test_profile_cannot_be_widened_by_code")
@@ -1451,7 +1395,7 @@ with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
 
     def test_owner_stop_interrupts_python_and_retains_completed_effect(self):
         # A controlled owner proves the returned diagnostic, including stop
-        # before an effect and after an effect. The real extension follows.
+        # before an effect and after an effect.
         for kind in (1, 3):
             with self.subTest(control_kind=kind):
                 result, _ = self.private_cell(
@@ -1463,26 +1407,6 @@ with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
                 self.assertIn("cancelled by owner policy", result)
                 self.assertNotIn("timeout", result)
                 self.assertEqual((self.workspace / "policy.txt").exists(), kind == 3)
-        directory = self.home / ".tny/extensions"
-        directory.mkdir(parents=True)
-        (directory / "stopper.py").write_text(
-            "from tny_ext import PostToolUseEvent, stop\n"
-            "def setup(api):\n"
-            "    @api.on(PostToolUseEvent)\n"
-            "    def after(event):\n"
-            "        if event.tool_name == 'write_file': return stop('fixture policy stop')\n"
-        )
-        process = self.start(
-            """tools.call("write_file", '{"path":"once.txt","content":"once"}')\n"""
-            "while True:\n    pass"
-        )
-        started = time.monotonic()
-        stdout, stderr = process.communicate(timeout=8)
-        self.assertLess(time.monotonic() - started, 4)
-        self.assertEqual((self.workspace / "once.txt").read_text(), "once")
-        self.assertEqual(process.returncode, 130, (stdout, stderr))
-        self.assertEqual(json.loads(stdout)["exit_code"], 130)
-        self.assertEqual(len(self.server.bodies), 1)
 
     def test_private_entry_requires_connected_unix_stream(self):
         def reject(descriptor):

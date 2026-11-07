@@ -26,15 +26,13 @@ typedef struct {
     char *swarm_source;            /* absolute selection provenance */
     char swarm_definition_digest[65];
     int swarm_participants;
-    const char *task;                     /* --task NAME */
-    const char *perm_mode;                /* --permission-mode | --yolo | --auto */
-    const char *max_steps;                /* --max-steps N|unlimited (0 = no cap) */
-    const char *max_extension_iterations; /* 0/unlimited = no cap */
-    bool no_extensions;                   /* --no-extensions */
-    bool no_self_improve;                 /* --no-self-improve */
-    bool ultrafast;                       /* --ultrafast (OpenAI Responses only) */
-    bool fast;                            /* --fast (providers with TNY_CAP_FAST) */
-    const char **add_dirs;                /* --add-dir, repeatable */
+    const char *task;      /* --task NAME */
+    const char *perm_mode; /* --permission-mode | --yolo | --auto */
+    const char *max_steps; /* --max-steps N|unlimited (0 = no cap) */
+    bool no_self_improve;  /* --no-self-improve */
+    bool ultrafast;        /* --ultrafast (OpenAI Responses only) */
+    bool fast;             /* --fast (providers with TNY_CAP_FAST) */
+    const char **add_dirs; /* --add-dir, repeatable */
     int n_add_dirs;
     bool json;              /* --json */
     int tui_mode;           /* 0=settings, 1=inline, 2=fullscreen */

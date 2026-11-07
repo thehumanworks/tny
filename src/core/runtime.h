@@ -97,17 +97,7 @@ int tny_engine_openai_steps(tny_engine *e);
 const char *tny_engine_openai_toolcalls_json(tny_engine *e);
 char *tny_engine_openai_usage_json(tny_engine *e); /* caller frees */
 
-/* Logical session lifecycle is distinct from a backend/engine rebind. TUI
- * provider/model switches preserve it; actual new/resume/exit boundaries end
- * it explicitly. */
-void tny_engine_preserve_session_on_free(tny_engine *e);
-void tny_engine_end_session(tny_engine *e, const char *reason);
-int tny_engine_compact(tny_engine *e, bool force, const char *trigger);
-void tny_engine_model_changed(tny_engine *e, const char *previous, const char *current,
-                              const char *source);
-void tny_engine_effort_changed(tny_engine *e, const char *previous, const char *current,
-                               const char *source);
-void tny_engine_workspace_changed(tny_engine *e, const char *action, const char *path);
+int tny_engine_compact(tny_engine *e, bool force);
 
 /* Runner-only parked continuation. Snapshot includes native turn affinity:
  * strip native.turn_state from the disk checkpoint; carry it privately. */

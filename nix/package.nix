@@ -1,4 +1,4 @@
-# The tny CLI/TUI binary plus the pure-Python extension host.
+# The tny CLI/TUI binary plus its pure-Python helper modules.
 #
 # Usable without flakes:  pkgs.callPackage ./nix/package.nix { }
 {
@@ -20,7 +20,7 @@
   #   pkgs.tny.override { version = "0.2.1"; }
   version ? "0.0.0-unknown",
 
-  # tny execs `python3` from PATH for the extension host and reads the system
+  # tny execs `python3` from PATH for helper modules and reads the system
   # CA bundle for TLS. Wrapping supplies both; set false for an unwrapped
   # binary that inherits the caller's environment untouched.
   wrapRuntime ? true,
@@ -98,7 +98,6 @@ stdenv.mkDerivation (finalAttrs: {
     $out/bin/tny --help > /dev/null
     $out/bin/tny ask --help > /dev/null
     $out/bin/tny doctor --json > /dev/null
-    test -f $out/lib/tny/tny_extension_host.py
     test -f $out/lib/tny/tny_improve.py
     test -f $out/lib/tny/tny_improve_propose.py
     test -f $out/share/tny/tny-workflows.sh

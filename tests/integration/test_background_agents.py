@@ -43,9 +43,7 @@ def saved_turn_complete(session, turns):
 
 
 class Provider:
-    def __init__(
-        self, ws, no_tools=False, steer=False, images=False, transformed=False
-    ):
+    def __init__(self, ws, no_tools=False, steer=False, images=False):
         self.requests = []
         self.errors = []
         self.finish = threading.Event()
@@ -158,10 +156,6 @@ class Provider:
                                 "first",
                                 "second",
                             ], messages
-                            if transformed:
-                                assert results[0]["content"] == "EFFECTIVE-RESULT", (
-                                    results
-                                )
                             if images:
                                 parts = [
                                     m["content"]
@@ -229,14 +223,13 @@ def run_case(
     permission=False,
     steer=False,
     images=False,
-    transformed=False,
     trigger="\x1b[D",
 ):
     """An active turn detaches immediately and keeps its runner and owner lock."""
     with tempfile.TemporaryDirectory(prefix="tny-agents-") as home:
         ws = Path(home) / "ws"
         ws.mkdir()
-        provider = Provider(ws, no_tools, steer, images, transformed)
+        provider = Provider(ws, no_tools, steer, images)
         env = base_env(
             home,
             {
@@ -247,35 +240,11 @@ def run_case(
                 "TNY_PROVIDER_RETRIES": "0",
             },
         )
-        if transformed:
-            ext = Path(home) / ".tny/extensions/effective.py"
-            ext.parent.mkdir(parents=True, exist_ok=True)
-            ext.write_text(
-                "from tny_ext import PostToolUseEvent, replace_tool_result\n"
-                "import json, os\n"
-                "def setup(api):\n"
-                "    initialized = False\n"
-                "    @api.on('*')\n"
-                "    def record(event):\n"
-                "        nonlocal initialized\n"
-                "        if event.type == 'session_start': initialized = True\n"
-                "        with open(os.environ['EVENTS_PATH'], 'a') as f:\n"
-                "            f.write(json.dumps({'type': event.type, 'reason': getattr(event, 'reason', None), 'initialized': initialized}) + '\\n')\n"
-                "    @api.on(PostToolUseEvent)\n"
-                "    def replace(event):\n"
-                "        assert initialized, 'host received a hook before initialization'\n"
-                "        if event.tool_id == 'first': return replace_tool_result('EFFECTIVE-RESULT')\n"
-            )
-            env["EVENTS_PATH"] = str(Path(home) / "events.jsonl")
-            env["TNY_EXTENSION_HOST"] = str(
-                Path(__file__).resolve().parents[2] / "python/tny_extension_host.py"
-            )
         term = Term(
             [
                 TNY,
                 "--provider",
                 "openai",
-                *([] if transformed else ["--no-extensions"]),
                 "--max-steps",
                 "3",
                 "--model",
@@ -402,15 +371,6 @@ def run_case(
             )
             live_row = json.loads(listed.stdout)["agents"][0]
             assert live_row["status"] == "done" and live_row["live"], live_row
-            if transformed:
-                records = [
-                    json.loads(line)
-                    for line in Path(env["EVENTS_PATH"]).read_text().splitlines()
-                ]
-                assert all(record["initialized"] for record in records), records
-                events = [record["type"] for record in records]
-                assert events.count("session_start") == 1, events
-                assert events.count("user_prompt_submit") == 1, events
             if not no_tools:
                 attached.send("FOLLOWUP-AFTER-DONE\r")
                 attached.expect("LIVE-FOLLOWUP-OK")
@@ -466,8 +426,6 @@ def run_case(
         if steer
         else "image"
         if images
-        else "transformed"
-        if transformed
         else "streaming tool",
     )
 
@@ -1158,7 +1116,7 @@ def dashboard_cancels_provider_wizard():
         env = {**provider.env(home), "WIZARD_LEAK_API_KEY": "synthetic-only"}
         lock = (session.parent / "lock").open("r+b")
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        term = Term([TNY, "--provider", "fixture", "--no-extensions"], env, str(ws))
+        term = Term([TNY, "--provider", "fixture"], env, str(ws))
         try:
             term.expect(BANNER)
             term.send("/provider setup wizard-leak\r")
@@ -1401,7 +1359,7 @@ def cancellation_after_handoff():
                 "OPENAI_WIRE_API": "chat",
             },
         )
-        term = Term([TNY, "--no-extensions", "--provider", "openai"], env, str(ws))
+        term = Term([TNY, "--provider", "openai"], env, str(ws))
         try:
             term.expect(BANNER)
             # Idle Left still edits the ordinary composer.
@@ -1454,7 +1412,7 @@ def idle_left_dashboard():
         ws = Path(home) / "ws"
         ws.mkdir()
         env = base_env(home)
-        term = Term([TNY, "--no-extensions", "--provider", "openai"], env, str(ws))
+        term = Term([TNY, "--provider", "openai"], env, str(ws))
         try:
             term.expect(BANNER)
             term.send("\x1b[D")
@@ -1481,7 +1439,7 @@ def terminal_loss_after_handoff():
                 "OPENAI_WIRE_API": "chat",
             },
         )
-        term = Term([TNY, "--provider", "openai", "--no-extensions"], env, str(ws))
+        term = Term([TNY, "--provider", "openai"], env, str(ws))
         attached = None
         session = None
         try:
@@ -1546,7 +1504,7 @@ def unsupported_in_process():
                 "TNY_ISOLATE": "0",
             },
         )
-        term = Term([TNY, "--provider", "openai", "--no-extensions"], env, str(ws))
+        term = Term([TNY, "--provider", "openai"], env, str(ws))
         try:
             term.expect(BANNER)
             term.send("inprocess fixture\r")
@@ -1600,7 +1558,6 @@ def empty_dashboard():
             for color in ("auto", "never"):
                 args = [
                     TNY,
-                    "--no-extensions",
                     "--provider",
                     "openai",
                     f"--color={color}",
@@ -1712,7 +1669,6 @@ if __name__ == "__main__":
     run_case(permission=True)
     run_case(steer=True)
     run_case(images=True)
-    run_case(transformed=True)
     run_case(trigger="\x18")
     run_case(trigger="/agents\r")
 

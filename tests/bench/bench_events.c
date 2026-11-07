@@ -1,5 +1,5 @@
 /* Fixed callback -> retained queue -> release workload through the real engine.
- * No provider, network, Python extension or persistence is invoked. Build and
+ * No provider, network or persistence is invoked. Build and
  * compare unchanged C and migrated ownership using bench_events.py. */
 #include "core/runtime.h"
 #include "util/alloc.h"
@@ -145,8 +145,6 @@ int main(int argc, char **argv) {
     if (!ctx) return 1;
     ctx->backend = TNY_BK_COUNT;
     ctx->no_save = true;
-    ctx->extensions_enabled = false;
-    ctx->max_extension_iterations = 0;
     tny_session_state *session = session_new(ctx);
     perm_engine *perm = perm_new(ctx);
     tny_engine *engine = tny_engine_new(ctx, session, perm, NULL, NULL);

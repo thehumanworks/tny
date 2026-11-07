@@ -450,9 +450,6 @@ class SearchServiceTests(unittest.TestCase):
                 "CHATGPT_ACCOUNT_ID": ACCOUNT,
                 "TNY_CODEX_BASE_URL": self.fixture.base + "/codex",
                 "TNY_PROVIDER_RETRIES": "0",
-                "TNY_EXTENSION_HOST": str(
-                    Path(__file__).resolve().parents[2] / "python/tny_extension_host.py"
-                ),
                 **(extra or {}),
             },
         )
@@ -788,7 +785,6 @@ raise SystemExit(subprocess.call(["sh", "-c", args[-1]]))
                 "active-unrelated-model",
                 "--wire-api",
                 "chat",
-                "--no-extensions",
                 "ask",
                 "--json",
                 "Search now",
@@ -819,7 +815,6 @@ raise SystemExit(subprocess.call(["sh", "-c", args[-1]]))
                             "active-unrelated-model",
                             "--wire-api",
                             wire,
-                            "--no-extensions",
                             "ask",
                             "--json",
                             "Search using the web_search tool",
@@ -884,7 +879,6 @@ raise SystemExit(subprocess.call(["sh", "-c", args[-1]]))
                             "active-unrelated-model",
                             "--wire-api",
                             "chat",
-                            "--no-extensions",
                         ],
                         env,
                         str(self.work),
@@ -967,7 +961,6 @@ raise SystemExit(subprocess.call(["sh", "-c", args[-1]]))
                         "active-unrelated-model",
                         "--wire-api",
                         "chat",
-                        "--no-extensions",
                     ],
                     env,
                     str(self.work),

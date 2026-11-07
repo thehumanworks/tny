@@ -58,8 +58,8 @@ pid_t tny_runner_spawn(tny_ctx *ctx, tny_session_state *session, const tny_runne
  * the stored session `result` stay byte-identical (docs/adr/0031). Any
  * argument except ctx may be NULL/absent. Malloc'd, trailing newline. */
 char *tny_turn_result_json(tny_ctx *ctx, struct tny_engine *engine, tny_session_state *session,
-                           const char *output, const char *host_tools_items,
-                           const char *extension_items, const char *errline, int exit_code);
+                           const char *output, const char *host_tools_items, const char *errline,
+                           int exit_code);
 
 /* ---- client ---- */
 

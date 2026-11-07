@@ -133,7 +133,6 @@ class OptimiseTests(unittest.TestCase):
                 "OPENAI_API_KEY": "fixture-chat-key",
                 "OPENAI_WIRE_API": "chat",
                 "TNY_PREWARM": "0",
-                "TNY_EXTENSIONS": "0",
             },
         )
 

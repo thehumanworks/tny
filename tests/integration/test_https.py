@@ -184,7 +184,7 @@ def macos_runner_after_caller_tls():
                 "OPENAI_API_KEY": "synthetic-test-key",
             },
         )
-        term = Term([TNY, "--provider", "openai", "--no-extensions"], env, str(ws))
+        term = Term([TNY, "--provider", "openai"], env, str(ws))
         try:
             term.expect(BANNER)
             sessions = home / ".tny" / "sessions"

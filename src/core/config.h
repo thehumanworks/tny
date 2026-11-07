@@ -13,7 +13,6 @@
 #define TNY_MCP_IMPORT_GROK   (1u << 2)
 #define TNY_MCP_IMPORT_CURSOR (1u << 3)
 
-struct tny_extensions;
 struct tny_host_services_state;
 struct custom_tool_registry;
 
@@ -75,14 +74,6 @@ typedef struct tny_ctx {
     bool prompt_optimisation; /* internal read-only draft service, not a user tool profile */
     struct tny_host_services_state *host_services; /* borrowed from lib runtime */
     struct custom_tool_registry *custom_tools;     /* borrowed from lib runtime */
-
-    /* optional Python extensions (~/.tny/extensions). CLI contexts enable
-     * discovery by default; explicit/libtny contexts keep it off unless a
-     * later public ABI opts in. A zero continuation cap means unlimited. */
-    bool extensions_enabled;
-    int max_extension_iterations;
-    int extension_timeout_ms;
-    struct tny_extensions *extensions; /* process-owned persistent host */
 
     /* openai-compatible provider */
     char *base_url;

@@ -78,15 +78,10 @@ static yyjson_mut_val *encode_session(yyjson_mut_doc *d, tools_env *env, yyjson_
              yyjson_mut_obj_add_uint(d, out, "projection", 1) &&
              add(d, out, "doc", session_projection(d, s)) &&
              add_optional(d, out, "task_body", s->task_body) &&
-             add_optional(d, out, "extension_start_reason", s->extension_start_reason) &&
-             add_optional(d, out, "extension_previous_session_id",
-                          s->extension_previous_session_id) &&
-             yyjson_mut_obj_add_uint(d, out, "extension_event_sequence",
-                                     s->extension_event_sequence) &&
-             yyjson_mut_obj_add_uint(d, out, "extension_agent_sequence",
-                                     s->extension_agent_sequence) &&
-             yyjson_mut_obj_add_bool(d, out, "extension_session_started",
-                                     s->extension_session_started) &&
+             add_optional(d, out, "start_reason", s->start_reason) &&
+             add_optional(d, out, "previous_session_id", s->previous_session_id) &&
+             yyjson_mut_obj_add_uint(d, out, "event_sequence", s->event_sequence) &&
+             yyjson_mut_obj_add_uint(d, out, "agent_sequence", s->agent_sequence) &&
              yyjson_mut_obj_add_bool(d, out, "persisted", s->persisted);
     } else {
         yyjson_mut_val *set = yyjson_mut_obj(d), *remove = yyjson_mut_arr(d),
@@ -218,12 +213,11 @@ static bool optional_string(yyjson_val *obj, const char *key, char **out) {
 }
 static tny_session_state *restore_session(tny_ctx *ctx, yyjson_val *v) {
     const char *id = jget_str(v, "id"), *dir = jget_str(v, "dir");
-    yyjson_val *doc = jget(v, "doc"), *event = jget(v, "extension_event_sequence"),
-               *agent = jget(v, "extension_agent_sequence"),
-               *started = jget(v, "extension_session_started"), *persisted = jget(v, "persisted");
+    yyjson_val *doc = jget(v, "doc"), *event = jget(v, "event_sequence"),
+               *agent = jget(v, "agent_sequence"), *persisted = jget(v, "persisted");
     if (!yyjson_is_uint(jget(v, "projection")) || yyjson_get_uint(jget(v, "projection")) != 1 ||
         !id || !dir || !yyjson_is_obj(doc) || !yyjson_is_uint(event) || !yyjson_is_uint(agent) ||
-        !yyjson_is_bool(started) || !yyjson_is_bool(persisted))
+        !yyjson_is_bool(persisted))
         return NULL;
     size_t i, n;
     yyjson_val *key, *value;
@@ -242,18 +236,16 @@ static tny_session_state *restore_session(tny_ctx *ctx, yyjson_val *v) {
     s->dir = xstrdup(dir);
     s->doc = yyjson_mut_doc_new(jallocator());
     yyjson_mut_val *root = s->doc ? yyjson_val_mut_copy(s->doc, doc) : NULL;
-    bool ok =
-        s->id && s->dir && root && optional_string(v, "task_body", &s->task_body) &&
-        optional_string(v, "extension_start_reason", &s->extension_start_reason) &&
-        optional_string(v, "extension_previous_session_id", &s->extension_previous_session_id);
+    bool ok = s->id && s->dir && root && optional_string(v, "task_body", &s->task_body) &&
+              optional_string(v, "start_reason", &s->start_reason) &&
+              optional_string(v, "previous_session_id", &s->previous_session_id);
     if (!ok) {
         session_close(s);
         return NULL;
     }
     yyjson_mut_doc_set_root(s->doc, root);
-    s->extension_event_sequence = yyjson_get_uint(event);
-    s->extension_agent_sequence = yyjson_get_uint(agent);
-    s->extension_session_started = yyjson_get_bool(started);
+    s->event_sequence = yyjson_get_uint(event);
+    s->agent_sequence = yyjson_get_uint(agent);
     s->persisted = yyjson_get_bool(persisted);
     return s;
 }

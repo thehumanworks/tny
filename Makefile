@@ -474,7 +474,7 @@ verify-acp-proofs:
 verify-execution-protocol:
 	python3 tests/formal/check_execution_protocol.py
 
-.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-extensions-python test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-sdk-examples test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
+.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-sdk-examples test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
 all: release
 
@@ -785,9 +785,6 @@ test-conformance-contract:
 	python3 sdk/conformance/check.py
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 		-s tests/conformance -p 'test_*.py' -v
-
-test-extensions-python:
-	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/extensions -p 'test_*.py' -v
 
 test-shell-workflows:
 	$(BASH) tests/shell/test_workflows.sh
@@ -1247,7 +1244,7 @@ test-subagent-e2e: release
 verify-subagents-live: release
 	python3 tests/integration/live_subagent_check.py --live --tny '$(abspath $(BIN))' --output '$(BUILD)/subagents-live.json'
 
-test: test-code-mode-language verify-formal dictation-fixture test-unit test-openai-errors test-event-schema test-conformance-contract test-extensions-python test-install-prefix test-help-flags test-shell-quick-ask release
+test: test-code-mode-language verify-formal dictation-fixture test-unit test-openai-errors test-event-schema test-conformance-contract test-install-prefix test-help-flags test-shell-quick-ask release
 	tests/integration/run.sh
 
 size: release
@@ -1284,15 +1281,13 @@ bench: release
 	hyperfine --warmup 5 -N './$(BIN) --version'
 
 install: release
-	mkdir -p "$(DESTDIR)$(PREFIX)/bin" "$(DESTDIR)$(PREFIX)/lib/tny/tny_ext" \
+	mkdir -p "$(DESTDIR)$(PREFIX)/bin" "$(DESTDIR)$(PREFIX)/lib/tny" \
 		"$(DESTDIR)$(PREFIX)/share/tny"
 	# unlink first: macOS kills (SIGKILL) a code-signed Mach-O overwritten in place
 	rm -f "$(DESTDIR)$(PREFIX)/bin/tny$(EXE)"
 	cp "$(BIN)" "$(DESTDIR)$(PREFIX)/bin/tny$(EXE)"
-	cp python/tny_extension_host.py python/tny_improve.py python/tny_improve_propose.py \
+	cp python/tny_improve.py python/tny_improve_propose.py \
 		"$(DESTDIR)$(PREFIX)/lib/tny/"
-	cp python/tny_ext/*.py python/tny_ext/py.typed \
-		"$(DESTDIR)$(PREFIX)/lib/tny/tny_ext/"
 	cp shell/tny-workflows.sh "$(DESTDIR)$(PREFIX)/share/tny/"
 	$(SHELL) scripts/install_licenses.sh "$(DESTDIR)$(PREFIX)/share/doc/tny"
 	cp shell/tny.zsh "$(DESTDIR)$(PREFIX)/share/tny/"

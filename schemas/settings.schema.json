@@ -183,22 +183,23 @@
     },
     "extensions": {
       "type": "object",
+      "description": "Python extensions (docs/extensions.md). Only tool extensions exist today.",
       "properties": {
-        "enabled": {
-          "type": "boolean",
-          "default": true
-        },
-        "max_iterations": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 1000000,
-          "default": 0
-        },
-        "timeout_ms": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 600000,
-          "default": 5000
+        "tools": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Load tool extensions from ~/.tny/extensions/tools and the project directory. TNY_TOOL_EXTENSIONS=0 and --no-tool-extensions also disable them."
+            },
+            "project": {
+              "type": "boolean",
+              "default": true,
+              "description": "Also load <repo>/.tny/extensions/tools. --no-project-tools disables it for one process."
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

@@ -304,7 +304,6 @@ void tui_agents_open(tui *t) {
      * when leaving this shell; the ordinary exit prompt may remove it. */
     if (t->background_view) t->worktree = NULL;
     if (t->rc) tui_runner_drop(t, "dashboard");
-    if (t->engine) tny_engine_end_session(t->engine, "agents");
     tui_drop_backend(t); /* release an idle in-process engine before its session */
     t->turn_active = t->turn_done = false;
     t->cancel_ms = 0;
@@ -340,7 +339,6 @@ void tui_background_arm(tui *t) {
 
 /* Replace local display/execution context without saving the read replica. */
 static void agents_context(tui *t, tny_ctx *ctx) {
-    if (t->engine) tny_engine_end_session(t->engine, "agents");
     tui_drop_backend(t);
     mcp_shutdown_all();
     perm_free(t->perm);

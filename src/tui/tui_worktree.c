@@ -69,7 +69,6 @@ void tui_worktree_enter(tui *t, const char *name) {
         ctx->service_tier_explicit = true;
         ctx->service_tier_from_settings = false;
     }
-    if (t->engine) tny_engine_end_session(t->engine, "worktree");
     tui_drop_backend(t);
     if (t->session) {
         /* Invalidation already ended the sole runner writer, if any. The

@@ -139,14 +139,11 @@ def propose(args: argparse.Namespace, request: dict) -> dict:
             args.provider,
             "--model",
             args.model,
-            "--no-extensions",
             "--no-self-improve",
             "--permission-mode",
             "ask",
             "--max-steps",
             str(args.max_steps),
-            "--max-extension-iterations",
-            "1",
         ]
         if args.effort:
             launch += ["--effort", args.effort]

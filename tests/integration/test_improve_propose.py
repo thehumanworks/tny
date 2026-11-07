@@ -105,7 +105,7 @@ class ProposalTests(WorkspaceCleanup, unittest.TestCase):
             json.loads(result.stdout)["instructions"], "Keep exact evidence."
         )
         launch, wait = calls
-        for flag in ("-B", "--no-extensions", "--max-steps", "--output-schema"):
+        for flag in ("-B", "--max-steps", "--output-schema"):
             self.assertIn(flag, launch)
         self.assertEqual(launch[launch.index("--permission-mode") + 1], "ask")
         self.assertIn("--wait", wait)

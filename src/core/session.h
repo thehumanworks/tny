@@ -19,13 +19,12 @@ typedef struct {
     char *dir; /* ~/.tny/sessions/<ws-hash>/<id> */
     tny_ctx *ctx;
     yyjson_mut_doc *doc; /* working copy of session.json */
-    /* Process-local extension lifecycle identity survives backend-engine
-     * rebinds without changing the on-disk/provider message schema. */
-    uint64_t extension_event_sequence;
-    uint64_t extension_agent_sequence;
-    bool extension_session_started;
-    char *extension_start_reason;
-    char *extension_previous_session_id;
+    /* Process-local event identity survives backend-engine rebinds without
+     * changing the on-disk/provider message schema. */
+    uint64_t event_sequence;
+    uint64_t agent_sequence;
+    char *start_reason;
+    char *previous_session_id;
     session_mem_result *mem_results; /* large results in ephemeral mode */
     int n_mem_results;
     int lock_fd;    /* <dir>/lock flock fd, -1 when not held */
@@ -103,21 +102,11 @@ void session_add_usage_details(tny_session_state *s, int64_t in_tok, int64_t out
                                int64_t cached, int64_t cache_write);
 void session_get_usage(tny_session_state *s, int64_t *in_tok, int64_t *out_tok);
 
-/* Extension lifecycle/audit metadata is top-level and never serialized into
- * provider-facing messages[]. Old sessions simply lack it. */
-void session_set_extension_start(tny_session_state *s, const char *reason,
-                                 const char *previous_session_id);
-void session_record_prompt_audit(tny_session_state *s, const char *submission_id,
-                                 const char *submitted, const char *effective, bool blocked,
-                                 const char *extension, const char *reason);
+/* Session start metadata is process-local and never serialized into
+ * provider-facing messages[]. */
+void session_set_start(tny_session_state *s, const char *reason, const char *previous_session_id);
 void session_replace_tool_arguments(tny_session_state *s, const char *tool_call_id,
                                     const char *arguments_json);
-void session_record_tool_audit(tny_session_state *s, const char *tool_call_id,
-                               const char *tool_name, const char *original_arguments,
-                               const char *effective_arguments, const char *control_extension,
-                               const char *control_reason, const char *original_result,
-                               bool original_ok, const char *effective_result, bool effective_ok,
-                               const char *replacement_extension, const char *annotations_json);
 
 /* Skill mention injection (docs/adr/0056). Top-level `skill_injections`,
  * never serialized into messages[]: records which skill bodies were sent

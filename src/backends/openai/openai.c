@@ -898,7 +898,7 @@ static tny_openai_control_response provider_control(oa_impl *o, tny_openai_contr
     char request_id[192];
     snprintf(request_id, sizeof request_id, "%s:%llu:request:%llu",
              o->env.session ? o->env.session->id : "session",
-             (unsigned long long)(o->env.session ? o->env.session->extension_agent_sequence : 0),
+             (unsigned long long)(o->env.session ? o->env.session->agent_sequence : 0),
              (unsigned long long)o->provider_request_sequence);
     tny_openai_control_request provider = {0};
     provider.kind = kind;
@@ -1479,7 +1479,7 @@ static int finish_tool_batch(oa_impl *o) {
 
     if (batch_stop) {
         if (had_preview)
-            preview_not_delivered(o, "an extension stopped the turn before the next request");
+            preview_not_delivered(o, "a control hook stopped the turn before the next request");
         emit_turn_end(o, TNY_STOP_INTERRUPTED);
         return 0;
     }
@@ -1640,7 +1640,7 @@ static int run_tools(oa_impl *o) {
                 continue;
             }
             /* Only a schema-valid rewrite becomes provider transcript truth.
-             * The immutable provider proposal remains in extension_audit. */
+             * Rewrites come only from the private control seam. */
             session_replace_tool_arguments(o->env.session, cid, effective_args);
             if (provider_oom() || session_save(o->env.session) != 0) {
                 char *result =

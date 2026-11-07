@@ -95,8 +95,6 @@ tny --add-dir DIR           # repeatable, process-only
 tny --permission-mode ask|auto|yolo   # default: yolo (docs/adr/0001)
 tny --max-steps N|unlimited # cap native-loop model calls per turn
                             # (default: unlimited, docs/adr/0024)
-tny --max-extension-iterations N|unlimited # cap Python-hook follow-up turns
-tny --no-extensions         # skip ~/.tny/extensions for this process
 tny --fast                  # paid fast tier (TNY_CAP_FAST providers only)
 tny --provider openai --model gpt-6-astra --ultrafast ask "hi" # highest-speed tier
 tny --json                  # where listed
@@ -535,11 +533,7 @@ JSON object (keep field names stable):
   "session_id": "…",
   "ephemeral": false,
   "steps": 1,
-  "tool_calls": [{"name": "read_file", "status": "success"}],
-  "extension_messages": [
-    {"kind": "custom", "custom_type": "reviewer", "content": "…"},
-    {"kind": "user", "content": "verify again"}
-  ]
+  "tool_calls": [{"name": "read_file", "status": "success"}]
 }
 ```
 
@@ -601,7 +595,7 @@ CLI diagnostic (`kind`), never an event (`type`), so the two cannot be
 confused.
 
 `--progress=none` is independent of `--events`: it drops the successful human
-status, plan, tool and extension lines from stderr. Errors, permission
+status, plan and tool lines from stderr. Errors, permission
 refusals and the machine diagnostics above still print. It works with the
 default Markdown output and with `--json` too.
 
@@ -1224,11 +1218,6 @@ calls per turn; a capped turn stops with "step limit reached" on stderr and
 `--max-steps unlimited` (or `0`) clears a cap a repo set through the
 `.tny.json` `"steps"` limit. The interactive TUI exposes the same knob as
 `/max-steps set N` / `/max-steps clear`. The cap applies to every native HTTP profile.
-
-`--max-extension-iterations N` independently caps continuations requested by
-Python `agent_end` hooks; its default is unlimited and `0`/`unlimited` clears
-the cap. `--no-extensions` disables the trusted global hooks for the process.
-See [extensions.md](extensions.md).
 
 ## Help shape
 

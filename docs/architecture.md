@@ -30,11 +30,6 @@ The event vocabulary remains `text_delta`, `thinking`, `tool_start`, `tool_end`,
 `steer_rejected`. Public event layouts and reserved capability constants remain
 ABI-compatible; the reserved ACP capability is available again for optional client sessions.
 
-Extensions run at quiescent native boundaries: pre-tool, unresolved permission,
-post-tool, batch and allowlisted provider request/response edges. Callbacks do
-not re-enter the backend. Extension-free turns do not start the optional host
-Python extension service; model tool cells use their own embedded interpreter.
-
 Optional ACP clients ([ADR 0164](adr/0164-optional-acp-clients.md)) run an external
 agent over stdio. Only the verified Claude adapter is admitted, with external
 built-ins disabled, strict MCP configuration and a private scratch cwd. Its MCP
@@ -193,7 +188,7 @@ See [Dictation](dictation.md) and [ADR 0079](adr/0079-provider-independent-dicta
 
 `core/optimise.c` owns a separate explicit context, ephemeral session and native
 engine for rewriting drafts. It enforces file-reading/search tools and disables
-extensions, MCP, task presets and skill injection. `tui/tui_optimise.c` replaces
+tool extensions, MCP, task presets and skill injection. `tui/tui_optimise.c` replaces
 the composer only after a successful result, without submitting it. Model and
 credentials resolve independently of the conversation. CLI and TUI share the
 same polling/cancellation lifecycle on native and wasm builds.

@@ -1,7 +1,7 @@
 /* Private checkpoint ownership; schema and C facade remain unchanged (ADR0126). */
 extern "C" {
+#include "core/backend.h"
 #include "core/checkpoint.h"
-#include "core/extensions.h"
 #include "util/util.h"
 }
 #include "json/ownership.hpp"
@@ -87,7 +87,6 @@ constexpr bool_field bools[] = {
     {"agent_from_profile", &tny_ctx::agent_from_profile},
     {"acp_require_tools_authority", &tny_ctx::acp_require_tools_authority},
     {"prompt_optimisation", &tny_ctx::prompt_optimisation},
-    {"extensions_enabled", &tny_ctx::extensions_enabled},
     {"service_tier_explicit", &tny_ctx::service_tier_explicit},
     {"service_tier_from_settings", &tny_ctx::service_tier_from_settings},
     {"task_explicit", &tny_ctx::task_explicit},
@@ -209,8 +208,6 @@ yyjson_mut_val *encode(yyjson_mut_doc *d, const tny_ctx *c, bool public_only) {
     check(yyjson_mut_obj_add_strcpy(d, r, "swarm_definition_digest", c->swarm_definition_digest));
     for (const auto &f : bools) check(yyjson_mut_obj_add_bool(d, r, f.name, c->*(f.member)));
     check(yyjson_mut_obj_add_int(d, r, "backend", c->backend));
-    check(yyjson_mut_obj_add_int(d, r, "max_extension_iterations", c->max_extension_iterations));
-    check(yyjson_mut_obj_add_int(d, r, "extension_timeout_ms", c->extension_timeout_ms));
     check(yyjson_mut_obj_add_int(d, r, "swarm_cap", c->swarm_cap));
     check(yyjson_mut_obj_add_int(d, r, "swarm_participants", c->swarm_participants));
     check(yyjson_mut_obj_add_int(d, r, "max_steps", c->max_steps));
@@ -256,13 +253,6 @@ void restore_document(yyjson_doc *&dest, yyjson_val *v) {
     yyjson_doc_free(dest);
     dest = next.release();
 }
-void enable_extensions(tny_ctx *c) {
-    if (c->extensions_enabled) {
-        c->extensions = tny_extensions_new(c->tny_dir, c->cwd, c->extension_timeout_ms);
-        check(c->extensions != nullptr);
-        allocation_ok();
-    }
-}
 context restore(yyjson_val *r) {
     allocation_ok();
     check(yyjson_is_obj(r));
@@ -291,8 +281,6 @@ context restore(yyjson_val *r) {
     // always round-tripped that sentinel; public recovery still requires OpenAI.
     constexpr int unresolved_backend = -1;
     check(c->backend >= unresolved_backend && c->backend < TNY_BK_COUNT);
-    restore_number(c->max_extension_iterations, jget(r, "max_extension_iterations"));
-    restore_number(c->extension_timeout_ms, jget(r, "extension_timeout_ms"));
     restore_number(c->swarm_cap, jget(r, "swarm_cap"));
     check(c->swarm_cap >= -1 && c->swarm_cap <= 16);
     restore_number(c->swarm_participants, jget(r, "swarm_participants"));
@@ -371,8 +359,6 @@ bool public_key(const char *name) {
         if (strcmp(name, f.name) == 0) return true;
     static const char *const rest[] = {
         "backend",
-        "max_extension_iterations",
-        "extension_timeout_ms",
         "max_steps",
         "swarm_cap",
         "swarm_participants",
@@ -462,8 +448,6 @@ context recover(const tny_ctx *resolved, yyjson_val *saved) {
     char digest[65];
     identity(ctx.get(), digest);
     check(strcmp(saved_identity, digest) == 0);
-    enable_extensions(ctx.get());
-    allocation_ok();
     return ctx;
 }
 } // namespace
@@ -474,7 +458,6 @@ yyjson_mut_val *tny_checkpoint_context(yyjson_mut_doc *d, const tny_ctx *c) try 
 
 tny_ctx *tny_checkpoint_context_restore(yyjson_val *r) try {
     auto c = restore(r);
-    enable_extensions(c.get());
     return c.release();
 } catch (...) { return nullptr; }
 

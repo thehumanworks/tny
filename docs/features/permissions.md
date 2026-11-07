@@ -74,14 +74,6 @@ confines writes and is enforced by the kernel. Likewise, path-precise `edit`
 rules bind the typed file tools, `tny edit`, and the sandbox write set; they
 do **not** constrain writes an arbitrary shell command performs.
 
-Native Python extensions observe a request only after rules and session grants
-leave the effective call unresolved. They may answer `allow_once`, `deny`, or
-`abstain`. The decision is correlated to that exact rewritten call and all of
-its targets. Extension allow-once never creates a session grant, never changes
-the configured mode, and cannot authorize a later call. Abstain preserves the
-normal TUI/CLI decision path; extension-resolved requests are not shown as stale
-frontend prompts.
-
 ## Verbs typed into `terminal`
 
 A single simple `tny` verb inside a `terminal` command is dispatched
@@ -149,7 +141,7 @@ supported wrapper is available.
 
 Only the native loop's **local `terminal` child** is wrapped. Foreground and
 `background:true` commands use the same wrapper. The tny process/session
-runner, built-in file tools, MCP, web fetch/search HTTP, extensions, and host
+runner, built-in file tools, MCP, web fetch/search HTTP, tool extensions, and host
 providers stay outside it. `--ssh` commands also stay outside: the remote host
 is their execution boundary. Existing permission review still runs before the
 child starts.

@@ -196,7 +196,6 @@ class Fixture:
             OPENAI_WIRE_API=wire,
             TNY_TOOLS=profile,
             TNY_ISOLATE="1",
-            TNY_EXTENSIONS="0",
             TNY_WORKFLOW_TASK_DIR="",
         )
         self.env.pop("TNY_SELF_IMPROVE", None)
