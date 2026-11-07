@@ -375,15 +375,28 @@ static void print_tool_help(yyjson_val *fn) {
           stdout);
 }
 
+/* True when arr holds an object named `name`; sets *desc to its description.
+ * Iterates explicitly so a NULL element is never dereferenced. */
+static bool find_entry(yyjson_val *arr, const char *name, const char **desc) {
+    yyjson_arr_iter it;
+    if (!yyjson_arr_iter_init(arr, &it)) return false;
+    bool found = false;
+    yyjson_val *v;
+    while ((v = yyjson_arr_iter_next(&it)) != NULL) {
+        const char *n = jget_str(v, "name");
+        if (n && strcmp(n, name) == 0) {
+            *desc = jget_str(v, "description");
+            found = true;
+        }
+    }
+    return found;
+}
+
 /* The description of the module or group `name` from the report's "groups". */
 static const char *group_description(yyjson_doc *report, const char *name) {
-    size_t idx, max;
-    yyjson_val *g;
-    yyjson_arr_foreach(jget(report ? yyjson_doc_get_root(report) : NULL, "groups"), idx, max, g) {
-        const char *n = jget_str(g, "name");
-        if (n && strcmp(n, name) == 0) return jget_str(g, "description");
-    }
-    return NULL;
+    const char *desc = NULL;
+    find_entry(jget(report ? yyjson_doc_get_root(report) : NULL, "groups"), name, &desc);
+    return desc;
 }
 
 /* Help for a module or group: its description, then its own tools, then
@@ -472,21 +485,9 @@ char *cmd_tool_ext_help_block(tny_ctx *ctx) {
         if (cli_is_command(names[i])) continue; /* built-in commands win */
         const char *desc = NULL;
         bool listed = !root;
-        size_t idx, max;
-        yyjson_val *v;
-        yyjson_arr_foreach(jget(root, "groups"), idx, max, v) {
-            const char *g = jget_str(v, "name");
-            if (g && strcmp(g, names[i]) == 0) {
-                desc = jget_str(v, "description");
-                listed = true;
-            }
-        }
-        yyjson_arr_foreach(jget(root, "tools"), idx, max, v) {
-            const char *t = jget_str(v, "name");
-            if (t && strcmp(t, names[i]) == 0) {
-                desc = jget_str(v, "description");
-                listed = true;
-            }
+        if (root) {
+            listed = find_entry(jget(root, "groups"), names[i], &desc);
+            if (find_entry(jget(root, "tools"), names[i], &desc)) listed = true;
         }
         if (!listed) continue; /* failed to import, or declares no tools */
         int dl;
