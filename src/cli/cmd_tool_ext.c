@@ -375,28 +375,139 @@ static void print_tool_help(yyjson_val *fn) {
           stdout);
 }
 
-static void print_group_help(yyjson_doc *doc, const char *prefix) {
+/* The description of the module or group `name` from the report's "groups". */
+static const char *group_description(yyjson_doc *report, const char *name) {
+    size_t idx, max;
+    yyjson_val *g;
+    yyjson_arr_foreach(jget(report ? yyjson_doc_get_root(report) : NULL, "groups"), idx, max, g) {
+        const char *n = jget_str(g, "name");
+        if (n && strcmp(n, name) == 0) return jget_str(g, "description");
+    }
+    return NULL;
+}
+
+/* Help for a module or group: its description, then its own tools, then
+ * its direct sub-groups, so every level reads like a command with
+ * sub-commands. */
+static void print_group_help(yyjson_doc *doc, yyjson_doc *report, const char *prefix) {
     size_t len = strlen(prefix), idx, max;
     printf("Usage: tny ");
     print_spaced(stdout, prefix);
-    fputs(" COMMAND [OPTIONS]\n\nCommands:\n", stdout);
+    fputs(" COMMAND [OPTIONS]\n", stdout);
+    int dl;
+    const char *desc = first_line(group_description(report, prefix), &dl);
+    if (dl) printf("\n%.*s\n", dl, desc);
     yyjson_val *item;
+    bool any_tool = false;
     yyjson_arr_foreach(yyjson_doc_get_root(doc), idx, max, item) {
         yyjson_val *fn = jget(item, "function");
         const char *n = jget_str(fn, "name");
-        if (!n || strncmp(n, prefix, len) != 0 || n[len] != '.') continue;
-        char left[160];
-        size_t j = 0;
-        for (const char *c = n + len + 1; *c && j + 1 < sizeof left; c++)
-            left[j++] = *c == '.' ? ' ' : *c;
-        left[j] = '\0';
-        int dl;
+        if (!n || strncmp(n, prefix, len) != 0 || n[len] != '.' || strchr(n + len + 1, '.'))
+            continue;
+        if (!any_tool) fputs("\nCommands:\n", stdout);
+        any_tool = true;
         const char *d = first_line(jget_str(fn, "description"), &dl);
-        printf("  %-24s %.*s\n", left, dl, d);
+        printf("  %-24s %.*s\n", n + len + 1, dl, d);
     }
-    fputs("\nRun tny ", stdout);
-    print_spaced(stdout, prefix);
-    fputs(" COMMAND --help for its options.\n", stdout);
+    /* Direct sub-groups, in catalog order, each once. */
+    buf_t seen;
+    buf_init(&seen);
+    buf_appends(&seen, "\n");
+    bool any_group = false;
+    yyjson_arr_foreach(yyjson_doc_get_root(doc), idx, max, item) {
+        const char *n = jget_str(jget(item, "function"), "name");
+        if (!n || strncmp(n, prefix, len) != 0 || n[len] != '.') continue;
+        const char *seg = n + len + 1, *dot = strchr(seg, '.');
+        if (!dot || dot - seg > 64) continue;
+        char key[80], full[512];
+        snprintf(key, sizeof key, "\n%.*s\n", (int)(dot - seg), seg);
+        if (seen.data && strstr(seen.data, key)) continue;
+        buf_appends(&seen, key + 1);
+        int commands = 0;
+        size_t i2, m2;
+        yyjson_val *other;
+        snprintf(full, sizeof full, "%s.%.*s.", prefix, (int)(dot - seg), seg);
+        yyjson_arr_foreach(yyjson_doc_get_root(doc), i2, m2, other) {
+            const char *o = jget_str(jget(other, "function"), "name");
+            if (o && strncmp(o, full, strlen(full)) == 0) commands++;
+        }
+        full[strlen(full) - 1] = '\0';
+        if (!any_group) fputs("\nGroups:\n", stdout);
+        any_group = true;
+        const char *gd = first_line(group_description(report, full), &dl);
+        if (dl) printf("  %-24.*s %.*s\n", (int)(dot - seg), seg, dl, gd);
+        else
+            printf("  %-24.*s %d command%s\n", (int)(dot - seg), seg, commands,
+                   commands == 1 ? "" : "s");
+    }
+    buf_free(&seen);
+    if (any_tool) {
+        fputs("\nRun tny ", stdout);
+        print_spaced(stdout, prefix);
+        fputs(" COMMAND --help for its options.\n", stdout);
+    }
+    if (any_group) {
+        fputs(any_tool ? "Run tny " : "\nRun tny ", stdout);
+        print_spaced(stdout, prefix);
+        fputs(" GROUP --help for its commands.\n", stdout);
+    }
+}
+
+/* ---- tny --help: the Extensions block --------------------------------- */
+
+/* One line per module, with its description when the catalog cache is
+ * current. Never starts the tool host: with a stale cache only names are
+ * known. NULL when there are no extensions (or they are off). */
+char *cmd_tool_ext_help_block(tny_ctx *ctx) {
+    if (!tny_tool_ext_enabled(ctx)) return NULL;
+    size_t n = 0;
+    char **names = tny_tool_ext_module_names(ctx, &n);
+    char *report = n ? tny_tool_ext_report_cached(ctx) : NULL;
+    yyjson_doc *doc = report ? jparse(report, strlen(report)) : NULL;
+    yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+    buf_t b;
+    buf_init(&b);
+    size_t shown = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (cli_is_command(names[i])) continue; /* built-in commands win */
+        const char *desc = NULL;
+        bool listed = !root;
+        size_t idx, max;
+        yyjson_val *v;
+        yyjson_arr_foreach(jget(root, "groups"), idx, max, v) {
+            const char *g = jget_str(v, "name");
+            if (g && strcmp(g, names[i]) == 0) {
+                desc = jget_str(v, "description");
+                listed = true;
+            }
+        }
+        yyjson_arr_foreach(jget(root, "tools"), idx, max, v) {
+            const char *t = jget_str(v, "name");
+            if (t && strcmp(t, names[i]) == 0) {
+                desc = jget_str(v, "description");
+                listed = true;
+            }
+        }
+        if (!listed) continue; /* failed to import, or declares no tools */
+        int dl;
+        const char *d = first_line(desc, &dl);
+        if (!dl) buf_appendf(&b, "  %s\n", names[i]);
+        else if (strlen(names[i]) > 22)
+            buf_appendf(&b, "  %s\n  %-22s %.*s\n", names[i], "", dl, d);
+        else buf_appendf(&b, "  %-22s %.*s\n", names[i], dl, d);
+        shown++;
+    }
+    tny_tool_ext_names_free(names, n);
+    yyjson_doc_free(doc);
+    free(report);
+    if (!shown || buf_oom(&b)) {
+        buf_free(&b);
+        return NULL;
+    }
+    buf_appends(&b, root ? "Run tny MODULE --help for an extension's commands.\n"
+                         : "Run tny MODULE --help for an extension's commands, and\n"
+                           "tny tool check to list their descriptions here.\n");
+    return buf_detach(&b);
 }
 
 /* ---- tny MODULE ... ----------------------------------------------------- */
@@ -435,7 +546,11 @@ int cmd_tool_ext(tny_ctx *ctx, const cli_globals *g, const char *module, int arg
     int rc;
     if (!fn) {
         if (help || i == argc) {
-            print_group_help(doc, name.data);
+            char *report = tny_tool_ext_report(ctx, false);
+            yyjson_doc *rdoc = report ? jparse(report, strlen(report)) : NULL;
+            print_group_help(doc, rdoc, name.data);
+            yyjson_doc_free(rdoc);
+            free(report);
             rc = help ? 0 : 1;
         } else {
             fprintf(stderr, "tny: ");

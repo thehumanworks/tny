@@ -1071,7 +1071,9 @@ covers them. Each extension module is also a top-level command whose options
 come from the tool's input schema:
 
 ```sh
-tny jira --help
+tny --help                # "Extensions" lists installed modules with their docstrings
+tny jira --help           # module docstring, its tools, its groups
+tny jira projects --help  # one group: its description, tools and sub-groups
 tny jira projects list --status done --tag a --tag b --no-archived
 echo '{"status":"done"}' | tny jira projects list - --json
 tny tool check            # reload, list tools, print import errors (exit 1 on errors)
@@ -1079,6 +1081,8 @@ tny tool new call_advisor # starter module in <repo>/.tny/extensions/tools (--gl
 tny tool new jira --folder # jira/__main__.py + jira/notes.py: jira.hello, jira.notes.add
 ```
 
+`tny --help` builds its Extensions section from the extension directories and
+the catalog cache only, so it never starts Python or contacts a proxied server.
 Built-in commands win over a module of the same name. `--no-tool-extensions`
 and `--no-project-tools` are global flags; `TNY_TOOL_EXTENSIONS=0|global` and
 settings `extensions.tools.enabled|project` do the same. Exit codes match

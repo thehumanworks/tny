@@ -1,9 +1,21 @@
 /* help.c — static help text; layered per command with examples (docs/cli.md). */
 #include "cli/cli.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-void help_root(void) {
+void help_root(void) { help_root_with(NULL); }
+
+void help_root_for(const cli_globals *g) {
+    cli_globals plain = {0};
+    tny_ctx *ctx = cli_make_ctx(g ? g : &plain);
+    char *extensions = ctx ? cmd_tool_ext_help_block(ctx) : NULL;
+    help_root_with(extensions);
+    free(extensions);
+    tny_ctx_free(ctx);
+}
+
+void help_root_with(const char *extensions) {
     fputs("tny v" TNY_VERSION "\n"
           "Fast, tiny coding-agent harness for the terminal.\n"
           "\n"
@@ -54,8 +66,13 @@ void help_root(void) {
           "  mcp [list|call|serve]  List MCP servers, call one MCP tool, or serve tny's\n"
           "                         tool extensions over stdio MCP\n"
           "  login | logout | setup Provider-specific auth and configuration\n"
-          "  help                   Show this help\n"
-          "\n"
+          "  help                   Show this help\n",
+          stdout);
+    if (extensions) {
+        fputs("\nExtensions (Python tool extensions, ~/.tny and <repo>/.tny):\n", stdout);
+        fputs(extensions, stdout);
+    }
+    fputs("\n"
           "Global flags (leading, before the command):\n"
           "  --fullscreen | --inline  Override the interactive UI mode for this run\n"
           "  --alt-screen | --no-alt-screen  Enable or disable the fullscreen alternate screen\n"

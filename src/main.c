@@ -1,5 +1,6 @@
 /* tny — fast, tiny coding-agent harness.
- * argv fast paths first: --version / --help must not touch the filesystem. */
+ * argv fast paths first: --version touches nothing; --help adds installed
+ * extensions from their directories and catalog cache (never Python). */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -29,7 +30,8 @@ int main(int argc, char **argv) {
         return tny_acp_bridge_relay_main(argv[2]);
     if (argc == 2 && strcmp(argv[1], "--runner-restart") == 0) return tny_runner_restart_main();
     if (argc == 2 && strcmp(argv[1], "--runner-start") == 0) return tny_runner_start_main();
-    /* fast paths: no allocation, no config */
+    /* fast paths: --version touches nothing; --help reads only the extension
+     * directories and catalog cache, never Python or the network */
     if (argc >= 2) {
         const char *a = argv[1];
         if (strcmp(a, "--version") == 0 || strcmp(a, "-v") == 0) {
@@ -37,7 +39,7 @@ int main(int argc, char **argv) {
             return 0;
         }
         if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0 || strcmp(a, "help") == 0) {
-            help_root();
+            help_root_for(NULL);
             return 0;
         }
     }
@@ -56,7 +58,7 @@ int main(int argc, char **argv) {
         if (help_for(cmd)) return 0;
     }
     if (cmd && (strcmp(cmd, "help") == 0 || strcmp(cmd, "--help") == 0 || strcmp(cmd, "-h") == 0)) {
-        help_root();
+        help_root_for(&g);
         free(g.add_dirs);
         free(g.agent_argv);
         return 0;

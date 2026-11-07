@@ -65,6 +65,7 @@ def call_advisor(question: str, depth: int = 1) -> str:
 Call it with `tny call_advisor "why?" --depth 2`, or as `tools.call_advisor(question="why?")` in code mode.
 
 - The docstring's first paragraph is the description the model sees, and `Args:` describes each parameter. Google, NumPy and Sphinx styles all work.
+- A module docstring is the module's description in `tny --help` and `tny MODULE --help`. A group's description comes from `tny.group("name", "description")` or from its submodule's docstring. Write one short first paragraph for each.
 - A parameter without a default is required, and the CLI also accepts it positionally.
 
 ## Example 2: several tools in one file
@@ -333,7 +334,9 @@ def triage_url(team: str) -> str:
 tny tool check                      # every module imports; lists tools, warnings, tracebacks
 tny tool list | grep jira           # the names you expect
 tny tool describe jira.projects.list
-tny jira --help                     # the commands, from the schemas
+tny --help                          # your module is listed under "Extensions"
+tny jira --help                     # its docstring, tools and groups
+tny jira projects --help            # one group's tools and sub-groups
 tny jira projects list --status open
 echo '{"status":"open"}' | tny jira projects list -
 tny tool call jira.projects.create '{"key":"TNY"}' --json

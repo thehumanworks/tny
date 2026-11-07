@@ -99,6 +99,19 @@ so a decorated function keeps its signature. A separate stub-only or
 `python-tny` / `python3Packages.tny`, and `programs.tny` (Home Manager, NixOS,
 nix-darwin) installs it and a Neovim LSP plugin file pointing the server at it.
 
+### Help (2026-11-07 addendum)
+
+The catalog also carries `groups`: one entry per module and per sub-group that
+holds a tool, with a description from `tny.group(name, description)`, else the
+defining module's docstring (first paragraph), else a proxy's `description=`.
+`tny MODULE [GROUP...] --help` prints one level: the description, the tools at
+that level and the direct sub-groups. `tny --help` adds an "Extensions"
+section from the extension directories and the catalog cache only
+(`tny_tool_ext_report_cached`), so help still never starts Python or reaches a
+proxied server; with a stale cache it shows module names only. Measured on a
+Release build: `tny --help` takes 3.6 ms with a warm cache and 3.9 ms with a
+cold one, against 3.8 ms before the change.
+
 ### Agent skill (2026-11-07 addendum)
 
 `skills/tny-tool-extensions/SKILL.md` teaches an agent to write extensions:

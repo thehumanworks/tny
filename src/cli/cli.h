@@ -137,6 +137,8 @@ int cmd_tool_new(tny_ctx *ctx, int argc, char **argv);
 /* `tny MODULE [GROUP...] TOOL [--flag value...]`; 127 when no extension
  * module is called `module` (the caller reports an unknown command). */
 int cmd_tool_ext(tny_ctx *ctx, const cli_globals *g, const char *module, int argc, char **argv);
+/* The `Extensions:` lines for `tny --help`, or NULL; never starts Python. */
+char *cmd_tool_ext_help_block(tny_ctx *ctx);
 int cmd_mcp_serve(tny_ctx *ctx, int argc, char **argv);
 int cmd_tui(tny_ctx *ctx, const cli_globals *g);
 /* Interactive shell starting on an existing session (NULL = picker/new). */
@@ -144,6 +146,11 @@ int cmd_tui_resume(tny_ctx *ctx, const cli_globals *g, const char *session_id);
 
 /* help.c */
 void help_root(void);
+/* help_root with an `Extensions:` section (lines from cmd_tool_ext_help_block)
+ * after the commands; NULL omits it. */
+void help_root_with(const char *extensions);
+/* `tny --help`: the root help plus the installed extensions for g's workspace. */
+void help_root_for(const cli_globals *g);
 /* Returns true if it printed help for the named command. */
 bool help_for(const char *command);
 

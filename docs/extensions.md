@@ -206,13 +206,25 @@ the environment, not in the file.
 ## The command line
 
 ```sh
-tny jira --help                           # the module's commands
+tny --help                                # lists installed extensions under "Extensions"
+tny jira --help                           # the module's description, tools and groups
+tny jira projects --help                  # one group's description, tools and sub-groups
 tny jira projects list --help             # one tool's options, from its schema
 tny jira projects list --status done --tag a --tag b --archived
 tny jira projects create TNY              # required parameters can be positional
 echo '{"status":"done"}' | tny jira projects list -   # JSON object on stdin
 tny jira whoami --json                    # {"kind":"tool","name":...,"ok":...,"result":...}
 ```
+
+Help works one level at a time, like any command with sub-commands. A
+module's description is its docstring (the one in `__main__.py` for a folder
+module). A group's description is `tny.group("name", "description")`, or the
+docstring of the submodule that defines it (`jira/projects.py` for
+`jira.projects`); only the first paragraph is shown. `tny --help` reads the
+catalog cache and never starts Python: right after you add or edit a module
+it lists the names only, until the next extension command, `tny tool list` or
+`tny tool check` rebuilds the cache. Modules that fail to import are left out
+once the cache knows about them; `tny tool check` reports why.
 
 Options map to parameters: `--max-results` sets `max_results`; booleans take
 `--flag` / `--no-flag`; list parameters repeat (`--tag a --tag b`) or take a
