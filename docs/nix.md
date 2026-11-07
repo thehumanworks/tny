@@ -85,6 +85,7 @@ programs.tny = {
 | `neovim.server` | `"basedpyright"` | or `"pyright"` |
 | `neovim.installServer` | `true` | install the server's package |
 | `pyrightConfig` | `python.enable \|\| neovim.enable` | Home Manager only: write `~/.tny/extensions/tools/pyrightconfig.json` so any pyright-based editor types extension code there |
+| `skill` | `true` | Home Manager only: install the [`tny-tool-extensions`](../skills/tny-tool-extensions/SKILL.md) agent skill into `~/.tny/skills` |
 
 Home Manager writes the Neovim file to `~/.config/nvim/plugin/`; NixOS and
 nix-darwin write it to `/etc/xdg/nvim/plugin/`, which Neovim loads for every

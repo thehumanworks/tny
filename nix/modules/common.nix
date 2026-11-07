@@ -81,6 +81,15 @@ in
         Zed, Helix, Neovim) types extension code there. Home Manager only.
       '';
     };
+
+    skill = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Install the `tny-tool-extensions` agent skill into `~/.tny/skills`,
+        so tny agents know how to write tool extensions. Home Manager only.
+      '';
+    };
   };
 
   # What the options produce, for a given evaluated `cfg`.

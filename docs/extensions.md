@@ -73,6 +73,20 @@ Decorators keep the function's own type, so `@tny.tool def f(x: int) -> str`
 still reads as `(x: int) -> str` and wrong arguments are flagged. The tool host
 runs CPython 3.14; set the checker's Python version to match.
 
+## Agent skill
+
+[skills/tny-tool-extensions](../skills/tny-tool-extensions/SKILL.md) is a
+skill that teaches an agent everything on this page, with a worked example
+of each style. Inside this repository tny finds it automatically. Elsewhere,
+install it once for every workspace:
+
+```sh
+cp -r <tny checkout>/skills/tny-tool-extensions ~/.tny/skills/
+```
+
+With Nix, the Home Manager module installs it (`programs.tny.skill`, on by
+default). Then `$tny-tool-extensions add a tool that ...` in a prompt loads it.
+
 ## Where extensions live
 
 | Directory | Scope |

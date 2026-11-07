@@ -22,6 +22,9 @@ in
     home.file.".tny/extensions/tools/pyrightconfig.json" = lib.mkIf cfg.pyrightConfig {
       text = out.pyrightConfig;
     };
+    home.file.".tny/skills/tny-tool-extensions/SKILL.md" = lib.mkIf cfg.skill {
+      source = ../../skills/tny-tool-extensions/SKILL.md;
+    };
     xdg.configFile."nvim/plugin/tny-extensions.lua" = lib.mkIf cfg.neovim.enable {
       text = out.neovimLua;
     };

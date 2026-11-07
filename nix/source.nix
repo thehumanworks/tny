@@ -100,6 +100,7 @@ let
     # make verify-code-policy separately uses the declared Lean input to prove
     # source-linked production C policies. No proof step downloads dependencies.
     ../examples
+    ../skills # test_tool_extensions.py runs every example in the bundled skill
     ../flake.nix
     ../default.nix
     ../shell.nix

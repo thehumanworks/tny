@@ -420,6 +420,109 @@ class ToolExtensionsTest(unittest.TestCase):
         self.assertEqual("echo:hi\n", echo.stdout)
         self.assertEqual(2, self.tny("fake", "fail").returncode)
 
+    def test_skill_examples_work(self) -> None:
+        """skills/tny-tool-extensions teaches agents; every example must run."""
+        shutil.rmtree(self.global_dir)
+        shutil.rmtree(self.project_dir)
+        self.global_dir.mkdir(parents=True)
+        skill = (ROOT / "skills" / "tny-tool-extensions" / "SKILL.md").read_text()
+        prefix = "# .tny/extensions/tools/"
+        files = {}
+        for block in skill.split("```python\n")[1:]:
+            code = block.split("```", 1)[0]
+            if code.startswith(prefix):
+                files[code.splitlines()[0][len(prefix) :]] = code
+        self.assertEqual(
+            {
+                "call_advisor.py",
+                "deploy.py",
+                "issues.py",
+                "jira/__main__.py",
+                "jira/projects.py",
+                "jira/_client.py",
+                "catalog.py",
+                "github.py",
+                "linear.py",
+            },
+            set(files),
+        )
+        for rel, code in files.items():
+            compile(code, rel, "exec")  # proxies need real servers: syntax only
+            if "tny.proxy(" not in code:
+                self.write(self.project_dir, rel, code)
+        check = self.tny("tool", "check")
+        self.assertEqual(0, check.returncode, check.stdout + check.stderr)
+        self.assertEqual(
+            [
+                "call_advisor",
+                "catalog.order",
+                "catalog.raw",
+                "catalog.search",
+                "deploy.start",
+                "deploy.status",
+                "deploy.wait",
+                "issues.labels.add",
+                "issues.labels.remove",
+                "issues.list",
+                "jira.projects.create",
+                "jira.projects.list",
+                "jira.whoami",
+            ],
+            sorted(
+                n
+                for n in self.names()
+                if n.split(".")[0]
+                in {"call_advisor", "catalog", "deploy", "issues", "jira"}
+            ),
+        )
+        cases = [
+            (("call_advisor", "why?", "--depth", "2"), 0, "advice on why? (depth 2)"),
+            (("call_advisor", "why?", "--depth", "9"), 2, "depth must be 1, 2 or 3"),
+            (("deploy", "status", "--env", "prod"), 0, '"state":"healthy"'),
+            (
+                (
+                    "deploy",
+                    "start",
+                    "v1.2",
+                    "--env",
+                    "prod",
+                    "--strategy",
+                    "blue-green",
+                ),
+                0,
+                "deploying v1.2 to prod (blue-green)",
+            ),
+            (("deploy", "start", "wip-x", "--env", "prod"), 2, "refusing to deploy"),
+            (("deploy", "start", "v1", "--env", "dev"), None, "expected one of"),
+            (("deploy", "wait"), 0, "settled"),
+            (("issues", "labels", "add", "7", "bug"), 0, "#7 +bug"),
+            (("issues", "labels", "remove", "7", "bug"), 0, "#7 -bug"),
+            (("jira", "whoami"), 0, "ada"),
+            (("jira", "projects", "list"), 0, "TNY"),
+            (("jira", "projects", "create", "TNY"), 0, "created TNY"),
+            (("catalog", "search", "shoes", "--limit", "2"), 0, "shoes:1"),
+            (
+                (
+                    "tool",
+                    "call",
+                    "catalog.order",
+                    '{"items":[{"sku":"a","quantity":2}]}',
+                ),
+                0,
+                '"count":2',
+            ),
+            (("tool", "call", "catalog.raw", '{"payload":{"x":1}}'), 0, '"x":1'),
+        ]
+        for args, code, needle in cases:
+            with self.subTest(args=args):
+                run = self.tny(*args)
+                out = run.stdout + run.stderr
+                if code is None:
+                    self.assertNotEqual(0, run.returncode, out)
+                else:
+                    self.assertEqual(code, run.returncode, out)
+                self.assertIn(needle, out.replace(" ", "") if needle[0] == '"' else out)
+
     # -- policy -----------------------------------------------------------------
 
     def test_permission_rules_match_dotted_names_as_paths(self) -> None:

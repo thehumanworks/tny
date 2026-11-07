@@ -99,6 +99,20 @@ so a decorated function keeps its signature. A separate stub-only or
 `python-tny` / `python3Packages.tny`, and `programs.tny` (Home Manager, NixOS,
 nix-darwin) installs it and a Neovim LSP plugin file pointing the server at it.
 
+### Agent skill (2026-11-07 addendum)
+
+`skills/tny-tool-extensions/SKILL.md` teaches an agent to write extensions:
+choosing scope and shape, naming rules, one worked example per style (one
+tool, several tools, `tny.group`, a folder module, schema options, stdio and
+HTTP `tny.proxy`), results and errors, and a verification loop. It is an
+ordinary `SKILL.md`, so tny's existing skill discovery finds it in this
+repository, and users install it into `~/.tny/skills` by copying the folder,
+with `install_skill`, or with `programs.tny.skill` in the Home Manager
+module. A built-in skill registry was not added: the existing
+discovery and install paths already cover it.
+`test_skill_examples_work` runs every non-proxy example through the binary,
+so the skill cannot drift from the API.
+
 ## Verification
 
 `make test-tool-extensions` (Python unit tests for schemas, binding, naming,

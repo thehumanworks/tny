@@ -13,7 +13,10 @@ let
   out = common.values cfg;
 in
 {
-  options.programs.tny = removeAttrs (common.options cfg) [ "pyrightConfig" ];
+  options.programs.tny = removeAttrs (common.options cfg) [
+    "pyrightConfig"
+    "skill"
+  ];
 
   config = lib.mkIf cfg.enable {
     environment.systemPackages = out.packages;
