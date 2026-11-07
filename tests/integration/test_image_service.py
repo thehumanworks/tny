@@ -282,7 +282,7 @@ class ImageTests(unittest.TestCase):
                     "ok": True,
                     "operation": "generate",
                     "provider": "codex",
-                    "model": "gpt-image-2.5-sunburst",
+                    "model": "gpt-image-2.6-sunburst",
                     "path": str(self.out),
                     "mime_type": "image/png",
                     "bytes": len(PNG),
@@ -305,7 +305,7 @@ class ImageTests(unittest.TestCase):
             self.assertEqual(
                 body,
                 {
-                    "model": "gpt-image-2.5-sunburst",
+                    "model": "gpt-image-2.6-sunburst",
                     "prompt": "A blue robot, 世界\n",
                     "quality": "high",
                     "size": "auto",
@@ -440,14 +440,18 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(len(self.image_requests()[-1][2]["images"]), 5)
         self.assertEqual(
-            self.image_requests()[-1][2]["model"], "gpt-image-2.5-sunburst"
+            self.image_requests()[-1][2]["model"], "gpt-image-2.6-sunburst"
         )
         self.assertEqual(self.image_requests()[-1][2]["quality"], "high")
 
     def test_model_and_quality_overrides_for_both_operations(self):
         for op in ("generate", "edit"):
             refs = ("--image", "input.png") if op == "edit" else ()
-            for model in ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare"):
+            for model in (
+                "gpt-image-2.6-sunburst",
+                "gpt-image-2.6-flare",
+                "gpt-image-2.5-sunburst",
+            ):
                 for quality in (None, "auto", "low", "medium", "high", "xhigh", "max"):
                     with self.subTest(operation=op, model=model, quality=quality):
                         flags = ("--quality", quality) if quality is not None else ()
@@ -613,8 +617,8 @@ class ImageTests(unittest.TestCase):
         ):
             r = self.run_image(*args)
             self.assertEqual(r.returncode, 0)
-            self.assertIn(b"gpt-image-2.5-sunburst", r.stdout)
-            self.assertIn(b"gpt-image-2.5-flare", r.stdout)
+            self.assertIn(b"gpt-image-2.6-sunburst", r.stdout)
+            self.assertIn(b"gpt-image-2.6-flare", r.stdout)
             self.assertIn(b"auto | low | medium | high | xhigh | max", r.stdout)
             self.assertIn(b"(default: high)", r.stdout)
         self.assertEqual(self.run_image("attach", "--help").returncode, 0)
@@ -714,9 +718,9 @@ class ImageTests(unittest.TestCase):
                         continue
                     props = fn["parameters"]["properties"]
                     self.assertIn(
-                        "gpt-image-2.5-sunburst", props["model"]["description"]
+                        "gpt-image-2.6-sunburst", props["model"]["description"]
                     )
-                    self.assertIn("gpt-image-2.5-flare", props["model"]["description"])
+                    self.assertIn("gpt-image-2.6-flare", props["model"]["description"])
                     self.assertEqual(
                         props["quality"]["enum"],
                         ["auto", "low", "medium", "high", "xhigh", "max"],
@@ -725,7 +729,7 @@ class ImageTests(unittest.TestCase):
                 self.assertEqual(len(self.image_requests()), 1)
                 options = self.state.get("image_options", {})
                 image_body = self.image_requests()[0][2]
-                model = options.get("model", "gpt-image-2.5-sunburst")
+                model = options.get("model", "gpt-image-2.6-sunburst")
                 self.assertEqual(image_body["model"], model)
                 self.assertEqual(image_body["quality"], options.get("quality", "high"))
                 result = next(
@@ -749,9 +753,9 @@ class ImageTests(unittest.TestCase):
 
     def test_typed_and_shell_agent_image_overrides(self):
         for model, quality in (
-            ("gpt-image-2.5-flare", "max"),
-            ("gpt-image-2.5-sunburst", "xhigh"),
-            ("gpt-image-2.5-flare", "auto"),
+            ("gpt-image-2.6-flare", "max"),
+            ("gpt-image-2.6-sunburst", "xhigh"),
+            ("gpt-image-2.6-flare", "auto"),
         ):
             with self.subTest(model=model, quality=quality):
                 self.state["image_options"] = {"model": model, "quality": quality}

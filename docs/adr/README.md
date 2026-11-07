@@ -96,7 +96,7 @@ files in this directory are the complete record.
 | [0079](0079-provider-independent-dictation.md) | Independent microphone/file dictation service and Codex account adapter; explicit composer review before submission, bounded ephemeral audio, lazy external recorders, and remote-only file transcription on wasm |
 | [0082](0082-prompt-optimisation.md) | Independent OpenRouter prompt optimiser; read-only project exploration, configurable model, and explicit draft review before submission |
 | [0083](0083-optimiser-timeout.md) | Remove the optimiser step cap; use a configurable 300-second default timeout with validated CLI, environment, project, and user overrides |
-| [0084](0084-codex-image-defaults.md) | Codex generation and editing default to GPT Image 2.5 Sunburst with high quality; preserve model overrides and all six quality settings |
+| [0084](0084-codex-image-defaults.md) | Codex generation and editing default to GPT Image 2.5 Sunburst with high quality; preserve model overrides and all six quality settings; model default superseded by [0217](0217-codex-image-2-6-default.md) |
 | [0085](0085-automatic-release-on-merge.md) | Every green merge to `main` is tagged and published automatically; the bump comes from Conventional Commits prefixes and `release.yml` is dispatched on the tag ref |
 | [0086](0086-standalone-sdk-toolkit.md) | Standalone Python and TypeScript toolkit methods reuse native media and optimisation services through cancellable ABI 1.2 jobs |
 | [0087](0087-stream-completion-and-continuation.md) | A stream without its terminal event is an interruption, never a finished step; after shown text the next attempt continues the answer instead of repeating it; a 300 s stall clock ends silent streams |
@@ -224,3 +224,5 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0213: Recoverable transcript provenance](0213-recoverable-transcript-provenance.md) — bounded original-message discovery and exact source recovery before semantic compaction.
 
 - [0215: Native SDK tool workers](0215-native-sdk-tool-workers.md) — in-process libtny sessions with explicitly configured private native tool workers, not a CLI wrapper.
+
+- [0217: Codex image 2.6 default](0217-codex-image-2-6-default.md) — Codex image generation and editing default to GPT Image 2.6 Sunburst; Flare and older models stay explicit overrides.

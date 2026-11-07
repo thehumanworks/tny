@@ -593,8 +593,8 @@ Over `--ssh` / `/ssh` ([ADR 0040](../adr/0040-ssh-agents-md.md)) the chain is `$
 `image_generate` and `image_edit` share the [image service](../images.md) with
 `tny image generate/edit`. The full profile advertises them when local ChatGPT
 credentials exist; shell profiles get command guidance and in-process
-interception. Both default to `gpt-image-2.5-sunburst` with `high` quality;
-`model` can select `gpt-image-2.5-flare`, and `quality` accepts `auto`, `low`,
+interception. Both default to `gpt-image-2.6-sunburst` with `high` quality;
+`model` can select `gpt-image-2.6-flare`, and `quality` accepts `auto`, `low`,
 `medium`, `high`, `xhigh`, or `max`. They have separate sensitive permission
 identities and include the resolved image provider and all uploaded reference
 paths in the grant scope. The operation is resolved once, before the permission
