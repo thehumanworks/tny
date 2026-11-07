@@ -1076,6 +1076,7 @@ tny jira projects list --status done --tag a --tag b --no-archived
 echo '{"status":"done"}' | tny jira projects list - --json
 tny tool check            # reload, list tools, print import errors (exit 1 on errors)
 tny tool new call_advisor # starter module in <repo>/.tny/extensions/tools (--global: ~/.tny)
+tny tool new jira --folder # jira/__main__.py + jira/notes.py: jira.hello, jira.notes.add
 ```
 
 Built-in commands win over a module of the same name. `--no-tool-extensions`

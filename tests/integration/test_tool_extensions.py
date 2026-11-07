@@ -235,6 +235,27 @@ class ToolExtensionsTest(unittest.TestCase):
         self.assertEqual(0, made.returncode, made.stderr)
         self.assertTrue((self.global_dir / "mine.py").is_file())
 
+    def test_tool_new_folder_scaffolds_a_grouped_module(self) -> None:
+        made = self.tny("tool", "new", "greeting", "--folder")
+        self.assertEqual(0, made.returncode, made.stderr)
+        folder = self.project_dir / "greeting"
+        self.assertTrue((folder / "__main__.py").is_file())
+        self.assertTrue((folder / "notes.py").is_file())
+        self.assertIn("greeting.hello", self.names())
+        self.assertIn("greeting.notes.add", self.names())
+        ran = self.tny("greeting", "hello", "hi", "--times", "2")
+        self.assertEqual(0, ran.returncode, ran.stderr)
+        self.assertEqual("hi hi\n", ran.stdout)
+        noted = self.tny("greeting", "notes", "add", "milk")
+        self.assertEqual(0, noted.returncode, noted.stderr)
+        self.assertIn("noted: milk", noted.stdout)
+        check = self.tny("tool", "check")
+        self.assertEqual(0, check.returncode, check.stdout + check.stderr)
+        self.assertEqual(1, self.tny("tool", "new", "greeting").returncode)
+        made = self.tny("tool", "new", "--folder", "--global", "kit")
+        self.assertEqual(0, made.returncode, made.stderr)
+        self.assertTrue((self.global_dir / "kit" / "__main__.py").is_file())
+
     # -- top-level commands ---------------------------------------------------
 
     def test_module_commands_take_schema_flags(self) -> None:
