@@ -1678,5 +1678,5 @@ $(PY_PKG_H): scripts/embed_python.sh $(PY_PKG_SRC)
 	@sh scripts/embed_python.sh $@ $(PY_PKG_SRC)
 $(foreach d,$(OBJ_REL) $(OBJ_DBG) $(OBJ_PIC) $(OBJ_FAULT_PIC) $(OBJ_FAULT_SAN_PIC) $(OBJ_TSAN_PIC) $(OBJ_FUZZ) $(OBJ_WASM),$(d)/src/core/tool_host.o): $(PY_PKG_H)
 # Static checks compile tool_host.c straight from source, so they need the
-# header too.
-tidy warn-strict analyze: $(PY_PKG_H)
+# header too (only when it is among the checked sources).
+tidy warn-strict analyze: $(if $(filter src/core/tool_host.c,$(TIDY_C_SRC)),$(PY_PKG_H))
