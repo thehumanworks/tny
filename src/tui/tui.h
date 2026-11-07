@@ -275,6 +275,9 @@ void tui_cursor_report(tui *t, int row, int col);
 void tui_terminal_begin(tui *t);
 void tui_terminal_detail(bool enabled);
 void tui_terminal_end(void); /* restore modes and alternate screen, idempotently */
+/* true: the pre-TUI line discipline (ICANON/ISIG/ICRNL, no bracketed paste)
+ * for an interactive CLI prompt; false: back to raw. No-op when not raw. */
+void tui_terminal_cooked(bool cooked);
 void tui_terminal_mouse_update(tui *t);
 void tui_terminal_mouse(bool enabled); /* suspend during direct terminal prompts */
 void tui_submit(tui *t, const char *text);
