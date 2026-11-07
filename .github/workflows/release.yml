@@ -563,12 +563,12 @@ jobs:
       - name: Upload wheels with twine (API token)
         if: steps.pypi-plan.outputs.publish_required == 'true'
         env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+          TWINE_USERNAME: ${{ vars.TWINE_USERNAME || '__token__' }}
+          TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
           TWINE_NON_INTERACTIVE: "1"
         run: |
           set -eu
-          test -n "$TWINE_PASSWORD" || { echo "PYPI_API_TOKEN secret is not set" >&2; exit 1; }
+          test -n "$TWINE_PASSWORD" || { echo "TWINE_PASSWORD secret is not set" >&2; exit 1; }
           python -m pip install --disable-pip-version-check --no-cache-dir 'twine==7.0.0'
           python -m twine check --strict dist/pypi/*.whl
           python -m twine upload --repository-url https://upload.pypi.org/legacy/ dist/pypi/*.whl

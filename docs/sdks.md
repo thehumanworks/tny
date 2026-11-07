@@ -167,8 +167,8 @@ Every npm package and wheel carries the root `LICENSE` bytes, MIT metadata and
 the third-party notices. The registry jobs are gated by the repository
 variable `TNY_REGISTRY_PUBLICATION_ENABLED=true` and the protected `npm` /
 `pypi` environments. npm uses trusted publishing. PyPI uploads the wheels with
-`twine` and a PyPI API token in the `PYPI_API_TOKEN` secret
-(`TWINE_USERNAME=__token__`); `TNY_PYPI_PUBLICATION_ENABLED=true` runs the
+`twine` and a PyPI API token in the `TWINE_PASSWORD` secret
+(`TWINE_USERNAME` variable, default `__token__`); `TNY_PYPI_PUBLICATION_ENABLED=true` runs the
 PyPI job alone. The offline validator still fails closed if the root
 license is missing, SDK metadata says `UNLICENSED`, or a package's license
 differs from the root bytes. Publication is idempotent: identical existing versions are
