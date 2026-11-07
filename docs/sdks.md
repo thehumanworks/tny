@@ -164,9 +164,12 @@ archive may contain the other ABI major.
 
 tny is licensed under the MIT License ([ADR 0219](adr/0219-mit-license.md)).
 Every npm package and wheel carries the root `LICENSE` bytes, MIT metadata and
-the third-party notices. Trusted-publisher jobs are gated by the repository
+the third-party notices. The registry jobs are gated by the repository
 variable `TNY_REGISTRY_PUBLICATION_ENABLED=true` and the protected `npm` /
-`pypi` environments; the offline validator still fails closed if the root
+`pypi` environments. npm uses trusted publishing. PyPI uploads the wheels with
+`twine` and a PyPI API token in the `PYPI_API_TOKEN` secret
+(`TWINE_USERNAME=__token__`); `TNY_PYPI_PUBLICATION_ENABLED=true` runs the
+PyPI job alone. The offline validator still fails closed if the root
 license is missing, SDK metadata says `UNLICENSED`, or a package's license
 differs from the root bytes. Publication is idempotent: identical existing versions are
 verified, while partial or digest-mismatched versions fail. Native npm packages

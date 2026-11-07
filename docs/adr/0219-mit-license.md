@@ -27,8 +27,10 @@ lists.
 
 Publishing stays a separate, owner-controlled step. The registry jobs still
 need `TNY_REGISTRY_PUBLICATION_ENABLED=true`, the protected `pypi` and `npm`
-environments, and a trusted publisher on each registry. The validator still
-requires the packaged license bytes to equal the root file.
+environments, a trusted publisher on npm, and a PyPI API token in the
+`PYPI_API_TOKEN` secret: the owner chose token uploads with `twine` for PyPI.
+`TNY_PYPI_PUBLICATION_ENABLED=true` enables the PyPI job without npm. The
+validator still requires the packaged license bytes to equal the root file.
 
 ## Consequences
 
