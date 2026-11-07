@@ -321,6 +321,58 @@ class HostTest(unittest.TestCase):
         self.assertFalse(err)
         self.assertEqual(json.loads(text), ["A"])
 
+    def test_catalog_groups_carry_help_descriptions(self) -> None:
+        self.write(
+            self.project,
+            "jira/__main__.py",
+            """
+            \"\"\"Jira tools,
+            on two lines.
+
+            Details help leaves out.
+            \"\"\"
+            import tny
+            from . import projects
+            @tny.tool
+            def whoami() -> str:
+                return "me"
+        """,
+        )
+        self.write(
+            self.project,
+            "jira/projects.py",
+            """
+            \"\"\"Project tools.\"\"\"
+            import tny
+            @tny.tool(name="list")
+            def list_projects() -> list:
+                return []
+            issues = tny.group("issues", "Issue tools")
+            bare = tny.group("bare")
+            @issues.tool
+            def close(key: str) -> str:
+                return key
+            @bare.tool
+            def ping() -> str:
+                return "pong"
+        """,
+        )
+        self.write(
+            self.global_,
+            "one.py",
+            "import tny\n@tny.tool\ndef ask() -> str:\n    return ''\n",
+        )
+        groups = {g["name"]: g["description"] for g in self.host().catalog()["groups"]}
+        self.assertEqual(
+            groups,
+            {
+                "jira": "Jira tools, on two lines.",
+                "jira.projects": "Project tools.",
+                "jira.projects.issues": "Issue tools",
+                "jira.projects.bare": "",  # no module behind it, no description
+            },
+        )  # a collapsed single-tool module is a tool, not a group
+
     def test_project_shadows_global_with_warning(self) -> None:
         for base, value in ((self.project, "project"), (self.global_, "global")):
             self.write(

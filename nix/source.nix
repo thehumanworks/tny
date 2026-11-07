@@ -65,6 +65,7 @@ let
     ../scripts/cpython_runtime.sh # builds the pinned CPython for code cells
     ../scripts/cpython_freeze_stdlib.py # freezes its standard library
     ../scripts/install_licenses.sh # `make install` ships the embedded licenses
+    ../LICENSE # `make install` ships tny's own MIT license
     ../THIRD_PARTY_NOTICES.md # `make install` ships notices with the CPython license
     ../shell # installed workflows and the Zsh quick-ask widget
     ../sdk/native # private native execution worker, no CLI frontend
@@ -100,6 +101,7 @@ let
     # make verify-code-policy separately uses the declared Lean input to prove
     # source-linked production C policies. No proof step downloads dependencies.
     ../examples
+    ../skills # test_tool_extensions.py runs every example in the bundled skill
     ../flake.nix
     ../default.nix
     ../shell.nix

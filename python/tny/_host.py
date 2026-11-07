@@ -136,6 +136,15 @@ def _first_line(text: str | None) -> str:
     return (text or "").strip()
 
 
+def _doc_summary(module_name: str) -> str:
+    """The first paragraph of a loaded module's docstring, on one line."""
+    module = sys.modules.get(module_name)
+    doc = getattr(module, "__doc__", None) if module is not None else None
+    if not isinstance(doc, str):
+        return ""
+    return " ".join(doc.strip().split("\n\n", 1)[0].split())
+
+
 def _resolve_proxy(proxy: Proxy) -> None:
     if proxy.loaded:
         return
@@ -218,6 +227,7 @@ def _walk(
 class Host:
     def __init__(self, dirs: list[tuple[str, str]]) -> None:
         self.entries: dict[str, Entry] = {}
+        self.groups: list[dict[str, Any]] = []
         self.errors: list[dict[str, Any]] = []
         self.warnings: list[dict[str, Any]] = []
         self.modules: list[Module] = []
@@ -289,6 +299,8 @@ class Host:
                 )
             return
         collapse = len(listed) == 1 and len(listed[0][0]) == 1
+        if not collapse:
+            self._collect_groups(m, root, listed)
         for path, t, proxy in listed:
             name = m.name if collapse else ".".join((m.name,) + path)
             try:
@@ -315,6 +327,42 @@ class Host:
                 schema=t._compiled.schema,
             )
 
+    def _collect_groups(
+        self,
+        m: Module,
+        root: Group,
+        listed: list[tuple[tuple[str, ...], Tool, Proxy | None]],
+    ) -> None:
+        """Help entries for the module and every group that holds a tool.
+
+        A description comes from ``tny.group(name, description)``, else from
+        the docstring of the module that defines the group (``__main__.py``
+        or a single-file module for the root, ``projects.py`` for
+        ``jira.projects``), else from a proxy's ``description=``.
+        """
+        prefixes = sorted(
+            {path[:i] for path, _, _ in listed for i in range(1, len(path))}
+        )
+        base = f"{HOST_PACKAGE}.{m.name}"
+        unnamed = getattr(root, "_proxy", None)
+        for path in [(), *prefixes]:
+            group: Group | None = root
+            for part in path:
+                group = group.groups.get(part) if group is not None else None
+            description = (
+                group.description if group is not None else None
+            ) or _doc_summary(".".join((base, *path)))
+            if not description and not path and isinstance(unnamed, Proxy):
+                description = unnamed.description or ""
+            self.groups.append(
+                {
+                    "name": ".".join((m.name, *path)),
+                    "description": description or "",
+                    "module": m.name,
+                    "scope": m.scope,
+                }
+            )
+
     def catalog(self) -> dict[str, Any]:
         tools = []
         for e in self.entries.values():
@@ -334,7 +382,12 @@ class Host:
                     ),
                 }
             )
-        return {"tools": tools, "errors": self.errors, "warnings": self.warnings}
+        return {
+            "tools": tools,
+            "groups": self.groups,
+            "errors": self.errors,
+            "warnings": self.warnings,
+        }
 
     def call(self, name: str, arguments: Any) -> tuple[str, bool, Any]:
         """(text, is_error, structured) for one call."""

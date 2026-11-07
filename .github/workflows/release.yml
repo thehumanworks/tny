@@ -531,15 +531,14 @@ jobs:
             --version "$npm_version" --readback-attempts 30
 
   publish-pypi:
-    name: publish Python SDK with trusted publishing
-    if: vars.TNY_REGISTRY_PUBLICATION_ENABLED == 'true'
+    name: publish Python SDK with twine
+    if: vars.TNY_REGISTRY_PUBLICATION_ENABLED == 'true' || vars.TNY_PYPI_PUBLICATION_ENABLED == 'true'
     needs: [publish, validate-registries]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: pypi
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
@@ -561,11 +560,18 @@ jobs:
           python_version="$(PYTHONPATH="$PWD/sdk/python" python -c 'from release_version import version_from_tag; import os; print(version_from_tag(os.environ["GITHUB_REF_NAME"]))')"
           python scripts/publish_pypi_release.py --mode plan --root dist/pypi \
             --version "$python_version" --github-output "$GITHUB_OUTPUT"
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Upload wheels with twine (API token)
         if: steps.pypi-plan.outputs.publish_required == 'true'
-        with:
-          packages-dir: dist/pypi
-          attestations: true
+        env:
+          TWINE_USERNAME: ${{ vars.TWINE_USERNAME || '__token__' }}
+          TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+          TWINE_NON_INTERACTIVE: "1"
+        run: |
+          set -eu
+          test -n "$TWINE_PASSWORD" || { echo "TWINE_PASSWORD secret is not set" >&2; exit 1; }
+          python -m pip install --disable-pip-version-check --no-cache-dir 'twine==7.0.0'
+          python -m twine check --strict dist/pypi/*.whl
+          python -m twine upload --repository-url https://upload.pypi.org/legacy/ dist/pypi/*.whl
       - name: Verify PyPI JSON, downloads, and clean installed import
         run: |
           set -eu

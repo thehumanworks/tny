@@ -9,12 +9,11 @@ description = "Native Python SDK for the tny agent runtime and toolkit"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["cffi>=1.16"]
-license = "LicenseRef-UNLICENSED"
-license-files = ["UNLICENSED", "LICENSE-METADATA.json", "THIRD_PARTY_NOTICES.md"]
+license = "MIT"
+license-files = ["LICENSE", "LICENSE-METADATA.json", "THIRD_PARTY_NOTICES.md"]
 authors = [{name = "The Human Works"}]
 keywords = ["agent", "libtny", "sdk"]
 classifiers = [
-  "Private :: Do Not Upload",
   "Development Status :: 3 - Alpha",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
@@ -25,7 +24,9 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/thehumanworks/tny"
+Documentation = "https://github.com/thehumanworks/tny/blob/main/docs/sdks.md"
 Issues = "https://github.com/thehumanworks/tny/issues"
+Source = "https://github.com/thehumanworks/tny"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

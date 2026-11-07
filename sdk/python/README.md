@@ -41,12 +41,10 @@ in force. `TNY_REASONING_EFFORT` is a CLI setting and is ignored here.
 
 The SDK embeds the native OpenAI-compatible HTTP loop. Pass credentials in memory; the library never persists them.
 
-This package is currently **UNLICENSED**: distribution by the repository owner
-does not grant downstream reuse rights. Do not upload it to PyPI or another
-public package registry until the owner adopts a project license. Its runtime
-dependency is `cffi>=1.16`; cffi is independently distributed under the MIT
-license. GitHub release artifacts retain this notice and the vendored-library
-notices.
+This package is licensed under the MIT License (see `LICENSE`). Its runtime
+dependency is `cffi>=1.16`, also MIT-licensed. Bundled platform wheels also
+carry the notices of the libraries vendored into libtny
+(`THIRD_PARTY_NOTICES.md`).
 
 ## Tool extensions
 

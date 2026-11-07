@@ -85,6 +85,7 @@ programs.tny = {
 | `neovim.server` | `"basedpyright"` | or `"pyright"` |
 | `neovim.installServer` | `true` | install the server's package |
 | `pyrightConfig` | `python.enable \|\| neovim.enable` | Home Manager only: write `~/.tny/extensions/tools/pyrightconfig.json` so any pyright-based editor types extension code there |
+| `skill` | `true` | Home Manager only: install the [`tny-tool-extensions`](../skills/tny-tool-extensions/SKILL.md) agent skill into `~/.tny/skills` |
 
 Home Manager writes the Neovim file to `~/.config/nvim/plugin/`; NixOS and
 nix-darwin write it to `/etc/xdg/nvim/plugin/`, which Neovim loads for every
@@ -274,10 +275,8 @@ LD_LIBRARY_PATH="$(nix eval --raw nixpkgs#openssl.out)/lib" make test
 
 ## License
 
-`LICENSE-METADATA.json` records `LicenseRef-UNLICENSED`: this repository grants
-no project license, and all rights are reserved unless the copyright holder
-says otherwise. That has no nixpkgs `lib.licenses` attribute, and marking the
-package `unfree` would force every consumer of a first-party flake to pass
-`allowUnfree`, so `meta.license` is left unset. Redistributing builds of tny —
-including into a public binary cache — is governed by that file and by
-`THIRD_PARTY_NOTICES.md`, not by the absence of a `meta` attribute.
+tny is MIT-licensed ([ADR 0219](adr/0219-mit-license.md)), so `tny`, `libtny`
+and `python-tny` set `meta.license = lib.licenses.mit`. The embedded CPython and
+vendored libraries keep their own licenses; `make install` puts every text,
+tny's `LICENSE` included, under `share/doc/tny`, and `THIRD_PARTY_NOTICES.md`
+lists them.

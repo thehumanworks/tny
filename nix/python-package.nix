@@ -28,6 +28,7 @@ buildPythonPackage {
     fileset = lib.fileset.unions [
       ../sdk/python
       ../python/tny
+      ../LICENSE # sdk/python/LICENSE is a symlink to it
     ];
   };
   sourceRoot = "source/sdk/python";
@@ -43,6 +44,7 @@ buildPythonPackage {
   meta = {
     description = "tny Python SDK and tool-extension API";
     homepage = "https://github.com/thehumanworks/tny";
+    license = lib.licenses.mit;
     platforms = lib.platforms.unix;
   };
 }

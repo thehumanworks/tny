@@ -1,3 +1,5 @@
+"""Tag tools."""
+
 from __future__ import annotations
 
 import tny

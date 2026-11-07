@@ -89,8 +89,10 @@ optional-looking politeness.
   sandbox breakage on aarch64-linux fails the workflow the same way it would
   on x86_64-linux. Intel Mac remains excluded; the flake does not claim
   `x86_64-darwin`.
-- A no-license repository has no nixpkgs license attribute. `meta.license` is
-  left unset rather than set to `lib.licenses.unfree`, which would force every
+- (Superseded by [ADR 0219](0219-mit-license.md): tny is MIT and
+  `meta.license = lib.licenses.mit`.) A no-license repository has no nixpkgs
+  license attribute. `meta.license` was left unset rather than set to
+  `lib.licenses.unfree`, which would force every
   consumer of a first-party flake to pass `allowUnfree`. Redistribution is
   governed by `LICENSE-METADATA.json`; [nix.md](../nix.md) says so.
 - No musl-static package. `STATIC=1` cannot `dlopen`, so https would fail on a

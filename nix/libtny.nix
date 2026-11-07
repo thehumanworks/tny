@@ -75,7 +75,7 @@ stdenv.mkDerivation (finalAttrs: {
   meta = {
     description = "Experimental headless embedding ABI for the tny agent harness";
     homepage = "https://github.com/thehumanworks/tny";
-    # See the license note in package.nix.
+    license = lib.licenses.mit;
     pkgConfigModules = [ "libtny" ];
     # ABI 1 supports macOS arm64 and Linux glibc x86_64/aarch64 (docs/ci.md).
     platforms = [

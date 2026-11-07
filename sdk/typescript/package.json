@@ -56,5 +56,5 @@
     "node-api",
     "agent"
   ],
-  "license": "UNLICENSED"
+  "license": "MIT"
 }

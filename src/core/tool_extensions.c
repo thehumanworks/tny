@@ -10,6 +10,7 @@
 #include "util/util.h"
 #include "tny_version.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -481,6 +482,93 @@ char *tny_tool_ext_report(tny_ctx *ctx, bool refresh) {
     pthread_mutex_unlock(&g_ext.lock);
     return json;
 }
+
+char *tny_tool_ext_report_cached(tny_ctx *ctx) {
+    if (!tny_tool_ext_enabled(ctx)) return NULL;
+    pthread_mutex_lock(&g_ext.lock);
+    char key[17], *project = NULL, *global = NULL;
+    char *json = NULL;
+    if (fingerprint(ctx, key, &project, &global)) {
+        if (g_ext.catalog && strcmp(g_ext.key, key) == 0) {
+            json = jwrite_val(yyjson_doc_get_root(g_ext.catalog));
+        } else {
+            char *cache = cache_path(ctx, key);
+            yyjson_doc *doc = cache ? jparse_file(cache) : NULL;
+            yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+            if (yyjson_is_arr(jget(root, "tools"))) json = jwrite_val(root);
+            yyjson_doc_free(doc);
+            free(cache);
+        }
+    }
+    pthread_mutex_unlock(&g_ext.lock);
+    free(project);
+    free(global);
+    return json;
+}
+
+/* The host's NAME_RE: a letter or `_`, then letters, digits, `_` or `-`. */
+static bool module_name_ok(const char *name, size_t len) {
+    if (len == 0 || len > 64 || !(isalpha((unsigned char)name[0]) || name[0] == '_')) return false;
+    for (size_t i = 1; i < len; i++)
+        if (!isalnum((unsigned char)name[i]) && name[i] != '_' && name[i] != '-') return false;
+    return true;
+}
+
+static void add_module_names(const char *dir, char ***names, size_t *n) {
+    size_t count;
+    char **entries = dir ? sorted_entries(dir, &count) : NULL;
+    for (size_t i = 0; entries && i < count; i++) {
+        const char *e = entries[i];
+        if (e[0] == '_') continue;
+        char *path = path_join(dir, e);
+        struct stat st;
+        size_t len = strlen(e);
+        bool ok = false;
+        if (path && stat(path, &st) == 0) {
+            if (S_ISREG(st.st_mode) && str_ends(e, ".py")) {
+                len -= 3;
+                ok = true;
+            } else if (S_ISDIR(st.st_mode)) {
+                char *entry = path_join(path, "__main__.py");
+                ok = entry && stat(entry, &st) == 0 && S_ISREG(st.st_mode);
+                free(entry);
+            }
+        }
+        free(path);
+        if (!ok || !module_name_ok(e, len)) continue;
+        bool seen = false;
+        for (size_t j = 0; j < *n && !seen; j++)
+            seen = strlen((*names)[j]) == len && strncmp((*names)[j], e, len) == 0;
+        if (seen) continue;
+        char *name = malloc(len + 1);
+        char **grown = name ? realloc(*names, (*n + 1) * sizeof **names) : NULL;
+        if (!grown) {
+            free(name);
+            break;
+        }
+        memcpy(name, e, len);
+        name[len] = '\0';
+        *names = grown;
+        (*names)[(*n)++] = name;
+    }
+    free_names(entries, entries ? count : 0);
+}
+
+char **tny_tool_ext_module_names(const tny_ctx *ctx, size_t *count) {
+    *count = 0;
+    if (!tny_tool_ext_enabled(ctx)) return NULL;
+    char *project = NULL, *global = NULL;
+    tny_tool_ext_dirs(ctx, &project, &global);
+    char **names = NULL;
+    add_module_names(project, &names, count);
+    add_module_names(global, &names, count);
+    free(project);
+    free(global);
+    if (*count > 1) qsort(names, *count, sizeof *names, cmp_names);
+    return names;
+}
+
+void tny_tool_ext_names_free(char **names, size_t count) { free_names(names, count); }
 
 static yyjson_val *find_tool(yyjson_doc *doc, const char *name) {
     yyjson_val *tools = jget(doc ? yyjson_doc_get_root(doc) : NULL, "tools");

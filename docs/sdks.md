@@ -162,16 +162,16 @@ GitHub releases publish disjoint `libtny1-<triple>.tar.gz` and
 `libtny0-compat-<triple>.tar.gz` assets with independent manifests; neither
 archive may contain the other ABI major.
 
-The repository currently has no project license grant. Owner-published GitHub
-artifacts carry `LicenseRef-UNLICENSED` metadata and third-party notices but
-grant downstream recipients no reuse rights. PyPI/npm registry publication
-waits for the repository owner to choose a license. Trusted-publisher jobs are
-additionally gated by the repository variable
-`TNY_REGISTRY_PUBLICATION_ENABLED=true` and the protected `npm` / `pypi`
-environments. Even if enabled accidentally, the offline validator fails closed
-while the root license or SDK license metadata remains unpublishable.
-After a license is adopted, its exact root bytes must be present in every npm
-package and wheel. Publication is idempotent: identical existing versions are
+tny is licensed under the MIT License ([ADR 0219](adr/0219-mit-license.md)).
+Every npm package and wheel carries the root `LICENSE` bytes, MIT metadata and
+the third-party notices. The registry jobs are gated by the repository
+variable `TNY_REGISTRY_PUBLICATION_ENABLED=true` and the protected `npm` /
+`pypi` environments. npm uses trusted publishing. PyPI uploads the wheels with
+`twine` and a PyPI API token in the `TWINE_PASSWORD` secret
+(`TWINE_USERNAME` variable, default `__token__`); `TNY_PYPI_PUBLICATION_ENABLED=true` runs the
+PyPI job alone. The offline validator still fails closed if the root
+license is missing, SDK metadata says `UNLICENSED`, or a package's license
+differs from the root bytes. Publication is idempotent: identical existing versions are
 verified, while partial or digest-mismatched versions fail. Native npm packages
 are verified before the meta package, and final npm/PyPI clean-install,
 native-load, download-hash, and import readbacks must both succeed.

@@ -131,11 +131,9 @@ stdenv.mkDerivation (finalAttrs: {
       is required for inference or native subscription login/refresh.
     '';
     homepage = "https://github.com/thehumanworks/tny";
-    # meta.license is deliberately unset. LICENSE-METADATA.json records
-    # `LicenseRef-UNLICENSED` (all rights reserved), which has no nixpkgs
-    # license attribute; using `lib.licenses.unfree` would make every consumer
-    # pass allowUnfree for a first-party flake. Redistributors must read
-    # LICENSE-METADATA.json and THIRD_PARTY_NOTICES.md — see docs/nix.md.
+    # tny itself is MIT; the embedded CPython and vendored libraries keep
+    # their own licenses, installed under share/doc/tny (THIRD_PARTY_NOTICES.md).
+    license = lib.licenses.mit;
     mainProgram = "tny";
     platforms = lib.platforms.linux ++ lib.platforms.darwin;
   };

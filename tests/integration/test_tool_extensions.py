@@ -307,8 +307,16 @@ class ToolExtensionsTest(unittest.TestCase):
     def test_module_command_help_and_usage_errors(self) -> None:
         group = self.tny("jira", "--help")
         self.assertEqual(0, group.returncode, group.stderr)
-        self.assertRegex(group.stdout, r"(?m)^  projects list\s+List projects\.$")
+        self.assertRegex(group.stdout, r"(?m)^Jira tools\.$")  # module docstring
         self.assertRegex(group.stdout, r"(?m)^  whoami\s+Current user\.$")
+        self.assertRegex(group.stdout, r"(?m)^Groups:\n  projects\s+4 commands$")
+        self.assertNotIn("projects list", group.stdout)  # one level at a time
+        sub = self.tny("jira", "projects", "--help")
+        self.assertEqual(0, sub.returncode, sub.stderr)
+        self.assertIn("Usage: tny jira projects COMMAND", sub.stdout)
+        self.assertRegex(sub.stdout, r"(?m)^  list\s+List projects\.$")
+        self.assertRegex(sub.stdout, r"(?m)^  create\s+Create a project\.$")
+        self.assertEqual(1, self.tny("jira", "projects").returncode)  # help, exit 1
         tool = self.tny("jira", "projects", "list", "--help")
         self.assertEqual(0, tool.returncode)
         self.assertIn("--status open|done", tool.stdout)
@@ -322,6 +330,89 @@ class ToolExtensionsTest(unittest.TestCase):
         unknown = self.tny("no_such_module")
         self.assertEqual(1, unknown.returncode)
         self.assertIn("unknown command", unknown.stderr)
+
+    def test_group_help_at_every_level(self) -> None:
+        self.write(
+            self.global_dir,
+            "issues.py",
+            """
+            \"\"\"Issue tracker tools.
+
+            A longer explanation that help leaves out.
+            \"\"\"
+            import tny
+
+            labels = tny.group("labels", "Manage labels")
+            colors = labels.group("colors")
+
+            @tny.tool(name="list")
+            def list_issues() -> str:
+                "List issues."
+                return "[]"
+
+            @labels.tool
+            def add(label: str) -> str:
+                "Add a label."
+                return label
+
+            @colors.tool(name="set")
+            def set_color(label: str, color: str) -> str:
+                "Set a label's color."
+                return color
+        """,
+        )
+        top = self.tny("issues", "--help")
+        self.assertEqual(0, top.returncode, top.stderr)
+        self.assertRegex(top.stdout, r"(?m)^Issue tracker tools\.$")
+        self.assertNotIn("longer explanation", top.stdout)
+        self.assertRegex(top.stdout, r"(?m)^  list\s+List issues\.$")
+        self.assertRegex(top.stdout, r"(?m)^  labels\s+Manage labels$")
+        labels = self.tny("issues", "labels", "--help")
+        self.assertEqual(0, labels.returncode, labels.stderr)
+        self.assertRegex(labels.stdout, r"(?m)^Manage labels$")
+        self.assertRegex(labels.stdout, r"(?m)^  add\s+Add a label\.$")
+        self.assertRegex(labels.stdout, r"(?m)^  colors\s+1 command$")
+        colors = self.tny("issues", "labels", "colors", "--help")
+        self.assertEqual(0, colors.returncode, colors.stderr)
+        self.assertRegex(colors.stdout, r"(?m)^  set\s+Set a label's color\.$")
+        self.assertNotIn("Groups:", colors.stdout)
+        tool = self.tny("issues", "labels", "colors", "set", "--help")
+        self.assertIn("--color TEXT", tool.stdout)
+
+    def test_root_help_lists_extensions_without_starting_python(self) -> None:
+        self.write(self.global_dir, "broken.py", "raise RuntimeError('boom')\n")
+        self.write(self.global_dir, "_helper.py", "x = 1\n")
+        self.write(
+            self.global_dir,
+            "status.py",
+            "import tny\n@tny.tool\ndef s() -> str:\n    return ''\n",
+        )
+        cold = self.tny("--help")
+        self.assertEqual(0, cold.returncode, cold.stderr)
+        self.assertFalse(self.marker.exists(), "tny --help imported an extension")
+        section = cold.stdout.split("Extensions", 1)[1].split("Global flags", 1)[0]
+        # No cache yet: names from the directories only, and a pointer to index them.
+        self.assertRegex(section, r"(?m)^  call_advisor$")
+        self.assertRegex(section, r"(?m)^  jira$")
+        self.assertIn("tny tool check", section)
+        self.assertNotIn("_helper", section)
+        self.assertNotRegex(section, r"(?m)^  status")  # built-in commands win
+        self.names()  # any catalog use fills the cache
+        warm = self.tny("--help").stdout
+        section = warm.split("Extensions", 1)[1].split("Global flags", 1)[0]
+        self.assertRegex(section, r"(?m)^  call_advisor\s+\S")
+        self.assertRegex(section, r"(?m)^  jira\s+Jira tools\.$")
+        self.assertNotIn("broken", section)  # failed to import: not a command
+        self.assertNotIn("tny tool check", section)
+        self.assertEqual(warm, self.tny("help").stdout)
+        self.assertNotIn(
+            "Extensions", self.tny("--no-tool-extensions", "--help").stdout
+        )
+        self.assertNotIn(
+            "Extensions", self.tny("--help", env={"TNY_TOOL_EXTENSIONS": "0"}).stdout
+        )
+        project_only = self.tny("--no-project-tools", "--help").stdout
+        self.assertNotRegex(project_only, r"(?m)^  jira")
 
     def test_builtin_commands_win_over_modules(self) -> None:
         self.write(
@@ -419,6 +510,111 @@ class ToolExtensionsTest(unittest.TestCase):
         self.assertEqual(0, echo.returncode, echo.stderr)
         self.assertEqual("echo:hi\n", echo.stdout)
         self.assertEqual(2, self.tny("fake", "fail").returncode)
+
+    def test_skill_examples_work(self) -> None:
+        """skills/tny-tool-extensions teaches agents; every example must run."""
+        shutil.rmtree(self.global_dir)
+        shutil.rmtree(self.project_dir)
+        self.global_dir.mkdir(parents=True)
+        skill = (ROOT / "skills" / "tny-tool-extensions" / "SKILL.md").read_text()
+        prefix = "# .tny/extensions/tools/"
+        files = {}
+        for block in skill.split("```python\n")[1:]:
+            code = block.split("```", 1)[0]
+            if code.startswith(prefix):
+                files[code.splitlines()[0][len(prefix) :]] = code
+        self.assertEqual(
+            {
+                "call_advisor.py",
+                "deploy.py",
+                "issues.py",
+                "jira/__main__.py",
+                "jira/projects.py",
+                "jira/_client.py",
+                "catalog.py",
+                "github.py",
+                "linear.py",
+            },
+            set(files),
+        )
+        for rel, code in files.items():
+            compile(code, rel, "exec")  # proxies need real servers: syntax only
+            if "tny.proxy(" not in code:
+                self.write(self.project_dir, rel, code)
+        check = self.tny("tool", "check")
+        self.assertEqual(0, check.returncode, check.stdout + check.stderr)
+        self.assertEqual(
+            [
+                "call_advisor",
+                "catalog.order",
+                "catalog.raw",
+                "catalog.search",
+                "deploy.start",
+                "deploy.status",
+                "deploy.wait",
+                "issues.labels.add",
+                "issues.labels.remove",
+                "issues.list",
+                "jira.projects.create",
+                "jira.projects.list",
+                "jira.whoami",
+            ],
+            sorted(
+                n
+                for n in self.names()
+                if n.split(".")[0]
+                in {"call_advisor", "catalog", "deploy", "issues", "jira"}
+            ),
+        )
+        cases = [
+            (("call_advisor", "why?", "--depth", "2"), 0, "advice on why? (depth 2)"),
+            (("call_advisor", "why?", "--depth", "9"), 2, "depth must be 1, 2 or 3"),
+            (("deploy", "status", "--env", "prod"), 0, '"state":"healthy"'),
+            (
+                (
+                    "deploy",
+                    "start",
+                    "v1.2",
+                    "--env",
+                    "prod",
+                    "--strategy",
+                    "blue-green",
+                ),
+                0,
+                "deploying v1.2 to prod (blue-green)",
+            ),
+            (("deploy", "start", "wip-x", "--env", "prod"), 2, "refusing to deploy"),
+            (("deploy", "start", "v1", "--env", "dev"), None, "expected one of"),
+            (("deploy", "wait"), 0, "settled"),
+            (("issues", "labels", "add", "7", "bug"), 0, "#7 +bug"),
+            (("issues", "labels", "remove", "7", "bug"), 0, "#7 -bug"),
+            (("jira", "whoami"), 0, "ada"),
+            (("jira", "--help"), 0, "Jira tools."),
+            (("issues", "--help"), 0, "Manage issue labels"),
+            (("jira", "projects", "list"), 0, "TNY"),
+            (("jira", "projects", "create", "TNY"), 0, "created TNY"),
+            (("catalog", "search", "shoes", "--limit", "2"), 0, "shoes:1"),
+            (
+                (
+                    "tool",
+                    "call",
+                    "catalog.order",
+                    '{"items":[{"sku":"a","quantity":2}]}',
+                ),
+                0,
+                '"count":2',
+            ),
+            (("tool", "call", "catalog.raw", '{"payload":{"x":1}}'), 0, '"x":1'),
+        ]
+        for args, code, needle in cases:
+            with self.subTest(args=args):
+                run = self.tny(*args)
+                out = run.stdout + run.stderr
+                if code is None:
+                    self.assertNotEqual(0, run.returncode, out)
+                else:
+                    self.assertEqual(code, run.returncode, out)
+                self.assertIn(needle, out.replace(" ", "") if needle[0] == '"' else out)
 
     # -- policy -----------------------------------------------------------------
 
