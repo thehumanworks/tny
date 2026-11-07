@@ -59,7 +59,37 @@ pkgs = import nixpkgs {
 ```
 
 The overlay is the form to use with `environment.systemPackages` on NixOS or
-`home.packages` with home-manager.
+`home.packages` with home-manager. It also adds the `tny` Python package to
+every Python set: `python3.withPackages (ps: [ ps.tny ])`.
+
+## Modules: `programs.tny`
+
+The flake ships the same `programs.tny` options as a Home Manager module
+(`homeManagerModules.default`), a NixOS module (`nixosModules.default`) and a
+nix-darwin module (`darwinModules.default`):
+
+```nix
+programs.tny = {
+  enable = true;          # the tny binary
+  python.enable = true;   # a python3 with the typed `tny` package on PATH
+  neovim.enable = true;   # Neovim 0.11+ LSP for tool extensions (basedpyright)
+};
+```
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `enable` | `false` | install `package` (the flake's `tny`) |
+| `python.enable` | `false` | install `python.package.withPackages` with `tny` and `python.extraPackages`; this puts `python3` on PATH, so if you install your own Python, add `ps.tny` to it instead |
+| `python.libtny` | `false` | also build libtny and set `TNY_LIBRARY_PATH` for the SDK's `Runtime`/`Toolkit` (the extension API does not need it) |
+| `neovim.enable` | `false` | add a `plugin/tny-extensions.lua` that configures and enables the language server with the `tny` package on its import path; it does not touch `init.lua` or nvim-lspconfig setups |
+| `neovim.server` | `"basedpyright"` | or `"pyright"` |
+| `neovim.installServer` | `true` | install the server's package |
+| `pyrightConfig` | `python.enable \|\| neovim.enable` | Home Manager only: write `~/.tny/extensions/tools/pyrightconfig.json` so any pyright-based editor types extension code there |
+
+Home Manager writes the Neovim file to `~/.config/nvim/plugin/`; NixOS and
+nix-darwin write it to `/etc/xdg/nvim/plugin/`, which Neovim loads for every
+user. The language server finds `import tny` through `extraPaths`, so the
+editor works whether or not `python.enable` is on.
 
 ## Outputs
 
@@ -69,7 +99,9 @@ The overlay is the form to use with `environment.systemPackages` on NixOS or
 | `packages.<system>.tny-unwrapped` | the same binary with no wrapper — see [Wrapping](#wrapping) |
 | `packages.<system>.libtny` | the active ABI-1 embedding library, header and `libtny.pc` ([libtny.md](libtny.md)); frozen ABI-0 compatibility remains in release artifacts |
 | `apps.<system>.tny` (`default`) | `nix run` entry point |
-| `overlays.default` | `tny` and `libtny` for any nixpkgs instance |
+| `packages.<system>.python-tny` | the `tny` Python package: SDK and typed tool-extension API ([extensions.md](extensions.md)) |
+| `overlays.default` | `tny`, `libtny` and `python3Packages.tny` for any nixpkgs instance |
+| `homeManagerModules.default`, `nixosModules.default`, `darwinModules.default` | `programs.tny`, see [Modules](#modules-programstny) |
 | `devShells.<system>.default` | toolchain for `make`, `make test`, `make bench` |
 | `checks.<system>` | the package builds, `make test`, native Python/TypeScript SDK tests, and Bash/Zsh workflow tests |
 | `formatter.<system>` | `nix fmt` for the Nix files |

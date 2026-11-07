@@ -92,9 +92,10 @@ PARSED_WITHOUT_HELP = {
     # Private bounded stdin envelope from the existing owned subagent launcher.
     "ask": {"--preset-input"},
     "image": {"--job-no-replace"},
-    # memory and skill share cmd_tool's parser; --global belongs to `tny tool new`.
-    "memory": {"--global"},
-    "skill": {"--global"},
+    # memory and skill share cmd_tool's parser; --global and --folder belong to
+    # `tny tool new`.
+    "memory": {"--global", "--folder"},
+    "skill": {"--global", "--folder"},
     "provider": {"--api-key"},
 }
 

@@ -448,7 +448,8 @@ class Compiled:
                 if extra:
                     info_kwargs["json_schema_extra"] = extra
                 kept = [e for e in extras if not isinstance(e, (str, Param))]
-                annotation = typing.Annotated[(base, *kept)] if kept else base
+                annotated_args = (base, *kept)
+                annotation = typing.Annotated[annotated_args] if kept else base
             default_value = ... if default is inspect.Parameter.empty else default
             fields[name] = (annotation, pydantic.Field(default_value, **info_kwargs))
         config = pydantic.ConfigDict(

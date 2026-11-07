@@ -542,11 +542,61 @@ static const char TEMPLATE[] =
     "    \"\"\"\n"
     "    return \" \".join([text] * times)\n";
 
+/* --folder: NAME/__main__.py plus a submodule, so the tools are NAME.hello and
+ * NAME.notes.add and the layout shows how a folder extension grows. */
+static const char FOLDER_MAIN[] =
+    "\"\"\"%s: a folder extension for tny (docs/extensions.md).\n"
+    "\n"
+    "Run it: tny %s hello \"hi\" --times 2   (tools.%s.hello(text=\"hi\") in code mode)\n"
+    "\n"
+    "This file is the entry point. Import sibling files to add their tools:\n"
+    "`from . import notes` nests the tools in notes.py under %s.notes. Files\n"
+    "starting with `_` are never loaded as extensions; keep shared code there.\n"
+    "\"\"\"\n"
+    "\n"
+    "import tny\n"
+    "\n"
+    "from . import notes  # noqa: F401  (registers %s.notes.*)\n"
+    "\n"
+    "\n"
+    "@tny.tool\n"
+    "def hello(text: str, times: int = 1) -> str:\n"
+    "    \"\"\"Repeat text.\n"
+    "\n"
+    "    Args:\n"
+    "        text: What to repeat.\n"
+    "        times: How many times.\n"
+    "    \"\"\"\n"
+    "    return \" \".join([text] * times)\n";
+
+static const char FOLDER_NOTES[] = "\"\"\"%s.notes: a group of tools from a sibling file.\"\"\"\n"
+                                   "\n"
+                                   "import tny\n"
+                                   "\n"
+                                   "\n"
+                                   "@tny.tool\n"
+                                   "def add(text: str) -> str:\n"
+                                   "    \"\"\"Add a note.\"\"\"\n"
+                                   "    return f\"noted: {text}\"\n";
+
+static int write_template(const char *path, const char *fmt, const char *name, int uses) {
+    buf_t src;
+    buf_init(&src);
+    if (uses == 5) buf_appendf(&src, fmt, name, name, name, name, name);
+    else if (uses == 4) buf_appendf(&src, fmt, name, name, name, name);
+    else buf_appendf(&src, fmt, name);
+    int rc = !buf_oom(&src) && file_write_atomic(path, src.data, src.len) == 0 ? 0 : -1;
+    if (rc != 0) fprintf(stderr, "tny: tool new: cannot write %s\n", path);
+    buf_free(&src);
+    return rc;
+}
+
 int cmd_tool_new(tny_ctx *ctx, int argc, char **argv) {
     const char *name = NULL;
-    bool global = false;
+    bool global = false, as_folder = false;
     for (int i = 0; i < argc; i++) {
         if (strcmp(argv[i], "--global") == 0) global = true;
+        else if (strcmp(argv[i], "--folder") == 0) as_folder = true;
         else if (!name) name = argv[i];
         else name = "";
     }
@@ -556,8 +606,9 @@ int cmd_tool_new(tny_ctx *ctx, int argc, char **argv) {
         valid = (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') ||
                 *c == '_';
     if (!valid || cli_is_command(name)) {
-        fputs("tny: usage: tny tool new NAME [--global]  (NAME: a Python identifier that is not a "
-              "tny command)\nExample: tny tool new call_advisor\n",
+        fputs("tny: usage: tny tool new NAME [--folder] [--global]  (NAME: a Python identifier "
+              "that is not a tny command)\nExample: tny tool new call_advisor\n"
+              "         tny tool new jira --folder   (jira/__main__.py + jira/notes.py)\n",
               stderr);
         return 1;
     }
@@ -578,17 +629,25 @@ int cmd_tool_new(tny_ctx *ctx, int argc, char **argv) {
         fprintf(stderr, "tny: tool new: %s already exists\n", file_exists(file) ? file : folder);
     } else if (mkdir_p(dir) != 0) {
         fprintf(stderr, "tny: tool new: cannot create %s: %s\n", dir, strerror(errno));
-    } else {
-        buf_t src;
-        buf_init(&src);
-        buf_appendf(&src, TEMPLATE, name, name, name, name);
-        if (!buf_oom(&src) && file_write_atomic(file, src.data, src.len) == 0) {
+    } else if (!as_folder) {
+        if (write_template(file, TEMPLATE, name, 4) == 0) {
             printf("%s\n", file);
             rc = 0;
-        } else {
-            fprintf(stderr, "tny: tool new: cannot write %s\n", file);
         }
-        buf_free(&src);
+    } else if (mkdir_p(folder) != 0) {
+        fprintf(stderr, "tny: tool new: cannot create %s: %s\n", folder, strerror(errno));
+    } else {
+        char *main_py = path_join(folder, "__main__.py");
+        char *notes_py = path_join(folder, "notes.py");
+        if (!main_py || !notes_py) {
+            fputs("tny: tool new: out of memory\n", stderr);
+        } else if (write_template(notes_py, FOLDER_NOTES, name, 1) == 0 &&
+                   write_template(main_py, FOLDER_MAIN, name, 5) == 0) {
+            printf("%s\n%s\n", main_py, notes_py);
+            rc = 0;
+        }
+        free(main_py);
+        free(notes_py);
     }
     free(folder);
     free(file);

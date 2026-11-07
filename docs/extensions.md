@@ -19,6 +19,7 @@ The decision record is [ADR 0218](adr/0218-python-tool-extensions.md).
 
 ```sh
 tny tool new call_advisor          # writes .tny/extensions/tools/call_advisor.py
+tny tool new jira --folder         # writes jira/__main__.py and jira/notes.py
 tny call_advisor "hello" --times 2
 ```
 
@@ -63,6 +64,10 @@ code in one of two ways:
   ([example](../examples/extensions/editor/pyrightconfig.json)), or the
   basedpyright/pyright settings for Neovim in
   [nvim.lua](../examples/extensions/editor/nvim.lua).
+
+With Nix, `programs.tny.python.enable` and `programs.tny.neovim.enable` in the
+flake's Home Manager, NixOS or nix-darwin module do both for you
+([nix.md](nix.md#modules-programstny)).
 
 Decorators keep the function's own type, so `@tny.tool def f(x: int) -> str`
 still reads as `(x: int) -> str` and wrong arguments are flagged. The tool host
@@ -206,7 +211,9 @@ Other commands:
 - `tny tool list` and `tny tool describe NAME` include extension tools.
 - `tny tool check [--json]` reloads every extension and prints its tools,
   warnings and import errors with tracebacks; it exits 1 when a module fails.
-- `tny tool new NAME [--global]` writes a starter module.
+- `tny tool new NAME [--folder] [--global]` writes a starter module:
+  `NAME.py`, or with `--folder` a `NAME/__main__.py` entry point that imports a
+  sibling `NAME/notes.py` (tools `NAME.hello` and `NAME.notes.add`).
 - `tny mcp serve [--all]` serves the extension tools over stdio MCP, for
   example to another agent harness. `--all` adds tny's native tools.
 

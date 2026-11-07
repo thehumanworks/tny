@@ -632,7 +632,7 @@ bool help_for(const char *command) {
     else if (strcmp(command, "tool") == 0)
         text = "Usage: tny tool list [--json]\n       tny tool describe NAME\n"
                "       tny tool call NAME [ARGS_JSON|-] [--json]\n"
-               "       tny tool check [--json]\n       tny tool new NAME [--global]\n\n"
+               "       tny tool check [--json]\n       tny tool new NAME [--folder] [--global]\n\n"
                "Run one native tool headlessly: the same nested tools the model reaches "
                "through tools.call(), with the same permission rules, workspace roots and "
                "--ssh routing. No provider or turn is started. ARGS_JSON is one JSON object "
@@ -645,10 +645,12 @@ bool help_for(const char *command) {
                "extension and prints its "
                "tools, warnings and import errors (exit 1 on errors). `new NAME` writes a "
                "starter NAME.py to <repo>/.tny/extensions/tools, or with --global to "
-               "~/.tny/extensions/tools.\n"
+               "~/.tny/extensions/tools; --folder writes NAME/__main__.py and NAME/notes.py "
+               "instead (tools NAME.hello and NAME.notes.add).\n"
                "\nExamples:\n  tny tool list\n"
                "  tny tool describe grep_files\n"
                "  tny tool call grep_files '{\"pattern\":\"TODO\"}'\n"
+               "  tny tool new jira --folder --global\n"
                "  echo '{\"path\":\"notes.md\",\"content\":\"hi\"}' | tny tool call write_file - "
                "--json\n";
     else if (strcmp(command, "memory") == 0)
