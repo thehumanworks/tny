@@ -12,7 +12,8 @@ tmp=$out.tmp
     i=0
     for f in "$@"; do
         printf 'static const unsigned char tny_py_src_%d[] = {\n' "$i"
-        od -An -v -tu1 "$f" | sed -e 's/^ *//' -e 's/  */,/g' -e 's/$/,/' -e '/^,$/d'
+        # awk splits on any whitespace: BSD od pads lines differently from GNU.
+        od -An -v -tu1 "$f" | awk 'NF { for (i = 1; i <= NF; i++) printf "%s,", $i; print "" }'
         printf '0};\n'
         i=$((i + 1))
     done
