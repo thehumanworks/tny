@@ -136,6 +136,7 @@ def main() -> int:
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--download-dir", type=Path)
     parser.add_argument("--attempts", type=int, default=10)
+    parser.add_argument("--interval", type=float, default=10.0)
     args = parser.parse_args()
     if args.attempts < 1:
         raise SystemExit("--attempts must be positive")
@@ -161,7 +162,9 @@ def main() -> int:
                 if attempt == args.attempts:
                     raise
         if attempt < args.attempts:
-            time.sleep(1)
+            # PyPI's CDN keeps serving the 404 the plan step cached for a
+            # few minutes after an upload, so poll slowly.
+            time.sleep(args.interval)
     if release is None:
         raise ValueError(f"PyPI release tny {args.version} did not appear")
     assess_release(release, expected)
