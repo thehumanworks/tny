@@ -2,7 +2,7 @@
  * Shared plumbing for the tny SDK example workflows.
  *
  * Everything here is ordinary application code layered on the public
- * `@thehumanworks/tny` package: runtime options per role, a single-turn `ask`,
+ * `@nothumanwork/tny` package: runtime options per role, a single-turn `ask`,
  * a JSON-reply helper that re-asks on the same session, a lessons file that
  * persists between runs, and the event/permission callbacks the workflows
  * share. Written in erasable TypeScript, so `node file.ts` runs it directly.
@@ -14,7 +14,7 @@ import { dirname, join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ParseArgsConfig } from "node:util";
 
-import { PermissionDecision, Runtime } from "@thehumanworks/tny";
+import { PermissionDecision, Runtime } from "@nothumanwork/tny";
 import type {
   PermissionModeName,
   PermissionRequestEvent,
@@ -24,7 +24,7 @@ import type {
   UsageEvent,
   WorkflowResult,
   WorkflowTask,
-} from "@thehumanworks/tny";
+} from "@nothumanwork/tny";
 
 const PROMPTS = resolve(dirname(fileURLToPath(import.meta.url)), "..", "prompts");
 const MODELS = resolve(PROMPTS, "..", "models.json");

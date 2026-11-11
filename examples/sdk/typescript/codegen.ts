@@ -24,7 +24,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { parseArgs, promisify } from "node:util";
 
-import { Workflow } from "@thehumanworks/tny";
+import { Workflow } from "@nothumanwork/tny";
 
 import {
   Ledger,

@@ -1,4 +1,4 @@
-import { PermissionDecision, Workflow } from "@thehumanworks/tny";
+import { PermissionDecision, Workflow } from "@nothumanwork/tny";
 
 const workflow = new Workflow({
   runtime: {

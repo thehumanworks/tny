@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { resolveNativeAddon, verifyNativeExecutor, verifyNativePackage } from "../scripts/native-loader.mjs";
-import { targetForHost } from "../scripts/platform.mjs";
+import { targets, targetForHost } from "../scripts/platform.mjs";
 import { versionsFromTag } from "../scripts/release-version.mjs";
 
 const hash = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -27,12 +27,12 @@ test("unsupported and non-glibc targets fail precisely", () => {
 test("missing optional native package names the exact dependency", () => {
   const root = mkdtempSync(join(tmpdir(), "tny-meta-"));
   try {
-    writeFileSync(join(root, "package.json"), '{"name":"@thehumanworks/tny","version":"1.2.3"}\n');
+    writeFileSync(join(root, "package.json"), '{"name":"@nothumanwork/tny","version":"1.2.3"}\n');
     assert.throws(() => resolveNativeAddon({
       packageRoot: root, platform: "linux", architecture: "x64", glibcVersion: "2.34",
       allowCheckoutBuild: false,
       resolvePackage() { const error = new Error("not found"); error.code = "MODULE_NOT_FOUND"; throw error; },
-    }), /missing optional native package @thehumanworks\/tny-linux-x64@1\.2\.3/);
+    }), /missing optional native package @nothumanwork\/tny-linux-x64@1\.2\.3/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -46,7 +46,7 @@ test("wrong-platform metadata and tampered artifacts are rejected before loading
   const elf = Buffer.alloc(64); elf[0] = 0x7f; elf.write("ELF", 1); elf[4] = 2; elf[5] = 1; elf.writeUInt16LE(62, 18);
   writeFileSync(addon, elf); writeFileSync(library, elf);
   writeFileSync(join(root, "package.json"),
-    '{"name":"@thehumanworks/tny-linux-x64","version":"1.2.3"}\n');
+    '{"name":"@nothumanwork/tny-linux-x64","version":"1.2.3"}\n');
   const manifest = {
     schemaVersion: 3, packageName: target.packageName, packageVersion: "1.2.3",
     platform: "darwin", architecture: "x64", abiMajor: 1, abiMinor: 0,
@@ -112,4 +112,33 @@ test("native executor requires exact identity, hash, architecture and executable
     symlinkSync(other, path);
     assert.throws(() => verifyNativeExecutor(root, manifest, target), /regular executable/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("npm publication metadata uses the nothumanwork scope and public registry", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(manifest.name, "@nothumanwork/tny");
+  assert.equal(manifest.private, true, "publish staged releases, never the development checkout");
+  assert.deepEqual(manifest.publishConfig, {
+    access: "public", registry: "https://registry.npmjs.org",
+  });
+  assert.equal(manifest.repository.directory, "sdk/typescript");
+  assert.deepEqual(targets.map((target) => target.packageName).sort(), [
+    "@nothumanwork/tny-darwin-arm64",
+    "@nothumanwork/tny-linux-arm64",
+    "@nothumanwork/tny-linux-x64",
+  ]);
+});
+
+test("SDK distributions carry the canonical MIT license", () => {
+  const root = new URL("../../../", import.meta.url);
+  const canonical = readFileSync(new URL("LICENSE", root), "utf8");
+  assert.match(canonical, /^MIT License\n/);
+  for (const directory of ["", "sdk/typescript/", "sdk/python/"]) {
+    assert.equal(readFileSync(new URL(`${directory}LICENSE`, root), "utf8"), canonical);
+    const metadata = JSON.parse(readFileSync(new URL(`${directory}LICENSE-METADATA.json`, root), "utf8"));
+    assert.equal(metadata.license_expression, "MIT");
+  }
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(manifest.license, "MIT");
+  assert.ok(manifest.files.includes("LICENSE"));
 });

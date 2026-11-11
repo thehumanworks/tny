@@ -28,7 +28,7 @@ and do not create an agent runtime or session.
 | SDK | Package | Binding | Scheduler model |
 | --- | --- | --- | --- |
 | Python | `sdk/python` (`tny`) | cffi ABI mode | sync owner thread or one dedicated asyncio executor |
-| TypeScript | `sdk/typescript` (`@thehumanworks/tny`) | C Node-API addon | one dedicated native owner thread per runtime |
+| TypeScript | `sdk/typescript` (`@nothumanwork/tny`) | C Node-API addon | one dedicated native owner thread per runtime |
 
 Both can load stable ABI 1.0 and its frozen sized prefixes, copy every borrowed event and
 capability field before freeing its owner, expose unknown events explicitly,
@@ -90,10 +90,10 @@ connect/TLS handshake remains an owner-thread operation bounded by the native
 15-second deadline; environment teardown may wait for that bound rather than
 preempting an in-progress handshake.
 
-Registry packaging uses one platform-neutral `@thehumanworks/tny` meta package
+Registry packaging uses one platform-neutral `@nothumanwork/tny` meta package
 with exact-version optional dependencies on
-`@thehumanworks/tny-darwin-arm64`, `@thehumanworks/tny-linux-x64`, and
-`@thehumanworks/tny-linux-arm64`. Each platform package contains exactly one
+`@nothumanwork/tny-darwin-arm64`, `@nothumanwork/tny-linux-x64`, and
+`@nothumanwork/tny-linux-arm64`. Each platform package contains exactly one
 matched addon, libtny library, and integrity manifest. The loader rejects a
 missing, wrong-platform, wrong-version, ABI-incompatible, or SHA-mismatched
 payload before loading native code. Source compilation remains an explicit

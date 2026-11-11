@@ -17,7 +17,7 @@
 import { writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 
-import { Workflow } from "@thehumanworks/tny";
+import { Workflow } from "@nothumanwork/tny";
 
 import {
   AgentError,

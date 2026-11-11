@@ -2,16 +2,16 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const NATIVE_NAMES = Object.freeze([
-  "@thehumanworks/tny-darwin-arm64",
-  "@thehumanworks/tny-linux-arm64",
-  "@thehumanworks/tny-linux-x64",
+  "@nothumanwork/tny-darwin-arm64",
+  "@nothumanwork/tny-linux-arm64",
+  "@nothumanwork/tny-linux-x64",
 ]);
-const META_NAME = "@thehumanworks/tny";
+const META_NAME = "@nothumanwork/tny";
 
 function npmFilename(name, version) {
   return `${name.replace(/^@/, "").replace("/", "-")}-${version}.tgz`;
@@ -101,11 +101,16 @@ function registryLookup(registry, attempts) {
   };
 }
 
-function npmPublish(registry) {
+export function publishArguments(registry, artifact, { local = false } = {}) {
+  return ["publish", ...(local ? ["--provenance=false"] : ["--provenance"]),
+    "--access", "public", "--registry", registry, artifact.path];
+}
+
+function npmPublish(registry, options) {
   return async (artifact) => {
     const result = spawnSync(
       "npm",
-      ["publish", "--provenance", "--access", "public", "--registry", registry, artifact.path],
+      publishArguments(registry, artifact, options),
       { stdio: "inherit" },
     );
     if (result.error) throw result.error;
@@ -131,7 +136,7 @@ function npmReadback(registry) {
       const makeWorkspace = spawnSync(process.execPath, ["-e", "require('fs').mkdirSync(process.argv[1])", workspace]);
       if (makeWorkspace.status !== 0) throw new Error("npm readback workspace creation failed");
       const program = [
-        'import { Runtime } from "@thehumanworks/tny";',
+        'import { Runtime } from "@nothumanwork/tny";',
         "const runtime = await Runtime.create({ workspace: process.argv[1] });",
         "if ((runtime.abiVersion >>> 16) > 1) throw new Error('unsupported ABI');",
         "await runtime.close();",
@@ -155,17 +160,61 @@ function argument(name, fallback) {
 }
 
 async function main() {
-  const root = resolve(argument("--root"));
+  if (process.argv.includes("--help")) {
+    console.log(`Usage: npm run publish:release -- --root DIR --version VERSION [--dry-run]
+
+Run from sdk/typescript. DIR is the complete SDK release artifact directory
+(all three native targets, main package, wheels and build metadata).
+Local mode uses your npm login, validates artifacts, and disables CI provenance.
+--dry-run validates and prints the publish plan without registry access.
+Without --local this script retains CI trusted-publisher provenance.`);
+    return;
+  }
+  const allowed = new Set(["--root", "--version", "--registry", "--readback-attempts"]);
+  for (let i = 2; i < process.argv.length; i++) {
+    const flag = process.argv[i];
+    if (["--local", "--dry-run"].includes(flag)) continue;
+    if (!allowed.has(flag)) throw new Error(`unknown option ${flag}`);
+    if (!process.argv[i + 1] || process.argv[i + 1].startsWith("--"))
+      throw new Error(`missing value for ${flag}`);
+    i++;
+  }
+  const rootArgument = argument("--root");
   const version = argument("--version");
+  if (!rootArgument || !version)
+    throw new Error("required: --root DIR --version VERSION (see --help)");
+  if (!/^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/.test(version))
+    throw new Error("version must be a stable or alpha/beta/rc release version");
+  const root = resolve(rootArgument);
   const registry = argument("--registry", "https://registry.npmjs.org").replace(/\/$/, "");
   const attempts = Number(argument("--readback-attempts", "10"));
-  if (!existsSync(root) || !version || !Number.isInteger(attempts) || attempts < 1)
-    throw new Error("usage: publish_npm_release.mjs --root DIR --version VERSION [--registry URL]");
+  const local = process.argv.includes("--local");
+  const dryRun = process.argv.includes("--dry-run");
+  if (!existsSync(root) || !Number.isInteger(attempts) || attempts < 1)
+    throw new Error("release root must exist and readback attempts must be positive");
   const artifacts = discoverArtifacts(root, version);
+  if (local || dryRun) {
+    const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const validation = spawnSync("python3", [
+      join(repository, "scripts/validate_sdk_release.py"), "--root", root,
+      "--tag", `v${version}`, "--repo", repository, "--require-publishable-license",
+    ], { stdio: "inherit" });
+    if (validation.error) throw validation.error;
+    if (validation.status !== 0) throw new Error("release artifact validation failed; nothing published");
+  }
+  if (dryRun) {
+    console.log(JSON.stringify({ version, registry, dryRun: true, artifacts }, null, 2));
+    return;
+  }
+  if (local) {
+    const identity = spawnSync("npm", ["whoami", "--registry", registry], { stdio: "inherit" });
+    if (identity.error) throw identity.error;
+    if (identity.status !== 0) throw new Error("npm login required; nothing published");
+  }
   const statuses = await publishRelease({
     artifacts,
     lookup: registryLookup(registry, attempts),
-    publish: npmPublish(registry),
+    publish: npmPublish(registry, { local }),
     readback: npmReadback(registry),
   });
   process.stdout.write(`${JSON.stringify({ version, statuses })}\n`);

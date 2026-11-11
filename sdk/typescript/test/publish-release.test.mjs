@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { publishRelease } from "../../../scripts/publish_npm_release.mjs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { publishArguments, publishRelease } from "../../../scripts/publish_npm_release.mjs";
 
 const names = [
-  "@thehumanworks/tny-darwin-arm64",
-  "@thehumanworks/tny-linux-arm64",
-  "@thehumanworks/tny-linux-x64",
-  "@thehumanworks/tny",
+  "@nothumanwork/tny-darwin-arm64",
+  "@nothumanwork/tny-linux-arm64",
+  "@nothumanwork/tny-linux-x64",
+  "@nothumanwork/tny",
 ];
 const artifacts = names.map((name) => ({
   name, version: "1.2.3",
@@ -51,13 +53,13 @@ test("partial native publish failure is fail-fast and meta is never attempted", 
     lookup: async (artifact) => present.get(artifact.name),
     publish: async (artifact) => {
       actions.push(artifact.name);
-      if (artifact.name === "@thehumanworks/tny-linux-arm64") throw new Error("injected publish failure");
+      if (artifact.name === "@nothumanwork/tny-linux-arm64") throw new Error("injected publish failure");
       present.set(artifact.name, metadata(artifact));
     },
     readback: async () => actions.push("readback"),
   }), /injected publish failure/);
   assert.deepEqual(actions, names.slice(0, 2));
-  assert.ok(!actions.includes("@thehumanworks/tny"));
+  assert.ok(!actions.includes("@nothumanwork/tny"));
 });
 
 test("all natives are verified in sorted order before the meta package", async () => {
@@ -77,4 +79,23 @@ test("all natives are verified in sorted order before the meta package", async (
   });
   const publishes = actions.filter((item) => item.startsWith("publish:") || item === "readback");
   assert.deepEqual(publishes, [...names.map((name) => `publish:${name}`), "readback"]);
+});
+
+test("local login publishing disables provenance but keeps public access", () => {
+  const args = publishArguments("https://registry.npmjs.org", artifacts[0], { local: true });
+  assert.deepEqual(args, ["publish", "--provenance=false", "--access", "public",
+    "--registry", "https://registry.npmjs.org", artifacts[0].path]);
+  assert.ok(publishArguments("https://registry.npmjs.org", artifacts[0]).includes("--provenance"));
+});
+
+test("publisher help and invalid arguments never need registry access", () => {
+  const script = fileURLToPath(new URL("../../../scripts/publish_npm_release.mjs", import.meta.url));
+  const help = spawnSync(process.execPath, [script, "--local", "--help"], { encoding: "utf8" });
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /--dry-run/);
+  for (const args of [[], ["--root"], ["--typo"], ["--root", ".", "--version", "latest"]]) {
+    const result = spawnSync(process.execPath, [script, "--local", ...args], { encoding: "utf8" });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /required:|missing value|unknown option|version must/);
+  }
 });

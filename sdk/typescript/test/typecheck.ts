@@ -9,7 +9,7 @@ import {
   type WorkflowResult,
   type WorkflowTaskRunner,
   type TaskPreset,
-} from "@thehumanworks/tny";
+} from "@nothumanwork/tny";
 
 declare const workspace: string;
 
@@ -102,7 +102,7 @@ async function useWorkflow(): Promise<void> {
 }
 
 void useWorkflow;
-import { Toolkit, type ImageResult, type SpeechResult, type TranscriptionResult, type OptimisationResult } from "@thehumanworks/tny";
+import { Toolkit, type ImageResult, type SpeechResult, type TranscriptionResult, type OptimisationResult } from "@nothumanwork/tny";
 
 async function toolkitMethods(kit: Toolkit, signal: AbortSignal): Promise<string> {
   const image: ImageResult = await kit.generateImage("tree", { outputFile: "tree.png", signal });

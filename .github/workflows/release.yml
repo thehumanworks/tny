@@ -314,8 +314,8 @@ jobs:
             --wheel "$release_wheel" --commit "$GITHUB_SHA" \
             --out "$repo/dist/sdk"
           npm_version="$(node -e 'import("./sdk/typescript/scripts/release-version.mjs").then(({versionsFromTag}) => process.stdout.write(versionsFromTag(process.env.GITHUB_REF_NAME).npm))')"
-          package="$repo/dist/sdk/thehumanworks-tny-${npm_version}.tgz"
-          native_package="$repo/dist/sdk/thehumanworks-tny-${{ matrix.node_package }}-${npm_version}.tgz"
+          package="$repo/dist/sdk/nothumanwork-tny-${npm_version}.tgz"
+          native_package="$repo/dist/sdk/nothumanwork-tny-${{ matrix.node_package }}-${npm_version}.tgz"
           test -f "$package" -a -f "$native_package"
           python scripts/validate_sdk_release.py --tag "$GITHUB_REF_NAME" \
             --root "$repo/dist/sdk" --commit "$GITHUB_SHA" --allow-partial
@@ -336,7 +336,7 @@ jobs:
             npm install "$native_package" "$package"
           mkdir workspace
           node --input-type=module - "$install_stage/workspace" <<'JS'
-          import { Runtime } from "@thehumanworks/tny";
+          import { Runtime } from "@nothumanwork/tny";
           const runtime = await Runtime.create({ workspace: process.argv[2] });
           if ((runtime.abiVersion >>> 16) !== 1) throw new Error("ABI major mismatch");
           await runtime.close();
@@ -429,8 +429,8 @@ jobs:
           find . -mindepth 2 -type f -exec mv -t . {} +
           find . -type d -empty -delete
           shopt -s nullglob
-          files=( tny-* libtny1-* libtny0-compat-* conformance-* thehumanworks-* )
-          for required in tny- libtny1- libtny0-compat- conformance- thehumanworks-; do
+          files=( tny-* libtny1-* libtny0-compat-* conformance-* nothumanwork-* )
+          for required in tny- libtny1- libtny0-compat- conformance- nothumanwork-; do
             found=0
             for f in "${files[@]}"; do
               case "$f" in
@@ -459,7 +459,7 @@ jobs:
           set -eu
           cd assets
           shopt -s nullglob
-          files=( tny-* libtny1-* libtny0-compat-* conformance-* thehumanworks-* )
+          files=( tny-* libtny1-* libtny0-compat-* conformance-* nothumanwork-* )
           # Completed releases are immutable; a duplicate retry never replaces assets.
           existing="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --jq '.[] | select(.tag_name == "'"$GITHUB_REF_NAME"'") | .draft')"

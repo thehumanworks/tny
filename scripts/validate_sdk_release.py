@@ -17,9 +17,9 @@ TAG = re.compile(
     r"(?:-(a|b|rc)\.(0|[1-9]\d*))?$"
 )
 NATIVE_PACKAGES = {
-    "@thehumanworks/tny-darwin-arm64": ("darwin", "arm64", "libtny.1.dylib"),
-    "@thehumanworks/tny-linux-x64": ("linux", "x64", "libtny.so.1"),
-    "@thehumanworks/tny-linux-arm64": ("linux", "arm64", "libtny.so.1"),
+    "@nothumanwork/tny-darwin-arm64": ("darwin", "arm64", "libtny.1.dylib"),
+    "@nothumanwork/tny-linux-x64": ("linux", "x64", "libtny.so.1"),
+    "@nothumanwork/tny-linux-arm64": ("linux", "arm64", "libtny.so.1"),
 }
 
 
@@ -71,7 +71,7 @@ def validate_npm(
                 )
             if package.get("license") == "UNLICENSED":
                 raise SystemExit(f"{path}: npm license metadata remains unpublishable")
-        if name == "@thehumanworks/tny":
+        if name == "@nothumanwork/tny":
             expected = {candidate: npm_version for candidate in NATIVE_PACKAGES}
             if package.get("optionalDependencies") != expected:
                 raise SystemExit(
@@ -331,7 +331,7 @@ def validate_release_inputs(
             raise SystemExit(f"{path}: provenance source SHA is missing or invalid")
         expected_dynamic_identity = (
             {"kind": "install_name", "value": "@rpath/libtny.1.dylib"}
-            if package_name == "@thehumanworks/tny-darwin-arm64"
+            if package_name == "@nothumanwork/tny-darwin-arm64"
             else {"kind": "soname", "value": "libtny.so.1"}
         )
         if value.get("dynamicIdentity") != expected_dynamic_identity:
@@ -412,9 +412,9 @@ def validate_release_inputs(
         ):
             raise SystemExit(f"{path}: provenance wheel hash/content report is invalid")
         expected_wheel_markers = {
-            "@thehumanworks/tny-darwin-arm64": ("macosx_13_0", "arm64.whl"),
-            "@thehumanworks/tny-linux-arm64": ("manylinux", "aarch64.whl"),
-            "@thehumanworks/tny-linux-x64": ("manylinux", "x86_64.whl"),
+            "@nothumanwork/tny-darwin-arm64": ("macosx_13_0", "arm64.whl"),
+            "@nothumanwork/tny-linux-arm64": ("manylinux", "aarch64.whl"),
+            "@nothumanwork/tny-linux-x64": ("manylinux", "x86_64.whl"),
         }[package_name]
         if not all(marker in wheel_path.name for marker in expected_wheel_markers):
             raise SystemExit(
@@ -486,7 +486,7 @@ def validate_artifact_cardinality(
     if allow_partial:
         natives = [name for name in NATIVE_PACKAGES if npm_counts.get(name)]
         if npm_counts and (
-            npm_counts.get("@thehumanworks/tny") != 1
+            npm_counts.get("@nothumanwork/tny") != 1
             or len(natives) != 1
             or npm_counts[natives[0]] != 1
         ):
@@ -496,9 +496,9 @@ def validate_artifact_cardinality(
         if wheel_targets and len(wheel_targets) != 1:
             raise SystemExit("partial Python artifact set contains duplicate wheels")
         return
-    if npm_counts.get("@thehumanworks/tny") != 3:
+    if npm_counts.get("@nothumanwork/tny") != 3:
         raise SystemExit(
-            f"expected three identical meta packages, got {npm_counts.get('@thehumanworks/tny', 0)}"
+            f"expected three identical meta packages, got {npm_counts.get('@nothumanwork/tny', 0)}"
         )
     invalid_natives = sorted(
         name for name in NATIVE_PACKAGES if npm_counts.get(name) != 1
@@ -554,7 +554,7 @@ def main() -> None:
     if args.allow_partial and not npm_artifacts and not wheel_artifacts:
         raise SystemExit("SDK release artifact set is empty")
     if args.allow_partial and npm_artifacts:
-        if "@thehumanworks/tny" not in observed or not any(
+        if "@nothumanwork/tny" not in observed or not any(
             name in NATIVE_PACKAGES for name in observed
         ):
             raise SystemExit(
@@ -564,10 +564,10 @@ def main() -> None:
         if input_targets != native_observed:
             raise SystemExit("partial npm package and release-input target sets differ")
     if not args.allow_partial:
-        expected = {"@thehumanworks/tny", *NATIVE_PACKAGES}
+        expected = {"@nothumanwork/tny", *NATIVE_PACKAGES}
         if set(observed) != expected:
             raise SystemExit(f"npm package set is incomplete: got {sorted(observed)}")
-        if len(observed["@thehumanworks/tny"]) != 1:
+        if len(observed["@nothumanwork/tny"]) != 1:
             raise SystemExit(
                 "npm meta packages built on different runners are not byte-identical"
             )

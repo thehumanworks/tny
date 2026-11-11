@@ -32,7 +32,7 @@ const supported =
 
 if (!supported) {
   throw new Error(
-    `@thehumanworks/tny: unsupported platform ${process.platform}-${process.arch}; ` +
+    `@nothumanwork/tny: unsupported platform ${process.platform}-${process.arch}; ` +
     "the native ABI supports darwin-arm64 and glibc linux-x64/linux-arm64",
   );
 }
@@ -188,7 +188,7 @@ async function validatePrebuilt() {
       probe.libraryVersion !== manifest.libraryVersion) {
     throw new Error("prebuilt ABI/capability probe does not match its manifest");
   }
-  console.log(`@thehumanworks/tny: using verified prebuilt ${process.platform}-${process.arch}`);
+  console.log(`@nothumanwork/tny: using verified prebuilt ${process.platform}-${process.arch}`);
   return true;
 }
 
@@ -207,7 +207,7 @@ const library = join(libDir, libName);
 if (!existsSync(header)) {
   const detail = prebuiltFailure ? ` Prebuilt validation failed: ${prebuiltFailure.message}.` : "";
   throw new Error(
-    `@thehumanworks/tny: no valid prebuilt and libtny header not found at ${header}.` +
+    `@nothumanwork/tny: no valid prebuilt and libtny header not found at ${header}.` +
     `${detail} Set TNY_ROOT or TNY_INCLUDE_DIR/TNY_LIB_DIR for a source fallback.`,
   );
 }
@@ -216,19 +216,19 @@ if (!process.env.TNY_LIB_DIR && existsSync(join(tnyRoot, "Makefile"))) {
   if (made.status !== 0) process.exit(made.status ?? 1);
 }
 if (!existsSync(library)) {
-  throw new Error(`@thehumanworks/tny: ${libName} not found at ${library}`);
+  throw new Error(`@nothumanwork/tny: ${libName} not found at ${library}`);
 }
 validateLibraryProvenance(library);
 const headerText = readFileSync(header, "utf8");
 const abiMajor = Number(headerText.match(/#define\s+TNY_ABI_MAJOR\s+(\d+)u/)?.[1]);
 const abiMinor = Number(headerText.match(/#define\s+TNY_ABI_MINOR\s+(\d+)u/)?.[1]);
 if (abiMajor !== requiredAbiMajor || !Number.isInteger(abiMinor) || abiMinor < minAbiMinor)
-  throw new Error(`@thehumanworks/tny: libtny ABI ${abiMajor}.${abiMinor} is unsupported; need 1.0+ within major 1`);
+  throw new Error(`@nothumanwork/tny: libtny ABI ${abiMajor}.${abiMinor} is unsupported; need 1.0+ within major 1`);
 
 const nodeRoot = resolve(dirname(realpathSync(process.execPath)), "..");
 const nodeInclude = process.env.TNY_NODE_INCLUDE || join(nodeRoot, "include/node");
 if (!existsSync(join(nodeInclude, "node_api.h")))
-  throw new Error(`@thehumanworks/tny: Node-API headers not found at ${nodeInclude}`);
+  throw new Error(`@nothumanwork/tny: Node-API headers not found at ${nodeInclude}`);
 
 mkdirSync(outputDir, { recursive: true });
 const cc = process.env.CC || "cc";
@@ -252,7 +252,7 @@ const probe = await probeAddon(output);
 const probedMajor = probe.abiVersion >>> 16;
 const probedMinor = probe.abiVersion & 0xffff;
 if (probedMajor !== requiredAbiMajor || probedMinor < minAbiMinor || probe.capabilitySize === 0)
-  throw new Error(`@thehumanworks/tny: built artifact failed ABI/capability validation`);
+  throw new Error(`@nothumanwork/tny: built artifact failed ABI/capability validation`);
 if (provenance.library_version && probe.libraryVersion !== provenance.library_version)
   throw new Error("built addon library version does not match release provenance");
 let executor;
@@ -260,7 +260,7 @@ const bundledExecutor = join(outputDir, "tny-executor");
 if (probedMinor >= 5) {
   const executorSource = resolve(process.env.TNY_EXECUTOR_PATH || join(libDir, "tny-executor"));
   if (!existsSync(executorSource))
-    throw new Error(`@thehumanworks/tny: native executor not found at ${executorSource}; build sdk-executor or set TNY_EXECUTOR_PATH`);
+    throw new Error(`@nothumanwork/tny: native executor not found at ${executorSource}; build sdk-executor or set TNY_EXECUTOR_PATH`);
   copyFileSync(executorSource, bundledExecutor);
   executor = {
     filename: "tny-executor", sha256: fileHash(bundledExecutor), protocolVersion: 1,
@@ -307,4 +307,4 @@ const manifest = {
   },
 };
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 });
-console.log(`@thehumanworks/tny: built and verified ${output}`);
+console.log(`@nothumanwork/tny: built and verified ${output}`);

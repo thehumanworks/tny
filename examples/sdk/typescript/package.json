@@ -12,7 +12,7 @@
     "codegen": "node codegen.ts"
   },
   "dependencies": {
-    "@thehumanworks/tny": "file:../../../sdk/typescript"
+    "@nothumanwork/tny": "file:../../../sdk/typescript"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

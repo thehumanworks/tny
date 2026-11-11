@@ -1,5 +1,5 @@
 {
-  "name": "@thehumanworks/tny",
+  "name": "@nothumanwork/tny",
   "version": "0.0.0-development",
   "private": true,
   "description": "Native Node.js SDK for the tny agent runtime and toolkit",
@@ -22,7 +22,8 @@
     "build/Release/libtny.*",
     "README.md",
     "LICENSE-METADATA.json",
-    "THIRD_PARTY_NOTICES.md"
+    "THIRD_PARTY_NOTICES.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -38,7 +39,8 @@
     "test:nul": "node test/nul-provider.mjs",
     "test:wake": "node test/wake-cancel.mjs",
     "test:integration": "node test/integration.mjs",
-    "conformance": "node test/run-local-adapter.mjs"
+    "conformance": "node test/run-local-adapter.mjs",
+    "publish:release": "node ../../scripts/publish_npm_release.mjs --local"
   },
   "engines": {
     "node": ">=20"
@@ -56,5 +58,18 @@
     "node-api",
     "agent"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thehumanworks/tny.git",
+    "directory": "sdk/typescript"
+  },
+  "homepage": "https://github.com/thehumanworks/tny#readme",
+  "bugs": {
+    "url": "https://github.com/thehumanworks/tny/issues"
+  }
 }

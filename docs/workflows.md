@@ -360,7 +360,7 @@ import {
   PermissionDecision,
   Workflow,
   WorkflowTaskStatus,
-} from "@thehumanworks/tny";
+} from "@nothumanwork/tny";
 
 const workflow = new Workflow({
   runtime: {

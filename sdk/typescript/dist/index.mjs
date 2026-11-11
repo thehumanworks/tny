@@ -18,7 +18,7 @@ try {
 } catch (cause) {
   if (cause?.name === "TnyLoadError") throw cause;
   const error = new Error(
-    `@thehumanworks/tny: verified native addon failed to load for ` +
+    `@nothumanwork/tny: verified native addon failed to load for ` +
       `${process.platform}-${process.arch}: ${cause?.message || cause}`,
     { cause },
   );

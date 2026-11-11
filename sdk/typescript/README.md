@@ -1,4 +1,4 @@
-# `@thehumanworks/tny` native SDK
+# `@nothumanwork/tny` native SDK
 
 This package is the Node.js/TypeScript binding for stable **libtny ABI 1**.
 Task presets require ABI 1.1; ABI 1.0 remains usable when no task is requested.
@@ -22,7 +22,8 @@ approval in `ask` mode deny without a synchronous permission owner;
 Python has the host user's ordinary authority and is not mediated by nested
 tool permissions. See [the native worker contract](../../docs/adr/0215-native-sdk-tool-workers.md).
 
-The package is licensed under the MIT License; see `LICENSE`.
+The package is licensed under the MIT License; see `LICENSE`. Release packages
+include the canonical `LICENSE` and third-party notices.
 
 ## Supported systems
 
@@ -30,10 +31,10 @@ The package is licensed under the MIT License; see `LICENSE`.
 - Apple Silicon macOS
 - glibc Linux on x64 or arm64
 
-Registry releases use one JavaScript-only `@thehumanworks/tny` meta package.
+Registry releases use one JavaScript-only `@nothumanwork/tny` meta package.
 It has exact-version optional dependencies on the three native payloads:
-`@thehumanworks/tny-darwin-arm64`, `@thehumanworks/tny-linux-x64`, and
-`@thehumanworks/tny-linux-arm64`. npm selects the compatible payload. The
+`@nothumanwork/tny-darwin-arm64`, `@nothumanwork/tny-linux-x64`, and
+`@nothumanwork/tny-linux-arm64`. npm selects the compatible payload. The
 runtime validates its package name and version, target, ABI manifest, and all
 native SHA-256 values before loading the addon. Missing optional packages,
 musl, the wrong CPU, tampering, and any ABI major other than 1 produce targeted
@@ -63,7 +64,7 @@ TNY_ROOT="$PWD" npm --prefix sdk/typescript run build
 ## Use
 
 ```ts
-import { Runtime, PermissionDecision } from "@thehumanworks/tny";
+import { Runtime, PermissionDecision } from "@nothumanwork/tny";
 
 const runtime = await Runtime.create({
   workspace: process.cwd(),
@@ -127,7 +128,7 @@ run concurrently up to `maxConcurrency`; successful direct-dependency outputs
 are appended in declaration order before a consumer starts.
 
 ```ts
-import { PermissionDecision, Workflow } from "@thehumanworks/tny";
+import { PermissionDecision, Workflow } from "@nothumanwork/tny";
 
 const workflow = new Workflow({
   runtime: {
@@ -237,7 +238,7 @@ and WAV/microphone transcription through libtny ABI 1.2+.
 It needs no agent runtime, session, or `tny` executable.
 
 ```typescript
-import { Toolkit } from "@thehumanworks/tny";
+import { Toolkit } from "@nothumanwork/tny";
 
 const kit = new Toolkit({ workspace: "/path/to/project" });
 const image = await kit.generateImage("A small tree", { outputFile: "tree.png" });
@@ -266,3 +267,55 @@ ACP commands require libtny ABI 1.4. Native HTTP use remains compatible with
 earlier ABI 1.x libraries. ACP usage distinguishes reported currency and
 cumulative session cost from per-turn accounting; unavailable token counts
 are explicitly marked unreported.
+
+## Publishing to npm
+
+The public package is `@nothumanwork/tny`. Its exact-version optional native
+packages are `@nothumanwork/tny-darwin-arm64`,
+`@nothumanwork/tny-linux-x64`, and `@nothumanwork/tny-linux-arm64`.
+Node.js 20+ is required. Windows, Intel macOS, and musl Linux are not supported.
+
+Publish the **release tarballs**, not this checkout: the checkout intentionally
+has `private: true` and a development version. The release packager supplies the
+tag version, public access, native payloads, and optional dependencies, without
+install-time compilation. Follow the SDK release process in
+[`docs/sdks.md`](../../docs/sdks.md).
+
+Before the first registry release:
+
+1. Keep the canonical root MIT `LICENSE` and SDK license metadata in sync.
+   Release validation verifies the license bytes in every package.
+2. Ensure your npm account can publish all four packages under `@nothumanwork`.
+   Bootstrap new packages with an authorized npm account if needed, then configure
+   each package's npm trusted publisher for GitHub repository `thehumanworks/tny`,
+   workflow `release.yml`, and environment `npm`.
+3. Configure the protected GitHub `npm` environment. Review the Python publisher
+   setup too: `TNY_REGISTRY_PUBLICATION_ENABLED=true` enables both registry jobs.
+4. Release through the existing tagged-release workflow. It validates all three
+   native targets, publishes native packages before the main package, and checks
+   registry integrity and a clean install. Do not run `npm publish` in this directory.
+
+The npm scope is independent of the GitHub repository owner; source and issue
+links continue to point to `thehumanworks/tny`.
+
+### Publish locally with your npm login
+
+Download or gather the **complete SDK release artifacts** from the tagged GitHub
+release into one directory (all three native targets, main tarball, Python wheels,
+and build metadata). This command publishes those artifacts; it does not build
+Linux binaries on your Mac or publish Python packages.
+
+```sh
+cd sdk/typescript
+# Use the version matching the artifacts; absolute paths avoid cwd ambiguity.
+npm run publish:release -- --root /absolute/path/to/release-artifacts --version 0.37.1 --dry-run
+npm run publish:release -- --root /absolute/path/to/release-artifacts --version 0.37.1
+```
+
+Requires Node.js 20+, npm, Python 3, and an npm login with publish permission for
+`@nothumanwork`. Validation runs before any publication. Dry-run is offline and
+prints the plan without publishing. Actual publication checks your npm login,
+publishes the native packages first, then the main package, and verifies a clean
+install. Identical existing versions are skipped; conflicting versions fail.
+Local publication disables provenance (GitHub CI retains it). npm may request
+2FA interactively. Run `npm run publish:release -- --help` for usage.

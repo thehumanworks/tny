@@ -58,7 +58,7 @@ print(transcript.text.decode("utf-8"))
 ```
 
 ```typescript
-import { Toolkit } from "@thehumanworks/tny";
+import { Toolkit } from "@nothumanwork/tny";
 
 const kit = new Toolkit({ workspace: "/path/to/project" });
 const image = await kit.generateImage("A small tree", { outputFile: "tree.png" });

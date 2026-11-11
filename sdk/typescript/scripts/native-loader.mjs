@@ -29,7 +29,7 @@ function hostMacVersion() {
 }
 
 function fail(message, options) {
-  const error = new Error(`@thehumanworks/tny: ${message}`, options);
+  const error = new Error(`@nothumanwork/tny: ${message}`, options);
   error.name = "TnyLoadError";
   return error;
 }

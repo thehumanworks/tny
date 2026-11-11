@@ -26,7 +26,7 @@ spec.loader.exec_module(validator)
 class ReleaseValidatorTests(unittest.TestCase):
     def test_native_executor_payload_is_required_and_verified(self) -> None:
         version = "1.2.3"
-        name = "@thehumanworks/tny-linux-x64"
+        name = "@nothumanwork/tny-linux-x64"
         elf = bytearray(64)
         elf[:6] = b"\x7fELF\x02\x01"
         elf[18:20] = (62).to_bytes(2, "little")
@@ -138,13 +138,13 @@ class ReleaseValidatorTests(unittest.TestCase):
         )[0]
         self.assertIn("find . -mindepth 2 -type f", publish_job)
         self.assertIn(
-            "files=( tny-* libtny1-* libtny0-compat-* conformance-* thehumanworks-* )",
+            "files=( tny-* libtny1-* libtny0-compat-* conformance-* nothumanwork-* )",
             publish_job,
         )
 
     def test_synthetic_three_platform_cardinality_passes(self) -> None:
         counts = {
-            "@thehumanworks/tny": 3,
+            "@nothumanwork/tny": 3,
             **{name: 1 for name in validator.NATIVE_PACKAGES},
         }
         validator.validate_artifact_cardinality(
@@ -169,7 +169,7 @@ class ReleaseValidatorTests(unittest.TestCase):
         meta_files = {
             "package.json": json.dumps(
                 {
-                    "name": "@thehumanworks/tny",
+                    "name": "@nothumanwork/tny",
                     "version": version,
                     "optionalDependencies": optional,
                 }
@@ -180,19 +180,19 @@ class ReleaseValidatorTests(unittest.TestCase):
         }
         meta_data = archive_bytes(meta_files)
         triples = {
-            "@thehumanworks/tny-darwin-arm64": (
+            "@nothumanwork/tny-darwin-arm64": (
                 "darwin",
                 "arm64",
                 "libtny.1.dylib",
                 "tny-1.2.3-py3-none-macosx_13_0_arm64.whl",
             ),
-            "@thehumanworks/tny-linux-arm64": (
+            "@nothumanwork/tny-linux-arm64": (
                 "linux",
                 "arm64",
                 "libtny.so.1",
                 "tny-1.2.3-py3-none-manylinux_2_34_aarch64.whl",
             ),
-            "@thehumanworks/tny-linux-x64": (
+            "@nothumanwork/tny-linux-x64": (
                 "linux",
                 "x64",
                 "libtny.so.1",
@@ -207,7 +207,7 @@ class ReleaseValidatorTests(unittest.TestCase):
             ) in enumerate(triples.items()):
                 lane = root / str(index)
                 lane.mkdir()
-                meta_name = "thehumanworks-tny-1.2.3.tgz"
+                meta_name = "nothumanwork-tny-1.2.3.tgz"
                 (lane / meta_name).write_bytes(meta_data)
                 addon = f"addon-{package_name}".encode()
                 library_data = f"library-{package_name}".encode()
@@ -250,7 +250,7 @@ class ReleaseValidatorTests(unittest.TestCase):
                     f"prebuilds/{library}": library_data,
                 }
                 native_data = archive_bytes(native_files)
-                native_name = f"thehumanworks-{package_name.split('/')[-1]}-1.2.3.tgz"
+                native_name = f"nothumanwork-{package_name.split('/')[-1]}-1.2.3.tgz"
                 (lane / native_name).write_bytes(native_data)
                 wheel_buffer = io.BytesIO()
                 with zipfile.ZipFile(wheel_buffer, "w") as wheel:
@@ -358,15 +358,15 @@ class ReleaseValidatorTests(unittest.TestCase):
 
     def test_duplicate_native_and_wheel_fail(self) -> None:
         counts = {
-            "@thehumanworks/tny": 3,
+            "@nothumanwork/tny": 3,
             **{name: 1 for name in validator.NATIVE_PACKAGES},
         }
-        counts["@thehumanworks/tny-linux-x64"] = 2
+        counts["@nothumanwork/tny-linux-x64"] = 2
         with self.assertRaisesRegex(SystemExit, "native npm package cardinality"):
             validator.validate_artifact_cardinality(
                 counts, ["darwin-arm64", "linux-aarch64", "linux-x86_64"], False
             )
-        counts["@thehumanworks/tny-linux-x64"] = 1
+        counts["@nothumanwork/tny-linux-x64"] = 1
         with self.assertRaisesRegex(SystemExit, "wheel target cardinality"):
             validator.validate_artifact_cardinality(
                 counts,
@@ -378,7 +378,7 @@ class ReleaseValidatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "meta.tgz"
             package = {
-                "name": "@thehumanworks/tny",
+                "name": "@nothumanwork/tny",
                 "version": "1.2.3",
                 "optionalDependencies": {
                     name: "1.2.3" for name in validator.NATIVE_PACKAGES
@@ -410,7 +410,7 @@ class ReleaseValidatorTests(unittest.TestCase):
                         "sourceSha256": "b" * 64,
                         "dynamicIdentity": {"kind": "soname", "value": "libtny.so.1"},
                         "commitSha": "bad",
-                        "target": {"packageName": "@thehumanworks/tny-linux-x64"},
+                        "target": {"packageName": "@nothumanwork/tny-linux-x64"},
                     }
                 ),
                 encoding="utf-8",

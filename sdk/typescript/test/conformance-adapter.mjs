@@ -44,7 +44,7 @@ if (requestedArtifact.endsWith(".tgz")) {
   if (run.stdout) process.stderr.write(run.stdout);
   if (run.stderr) process.stderr.write(run.stderr);
   executions.push({ id: "install_package", exit_code: run.status ?? 127, assertions: [] });
-  sdkRoot = join(consumer, "node_modules/@thehumanworks/tny");
+  sdkRoot = join(consumer, "node_modules/@nothumanwork/tny");
 }
 const { Runtime } = await import(pathToFileURL(join(sdkRoot, "dist/index.mjs")).href);
 const commands = [
@@ -231,8 +231,8 @@ if (!requestedArtifact.endsWith(".tgz") && requestedArtifact !== resolve(addonPa
 const response = {
   conformance_version: 1,
   adapter_protocol_version: 1,
-  adapter: "@thehumanworks/tny-node-conformance",
-  sdk: "@thehumanworks/tny",
+  adapter: "@nothumanwork/tny-node-conformance",
+  sdk: "@nothumanwork/tny",
   sdk_version: JSON.parse(readFileSync(join(sdkRoot, "package.json"), "utf8")).version,
   abi_version: `${runtime.abiVersion >>> 16}.${runtime.abiVersion & 0xffff}`,
   library_version: runtime.libraryVersion,

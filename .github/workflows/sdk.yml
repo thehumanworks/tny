@@ -297,7 +297,7 @@ jobs:
           npm install "$package"
           mkdir workspace
           node --input-type=module - "$envdir/workspace" <<'JS'
-          import { Runtime } from "@thehumanworks/tny";
+          import { Runtime } from "@nothumanwork/tny";
           const runtime = await Runtime.create({ workspace: process.argv[2] });
           if (!runtime.capabilities.libraryVersion) throw new Error("missing capabilities");
           await runtime.close();

@@ -166,7 +166,8 @@ try {
     engines: base.engines,
     keywords: base.keywords,
     license: base.license,
-    repository: { type: "git", url: "git+https://github.com/thehumanworks/tny.git" },
+    publishConfig: base.publishConfig,
+    repository: base.repository,
     bugs: { url: "https://github.com/thehumanworks/tny/issues" },
     homepage: "https://github.com/thehumanworks/tny#readme",
   };
@@ -191,18 +192,19 @@ try {
     copy(relative, nativeStage);
   if (rootLicenses.length === 1) copyFileSync(rootLicenses[0], join(nativeStage, "LICENSE"));
   writeFileSync(join(nativeStage, "README.md"),
-    `# ${target.packageName}\n\nNative payload for @thehumanworks/tny on ${target.platform}-${target.architecture}.\n`);
+    `# ${target.packageName}\n\nNative payload for @nothumanwork/tny on ${target.platform}-${target.architecture}.\n`);
   const native = {
     name: target.packageName,
     version: versions.npm,
-    description: `Native ${target.platform}-${target.architecture} payload for @thehumanworks/tny`,
+    description: `Native ${target.platform}-${target.architecture} payload for @nothumanwork/tny`,
     exports: { "./package.json": "./package.json" },
     os: [target.platform],
     cpu: [target.architecture],
     ...(target.platform === "linux" ? { libc: ["glibc"] } : {}),
     engines: base.engines,
     license: base.license,
-    repository: { type: "git", url: "git+https://github.com/thehumanworks/tny.git" },
+    publishConfig: base.publishConfig,
+    repository: base.repository,
   };
   writeFileSync(join(nativeStage, "package.json"), `${JSON.stringify(native, null, 2)}\n`);
   const nativePack = pack(nativeStage, output);

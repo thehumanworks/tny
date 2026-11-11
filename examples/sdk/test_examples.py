@@ -197,7 +197,7 @@ class ExamplesTest(unittest.TestCase):
         if node_major() < 24:
             self.skipTest("the TypeScript examples need Node 24+")
         package = HERE / "typescript"
-        if not (package / "node_modules" / "@thehumanworks" / "tny").exists():
+        if not (package / "node_modules" / "@nothumanwork" / "tny").exists():
             subprocess.run(
                 ["npm", "install", "--omit=dev", "--no-audit", "--no-fund"],
                 cwd=package,
