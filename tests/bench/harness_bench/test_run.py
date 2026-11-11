@@ -46,8 +46,11 @@ class VerificationTest(unittest.TestCase):
         )
         result = verify_task(self.task, self.workspace, self.final, timeout_s=2)
         self.assertEqual(result.returncode, 0)
+        # The shell prints the physical directory; macOS temp paths go through
+        # the /var -> /private/var symlink.
         self.assertEqual(
-            (self.final.parent / "cwd.txt").read_text().strip(), str(self.task)
+            (self.final.parent / "cwd.txt").read_text().strip(),
+            str(self.task.resolve()),
         )
         self.assertFalse(list(self.final.parent.glob(".verify-tmp-*")))
 

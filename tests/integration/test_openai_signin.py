@@ -771,7 +771,16 @@ def case_tui_paste(env, ws, home, issuer):
         time.sleep(0.3)
         assert p.poll() is None, "Ctrl-C at the login prompt killed the TUI"
         os.write(master, b"/quit\r")
-        p.wait(timeout=15)
+        # Keep reading until it exits: the TUI restores the terminal with a
+        # draining tcsetattr, which blocks while its output sits unread.
+        deadline = time.time() + 15
+        while p.poll() is None and time.time() < deadline:
+            if select.select([master], [], [], 0.2)[0]:
+                try:
+                    os.read(master, 65536)
+                except OSError:
+                    break
+        p.wait(timeout=5)
     finally:
         if p.poll() is None:
             p.kill()
