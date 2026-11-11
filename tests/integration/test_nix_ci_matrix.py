@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -14,7 +15,44 @@ def read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
+def package_check_files() -> list[Path]:
+    """The files of nix/source.nix's packageChecks fileset."""
+    block = re.search(
+        r"(?ms)^  packageChecks = toSource \{.*?unions \[(.*?)\];",
+        read("nix/source.nix"),
+    )
+    assert block, "nix/source.nix has no packageChecks fileset"
+    return [ROOT / name for name in re.findall(r"\.\./(\S+)", block.group(1))]
+
+
+def check_package_checks_are_self_contained() -> None:
+    """The installed-package check runs from a tree holding only this fileset.
+
+    A module-level import of a sibling module that the fileset omits fails the
+    Nix build, and no CI job runs Nix. Imports inside functions are left to the
+    platform branch that runs them.
+    """
+    files = package_check_files()
+    assert files, "packageChecks fileset is empty"
+    for path in files:
+        assert path.is_file(), path
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = [node.module]
+            else:
+                continue
+            for module in modules:
+                sibling = path.with_name(module.split(".")[0] + ".py")
+                assert not sibling.is_file() or sibling in files, (
+                    f"{path.name} imports {sibling.name}; "
+                    "add it to nix/source.nix packageChecks"
+                )
+
+
 def main() -> int:
+    check_package_checks_are_self_contained()
     workflows = ROOT / ".github/workflows"
     assert not (workflows / "nix.yml").exists(), "Nix must not be a CI workflow"
     for path in workflows.glob("*.yml"):

@@ -245,13 +245,15 @@ in
     fileset = buildFiles;
   };
 
-  # Installed CLI TLS checks use only the maintained HTTPS driver and its
-  # stdlib provider; keep unrelated tests out of the package source hash.
+  # Installed CLI TLS checks use only the maintained HTTPS driver, its stdlib
+  # provider and the modules that provider imports; keep unrelated tests out of
+  # the package source hash. test_nix_ci_matrix.py checks the set is complete.
   packageChecks = toSource {
     inherit root;
     fileset = unions [
       ../tests/integration/test_https.py
       ../tests/integration/mock_openai.py
+      ../tests/integration/code_mode_fixture.py
     ];
   };
 

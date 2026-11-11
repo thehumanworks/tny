@@ -204,6 +204,27 @@ invoked explicitly with the declared build-time `perl`, rather than relying
 on its `/usr/bin/env perl` shebang. This applies to the wrapped and unwrapped
 CLI packages and the test derivation; no host `/usr/bin/env` is required.
 
+The packages build with `TNY_SHELL_PATH=${stdenv.shell}`, and their checks fail
+if the binary still names `/bin/sh`. That one path serves the terminal tool,
+the sandbox probe, the TUI shell fallback and the embedded Python: the stdlib
+freezer rewrites `/bin/sh` in the frozen sources, so `subprocess` with
+`shell=True` in a code cell runs the store shell too
+([ADR 0220](adr/0220-build-shell-in-every-shipped-path.md)). To reproduce the
+check without Nix, build with any other absolute shell path and search the
+binary:
+
+```sh
+make release BUILD=build-shell TNY_SHELL_PATH=/bin/bash
+grep -c -aF /bin/sh build-shell/tny    # 0
+```
+
+On Linux the package then runs `tests/integration/test_https.py` against the
+installed binary, from a source tree that holds only the `packageChecks`
+fileset in `nix/source.nix`. A file in that fileset may import a sibling test
+module at module level only if the fileset lists it;
+`tests/integration/test_nix_ci_matrix.py` checks this in CI, where Nix does not
+run.
+
 ```sh
 nix develop                # cc, make, python3, node, hyperfine, openssl, git,
                            # the make quality linters, valgrind on Linux

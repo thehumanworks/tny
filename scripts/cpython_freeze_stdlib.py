@@ -11,6 +11,12 @@ plus tny_frozen_stdlib.c, whose NULL-terminated `struct _frozen` table the code
 cell installs as PyImport_FrozenModules. Only the regression-test suite, GUI
 packages whose native toolkit is never built, and ensurepip/venv (which need a
 Python executable and bundled wheels) are left out; see EXCLUDED_TOP.
+
+TNY_SHELL_PATH in the environment names the shell the build owns. When it is
+not the default /bin/sh (a Nix build passes a store path, docs/adr/0220), every
+"/bin/sh" in the frozen sources becomes that path, so `subprocess` with
+shell=True runs the same shell as tny's terminal tool and the binary names no
+host shell.
 """
 
 from __future__ import annotations
@@ -34,6 +40,25 @@ EXCLUDED_TOP = {
 }
 # Test-only subpackages inside otherwise shipped packages.
 EXCLUDED_DIRS = {"__pycache__", "idle_test", "test", "tests"}
+HOST_SHELL = b"/bin/sh"
+
+
+def build_shell(environ) -> bytes:
+    """The shell that replaces HOST_SHELL, or HOST_SHELL itself to change nothing."""
+    shell = environ.get("TNY_SHELL_PATH") or HOST_SHELL.decode()
+    # The path is spliced into Python string literals of either quote style.
+    if not shell.startswith("/") or any(c in shell for c in "'\"\\\n\r\0"):
+        raise SystemExit(f"TNY_SHELL_PATH must be a plain absolute path: {shell!r}")
+    return shell.encode()
+
+
+def with_build_shell(source: bytes, shell: bytes) -> bytes:
+    """Replace every HOST_SHELL, including the one inside "/system/bin/sh".
+
+    That Android-only fallback is dead on tny's targets; a narrower match
+    would leave its "/bin/sh" suffix in the binary for the package check.
+    """
+    return source if shell == HOST_SHELL else source.replace(HOST_SHELL, shell)
 
 
 def modules(lib: str):
@@ -85,10 +110,11 @@ def main(argv: list[str]) -> int:
     names = [name for name, _, _ in entries]
     if len(names) != len(set(names)):
         raise SystemExit("duplicate frozen module name")
+    shell = build_shell(os.environ)
     table = []
     for index, (name, path, package) in enumerate(entries):
         with open(path, "rb") as handle:
-            source = handle.read()
+            source = with_build_shell(handle.read(), shell)
         code = compile(source, f"<frozen {name}>", "exec", dont_inherit=True)
         data = marshal.dumps(code)
         symbol = f"tny_frozen_{index}"

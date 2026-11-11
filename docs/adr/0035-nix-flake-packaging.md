@@ -33,6 +33,8 @@ Ship `flake.nix` plus `nix/*.nix` in this repository and build from source.
 - **The terminal tool uses the store-backed `stdenv.shell`.** Nix passes it
   through the build's `TNY_SHELL_PATH` parameter; ordinary builds retain the
   `/bin/sh` default. Package checks reject a remaining host `/bin/sh` literal.
+  The TUI shell fallback and the frozen CPython standard library use the same
+  path ([ADR 0220](0220-build-shell-in-every-shipped-path.md)).
 - **Linux TLS resolves through RUNPATH, added in `postFixup`.** glibc resolves
   a `dlopen` against the calling object's RUNPATH, so putting OpenSSL's store
   path there is enough and keeps the link line empty. It must happen after

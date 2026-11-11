@@ -229,3 +229,4 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 
 - [0218: Python tool extensions](0218-python-tool-extensions.md) — `@tny.tool` modules in `~/.tny/extensions/tools` and `<repo>/.tny/extensions/tools`, served by one embedded tool host to code mode, the CLI and MCP; replaces the event hooks of 0027/0028.
 - [0219: MIT license](0219-mit-license.md) — tny, its SDKs and Nix packages are MIT; wheels and npm packages carry the root `LICENSE`, and registry publication stays gated on the owner's switch (PyPI uploads with twine and an API token).
+- [0220: The build's shell in every shipped path](0220-build-shell-in-every-shipped-path.md) — `TNY_SHELL_PATH` also replaces `/bin/sh` in the TUI shell fallback and the frozen CPython stdlib, so a Nix build names no host shell.

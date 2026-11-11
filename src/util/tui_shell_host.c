@@ -6,11 +6,17 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+/* The build's shell (the Makefile's TNY_SHELL_PATH; a store path under Nix),
+ * so the fallback never names a host path the package does not own. */
+#ifndef TNY_SHELL_PATH
+#define TNY_SHELL_PATH "/bin/sh"
+#endif
+
 int tui_shell_host_start(const char *command, pid_t *pid) {
     int p[2];
     if (pipe(p) != 0) return -1;
     const char *shell = getenv("SHELL");
-    if (!shell || shell[0] != '/') shell = "/bin/sh";
+    if (!shell || shell[0] != '/') shell = TNY_SHELL_PATH;
     pid_t child = fork();
     if (child < 0) {
         close(p[0]);

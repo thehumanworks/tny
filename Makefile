@@ -235,7 +235,10 @@ CPYTHON_CFLAGS ?= -Os -ffunction-sections -fdata-sections \
 # One archive per target ABI (arch + libc; the vendor field is dropped so gcc
 # and clang share it) and per interpreter flags, under the selected BUILD, so
 # a glibc archive never reaches a musl link and flag changes rebuild.
-CPYTHON_FLAGS_KEY := $(shell { printf '%s' '$(CPYTHON_CFLAGS) $(MACOSX_DEPLOYMENT_TARGET)'; cat $(CPYTHON_PINS); } | cksum | cut -d' ' -f1)
+# A non-default TNY_SHELL_PATH is frozen into the stdlib (docs/adr/0220), so
+# it selects its own archive; the default leaves existing keys unchanged.
+CPYTHON_SHELL_KEY := $(if $(filter-out /bin/sh,$(TNY_SHELL_PATH)), shell=$(TNY_SHELL_PATH))
+CPYTHON_FLAGS_KEY := $(shell { printf '%s' '$(CPYTHON_CFLAGS) $(MACOSX_DEPLOYMENT_TARGET)$(CPYTHON_SHELL_KEY)'; cat $(CPYTHON_PINS); } | cksum | cut -d' ' -f1)
 CPYTHON_DIR ?= $(BUILD)/cpython-$(CPYTHON_VERSION)-$(or $(CPYTHON_TARGET),host)-$(CPYTHON_FLAGS_KEY)
 CPYTHON_LIB = $(CPYTHON_DIR)/libpython3.14.a
 CPYTHON_INC := -isystem $(CPYTHON_DIR)/include
@@ -404,6 +407,7 @@ test-code-mode-language:
 	python3 -m unittest discover -s tests/bench/harness_bench -p 'test_*.py'
 	python3 tests/bench/code_mode/test_benchmark.py
 	python3 tests/build/test_code_cell_seams.py
+	python3 tests/build/test_cpython_freeze_shell.py
 	python3 tests/bench/python_runtime/test_evidence.py
 	python3 tests/bench/python_runtime/test_policy.py
 
@@ -568,6 +572,7 @@ $(CPYTHON_LIB): scripts/cpython_runtime.sh scripts/cpython_freeze_stdlib.py \
 		$(CPYTHON_FLOOR_H)
 	CC='$(CC)' CPYTHON_CFLAGS='$(CPYTHON_CFLAGS)' CPYTHON_JOBS='$(CPYTHON_JOBS)' \
 		TNY_CPYTHON_FETCH='$(CPYTHON_FETCH)' TNY_CPYTHON_DEPS_DIR='$(CPYTHON_DEPS_DIR)' \
+		TNY_SHELL_PATH='$(TNY_SHELL_PATH)' \
 		$(SHELL) scripts/cpython_runtime.sh $(CPYTHON_DIR) $(CPYTHON_TARBALL) \
 		$(CPYTHON_SHA256) $(CPYTHON_URL)
 

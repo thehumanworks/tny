@@ -12,6 +12,8 @@
 # in TNY_CPYTHON_DEPS_DIR under the URL's file name. A missing tarball is
 # downloaded only when TNY_CPYTHON_FETCH=1; otherwise the build fails with
 # instructions. A tarball whose SHA256 differs is always rejected.
+# TNY_SHELL_PATH, when not /bin/sh, replaces that path in the frozen stdlib
+# (scripts/cpython_freeze_stdlib.py, docs/adr/0220).
 #
 # Output layout:
 #   libpython3.14.a   interpreter plus every buildable stdlib extension module,
@@ -239,7 +241,7 @@ fi
 python="$src/python"
 [ -f "$src/python.exe" ] && python="$src/python.exe"
 # shellcheck disable=SC2086 # extras is a list of generated module paths
-"$python" -E -S "$root/scripts/cpython_freeze_stdlib.py" "$src/Lib" "$work/frozen" $extras
+TNY_SHELL_PATH=${TNY_SHELL_PATH:-/bin/sh} "$python" -E -S "$root/scripts/cpython_freeze_stdlib.py" "$src/Lib" "$work/frozen" $extras
 (
     cd "$work/frozen"
     # shellcheck disable=SC2086 # cflags is a flag list
