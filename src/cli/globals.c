@@ -104,8 +104,6 @@ static int parse_globals(int argc, char **argv, cli_globals *g, bool diagnostics
         } else if (strcmp(a, "--max-steps") == 0) {
             if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
             g->max_steps = v;
-        } else if (strcmp(a, "--no-self-improve") == 0) {
-            g->no_self_improve = true;
         } else if (strcmp(a, "--no-tool-extensions") == 0) {
             g->no_tool_ext = true;
         } else if (strcmp(a, "--no-project-tools") == 0) {

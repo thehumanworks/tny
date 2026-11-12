@@ -23,3 +23,16 @@ separate paid TypeSafe key, had no caller inside tny, and was only tested with
 loopback fixtures. Removed: `src/core/tnyjev*`, `src/cli/cmd_jev.c`, their tests
 and docs (about 1.5k lines including tests). Open issues #180 to #187, which
 would route reasoning and models through Jev, are out of scope.
+
+### Default automatic workflow learning
+
+Supersedes [ADR 0201](0201-default-automatic-workflow-learning.md). The learner
+was on by default and taught one rule: read a file before retrying a failed
+exact edit. Its evidence used a deterministic fixture model, and its own report
+said it does not show that a real model follows the advice. It added state in
+`~/.tny/learning/`, changed request prompts, and threaded a fact through the
+backend, tools, execution-server state and job snapshots. Removed: the learner,
+its store, the `--no-self-improve` flag, `TNY_SELF_IMPROVE` and the
+`self_improve` setting (old settings files keep loading; the key is ignored).
+`status --json` and `doctor --json` no longer report `self_improve`. The optional
+instruction-experiment workflow (ADR 0153) stays.

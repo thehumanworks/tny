@@ -135,8 +135,6 @@ TEST execution_state_initial_and_delta_preserve_parent(void) {
     ASSERT(h2 && h3);
     ASSERT(state_image(&child, "/never-reopened-child.png"));
     child.perm_blocked = true;
-    child.learning_fact = (tools_learning_fact){
-        .valid = true, .ok = true, .event = TNY_LEARN_EDIT, .scope = 123, .intent = 456};
     yyjson_doc *delta = state_snapshot(&child, yyjson_doc_get_root(baseline), false);
     ASSERT(delta);
     ASSERT(tny_execution_state_apply(&parent, yyjson_doc_get_root(delta), false));
@@ -151,8 +149,7 @@ TEST execution_state_initial_and_delta_preserve_parent(void) {
     ASSERT_STR_EQ("/never-reopened-parent.png", parent.pending_images[0]);
     ASSERT_STR_EQ("/never-reopened-child.png", parent.pending_images[1]);
     ASSERT_EQ(0, memcmp(parent.pending_capture[1].data, child.pending_capture[0].data, 8));
-    ASSERT(parent.perm_blocked && parent.learning_fact.valid);
-    ASSERT_EQ(456u, parent.learning_fact.intent);
+    ASSERT(parent.perm_blocked);
     ASSERT_EQ(12u, parent.session->event_sequence);
     free(h1);
     free(h2);

@@ -335,7 +335,7 @@ class CwdFlagTest(unittest.TestCase):
             launch = Path(tmp) / "launch"
             workspace.mkdir(parents=True)
             launch.mkdir()
-            env = dict(os.environ, HOME=str(home), TNY_SELF_IMPROVE="0")
+            env = dict(os.environ, HOME=str(home))
             for cwd, expected in (
                 (None, launch),
                 (str(workspace), workspace),
@@ -360,7 +360,7 @@ class CwdFlagTest(unittest.TestCase):
 
     def test_tilde_needs_home_and_invalid_directory_fails(self) -> None:
         with tempfile.TemporaryDirectory(prefix="tny-cwd-") as tmp:
-            env = dict(os.environ, HOME="", TNY_SELF_IMPROVE="0")
+            env = dict(os.environ, HOME="")
             result = subprocess.run(
                 [str(TNY), "--cwd", "~/project", "workspace", "list"],
                 cwd=tmp,

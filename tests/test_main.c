@@ -39,8 +39,6 @@ SUITE_EXTERN(terminal_task_suite);
 SUITE_EXTERN(runner_suite);
 SUITE_EXTERN(ssh_suite);
 SUITE_EXTERN(tasks_suite);
-SUITE_EXTERN(learning_suite);
-SUITE_EXTERN(learning_process_suite);
 SUITE_EXTERN(mcp_suite);
 SUITE_EXTERN(web_search_suite);
 SUITE_EXTERN(skills_suite);
@@ -68,7 +66,6 @@ int main(int argc, char **argv) {
      * Tests select their own profiles explicitly; ambient TNY_TOOLS must not
      * hide fixture tools, including when leaks runs one suite per process. */
     unsetenv("TNY_TOOLS");
-    unsetenv("TNY_SELF_IMPROVE");
     GREATEST_MAIN_BEGIN();
     RUN_SUITE(acp_compat_suite);
     RUN_SUITE(agent_presets_suite);
@@ -102,8 +99,6 @@ int main(int argc, char **argv) {
     RUN_SUITE(runner_suite);
     RUN_SUITE(ssh_suite);
     RUN_SUITE(tasks_suite);
-    RUN_SUITE(learning_suite);
-    RUN_SUITE(learning_process_suite);
     RUN_SUITE(mcp_suite);
     RUN_SUITE(web_search_suite);
     RUN_SUITE(skills_suite);

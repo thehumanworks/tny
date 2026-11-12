@@ -102,7 +102,6 @@ void help_root_with(const char *extensions) {
           "  --auto | --yolo        Permission-mode convenience aliases\n"
           "  --max-steps N          Cap the native agent loop at N model calls per turn\n"
           "                         (default: unlimited; 'unlimited' clears a repo cap)\n"
-          "  --no-self-improve      Disable default automatic workflow learning\n"
           "  --no-tool-extensions   Load no Python tool extensions (~/.tny/extensions/tools)\n"
           "  --no-project-tools     Load only global tool extensions, not <repo>/.tny/...\n"
           "  --agent CMD            ACP executable; optional -- arg... -- before ask\n"

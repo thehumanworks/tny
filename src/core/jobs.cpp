@@ -2399,7 +2399,6 @@ static char *payload_build(tny_ctx *ctx, const jobs_request *request, const char
      * settings would let a remembered last_provider re-route paid work. */
     jm_set_str(doc, root, "provider", tny_provider_name(ctx));
     jm_set_str(doc, root, "perm_mode", tny_perm_mode_name(ctx->perm_mode));
-    jm_set_bool(doc, root, "no_self_improve", ctx->no_self_improve);
     jm_set_str(doc, root, "tools", tny_tool_profile_name(ctx->tool_profile));
     jm_set_str(doc, root, "child_context", request->child_context_path);
     /* Chat and image credentials are two separate allowances (A14): an ask
@@ -2627,7 +2626,6 @@ static char *jobs_execution_scope(tny_ctx *ctx) {
     buf_appendf(&b, "policy:%d:%d:%d:%d:%d:%u:%zu;", ctx->perm_mode, ctx->tool_profile,
                 ctx->workspace_read_only, ctx->context_enabled, ctx->mcp_disabled,
                 ctx->mcp_import_mask, ctx->max_tool_result_bytes);
-    buf_appendf(&b, "learning:%d;", !ctx->no_self_improve);
     yyjson_val *settings = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
     if (acp) {
         size_t argc = 0;
@@ -2704,7 +2702,6 @@ static char *jobs_item_launch_snapshot(tny_ctx *parent, yyjson_val *item, char *
         ctx->max_steps = parent->max_steps;
         ctx->workspace_read_only = parent->workspace_read_only;
         ctx->context_enabled = parent->context_enabled;
-        ctx->no_self_improve = parent->no_self_improve;
         ctx->mcp_disabled = parent->mcp_disabled;
         ctx->mcp_import_mask = parent->mcp_import_mask;
         ctx->max_tool_result_bytes = parent->max_tool_result_bytes;
@@ -5624,8 +5621,6 @@ static char **worker_child_env(yyjson_val *payload, yyjson_val *item, job_slot *
         buf_appendf(&entry, "TNY_TOOLS=%s", jget_str(payload, "tools"));
         owned[n++] = buf_detach(&entry);
         owned[n++] = xstrdup("TNY_NESTED=1");
-        owned[n++] = xstrdup(jget_bool(payload, "no_self_improve", false) ? "TNY_SELF_IMPROVE=0"
-                                                                          : "TNY_SELF_IMPROVE=1");
     }
     if (api_key) {
         buf_init(&entry);
@@ -5878,7 +5873,6 @@ static int worker_build_argv(yyjson_val *payload, yyjson_val *item, const char *
         argv[n++] = (char *)"--max-steps";
         argv[n++] = (char *)jget_str(payload, "max_steps_arg");
     }
-    if (jget_bool(payload, "no_self_improve", false)) argv[n++] = (char *)"--no-self-improve";
     /* The child can never raise the permission ceiling it was given. */
     argv[n++] = (char *)"--permission-mode";
     argv[n++] = (char *)(jget_str(payload, "perm_mode") ? jget_str(payload, "perm_mode") : "ask");

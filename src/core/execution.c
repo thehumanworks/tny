@@ -201,7 +201,6 @@ static bool server_state(execution_server *s) {
     yyjson_doc *reply = r ? server_rpc(s, TNY_EXEC_STATE, d) : NULL;
     bool ok = reply && jget_bool(rpc_result(reply), "ok", false);
     if (ok) {
-        s->env.learning_fact = (tools_learning_fact){0};
         s->env.reserved_image_count = (int)jget_int(rpc_result(reply), "pending_count", 0);
         s->env.reserved_image_bytes = (size_t)jget_int(rpc_result(reply), "pending_bytes", 0);
     }
@@ -703,8 +702,6 @@ static yyjson_mut_doc *client_callback(tools_env *env, tny_exec_kind kind, yyjso
         tny_openai_control_response response = {0};
         ok = env->execution_control && tny_execution_control_decode_request(body, &request);
         if (ok) {
-            if (request.kind == TNY_OPENAI_CONTROL_POST_TOOL && env->execution_observe)
-                env->execution_observe(env->execution_observe_ud);
             env->execution_control(&request, &response, env->execution_control_ud);
             r = tny_execution_control_encode_response(d, &response);
             ok = r != NULL;

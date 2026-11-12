@@ -24,13 +24,6 @@ char *tool_bound_result(tools_env *env, const char *data, size_t len) {
     (void)env;
     return xstrndup(data, len);
 }
-void tools_learning_read_result(tools_env *env, tny_learning_event event, const char *path,
-                                bool useful) {
-    (void)env;
-    (void)event;
-    (void)path;
-    (void)useful;
-}
 char *tool_err(const char *format, ...) {
     char text[4096];
     va_list args;

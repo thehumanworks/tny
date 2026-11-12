@@ -19,12 +19,6 @@ tny acp                      # serve tny's native loop to any ACP client
 
 Task presets (`--task NAME`) configure a native task independently of the HTTP provider.
 
-**Automatic workflow learning is on by default.** Normal CLI/TUI work learns
-bounded recovery guidance from actual edit/read/retry outcomes and applies it to
-later requests and sessions. No preset, manual experiment, or extra model call
-is required. Use `--no-self-improve` to opt out. See
-[the scope and evidence](docs/instruction-improvement.md).
-
 For new ChatGPT-plan sessions, use `tny --provider openai login`: the supported
 Sign in with ChatGPT flow uses the public Responses API. Legacy Codex credentials
 no longer silently choose the old provider; explicit legacy selections remain

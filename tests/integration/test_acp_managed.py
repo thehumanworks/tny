@@ -56,7 +56,6 @@ class ManagedAcp(JobsFixture):
         self.env.update(
             TNY_SETTINGS_PATH=str(self.settings),
             TNY_TOOLS="all",
-            TNY_SELF_IMPROVE="0",
             TNY_ACP_BRIDGE_EXECUTABLE=TNY,
             TNY_ACP_RPC_TIMEOUT_MS="5000",
             ACP_FIXTURE_STATE_DIR=str(self.facts_dir),

@@ -33,7 +33,7 @@ static bool optional(yyjson_mut_doc *d, yyjson_mut_val *obj, const char *name, c
 }
 int tny_exec_command_start(char *const argv[], const char *cwd, int timeout_ms,
                            const char *session_sock, const char *session_id,
-                           const char *permission_mode, bool self_improve, bool owned_check,
+                           const char *permission_mode, bool owned_check,
                            int output_fd, pid_t *pid, int *lifeline) {
     *pid = -1;
     *lifeline = -1;
@@ -49,7 +49,6 @@ int tny_exec_command_start(char *const argv[], const char *cwd, int timeout_ms,
               optional(d, obj, "session_sock", session_sock) &&
               optional(d, obj, "session_id", session_id) &&
               yyjson_mut_obj_add_strcpy(d, obj, "permission_mode", permission_mode) &&
-              yyjson_mut_obj_add_bool(d, obj, "self_improve", self_improve) &&
               yyjson_mut_obj_add_bool(d, obj, "owned_check", owned_check);
     size_t argc = 0;
     for (; ok && argv[argc]; ++argc) {
@@ -118,15 +117,13 @@ static bool command_environment(yyjson_val *root) {
     const char *mode = jget_str(root, "permission_mode");
     if ((!yyjson_is_null(sock) && !yyjson_is_str(sock)) ||
         (!yyjson_is_null(id) && !yyjson_is_str(id)) || !mode ||
-        (strcmp(mode, "yolo") != 0 && strcmp(mode, "ask") != 0 && strcmp(mode, "auto") != 0) ||
-        !yyjson_is_bool(jget(root, "self_improve")))
+        (strcmp(mode, "yolo") != 0 && strcmp(mode, "ask") != 0 && strcmp(mode, "auto") != 0))
         return false;
     if ((yyjson_is_str(sock) ? setenv("TNY_SESSION_SOCK", yyjson_get_str(sock), 1)
                              : unsetenv("TNY_SESSION_SOCK")) ||
         (yyjson_is_str(id) ? setenv("TNY_SESSION_ID", yyjson_get_str(id), 1)
                            : unsetenv("TNY_SESSION_ID")) ||
-        setenv("TNY_NESTED", "1", 1) || setenv("TNY_NESTED_MODE", mode, 1) ||
-        setenv("TNY_SELF_IMPROVE", jget_bool(root, "self_improve", false) ? "1" : "0", 1))
+        setenv("TNY_NESTED", "1", 1) || setenv("TNY_NESTED_MODE", mode, 1))
         return false;
     return true;
 }
@@ -140,7 +137,7 @@ int tny_exec_command_main(void) {
     const char *cwd = jget_str(root, "cwd");
     int64_t timeout = jget_int(root, "timeout_ms", 0);
     size_t argc = yyjson_arr_size(args);
-    if (!tny_exec_json_valid(root) || yyjson_obj_size(root) != 8 || !yyjson_is_arr(args) || !argc ||
+    if (!tny_exec_json_valid(root) || yyjson_obj_size(root) != 7 || !yyjson_is_arr(args) || !argc ||
         argc > 256 || !cwd || timeout < 1 || timeout > 600000 || !command_environment(root) ||
         !yyjson_is_bool(jget(root, "owned_check"))) {
         yyjson_doc_free(doc);
@@ -244,7 +241,7 @@ int tny_exec_command_main(void) {
 #else
 int tny_exec_command_start(char *const argv[], const char *cwd, int timeout_ms,
                            const char *session_sock, const char *session_id,
-                           const char *permission_mode, bool self_improve, bool owned_check,
+                           const char *permission_mode, bool owned_check,
                            int output_fd, pid_t *pid, int *lifeline) {
     (void)argv;
     (void)cwd;
@@ -252,7 +249,6 @@ int tny_exec_command_start(char *const argv[], const char *cwd, int timeout_ms,
     (void)session_sock;
     (void)session_id;
     (void)permission_mode;
-    (void)self_improve;
     (void)owned_check;
     (void)output_fd;
     *pid = -1;

@@ -64,7 +64,6 @@ def run(binary, padding, isolated, *, code=None, expected="42"):
             "TMPDIR": tmp,
             "OPENAI_API_KEY": "synthetic-benchmark",
             "OPENAI_BASE_URL": f"http://127.0.0.1:{server.server_port}/v1",
-            "TNY_SELF_IMPROVE": "0",
         }
         if not isolated:
             env["TNY_ISOLATE"] = "0"

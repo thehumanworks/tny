@@ -34,7 +34,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="tny-acp-deadline-") as directory:
         subprocess.run(
             [str(binary), directory],
-            env=dict(os.environ, TNY_TOOLS="all", TNY_SELF_IMPROVE="0"),
+            env=dict(os.environ, TNY_TOOLS="all"),
             timeout=15,
             check=True,
         )
