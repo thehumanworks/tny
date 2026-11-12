@@ -51,7 +51,6 @@ SUITE_EXTERN(intercept_suite);
 SUITE_EXTERN(provider_extras_suite);
 SUITE_EXTERN(speech_suite);
 SUITE_EXTERN(dictation_suite);
-SUITE_EXTERN(tnyjev_suite);
 SUITE_EXTERN(image_service_suite);
 
 int test_acp_stdin_probe(void);
@@ -78,7 +77,6 @@ int main(int argc, char **argv) {
     RUN_SUITE(image_service_suite);
     RUN_SUITE(speech_suite);
     RUN_SUITE(dictation_suite);
-    RUN_SUITE(tnyjev_suite);
     RUN_SUITE(code_runtime_suite);
     RUN_SUITE(execution_protocol_suite);
     RUN_SUITE(execution_transport_suite);

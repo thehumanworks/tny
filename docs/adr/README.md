@@ -12,7 +12,7 @@ files in this directory are the complete record.
 | [0171](0171-formal-verification-smt-lib.md) | SMT-LIB 2/Z3 formal protocol contracts, paired with concrete integration checks |
 | [0167](0167-workspace-dashboard-navigation.md) | Current-workspace-first session sections and fuzzy directory filtering |
 | [0166](0166-global-sessions-and-immediate-backgrounding.md) | Fresh native runners, immediate background detachment and a dashboard of all saved workspaces |
-| [0165](0165-tnyjev-decision-engine.md) | Isolated typed tnyjev decision client and standalone score/choose commands |
+| [0165](0165-tnyjev-decision-engine.md) | Isolated typed tnyjev decision client (removed by 0221) |
 | [0157](0157-purposeful-file-defined-swarms.md) | Strict versioned swarm files compile bounded nesting into one durable team with persisted provenance |
 | [0150](0150-agent-first-harness-and-measured-footprint.md) | Agent-first harness: effective context, no binary-size ceiling, no competitor-size target |
 | [0136](0136-terminal-background-completion.md) | Owned background terminal completion, bounded observation and no PID polling |
@@ -230,3 +230,4 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0218: Python tool extensions](0218-python-tool-extensions.md) — `@tny.tool` modules in `~/.tny/extensions/tools` and `<repo>/.tny/extensions/tools`, served by one embedded tool host to code mode, the CLI and MCP; replaces the event hooks of 0027/0028.
 - [0219: MIT license](0219-mit-license.md) — tny, its SDKs and Nix packages are MIT; wheels and npm packages carry the root `LICENSE`, and registry publication stays gated on the owner's switch (PyPI uploads with twine and an API token).
 - [0220: The build's shell in every shipped path](0220-build-shell-in-every-shipped-path.md) — `TNY_SHELL_PATH` also replaces `/bin/sh` in the TUI shell fallback and the frozen CPython stdlib, so a Nix build names no host shell.
+- [0221: Remove features without evidence of value](0221-remove-unproven-features.md) — Jev, and later items listed in the ADR, leave the product; each removal is its own revertable commit.

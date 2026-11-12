@@ -94,7 +94,6 @@ int cmd_image_service(const cli_globals *g, int argc, char **argv);
 int cmd_speak(const cli_globals *g, int argc, char **argv);
 int cmd_dictate(const cli_globals *g, int argc, char **argv);
 int cmd_optimise(const cli_globals *g, int argc, char **argv);
-int cmd_jev(const cli_globals *g, int argc, char **argv, bool choose);
 int cmd_edit(const cli_globals *g, int argc, char **argv);
 int cmd_settings(const cli_globals *g, int argc, char **argv);
 /* Durable ask/image jobs (docs/jobs.md, docs/adr/0093). `jobs _worker ID` is

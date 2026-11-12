@@ -155,17 +155,6 @@ budget; external runner/TUI loops honor the same backend timeout as the pull API
 (ADR 0216). There is no provider-host prewarm thread. Bounded independent file work keeps
 the joined worker policy of ADR 0132 (at most eight workers).
 
-## Jev decision service
-
-`core/tnyjev` is an isolated typed C11 client for TypeSafe Jev, with no runtime,
-settings, environment, session or chat-provider dependency. `score` and `choose`
-are thin CLI toolkit adapters; the former maps to Noul P(yes), the latter to
-Choice. Configuration and cancellation are explicit; results have no owned
-pointers. Shared HTTP/JSON and `tny_poll` retain native/wasm parity. This is not
-a chat backend or a change to existing harness decisions. Future reasoning,
-routing and memory/reaction integrations remain out of scope. See
-[tnyjev](tnyjev.md) and [ADR 0165](adr/0165-tnyjev-decision-engine.md).
-
 ## Speech service
 
 The CLI and native `speak` tool share `core/speech.c`, a provider table whose

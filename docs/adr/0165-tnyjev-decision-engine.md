@@ -1,7 +1,7 @@
 # ADR 0165: tnyjev, an isolated typed decision engine
 
 Date: 2026-09-22
-Status: Accepted
+Status: Superseded by [ADR 0221](0221-remove-unproven-features.md)
 
 ## Context
 
