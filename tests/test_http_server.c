@@ -1,6 +1,6 @@
 /* test_http_server.c — focused loopback callback-server tests. */
 #include "greatest.h"
-#include "net/http_server.h"
+#include "http_server.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
 

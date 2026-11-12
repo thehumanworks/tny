@@ -1,5 +1,5 @@
 /* http_server.c — bounded, poll-driven loopback HTTP callback server. */
-#include "net/http_server.h"
+#include "http_server.h"
 
 #include "picohttpparser.h"
 #include "util/util.h"
