@@ -115,3 +115,45 @@ issue member capabilities, write `mailbox_capability_sha256`, accept
 before this change still recover: their swarm fields are ignored and the
 identity hash keeps an empty slot where the swarm digest was. A checkpoint of a
 session that had an active swarm no longer matches and is refused.
+
+## Kept after review
+
+### Code mode and the embedded CPython
+
+The audit ranked the embedded CPython first by size: it is about 25.9 MB of the
+27.3 MB stripped Linux x86-64 release binary. Before removing it, a live A/B ran
+the 12 `tests/bench/harness_bench` tasks once each with the same build in two
+modes: the current `run_code` code mode, and a temporary build that advertised
+the native tools directly. Model: OpenCode `beam-free`, chat wire, 2026-11-12.
+
+| Mode | Tasks passed | Input tokens | Uncached input tokens | Requests |
+| --- | --- | --- | --- | --- |
+| Native tools direct | 11 / 12 | 1,696,923 | 281,947 | 177 |
+| `run_code` code mode | 11 / 12 | 1,318,932 | 203,412 | 174 |
+
+Token and request totals cover the 11 tasks where both runs finished; the
+code-mode `build-fix` run hit the 600 s timeout, although its verifier still
+passed. Each mode failed one different task (`codebase-qa` direct,
+`rename-refactor` code). With equal results, code mode used about 22% fewer
+input tokens and 28% fewer uncached input tokens, so it stays the default and
+the embedded interpreter stays. Binary size alone is not a reason to remove it
+(ADR 0150). The direct-mode build also showed that two tool schemas are not
+provider-strict: `image_preview` has a top-level `oneOf`, and the
+`sources` arrays of `image_export` and `image_contact_sheet` have no `items`.
+They only matter if native tools are ever advertised directly again.
+
+### Terminal intercept
+
+Terminal tool profiles reach `tny edit`, `tny web` and `tny image` through the
+intercept, so it is not dead code.
+
+## Measurements
+
+Linux x86-64, GCC, `make release`, stripped:
+
+| | Before (eebc162) | After |
+| --- | --- | --- |
+| Release binary | 27,405,120 B | 27,192,128 B |
+| Release binary without CPython (`SRC_PY_NATIVE=src/core/code_python_unsupported.c`) | 1,449,712 B | 1,236,720 B |
+| `src/` C/C++ lines | 90,695 | 78,005 |
+| Unit tests (all pass, 2 skipped) | 721 | 650 |
