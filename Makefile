@@ -185,7 +185,7 @@ SRC_ALL := $(C_SRC_ALL) $(CPP_SRC)
 # hand-rolled HTTP/1.1) and the poll(2) wrapper are excluded
 # from the wasm build wholesale rather than #ifdef-riddled; src/net/net_wasm.c
 # replaces the whole seam there (fetch, browser WebSocket, pseudo-fd registry).
-SRC_NATIVE := src/backends/acp/acp_proc.c src/net/tcp.c src/net/stream.c src/net/http1.c src/net/http_server.c \
+SRC_NATIVE := src/backends/acp/acp_proc.c src/net/tcp.c src/net/stream.c src/net/http1.c \
               src/util/tny_poll.c src/util/tui_shell_host.c
 SRC_WASM_ONLY := src/net/net_wasm.c src/backends/acp/acp_proc_wasm.c src/util/tui_shell_host_wasm.c
 # Python code cells (docs/adr/0179). The embedded interpreter is native CLI
@@ -1104,7 +1104,7 @@ $(SAN_CUSTOM_CPP_HOST): tests/integration/libtny_custom_tools_cpp.cpp $(LIB_FAUL
 
 # Provider OOM regressions use the complete allocator-instrumented object graph
 # (ADR 0117): real ACP/Cursor/OpenAI backends with injected C and C++ owners.
-PROVIDER_FAULT_TEST_SRC :=                            tests/test_openai.c tests/test_ownership.cpp \
+PROVIDER_FAULT_TEST_SRC := tests/test_openai.c tests/http_server.c tests/test_ownership.cpp \
                            tests/integration/libtny_provider_fault_host.c
 PROVIDER_FAULT_TEST := $(BUILD)/lib-fault/provider-faults
 PROVIDER_FAULT_SAN_TEST := $(BUILD)/lib-fault-san/provider-faults

@@ -1,4 +1,4 @@
-/* http_server.h — bounded loopback-only HTTP/1.1 POST callback server.
+/* http_server.h — test fixture: bounded loopback-only HTTP/1.1 POST callback server.
  *
  * The server is pull-driven: add its descriptors to the application's poll
  * set with http_server_pollfds(), then pass the completed set to
