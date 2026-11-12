@@ -74,8 +74,8 @@ loader's normal search path. Discovery order is explicit argument,
 `TNY_LIBRARY_PATH`, wheel payload, then the system loader. The current working
 directory and repository-relative paths are never searched.
 The current SDK loads only ABI major 1 and never falls back to
-`libtny.0.dylib` or `libtny.so.0`. The frozen ABI-0 artifact exists only for
-old-consumer compatibility and is rejected even when passed explicitly.
+`libtny.0.dylib` or `libtny.so.0`; an ABI-0 library is rejected even when
+passed explicitly.
 
 The wheel uses the `py3-none-<platform>` tag because cffi ABI mode has no
 package-specific CPython extension ABI. Python 3.10 and newer are supported.

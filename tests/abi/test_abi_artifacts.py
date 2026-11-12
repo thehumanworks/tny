@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build/run ABI1 and frozen ABI0 consumers and verify artifact identity."""
+"""Build/run ABI1 consumers and verify artifact identity."""
 
 from __future__ import annotations
 
@@ -17,11 +17,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILD = ROOT / "build"
-ABI0_COMMIT = "510a95c2ef89aa9ec02a66d8b0a5cadd953025a8"
-ABI0_INCLUDE = BUILD / "compat0" / ABI0_COMMIT / "src" / "include"
 IS_MAC = platform.system() == "Darwin"
 PRIMARY = BUILD / "lib" / ("libtny.1.dylib" if IS_MAC else "libtny.so.1")
-COMPAT0 = BUILD / "lib" / ("libtny.0.dylib" if IS_MAC else "libtny.so.0")
 
 
 def run(
@@ -244,8 +241,8 @@ class AbiArtifactTests(unittest.TestCase):
         cls.cxx = shutil.which("c++")
         if not cls.cc or not cls.cxx:
             raise unittest.SkipTest("C and C++ compilers are required")
-        if not PRIMARY.exists() or not COMPAT0.exists():
-            raise unittest.SkipTest("run `make test-abi` to build both ABI majors")
+        if not PRIMARY.exists():
+            raise unittest.SkipTest("run `make test-abi` to build libtny")
         (BUILD / "abi").mkdir(parents=True, exist_ok=True)
 
     def test_current_c_and_cpp_consumers(self) -> None:
@@ -411,37 +408,6 @@ class AbiArtifactTests(unittest.TestCase):
         self.assertNotIn(os.fspath(ROOT), encoded)
         self.assertEqual(first["binaries"]["linux-x86_64"]["minimum_glibc"], "2.34")
 
-    def test_frozen_abi0_consumers_and_manifest(self) -> None:
-        with tempfile.TemporaryDirectory() as workspace:
-            c_binary = BUILD / "abi" / "compat0-consumer"
-            cpp_binary = BUILD / "abi" / "compat0-consumer-cpp"
-            link(
-                self.cc,
-                ROOT / "tests/abi/compat0_consumer.c",
-                c_binary,
-                ABI0_INCLUDE,
-                COMPAT0,
-            )
-            link(
-                self.cxx,
-                ROOT / "tests/abi/compat0_consumer.cpp",
-                cpp_binary,
-                ABI0_INCLUDE,
-                COMPAT0,
-            )
-            run([str(c_binary), workspace, "http://127.0.0.1:1/v1"])
-            run([str(cpp_binary)])
-            metadata = {
-                "source_commit": ABI0_COMMIT,
-                "compiler": run([self.cc, "--version"]).stdout.splitlines()[0],
-                "target": run([self.cc, "-dumpmachine"]).stdout.strip(),
-                "sha256": hashlib.sha256(c_binary.read_bytes()).hexdigest(),
-            }
-            (BUILD / "abi" / "compat0-consumer.json").write_text(
-                json.dumps(metadata, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-
     def test_header_arity_collision_is_rejected(self) -> None:
         source = ROOT / "tests/abi/incompatible_legacy_arity.c"
         completed = subprocess.run(
@@ -590,8 +556,6 @@ class AbiArtifactTests(unittest.TestCase):
             match = re.search(r"current version (\d+\.\d+\.\d+)", load)
             self.assertIsNotNone(match)
             candidate["artifacts"]["macos"]["current_version"] = match.group(1)
-            compat_identity = run(["otool", "-D", str(COMPAT0)]).stdout
-            self.assertIn("@rpath/libtny.0.dylib", compat_identity)
             symbols = run(["nm", "-gU", str(PRIMARY)]).stdout.splitlines()
             actual = {
                 line.split()[-1].removeprefix("_")
@@ -601,8 +565,6 @@ class AbiArtifactTests(unittest.TestCase):
         else:
             dynamic = run(["readelf", "-d", str(PRIMARY)]).stdout
             self.assertIn("Library soname: [libtny.so.1]", dynamic)
-            compat_dynamic = run(["readelf", "-d", str(COMPAT0)]).stdout
-            self.assertIn("Library soname: [libtny.so.0]", compat_dynamic)
             symbols = run(["readelf", "--dyn-syms", "--wide", str(PRIMARY)]).stdout
             actual_nodes = {}
             for line in symbols.splitlines():
@@ -626,45 +588,13 @@ class AbiArtifactTests(unittest.TestCase):
             prefix = Path(directory) / "prefix with spaces"
             run(["make", "install-lib", f"PREFIX={prefix}", "TNY_VERSION=1.0.0"])
             current_pc = prefix / "lib/pkgconfig/libtny.pc"
-            compat_pc = prefix / "lib/pkgconfig/libtny-0.pc"
             self.assertIn("includedir=${prefix}/include\n", current_pc.read_text())
             self.assertIn("Cflags: -I${includedir}\n", current_pc.read_text())
-            self.assertIn("includedir=${prefix}/include/tny-0\n", compat_pc.read_text())
-            self.assertIn("Cflags: -I${includedir}\n", compat_pc.read_text())
             current_header = prefix / "include/tny/tny.h"
-            compat_header = prefix / "include/tny-0/tny/tny.h"
             self.assertRegex(
                 current_header.read_text(), r"#define\s+TNY_ABI_MAJOR\s+1u\b"
             )
-            self.assertRegex(
-                compat_header.read_text(), r"#define\s+TNY_ABI_MAJOR\s+0u\b"
-            )
-            self.assertNotEqual(current_header.read_bytes(), compat_header.read_bytes())
-
-    def test_verified_archive_fallback_does_not_require_git_history(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            archive = root / "compat0.tar"
-            archived = subprocess.run(
-                ["git", "archive", ABI0_COMMIT],
-                cwd=ROOT,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=True,
-            )
-            archive.write_bytes(archived.stdout)
-            build = root / "build"
-            stamp = build / "compat0" / ABI0_COMMIT / ".source-verified"
-            run(
-                [
-                    "make",
-                    f"BUILD={build}",
-                    "GIT=false",
-                    f"ABI0_COMPAT_ARCHIVE={archive}",
-                    str(stamp),
-                ]
-            )
-            self.assertTrue(stamp.exists())
+            self.assertFalse((prefix / "lib/pkgconfig/libtny-0.pc").exists())
 
 
 if __name__ == "__main__":

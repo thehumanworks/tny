@@ -324,18 +324,9 @@ FUZZ_CXX ?= $(call cxx_driver,$(FUZZ_CC))
 FUZZ_CXXFLAGS = $(call cxx_flags,$(FUZZ_CFLAGS))
 FUZZ_HARNESS_CXXFLAGS = $(call cxx_flags,$(FUZZ_HARNESS_CFLAGS))
 
-ABI0_COMPAT_COMMIT := 510a95c2ef89aa9ec02a66d8b0a5cadd953025a8
-ABI0_COMPAT_ARCHIVE ?=
-ABI0_COMPAT_ARCHIVE_SHA256 := 8718336dbde47f3f8427bf6b3a724127e3ed24b61eaedb6f315523ec2a00c2f6
-ABI0_COMPAT_ROOT := $(BUILD)/compat0/$(ABI0_COMPAT_COMMIT)
-ABI0_COMPAT_SRC := $(ABI0_COMPAT_ROOT)/src
-ABI0_COMPAT_BUILD := $(abspath $(ABI0_COMPAT_ROOT)/out)
-ABI0_COMPAT_STAMP := $(ABI0_COMPAT_ROOT)/.source-verified
 ifeq ($(UNAME_S),Darwin)
   LIB_REAL := $(BUILD)/lib/libtny.1.dylib
   LIB_LINK := $(BUILD)/lib/libtny.dylib
-  LIB_COMPAT0_REAL := $(BUILD)/lib/libtny.0.dylib
-  ABI0_COMPAT_BUILT := $(ABI0_COMPAT_BUILD)/lib/libtny.0.dylib
   LIB_LDFLAGS := -dynamiclib -Wl,-install_name,@rpath/libtny.1.dylib \
                  -Wl,-compatibility_version,1.0.0 \
                  -Wl,-current_version,$(LIBTNY_MACH_CURRENT_VERSION) \
@@ -351,12 +342,9 @@ ifeq ($(UNAME_S),Darwin)
                        -Wl,-compatibility_version,1.0.0 \
                        -Wl,-current_version,$(LIBTNY_MACH_CURRENT_VERSION) \
                        -Wl,-dead_strip
-  ABI0_COMPAT_LIBS := -ltny.0
 else
   LIB_REAL := $(BUILD)/lib/libtny.so.1
   LIB_LINK := $(BUILD)/lib/libtny.so
-  LIB_COMPAT0_REAL := $(BUILD)/lib/libtny.so.0
-  ABI0_COMPAT_BUILT := $(ABI0_COMPAT_BUILD)/lib/libtny.so.0
   LIB_LDFLAGS := -shared -Wl,-soname,libtny.so.1 -Wl,--gc-sections \
                  -Wl,--version-script,abi/libtny.map -pthread -ldl
   LIB_EXPORT_FILE := abi/libtny.map
@@ -370,7 +358,6 @@ else
   LIB_TSAN_LINK := $(BUILD)/lib-tsan/libtny.so
   TSAN_HOST := $(BUILD)/tsan/libtny-tsan-host
   TSAN_CUSTOM_HOST := $(BUILD)/tsan/libtny-custom-tools-tsan
-  ABI0_COMPAT_LIBS := -l:libtny.so.0
 endif
 
 TEST_SRC := $(wildcard tests/*.c tests/*.cpp)
@@ -478,7 +465,7 @@ verify-acp-proofs:
 verify-execution-protocol:
 	python3 tests/formal/check_execution_protocol.py
 
-.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-tool-extensions test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-sdk-examples test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
+.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-tool-extensions test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-sdk-examples test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
 all: release
 
@@ -654,10 +641,9 @@ $(BUILD)/lib/tny-executor: $(SDK_EXECUTOR_OBJS) $(CPYTHON_LIB)
 	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $(SDK_EXECUTOR_OBJS) $(REL_LDFLAGS) $(SDK_EXECUTOR_LDFLAGS)
 	strip $@ 2>/dev/null || strip -x $@
 lib-shared-active: $(LIB_LINK)
-lib-shared: lib-shared-active $(LIB_COMPAT0_REAL)
-lib-shared-compat0: $(LIB_COMPAT0_REAL)
+lib-shared: lib-shared-active
 else
-lib-shared lib-shared-active lib-shared-compat0 sdk-executor:
+lib-shared lib-shared-active sdk-executor:
 	@echo "error: ABI 1 shared libtny is supported only on macOS arm64 and glibc Linux x86_64/aarch64 dynamic builds" >&2
 	@exit 2
 endif
@@ -684,30 +670,6 @@ $(LIB_REAL): $(LIB_PIC_OBJS) $(LIB_EXPORT_FILE)
 $(LIB_LINK): $(LIB_REAL)
 	@mkdir -p $(@D)
 	@cd $(@D) && ln -sf $(notdir $(LIB_REAL)) $(notdir $@)
-
-$(ABI0_COMPAT_STAMP): abi/compat0.json scripts/check_abi_baseline.py
-	@mkdir -p $(ABI0_COMPAT_SRC)
-	@if $(GIT) cat-file -e $(ABI0_COMPAT_COMMIT)^{commit} 2>/dev/null; then \
-		$(GIT) archive $(ABI0_COMPAT_COMMIT) | tar -x -C $(ABI0_COMPAT_SRC); \
-	elif test -n "$(ABI0_COMPAT_ARCHIVE)" && \
-		test -f "$(ABI0_COMPAT_ARCHIVE)"; then \
-		actual=$$(shasum -a 256 "$(ABI0_COMPAT_ARCHIVE)" | awk '{print $$1}'); \
-		test "$$actual" = "$(ABI0_COMPAT_ARCHIVE_SHA256)" || { \
-			echo "error: ABI0_COMPAT_ARCHIVE hash mismatch" >&2; exit 1; }; \
-		tar -xf "$(ABI0_COMPAT_ARCHIVE)" -C $(ABI0_COMPAT_SRC); \
-	else \
-		echo "error: frozen ABI0 commit unavailable; use a full checkout or set ABI0_COMPAT_ARCHIVE to the verified git archive" >&2; \
-		exit 1; \
-	fi
-	python3 scripts/check_abi_baseline.py --compat0 abi/compat0.json \
-		--compat0-source-root $(ABI0_COMPAT_SRC)
-	@touch $@
-
-$(LIB_COMPAT0_REAL): $(ABI0_COMPAT_STAMP)
-	$(MAKE) -C $(ABI0_COMPAT_SRC) BUILD=$(ABI0_COMPAT_BUILD) \
-		CC='$(CC)' TNY_VERSION='$(TNY_VERSION)' lib-shared
-	@mkdir -p $(@D)
-	cp $(ABI0_COMPAT_BUILT) $@
 
 $(LIB_FAULT_REAL): $(FAULT_PIC_OBJS) $(LIB_EXPORT_FILE)
 	@mkdir -p $(@D)
@@ -814,7 +776,6 @@ test-abi: TNY_VERSION=1.0.0
 test-abi: lib-shared
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 		-s tests/abi -p 'test_*.py' -v
-	python3 scripts/check_abi_baseline.py --compat0 abi/compat0.json
 	python3 scripts/check_abi_baseline.py \
 		--candidate $(BUILD)/abi/libtny-v1-current.json
 	python3 scripts/check_abi_baseline.py \
@@ -1310,21 +1271,7 @@ install-lib-active: lib-shared-active
 		libtny.pc.in > \
 		"$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny.pc"
 
-install-lib: lib-shared
-	mkdir -p "$(DESTDIR)$(PREFIX)/include/tny" \
-		"$(DESTDIR)$(PREFIX)/include/tny-0/tny" \
-		"$(DESTDIR)$(PREFIX)/lib/pkgconfig"
-	cp include/tny/tny.h "$(DESTDIR)$(PREFIX)/include/tny/tny.h"
-	cp $(ABI0_COMPAT_SRC)/include/tny/tny.h \
-		"$(DESTDIR)$(PREFIX)/include/tny-0/tny/tny.h"
-	cp -P $(LIB_REAL) $(LIB_LINK) $(LIB_COMPAT0_REAL) \
-		"$(DESTDIR)$(PREFIX)/lib/"
-	sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@VERSION@|$(TNY_VERSION)|g' \
-		libtny.pc.in > \
-		"$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny.pc"
-	sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@VERSION@|$(TNY_VERSION)|g' \
-		-e 's|@COMPAT_LIBS@|$(ABI0_COMPAT_LIBS)|g' libtny-0.pc.in > \
-		"$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny-0.pc"
+install-lib: install-lib-active
 
 site: release
 	python3 scripts/site_build.py

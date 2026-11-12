@@ -36,3 +36,14 @@ its store, the `--no-self-improve` flag, `TNY_SELF_IMPROVE` and the
 `self_improve` setting (old settings files keep loading; the key is ignored).
 `status --json` and `doctor --json` no longer report `self_improve`. The optional
 instruction-experiment workflow (ADR 0153) stays.
+
+### libtny ABI 0 compatibility build
+
+Amends [ADR 0037](0037-libtny-abi-1.md). `make lib-shared` checked out commit
+`510a95c` and ran a nested build of it to produce `libtny.so.0` /
+`libtny.0.dylib`, plus a separate header root and `libtny-0.pc`. No outside ABI
+0 consumer is known; the SDKs load only ABI 1 and reject ABI 0. Removed: the
+compat build, its manifest (`abi/compat0.json`), consumer tests and the
+`libtny0-compat` release tarball. This ends the published ABI 0 maintenance
+window early. Earlier release assets stay available; revert this commit to
+restore the window.
