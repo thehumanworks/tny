@@ -308,7 +308,6 @@ jobs:
           # Standalone services and explicit unsupported process seams remain
           # testable without admitting provider-driven native tool execution.
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_dictation.py
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_tnyjev.py
           tests/integration/test_provider_setup.sh "$PWD/build/wasm/tny"
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 python3 tests/integration/test_background.py
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 python3 tests/integration/test_jobs.py "$PWD/build/wasm/tny"

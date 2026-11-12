@@ -38,23 +38,6 @@ RUN_TIMEOUT = -1000
 # the integration test kills survivors in full mode; default test_tui.py.
 TARGETS = [
     (
-        "src/core/tnyjev.c",
-        ["probability", "tnyjev_decode"],
-        r"p < 0|p > 1|selected == r->choice_count|probabilities\[selected\]",
-        "tests/integration/test_tnyjev.py",
-        "tnyjev",
-    ),
-    (
-        "src/core/tnyjev.c",
-        ["tnyjev_decode"],
-        r"fabs\(sum - 1.0\)",
-        "tests/integration/test_tnyjev.py",
-        "tnyjev",
-        # Moving the normalization center is observable. <= to < at 1e-5
-        # is not: no binary64 sum near one has that exact subtraction value.
-        {"- 1 -> + 1"},
-    ),
-    (
         "src/backends/acp/acp_client.c",
         None,
         r"intact && acp_claude_tools_only",

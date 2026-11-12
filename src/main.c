@@ -147,11 +147,6 @@ int main(int argc, char **argv) {
         goto done;
     }
 
-    if (cmd && (strcmp(cmd, "score") == 0 || strcmp(cmd, "choose") == 0)) {
-        rc = cmd_jev(&g, cargc, cargv, strcmp(cmd, "choose") == 0);
-        goto done;
-    }
-
     if (cmd && strcmp(cmd, "optimise") == 0) {
         rc = cmd_optimise(&g, cargc, cargv);
         goto done;

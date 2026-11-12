@@ -38,7 +38,7 @@ class MutationInventory(unittest.TestCase):
     def test_mutation_invalidates_objects_and_executables_for_real_relink(self):
         with tempfile.TemporaryDirectory(prefix="tny-mutation-relink-") as directory:
             root = Path(directory)
-            source = root / "src/core/tnyjev.c"
+            source = root / "src/core/edit.c"
             source.parent.mkdir(parents=True)
             source.write_text("old\n")
             paths = [
@@ -46,7 +46,7 @@ class MutationInventory(unittest.TestCase):
                 for name in ("tny", "tny-test", "tny.exe", "tny-test.exe")
             ]
             paths += [
-                root / "build" / lane / "src/core/tnyjev.o" for lane in ("dbg", "rel")
+                root / "build" / lane / "src/core/edit.o" for lane in ("dbg", "rel")
             ]
             for path in paths:
                 path.parent.mkdir(parents=True, exist_ok=True)

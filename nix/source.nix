@@ -31,8 +31,6 @@
 # compiler, and native source/test filesets; the deadline fixture controls time.
 # Collective swarm tests reuse the existing stdlib/PTY/compiler closure;
 # test_collective_{swarm,cap}.py and mailbox helpers are included under tests.
-# tnyjev uses existing src/tests filesets; its HTTP fixtures generate all data
-# with Python stdlib and synthetic credentials (no live Jev calls).
 # test_leakcheck.py uses the existing tests/scripts filesets and creates fake
 # checkers in private temporary directories; no platform leak tool is needed.
 # Source filters shared by every tny derivation.
