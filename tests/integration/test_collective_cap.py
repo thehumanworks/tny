@@ -40,7 +40,6 @@ class CapAcceptance(JobsFixture):
         self.server.RequestHandlerClass = CapHandler
         self.server.fixture = self
         self.env["TNY_TOOLS"] = "all"
-        self.env["TNY_SELF_IMPROVE"] = "0"
         self.lock = threading.Lock()
         self.release = threading.Event()
         self.first = threading.Event()

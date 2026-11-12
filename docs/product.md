@@ -65,15 +65,12 @@ optional ACP agents own their loop and reach tny tools through MCP.
 BYOK keys come from environment variables; OAuth subscription login and
 refresh are native. Claude models work through configured compatible gateways.
 
-## Bounded self-improvement
+## Optional instruction experiments
 
-[Automatic workflow learning](instruction-improvement.md) is on by default in
-normal CLI/TUI work. Verified recovery outcomes revise bounded, workspace-scoped
-advice used in later requests and sessions. It currently learns exact-edit
-recovery, with no extra inference or user-selected preset. An explicit opt-out is
-available. A separate optional controller can evolve larger task-instruction
-bodies. Neither trains model weights or rewrites harness code automatically.
-Offline replay results are not claims of general live coding gains.
+An optional controller can evolve task-instruction bodies
+([instruction improvement](instruction-improvement.md)). It does not train model
+weights or rewrite harness code. Automatic workflow learning was removed by
+[ADR 0221](adr/0221-remove-unproven-features.md).
 
 ## Embedding
 

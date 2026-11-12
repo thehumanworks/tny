@@ -418,7 +418,6 @@ def run_trial(
             args.model,
             "--effort",
             args.effort,
-            "--no-self-improve",
             "--max-steps",
             str(args.max_steps),
         ]

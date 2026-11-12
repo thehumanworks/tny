@@ -158,7 +158,6 @@ def run_once(
             "TMPDIR": str(home),
             "TNY_ISOLATE": "0",
             "TNY_TOOLS": "all",
-            "TNY_SELF_IMPROVE": "0",
             "OPENAI_API_KEY": "bench-not-real",
             "OPENAI_BASE_URL": f"http://127.0.0.1:{server.server_port}/v1",
         }

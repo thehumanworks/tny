@@ -202,7 +202,7 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0191 — Metadata-driven releases](0191-metadata-driven-releases.md)
 - [0192: Budgeted recoverable working context](0192-budgeted-recoverable-working-context.md) — reversible old tool-output references at native request boundaries; preserve exact user constraints and latest batches instead of automatic lossy turn summaries.
 - [0200 — Bounded instruction evolution](0200-bounded-instruction-evolution.md)
-- [0201 — Default automatic workflow learning](0201-default-automatic-workflow-learning.md)
+- [0201 — Default automatic workflow learning](0201-default-automatic-workflow-learning.md) (removed by 0221)
 - [0202 — Verification value density](0202-verification-value-density.md)
 - [0203 — Explicit current-route benchmark profiles](0203-current-route-benchmarks.md)
 - [0193: Strict owned command checks](0193-strict-owned-command-checks.md) — opt-in Linux guardian adoption and drainage without changing ordinary shell semantics.
@@ -230,4 +230,4 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0218: Python tool extensions](0218-python-tool-extensions.md) — `@tny.tool` modules in `~/.tny/extensions/tools` and `<repo>/.tny/extensions/tools`, served by one embedded tool host to code mode, the CLI and MCP; replaces the event hooks of 0027/0028.
 - [0219: MIT license](0219-mit-license.md) — tny, its SDKs and Nix packages are MIT; wheels and npm packages carry the root `LICENSE`, and registry publication stays gated on the owner's switch (PyPI uploads with twine and an API token).
 - [0220: The build's shell in every shipped path](0220-build-shell-in-every-shipped-path.md) — `TNY_SHELL_PATH` also replaces `/bin/sh` in the TUI shell fallback and the frozen CPython stdlib, so a Nix build names no host shell.
-- [0221: Remove features without evidence of value](0221-remove-unproven-features.md) — Jev, and later items listed in the ADR, leave the product; each removal is its own revertable commit.
+- [0221: Remove features without evidence of value](0221-remove-unproven-features.md) — Jev, default workflow learning and the other items listed in the ADR leave the product; each removal is its own revertable commit.

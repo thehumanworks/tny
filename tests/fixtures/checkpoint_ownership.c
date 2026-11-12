@@ -98,7 +98,6 @@ static tny_ctx *fixture(bool full) {
     c->model_from_flag = true;
     c->json_out = true;
     c->no_save = false;
-    c->no_self_improve = true;
     c->no_color = true;
     c->force_color = true;
     c->library_mode = false;
@@ -163,7 +162,7 @@ static void complete_schema(tny_ctx *c) {
     yyjson_val *r = yyjson_doc_get_root(d);
     /* Legacy contexts omit the two nullable definition strings but retain the
      * explicit empty digest and zero participant count. */
-    REQUIRE(yyjson_obj_size(r) == 74);
+    REQUIRE(yyjson_obj_size(r) == 73);
     REQUIRE(yyjson_is_arr(jget(r, "agent_argv")) && yyjson_arr_size(jget(r, "agent_argv")) == 0);
     REQUIRE(yyjson_is_bool(jget(r, "agent_from_profile")) &&
             yyjson_get_bool(jget(r, "agent_from_profile")) == c->agent_from_profile);
@@ -233,8 +232,6 @@ static void complete_schema(tny_ctx *c) {
             yyjson_get_bool(jget(r, "json_out")) == c->json_out);
     REQUIRE(yyjson_is_bool(jget(r, "no_save")) &&
             yyjson_get_bool(jget(r, "no_save")) == c->no_save);
-    REQUIRE(yyjson_is_bool(jget(r, "no_self_improve")) &&
-            yyjson_get_bool(jget(r, "no_self_improve")) == c->no_self_improve);
     REQUIRE(yyjson_is_bool(jget(r, "no_color")) &&
             yyjson_get_bool(jget(r, "no_color")) == c->no_color);
     REQUIRE(yyjson_is_bool(jget(r, "force_color")) &&
@@ -308,7 +305,7 @@ static void complete_schema(tny_ctx *c) {
                 c->mcp_import_order[i]);
     yyjson_doc_free(d);
     d = snapshot(c, true);
-    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 64);
+    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 63);
     REQUIRE(jget_str(yyjson_doc_get_root(d), "retrieval_state") &&
             !strcmp(jget_str(yyjson_doc_get_root(d), "retrieval_state"), c->retrieval_state));
     REQUIRE(!jget(yyjson_doc_get_root(d), "acp_cleanup_file"));
@@ -348,7 +345,6 @@ static void roundtrip(tny_ctx *c) {
     } else {
         REQUIRE(!restored->retrieval_state);
     }
-    REQUIRE(restored->no_self_improve == c->no_self_improve);
     REQUIRE(!c->settings || restored->settings != c->settings);
     tny_ctx_free(restored);
     yyjson_doc_free(expected);
@@ -746,7 +742,7 @@ static void swarm_metadata_ownership(void) {
     for (int public_only = 0; public_only <= 1; public_only++) {
         yyjson_doc *d = snapshot(c, public_only != 0);
         yyjson_val *r = yyjson_doc_get_root(d);
-        REQUIRE(yyjson_obj_size(r) == (public_only ? 64u : 76u));
+        REQUIRE(yyjson_obj_size(r) == (public_only ? 63u : 75u));
         REQUIRE(jget_str(r, "swarm_definition") &&
                 !strcmp(jget_str(r, "swarm_definition"), c->swarm_definition));
         REQUIRE(jget_str(r, "swarm_source") &&

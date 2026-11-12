@@ -214,7 +214,6 @@ class ExecutionCodeMode(unittest.TestCase):
             "TMPDIR": str(self.home),
             "TNY_ISOLATE": "0",
             "TNY_TOOLS": "all",
-            "TNY_SELF_IMPROVE": "0",
             "OPENAI_API_KEY": "execution-fixture-not-real",
             "OPENAI_BASE_URL": f"http://127.0.0.1:{self.server.server_port}/v1",
         }
@@ -1255,13 +1254,6 @@ with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
             "grants": [],
             "mem_results": [],
             "images": [],
-            "learning": {
-                "valid": False,
-                "ok": False,
-                "event": 0,
-                "scope": 0,
-                "intent": 0,
-            },
             "pending_count": 0,
             "perm_blocked": False,
         }

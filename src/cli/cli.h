@@ -29,7 +29,6 @@ typedef struct {
     const char *task;      /* --task NAME */
     const char *perm_mode; /* --permission-mode | --yolo | --auto */
     const char *max_steps; /* --max-steps N|unlimited (0 = no cap) */
-    bool no_self_improve;  /* --no-self-improve */
     bool no_tool_ext;      /* --no-tool-extensions */
     bool no_project_tools; /* --no-project-tools */
     bool ultrafast;        /* --ultrafast (OpenAI Responses only) */

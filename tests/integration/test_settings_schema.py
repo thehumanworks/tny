@@ -98,7 +98,6 @@ class UiSettingsTests(unittest.TestCase):
             env = {
                 "PATH": os.environ.get("PATH", ""),
                 "HOME": home,
-                "TNY_SELF_IMPROVE": "0",
             }
             settings = Path(home) / ".tny/settings.json"
 

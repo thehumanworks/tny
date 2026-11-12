@@ -80,7 +80,6 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         }
         ctx->max_steps = v; /* explicit flag beats the .tny.json "steps" cap */
     }
-    if (g->no_self_improve) ctx->no_self_improve = true;
     if (g->no_tool_ext) ctx->tool_extensions_disabled = true;
     if (g->no_project_tools) ctx->project_tools_disabled = true;
     if (g->perm_mode) {

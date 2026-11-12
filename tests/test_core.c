@@ -5402,7 +5402,6 @@ TEST subagent_plan_carries_resolved_config_privately(void) {
     ctx->model = xstrdup("mock-model");
     ctx->reasoning_effort = xstrdup("high");
     ctx->perm_mode = TNY_MODE_ASK;
-    ctx->no_self_improve = true;
     setenv("TNY_PERMISSION_MODE", "yolo", 1);
     setenv("CHATGPT_ACCOUNT_ID", "ambient-account", 1);
     setenv(TNY_SUBAGENT_KEY_ENV, "stale-inherited", 1);
@@ -5432,7 +5431,6 @@ TEST subagent_plan_carries_resolved_config_privately(void) {
                           "0",
                           "--permission-mode",
                           "ask",
-                          "--no-self-improve",
                           "ask",
                           "--json",
                           "--stdin",
@@ -7286,7 +7284,6 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT(ctx->swarm_definition && ctx->swarm_source);
     ASSERT(tny_image_io_sha256_hex(ctx->swarm_definition, strlen(ctx->swarm_definition),
                                    ctx->swarm_definition_digest));
-    ctx->no_self_improve = true;
     ctx->tool_profile = TNY_TOOLS_TERMINAL;
     tny_ctx_add_extra_header(ctx, "X-Fixture: runtime-only");
     yyjson_mut_doc *doc = yyjson_mut_doc_new(jallocator());
@@ -7312,7 +7309,6 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT_STR_EQ(ctx->swarm_definition, restored->swarm_definition);
     ASSERT_STR_EQ(ctx->swarm_source, restored->swarm_source);
     ASSERT(restored->swarm_explicit);
-    ASSERT(restored->no_self_improve);
     tny_ctx_free(restored);
     /* Public recovery stores effective selection but no credential/settings
      * bytes, and rejects changed identity or widened permission access. */
@@ -7338,7 +7334,6 @@ TEST context_checkpoint_preserves_resolved_selection(void) {
     ASSERT_STR_EQ(ctx->swarm_definition_digest, recovered->swarm_definition_digest);
     ASSERT_STR_EQ(ctx->swarm_definition, recovered->swarm_definition);
     ASSERT(recovered->swarm_explicit);
-    ASSERT(recovered->no_self_improve);
     ASSERT_STR_EQ("private-runtime-key", recovered->api_key);
     tny_ctx_free(recovered);
     tny_ctx_add_extra_header(ctx, "X-Changed: different");
