@@ -182,6 +182,8 @@ jobs:
           "${CXX:-c++}" --version
           if [ "${{ matrix.suite }}" = full ]; then
             make -j"$jobs" test
+            # Formal checks need Clang and Z3; they stay out of `make test` (ADR 0221).
+            make verify-formal
           else
             make -j"$jobs" test-unit test-subagent-e2e release
             TNY="$PWD/build/tny" python3 tests/integration/test_execution_code_mode.py

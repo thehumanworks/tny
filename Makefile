@@ -1213,7 +1213,7 @@ test-subagent-e2e: release
 verify-subagents-live: release
 	python3 tests/integration/live_subagent_check.py --live --tny '$(abspath $(BIN))' --output '$(BUILD)/subagents-live.json'
 
-test: test-code-mode-language verify-formal dictation-fixture test-unit test-openai-errors test-event-schema test-conformance-contract test-tool-extensions test-install-prefix test-help-flags test-shell-quick-ask release
+test: test-code-mode-language dictation-fixture test-unit test-openai-errors test-event-schema test-conformance-contract test-tool-extensions test-install-prefix test-help-flags test-shell-quick-ask release
 	tests/integration/run.sh
 
 size: release

@@ -47,3 +47,10 @@ compat build, its manifest (`abi/compat0.json`), consumer tests and the
 `libtny0-compat` release tarball. This ends the published ABI 0 maintenance
 window early. Earlier release assets stay available; revert this commit to
 restore the window.
+
+### Formal checks outside `make test`
+
+Amends [ADR 0171](0171-formal-verification-smt-lib.md). `make test` ran
+`verify-formal`, which fails without Clang and Z3, so a plain checkout could not
+run the test suite. `verify-formal` stays a target; CI's full suite and the Nix
+check run it as a separate step.

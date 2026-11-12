@@ -318,7 +318,8 @@ make quality           # formatting, lint, tidy, strict warnings; GCC analyzer o
 make leaks             # valgrind (Linux) / leaks (macOS) over the unit suite + smoke
 make test-shell-workflows # the workflow scheduler under both Bash and Zsh
 make test              # unit (ASan) + integration fixtures
-make test-abi          # ABI baseline, old consumers, exports, artifacts
+make verify-formal     # SMT/Lean golden checks; needs Clang and Z3
+make test-abi          # ABI baseline, consumers, exports, artifacts
 make test-sdks         # Python and TypeScript SDK + conformance adapters
 make size-check        # report stripped size (no product byte ceiling)
 make STATIC=1 release  # musl static, on Alpine or a musl toolchain
