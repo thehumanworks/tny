@@ -54,9 +54,9 @@ previously took over two hours, so this change does not silently move it into
 a short native job. The macOS lane now explicitly requires ImageMagick 7 and
 runs the conversion suite, preserving coverage formerly supplied by Nix.
 
-The `lean-proofs` job verifies dictation normalization, ACP admission/lifecycle,
-and the source-linked production C code-cell policies. Committed dictation and
-ACP tables are replayed by native tests; the proof gate checks that their
+The `lean-proofs` job verifies ACP admission/lifecycle and the source-linked
+production C code-cell policies. Committed ACP tables are replayed by native
+tests; the proof gate checks that their
 generators still produce the same cases. These specifications and their finite replays do not
 prove the entire application correct.
 

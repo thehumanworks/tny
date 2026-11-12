@@ -17,8 +17,8 @@ Standalone SDK `optimise` / `optimize` remains unsupported and refuses before
 provider, credential or workspace I/O. It never launches the Python/Node host
 as an execution server. Other standalone toolkit services remain separate.
 
-ABI 1.2 also exposes [standalone toolkit jobs](sdk-toolkit.md) for images,
-speech, transcription, and prompt optimisation, independent of runtime/session
+ABI 1.2 also exposes [standalone toolkit jobs](sdk-toolkit.md) for images
+and prompt optimisation, independent of runtime/session
 handles. Existing ABI 1.0/1.1 records, symbols, and defaults remain compatible.
 
 `libtny` contains the ABI-1 headless C candidate for the same runtime

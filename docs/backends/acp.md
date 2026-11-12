@@ -161,7 +161,7 @@ Use absolute paths for script/config arguments too, since guarded adapters run
 in private scratch space. Settings command arrays preserve literal empty and
 `--` arguments in frozen child snapshots.
 
-Native search, image and speech services retain their existing provider and
+Native search and image services retain their existing provider and
 credential requirements. A Claude account login does not supply credentials
 for those independent HTTP services; configure them as described in their
 native service guides.

@@ -1,7 +1,7 @@
 # 0175 — Dictation transcript normalization on the STT subscription, verified in C and in Lean
 
 Date: 2026-09-26
-Status: Accepted (live effort probe and fast-tier benchmark pending; see Verification)
+Status: Superseded by [ADR 0221](0221-remove-unproven-features.md)
 Extends: [0079](0079-provider-independent-dictation.md). Related: [0009](0009-reasoning-effort.md),
 [0010](0010-fast-tier-capability.md), [0171](0171-formal-verification-smt-lib.md),
 [0169](0169-desktop-effort-folder-markdown-and-verified-turn-status.md) (Lean golden-table pattern).

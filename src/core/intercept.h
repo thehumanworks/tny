@@ -22,7 +22,6 @@ typedef enum {
     TNY_INTERCEPT_IMAGE_ATTACH,
     TNY_INTERCEPT_IMAGE_PREVIEW,
     TNY_INTERCEPT_ASK_USER,
-    TNY_INTERCEPT_SPEAK,
     TNY_INTERCEPT_IMAGE_RENDER,
     TNY_INTERCEPT_IMAGE_EXPORT, /* `tny image export` / `contact-sheet` */
     TNY_INTERCEPT_JOBS,         /* `tny jobs`: durable job service */

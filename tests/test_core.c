@@ -21,7 +21,6 @@
 #include "util/process.h"
 #include "core/image.h"
 #include "core/image_service.h"
-#include "core/speech.h"
 #include "lib/custom_tools.h"
 #include "backends/openai/openai.h"
 #include "backends/acp/acp_client.h"
@@ -4388,35 +4387,17 @@ TEST image_input_false_gates_fully_configured_schema(void) {
     ctx->image_input = TNY_IMAGE_INPUT_CONFIGURED_UNSUPPORTED;
     ctx->chatgpt_token = xstrdup("fixture-schema-token");
     ctx->chatgpt_account_id = xstrdup("fixture-schema-account");
-    char player[600];
-    snprintf(player, sizeof player, "%s/ffplay", g_ws);
-    const char script[] = "#!/bin/sh\nexit 99\n"; /* never executed */
-    ASSERT_EQ(0, file_write_atomic(player, script, strlen(script)));
-    ASSERT_EQ(0, chmod(player, 0700));
-    const char *path = getenv("PATH");
-    char *old_path = path ? xstrdup(path) : NULL;
-    setenv("PATH", g_ws, 1);
     tools_env env = {.ctx = ctx};
     bool has_image = tny_image_capabilities(ctx, false, NULL);
-    bool has_speech = tny_speech_available(ctx, NULL, true, NULL, 0);
     bool hidden = !tool_schema_has(&env, "read_image");
     bool generator_retained = tool_schema_has(&env, "image_generate");
     bool search_retained = tool_schema_has(&env, "web_search");
     char *result = tools_execute(&env, "read_image", "{\"path\":\"absent.png\"}");
     bool refused = result && str_starts(result, "error:");
     free(result);
-    if (old_path) setenv("PATH", old_path, 1);
-    else unsetenv("PATH");
-    free(old_path);
-    unlink(player);
     tny_ctx_free(ctx);
     write_settings("{}");
     ASSERT(has_image);
-#if !defined(__EMSCRIPTEN__) && !defined(_WIN32) && !defined(__CYGWIN__) && !defined(__MSYS__)
-    ASSERTm("fixture must exercise the fully configured raw-schema branch", has_speech);
-#else
-    (void)has_speech; /* playback cannot enable the raw fast path on these hosts */
-#endif
     ASSERT(search_retained && generator_retained);
     ASSERT(refused);
     ASSERTm("fully configured schema must hide the refused read_image tool", hidden);
@@ -5199,10 +5180,10 @@ TEST optimisation_tools_are_read_only_even_in_yolo(void) {
     static const char *allowed[] = {"list_files", "glob_files", "grep_files",
                                     "read_file",  "file_info",  "read_tool_result"};
     static const char *denied[] = {
-        "write_file",    "edit_file",          "delete_file",     "terminal",       "run_command",
-        "web_fetch",     "subagent",           "mcp_select_tool", "memory",         "skill",
-        "install_skill", "open_file",          "speak",           "image_generate", "image_edit",
-        "image_export",  "image_contact_sheet"};
+        "write_file",     "edit_file",  "delete_file",   "terminal",
+        "run_command",    "web_fetch",  "subagent",      "mcp_select_tool",
+        "memory",         "skill",      "install_skill", "open_file",
+        "image_generate", "image_edit", "image_export",  "image_contact_sheet"};
     for (size_t i = 0; i < sizeof allowed / sizeof *allowed; i++)
         ASSERT(tool_schema_has(&env, allowed[i]));
     for (size_t i = 0; i < sizeof denied / sizeof *denied; i++) {

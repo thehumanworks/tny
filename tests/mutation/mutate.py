@@ -156,53 +156,11 @@ TARGETS = [
         "session-interrupt",
     ),
     (
-        "src/core/dictation.c",
-        ["tny_dictation_text_valid"],
-        r"n > TNY_DICTATION_TEXT_MAX",
-        "tests/integration/test_dictation.py",
-        "dictation",
-    ),
-    # Normalization verifier and lifecycle (ADR 0175): the unit suite replays
-    # the Lean golden tables, so every decision below answers to it first.
-    (
-        "src/core/dictation_verify.c",
-        [
-            "tny_norm_verify",
-            "reconstructs",
-            "lev_within",
-            "number_ok",
-            "numeral_value",
-            "word_matches",
-            "span_ok",
-            "admissible",
-            "tny_norm_step",
-        ],
-        None,
-        "tests/integration/test_dictation.py",
-        "dictation-normalize",
-    ),
-    # Fail open: every normalizer outcome other than an accepted proposal
-    # delivers the raw transcript; cancellation while normalizing keeps it.
-    (
-        "src/core/dictation.c",
-        ["norm_settle", "norm_step", "norm_start_request", "tny_dictation_cancel"],
-        r"TNY_NORM_|rc == 3|effort_sent|requests",
-        "tests/integration/test_dictation.py",
-        "dictation-normalize",
-    ),
-    (
         "src/core/image_service.c",
         ["tny_image_run", "tny_image_decode"],
         r"image_count >|image_count > 0|n % 4|decoded >|got != decoded|tny_image_stopped",
         "tests/integration/test_image_service.py",
         "image_service",
-    ),
-    (
-        "src/core/speech.c",
-        ["codex_available", "tny_speech_run"],
-        r"bool ok =|TNY_SPEECH_TEXT_MAX|str_ws_prefix",
-        "tests/integration/test_speech.py",
-        "speech",
     ),
     (
         "src/core/config.c",
@@ -810,15 +768,6 @@ OPS = [
 # Sites where a mutant is *equivalent* (no observable behavior change) or
 # unobservable without heroics. Matched against "file:line-content".
 EQUIVALENT = [
-    # Banded Levenshtein (dictation_verify.c): at i == k both bounds give
-    # lo = 0, at i + k == m both give hi = m, and taking min() on equal
-    # candidates or clamping an equal value to inf changes nothing.
-    "dictation_verify.c:size_t lo = i > k ? i - k : 0, hi = i + k < m ? i + k : m;",
-    "dictation_verify.c:if (prev[j] + 1 < v) v = prev[j] + 1;",
-    "dictation_verify.c:if (cur[j - 1] + 1 < v) v = cur[j - 1] + 1;",
-    "dictation_verify.c:cur[j] = v < inf ? v : inf;",
-    # Differs only when a row allocation fails; both then reject the rewrite.
-    "dictation_verify.c:bool ok = prev && cur;",
     # Assigning zero to an already-zero caller remainder and clamping an equal
     # backend/caller remainder are exact no-ops. The backend_timeout >= 0 guard
     # is on a separate line and remains mutated/tested (not allowlisted).

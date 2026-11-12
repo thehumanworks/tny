@@ -20,20 +20,13 @@ def image_detail_narrowing(detail: tny.ImageDetail) -> None:
 def toolkit_sync(toolkit: tny.Toolkit) -> bytes:
     image: tny.ImageResult = toolkit.generate_image("tree", output_file="tree.png")
     toolkit.edit_image("blue", images=[image.path], output_file="blue.png")
-    speech: tny.SpeechResult = toolkit.speak("hello", output_file="speech.mp3")
-    assert not speech.played
-    transcript: tny.TranscriptionResult = toolkit.transcribe("input.wav")
-    toolkit.dictate(seconds=2)
-    prompt: tny.OptimisationResult = toolkit.optimize(transcript.text)
+    prompt: tny.OptimisationResult = toolkit.optimize(b"Fix the parser")
     return prompt.text
 
 
 async def toolkit_async(toolkit: tny.AsyncToolkit) -> bytes:
     await toolkit.generate_image("tree", output_file="tree.png")
     await toolkit.edit_image("blue", images=["tree.png"], output_file="blue.png")
-    await toolkit.speak("hello", output_file="speech.mp3")
-    await toolkit.transcribe("input.wav")
-    await toolkit.dictate(seconds=2)
     return (await toolkit.optimise("Fix the parser")).text
 
 

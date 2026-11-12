@@ -68,7 +68,6 @@ static tny_ctx *fixture(bool full) {
     set_string(&c->max_tokens_field, "fixture-max_tokens_field");
     set_string(&c->wire_api, "fixture-wire_api");
     set_string(&c->output_schema, "fixture-output_schema");
-    set_string(&c->xai_api_key, "SECRET-xai_api_key");
     set_string(&c->chatgpt_token, "SECRET-chatgpt_token");
     set_string(&c->chatgpt_account_id, "SECRET-chatgpt_account_id");
     set_string(&c->codex_base_url, "SECRET-codex_base_url");
@@ -162,7 +161,7 @@ static void complete_schema(tny_ctx *c) {
     yyjson_val *r = yyjson_doc_get_root(d);
     /* Legacy contexts omit the two nullable definition strings but retain the
      * explicit empty digest and zero participant count. */
-    REQUIRE(yyjson_obj_size(r) == 73);
+    REQUIRE(yyjson_obj_size(r) == 72);
     REQUIRE(yyjson_is_arr(jget(r, "agent_argv")) && yyjson_arr_size(jget(r, "agent_argv")) == 0);
     REQUIRE(yyjson_is_bool(jget(r, "agent_from_profile")) &&
             yyjson_get_bool(jget(r, "agent_from_profile")) == c->agent_from_profile);
@@ -194,7 +193,6 @@ static void complete_schema(tny_ctx *c) {
     REQUIRE(jget_str(r, "wire_api") && !strcmp(jget_str(r, "wire_api"), c->wire_api));
     REQUIRE(jget_str(r, "output_schema") &&
             !strcmp(jget_str(r, "output_schema"), c->output_schema));
-    REQUIRE(jget_str(r, "xai_api_key") && !strcmp(jget_str(r, "xai_api_key"), c->xai_api_key));
     REQUIRE(jget_str(r, "chatgpt_token") &&
             !strcmp(jget_str(r, "chatgpt_token"), c->chatgpt_token));
     REQUIRE(jget_str(r, "chatgpt_account_id") &&
@@ -394,7 +392,6 @@ static void edge_cases(tny_ctx *full) {
         "max_tokens_field",
         "wire_api",
         "output_schema",
-        "xai_api_key",
         "chatgpt_token",
         "chatgpt_account_id",
         "codex_base_url",
@@ -742,7 +739,7 @@ static void swarm_metadata_ownership(void) {
     for (int public_only = 0; public_only <= 1; public_only++) {
         yyjson_doc *d = snapshot(c, public_only != 0);
         yyjson_val *r = yyjson_doc_get_root(d);
-        REQUIRE(yyjson_obj_size(r) == (public_only ? 63u : 75u));
+        REQUIRE(yyjson_obj_size(r) == (public_only ? 63u : 74u));
         REQUIRE(jget_str(r, "swarm_definition") &&
                 !strcmp(jget_str(r, "swarm_definition"), c->swarm_definition));
         REQUIRE(jget_str(r, "swarm_source") &&

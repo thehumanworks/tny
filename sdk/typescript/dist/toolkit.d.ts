@@ -6,7 +6,6 @@ export interface ToolkitConfig {
   chatgptAccountId?: string;
   /** Trusted Codex media gateway; independent of the optimisation endpoint. */
   codexBaseUrl?: string;
-  xaiApiKey?: string;
 }
 
 export interface ToolkitCallOptions { signal?: AbortSignal; provider?: string; }
@@ -34,16 +33,6 @@ export interface ImageEditOptions extends ImageOptions {
   images?: readonly string[];
   /** An earlier manifest whose verified output becomes the first reference. */
   artifact?: string;
-}
-export interface SpeechOptions extends ToolkitCallOptions {
-  /** Omit to play speech locally; supply to export MP3 without playback. */
-  outputFile?: string;
-  voice?: string;
-}
-export interface DictationOptions extends ToolkitCallOptions {
-  /** Required capture duration, 1–300 seconds. */
-  seconds: number;
-  device?: string;
 }
 export interface OptimisationOptions extends ToolkitCallOptions {
   model?: string;
@@ -131,15 +120,11 @@ export type ImageFailure = Error & {
   readonly status: number;
   readonly imageDetail?: ImageDetail;
 };
-export interface SpeechResult {
-  readonly path: string | null;
-  readonly played: boolean;
+export interface OptimisationResult {
+  readonly text: string;
   readonly provider: string;
-  readonly voice: string;
-  readonly mimeType: string;
+  readonly model: string;
 }
-export interface TranscriptionResult { readonly text: string; readonly provider: string; }
-export interface OptimisationResult extends TranscriptionResult { readonly model: string; }
 
 /** libtny ABI 1.2+. Each call owns a cancellable native job; no Runtime,
  * Session, CLI executable, or close/disposal is required. Paths resolve
@@ -149,9 +134,6 @@ export class Toolkit {
   constructor(config?: ToolkitConfig);
   generateImage(prompt: string | null | undefined, options: ImageOptions): Promise<ImageResult>;
   editImage(prompt: string | null | undefined, options: ImageEditOptions): Promise<ImageResult>;
-  speak(text: string, options?: SpeechOptions): Promise<SpeechResult>;
-  transcribe(inputFile: string, options?: ToolkitCallOptions): Promise<TranscriptionResult>;
-  dictate(options: DictationOptions): Promise<TranscriptionResult>;
   optimise(text: string, options?: OptimisationOptions): Promise<OptimisationResult>;
   optimize(text: string, options?: OptimisationOptions): Promise<OptimisationResult>;
   toJSON(): { workspace: string };

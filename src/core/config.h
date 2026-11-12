@@ -86,7 +86,6 @@ typedef struct tny_ctx {
                                * by builtin profiles (ChatGPT account, grok
                                * proxy auth — docs/adr/0019); never persisted */
 
-    char *xai_api_key; /* explicit STT credential only; never selects chat */
     /* codex (docs/adr/0065, 0066): a ChatGPT token + account id handed in
      * by flag (--chatgpt-token / --chatgpt-account-id) — the file-less
      * credential source; env and the stores are read in codex_auth.c */

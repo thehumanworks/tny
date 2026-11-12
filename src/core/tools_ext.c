@@ -1,7 +1,6 @@
 /* tools_ext.c — memory, read_tool_result, skills, vision, MCP glue; the
  * subagent tool lives in subagent.c. */
 #include "core/tools.h"
-#include "core/speech.h"
 #include "core/tools_image.h"
 #include "core/tools_jobs.h"
 #include "core/tools_workspace.h"
@@ -173,21 +172,6 @@ static char *t_ask_user(tools_env *env, yyjson_val *args) {
                     "proceed with your best judgment and note the assumption");
 }
 
-static char *t_speak(tools_env *env, yyjson_val *args) {
-    if (env->ctx->library_mode) return tool_err("speak is unavailable in embedded runtimes");
-    size_t text_len = 0, voice_len = 0;
-    const char *text = jget_strn(args, "text", &text_len);
-    const char *voice = jget_strn(args, "voice", &voice_len);
-    if (!text || !utf8_valid_bytes(text, text_len) ||
-        (voice && !utf8_valid_bytes(voice, voice_len)))
-        return tool_err("speech requires UTF-8 text and voice without embedded NUL");
-    tny_speech_request r = {
-        .text = text, .voice = voice, .cancelled = env->cancelled, .userdata = env->cancelled_ud};
-    char err[256] = "";
-    int rc = tny_speech_run(env->ctx, &r, err, sizeof err);
-    return rc ? tool_err("%s", err) : xstrdup("Speech played successfully.");
-}
-
 char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled) {
     *handled = true;
     /* subagent answers every unsupported runtime itself (stable codes) */
@@ -258,7 +242,6 @@ char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool 
         buf_free(&out);
         return result ? result : tool_err("the job result could not be returned");
     }
-    if (strcmp(name, "speak") == 0) return t_speak(env, args);
     if (strcmp(name, "memory") == 0) return t_memory(env, args);
     if (strcmp(name, "search_transcript") == 0) return t_search_transcript(env, args);
     if (strcmp(name, "read_tool_result") == 0) return t_read_tool_result(env, args);

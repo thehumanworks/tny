@@ -50,7 +50,6 @@ constexpr string_field strings[] = {
     {"max_tokens_field", &tny_ctx::max_tokens_field, false},
     {"wire_api", &tny_ctx::wire_api, false},
     {"output_schema", &tny_ctx::output_schema, false},
-    {"xai_api_key", &tny_ctx::xai_api_key, true},
     {"chatgpt_token", &tny_ctx::chatgpt_token, true},
     {"chatgpt_account_id", &tny_ctx::chatgpt_account_id, true},
     {"codex_base_url", &tny_ctx::codex_base_url, true},

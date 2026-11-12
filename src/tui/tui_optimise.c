@@ -8,7 +8,7 @@ void tui_optimise_start(tui *t, const char *arg) {
         tui_err(t, "read-only session replica: submit a prompt or use /continue for execution");
         return;
     }
-    if (!t->tty || t->approval || t->wiz_step || t->turn_active || t->dictation || t->optimise) {
+    if (!t->tty || t->approval || t->wiz_step || t->turn_active || t->optimise) {
         tui_err(t, "optimisation needs an idle interactive prompt; use tny optimise for scripts");
         return;
     }
@@ -38,8 +38,8 @@ void tui_optimise_start(tui *t, const char *arg) {
         }
     }
     r.text = prompt;
-    if (!tny_dictation_text_valid(prompt, strlen(prompt))) {
-        tui_err(t, "type or dictate a prompt first (maximum 64 KiB)");
+    if (!tny_prompt_text_valid(prompt, strlen(prompt))) {
+        tui_err(t, "type a prompt first (maximum 64 KiB)");
         free(copy);
         return;
     }

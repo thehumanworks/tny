@@ -266,8 +266,8 @@ I/O. Embedded optimisation has no execution-server launcher and no direct
 fallback; no workspace exploration is performed. The method signatures remain
 available for compatibility.
 
-`Toolkit` and `AsyncToolkit` expose image generation/editing, speech
-export/playback and WAV/microphone transcription through libtny ABI 1.2+.
+`Toolkit` and `AsyncToolkit` expose image generation/editing through
+libtny ABI 1.2+.
 They need no agent runtime, session, or `tny` executable.
 
 ```python
@@ -275,8 +275,6 @@ from tny import Toolkit, ToolkitConfig
 
 kit = Toolkit(ToolkitConfig(workspace="/path/to/project"))
 image = kit.generate_image("A small tree", output_file="tree.png")
-kit.speak("Hello", output_file="hello.mp3")
-text = kit.transcribe("recording.wav").text
 ```
 
 Use the same methods on `AsyncToolkit` with `await`. Every call accepts a

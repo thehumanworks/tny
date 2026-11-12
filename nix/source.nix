@@ -93,9 +93,9 @@ let
     ../docs
     # tests/formal is included by the ../tests fileset below; make test reads
     # its SMT-LIB obligations and checker with the Z3 input from nix/tests.nix.
-    # Committed Lean tables in tests/formal/{dictation,acp}/golden are replayed
-    # by C unit and ACP wire integration tests. verify-acp-proofs (like
-    # verify-dictation-proofs) runs separately in CI, not in this sandbox;
+    # Committed Lean tables in tests/formal/acp/golden are replayed by ACP
+    # wire integration tests. verify-acp-proofs runs separately in CI, not in
+    # this sandbox;
     # make verify-code-policy separately uses the declared Lean input to prove
     # source-linked production C policies. No proof step downloads dependencies.
     ../examples
@@ -218,12 +218,6 @@ let
     # HOME, generates its own PNG bytes with zlib, and observes real detached
     # children through `ps` — which nix/tests.nix already declares for the TUI
     # and ask-event suites.
-    # Speech fixtures (test_speech.py) generate their fake player in a temp
-    # directory; no MP3 asset or host audio package enters the fileset.
-    # make dictation-fixture/test-dictation reuse the same src/ and stdlib
-    # fixtures, with fake xAI/Grok credentials and a test-only loopback URL.
-    # Dictation fixtures generate PCM WAV bytes and fake microphone recorders
-    # in temporary directories; no microphone or external media asset is needed.
     # Prompt optimisation fixtures create a nested project and loopback HTTP
     # server, reusing test_tui.py; all inputs are covered by ../tests above.
     # test_interrupt.py compiles fixtures/slow_lock.c on Darwin to exercise

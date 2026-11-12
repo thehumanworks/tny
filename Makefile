@@ -447,13 +447,6 @@ python-embed-bench: $(PYTHON_EMBED_BENCH)
 verify-formal: verify-execution-protocol
 	python3 tests/formal/test_lean_golden.py
 
-# Lean 4 proofs of dictation normalization (ADR 0175): prove, regenerate the
-# golden tables the C unit suite replays, and fail if they changed. Needs
-# lake (elan); CI's lean-proofs job runs it. make test replays the tables.
-.PHONY: verify-dictation-proofs
-verify-dictation-proofs:
-	python3 tests/formal/check_lean_golden.py tests/formal/dictation
-
 # ACP version admission and lifecycle (ADR 0177). Ordinary tests replay the
 # exported versions in C and the handshake transitions over the fixture wire.
 .PHONY: verify-acp-proofs
@@ -524,23 +517,6 @@ $(ACP_DEADLINE_FIXTURE): $(filter-out $(OBJ_REL)/src/main.o $(OBJ_REL)/src/core/
 acp-bridge-deadline-fixture: $(ACP_DEADLINE_FIXTURE)
 test-acp-bridge-deadline: $(ACP_DEADLINE_FIXTURE)
 	TNY_ACP_DEADLINE_BIN=$(abspath $(ACP_DEADLINE_FIXTURE)) python3 tests/integration/test_acp_bridge_deadline.py
-
-# A separate, never-installed binary redirects only xAI STT to fake loopback
-# fixtures. The shipped adapter is always pinned to https://api.x.ai/v1/stt.
-DICTATION_FIXTURE = $(BUILD)/tny-dictation-fixture$(EXE)
-DICTATION_FIXTURE_OBJ = $(OBJ_REL)/dictation_xai_fixture.o
-$(DICTATION_FIXTURE_OBJ): src/core/dictation_xai.c | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(CC) $(REL_CFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -DTNY_DICTATION_FIXTURE -MMD -MP -c -o $@ $<
-
-$(DICTATION_FIXTURE): $(filter-out $(OBJ_REL)/src/core/dictation_xai.o,$(REL_OBJS)) $(DICTATION_FIXTURE_OBJ)
-	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(REL_LDFLAGS)
-
-.PHONY: dictation-fixture test-dictation wasm-dictation-fixture
-dictation-fixture: $(DICTATION_FIXTURE)
-test-dictation: $(TEST_BIN) $(BIN) $(DICTATION_FIXTURE)
-	./$(TEST_BIN) -s dictation
-	TNY=$(abspath $(BIN)) TNY_DICTATION_FIXTURE_BIN=$(abspath $(DICTATION_FIXTURE)) python3 tests/integration/test_dictation.py
 
 # The interpreter layer compiles against the pinned CPython headers only.
 $(call objects,$(OBJ_REL),$(SRC_PY_RUNTIME)): REL_CFLAGS += $(CPYTHON_INC)
@@ -1213,7 +1189,7 @@ test-subagent-e2e: release
 verify-subagents-live: release
 	python3 tests/integration/live_subagent_check.py --live --tny '$(abspath $(BIN))' --output '$(BUILD)/subagents-live.json'
 
-test: test-code-mode-language dictation-fixture test-unit test-openai-errors test-event-schema test-conformance-contract test-tool-extensions test-install-prefix test-help-flags test-shell-quick-ask release
+test: test-code-mode-language test-unit test-openai-errors test-event-schema test-conformance-contract test-tool-extensions test-install-prefix test-help-flags test-shell-quick-ask release
 	tests/integration/run.sh
 
 size: release
@@ -1554,20 +1530,6 @@ $(WASM_WEB): $(WASM_OBJS) src/wasm/pre_web.js
 		--pre-js src/wasm/pre_web.js -o $@ $(WASM_OBJS)
 	@wc -c $@ $(@:.mjs=.wasm)
 
-WASM_DICTATION_FIXTURE_OBJ = $(OBJ_WASM)/dictation_xai_fixture.o
-WASM_DICTATION_FIXTURE = $(BUILD)/wasm/tny-dictation-fixture.js
-$(WASM_DICTATION_FIXTURE_OBJ): src/core/dictation_xai.c | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(EMCC) $(WASM_CFLAGS) -DTNY_DICTATION_FIXTURE -MMD -MP -c -o $@ $<
-
-$(WASM_DICTATION_FIXTURE): $(filter-out $(OBJ_WASM)/src/core/dictation_xai.o,$(WASM_OBJS)) $(WASM_DICTATION_FIXTURE_OBJ) src/wasm/pre_node.js
-	$(EMCXX) $(WASM_LDFLAGS) -sENVIRONMENT=node -sNODERAWFS \
-		--pre-js src/wasm/pre_node.js -o $@ $(filter %.o,$^)
-	@printf '#!/bin/sh\nexec node "%s" "$$@"\n' "$(abspath $(WASM_DICTATION_FIXTURE))" > $(@D)/tny-dictation-fixture
-	@chmod +x $(@D)/tny-dictation-fixture
-
-wasm-dictation-fixture: $(WASM_DICTATION_FIXTURE)
-
 wasm: $(WASM_NODE)
 wasm-web: $(WASM_WEB)
 
@@ -1607,7 +1569,6 @@ endif
          $(TSAN_PIC_OBJS:.o=.d) $(FUZZ_OBJS:.o=.d) $(TEST_OBJS:.o=.d) \
          $(patsubst %.o,%.d,$(call objects,$(OBJ_DBG),$(TEST_SRC)))
 
--include $(DICTATION_FIXTURE_OBJ:.o=.d) $(WASM_DICTATION_FIXTURE_OBJ:.o=.d)
 
 -include $(WASM_OBJS:.o=.d) $(FUZZ_SMOKE_OBJ:.o=.d) $(FUZZ_HARNESS_OBJ:.o=.d)
 

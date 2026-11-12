@@ -3,7 +3,7 @@ import { Buffer } from "node:buffer";
 
 const configFields = {
   workspace: "workspace", settingsPath: "settings_path", chatgptToken: "chatgpt_token",
-  chatgptAccountId: "chatgpt_account_id", codexBaseUrl: "codex_base_url", xaiApiKey: "xai_api_key",
+  chatgptAccountId: "chatgpt_account_id", codexBaseUrl: "codex_base_url",
 };
 const imageFields = {
   outputFile: "output_file", provider: "provider", model: "model", quality: "quality",
@@ -49,10 +49,9 @@ function snapshot(options, mapping, withSignal = true) {
       } else if (key === "strictSize" || key === "persistManifest") {
         if (typeof value !== "boolean") throw new TypeError(`${key} must be a boolean`);
         result[mapping[key]] = value;
-      } else if (key === "seconds" || key === "timeoutSeconds") {
-        const max = key === "seconds" ? 300 : 86400;
-        if (!Number.isInteger(value) || value < 1 || value > max) {
-          throw new TypeError(`${key} must be an integer from 1 to ${max}`);
+      } else if (key === "timeoutSeconds") {
+        if (!Number.isInteger(value) || value < 1 || value > 86400) {
+          throw new TypeError(`${key} must be an integer from 1 to 86400`);
         }
         result[mapping[key]] = value;
       } else result[mapping[key]] = text(value, key);
@@ -211,27 +210,6 @@ export function createToolkitClass(native, invoke, TnyError) {
         { ...imageFields, images: "images", artifact: "artifact" });
       this.#prompt(values, prompt);
       return imageResult(await this.#run("edit_image", values, signal));
-    }
-
-    async speak(input, options = {}) {
-      const { values, signal } = snapshot(options, { outputFile: "output_file", provider: "provider", voice: "voice" });
-      values.text = text(input, "text");
-      const result = await this.#run("speak", values, signal);
-      return Object.freeze({
-        path: result.path, played: result.played, provider: result.provider,
-        voice: result.voice, mimeType: result.mime_type,
-      });
-    }
-
-    async transcribe(inputFile, options = {}) {
-      const { values, signal } = snapshot(options, { provider: "provider" });
-      values.input_file = text(inputFile, "inputFile");
-      return Object.freeze(await this.#run("transcribe", values, signal));
-    }
-
-    async dictate(options) {
-      const { values, signal } = snapshot(options, { seconds: "seconds", provider: "provider", device: "device" });
-      return Object.freeze(await this.#run("dictate", values, signal));
     }
 
     async optimise(input, options = {}) {

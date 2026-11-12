@@ -132,11 +132,8 @@ int main(int argc, char **argv) {
         goto done;
     }
 
-    if (cmd &&
-        (strcmp(cmd, "speak") == 0 || strcmp(cmd, "image") == 0 || strcmp(cmd, "dictate") == 0)) {
-        rc = strcmp(cmd, "image") == 0     ? cmd_image_service(&g, cargc, cargv)
-             : strcmp(cmd, "dictate") == 0 ? cmd_dictate(&g, cargc, cargv)
-                                           : cmd_speak(&g, cargc, cargv);
+    if (cmd && strcmp(cmd, "image") == 0) {
+        rc = cmd_image_service(&g, cargc, cargv);
         goto done;
     }
 

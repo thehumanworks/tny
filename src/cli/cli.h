@@ -49,7 +49,6 @@ typedef struct {
     bool resume_last;       /* -c / --continue */
     const char *resume;     /* --resume value */
     /* backend-specific */
-    const char *xai_api_key;        /* --xai-api-key: dictation only */
     const char *chatgpt_token;      /* --chatgpt-token (docs/adr/0066) */
     const char *chatgpt_account_id; /* --chatgpt-account-id */
     const char **agent_argv;        /* --agent CMD -- arg... --, never evaluated by a shell */
@@ -90,8 +89,6 @@ int cli_ask_exit_status(int stream, bool terminal, int stop);
 int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 /* Stateless and config-free; dispatched before cli_make_ctx. */
 int cmd_image_service(const cli_globals *g, int argc, char **argv);
-int cmd_speak(const cli_globals *g, int argc, char **argv);
-int cmd_dictate(const cli_globals *g, int argc, char **argv);
 int cmd_optimise(const cli_globals *g, int argc, char **argv);
 int cmd_edit(const cli_globals *g, int argc, char **argv);
 int cmd_settings(const cli_globals *g, int argc, char **argv);

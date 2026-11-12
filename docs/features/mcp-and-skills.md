@@ -117,7 +117,6 @@ Keep tool names stable so task prompts and agent integrations transfer:
 | Task workspaces | `job_workspace_inspect`, `job_workspace_integrate`, `job_workspace_cleanup`: explicit operations with separate permissions on proven-owned, terminal isolated task worktrees. Native local only. See [managed workspaces](../task-workspaces.md) |
 | Jobs | `job_submit`, `job_control` (`cancel`/`retry`/`rm`), `job_status` (`status`/`wait`/`logs`/`list`): durable ask/image work that outlives the turn ([jobs.md](../jobs.md), [ADR 0093](../adr/0093-durable-native-jobs-and-verified-retry.md)). Native only; hidden in embedded runtimes, under `--ssh`, and — for the execution tools — wherever no child process can be owned |
 | MCP | `mcp_search_tools`, `mcp_select_tool`, `mcp_features` only; namespaced `server/tool` names are discovered inside code, never separate provider functions ([ADR 0174](../adr/0174-execution-server-code-mode.md)) |
-| Speech | `speak` (text, optional voice): automatic ephemeral playback using the Codex login, independent of the chat provider; advertised only with credentials and a player. [Speech contract](../speech.md) |
 | Runtime | `ask_user_question`, `memory`, `read_tool_result` |
 
 Large results: bounded preview + session handle; `read_tool_result` reads a byte range. Background commands persist pid, cwd, log path, detected URL.
@@ -206,7 +205,6 @@ execution cell's MCP client, and the `--ssh` route:
 | `tny memory get\|set\|list …` | the `memory` tool | `memory` |
 | `tny skill show NAME` | the `skill` tool | `skill` |
 | `tny image attach PATH` | the same queue as `read_image`, allowed roots only | `read_image` |
-| `printf … \| tny speak [--voice NAME] [--json]` (or quoted heredoc) | the shared speech service, on the tny host | `speak` |
 | `tny ask-user [--json] QUESTION` | the frontend ask hook, with no socket round trip | `ask_user_question` |
 | `tny jobs submit ask\|image\|batch …` | the durable job service, with the prompt from `--prompt` or a piped producer | `job_submit` + job/items/outputs/request digest |
 | `tny jobs status\|wait\|logs\|list …` | the same service, read-only | `job_status` + job id |

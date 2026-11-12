@@ -1767,7 +1767,6 @@ void tny_ctx_free(tny_ctx *ctx) {
     free(ctx->wire_api);
     free(ctx->output_schema);
     tny_ctx_clear_extra_headers(ctx);
-    secure_free(ctx->xai_api_key);
     if (ctx->chatgpt_token) secure_free(ctx->chatgpt_token);
     free(ctx->chatgpt_account_id);
     free(ctx->codex_base_url);

@@ -79,10 +79,8 @@ from .toolkit import ImageQuality as ImageQuality
 from .toolkit import ImageResult as ImageResult
 from .toolkit import OptimisationResult as OptimisationResult
 from .toolkit import RetainedImageDetail as RetainedImageDetail
-from .toolkit import SpeechResult as SpeechResult
 from .toolkit import Toolkit as Toolkit
 from .toolkit import ToolkitConfig as ToolkitConfig
-from .toolkit import TranscriptionResult as TranscriptionResult
 from .workflow import EventHandler as EventHandler
 from .workflow import PermissionHandler as PermissionHandler
 from .workflow import Workflow as Workflow
@@ -142,7 +140,6 @@ __all__ = (
     "RuntimeConfig",
     "TaskPreset",
     "Session",
-    "SpeechResult",
     "TnyError",
     "TnyIOError",
     "TnyTimeoutError",
@@ -151,7 +148,6 @@ __all__ = (
     "ToolSensitivity",
     "Toolkit",
     "ToolkitConfig",
-    "TranscriptionResult",
     "UnsupportedError",
     "Workflow",
     "WorkflowArtifact",

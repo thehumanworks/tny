@@ -71,7 +71,7 @@ callback exclusions and fail-closed nested approvals remain in force. See
 [ADR 0215](adr/0215-native-sdk-tool-workers.md).
 
 Standalone SDK toolkit jobs ([ADR 0086](adr/0086-standalone-sdk-toolkit.md))
-call the shared image, speech and dictation services directly. Public SDK
+call the shared image service directly. Public SDK
 optimisation currently returns `TNY_STATUS_UNSUPPORTED` before any I/O: it
 requires a trusted execution-server launcher that this standalone toolkit path
 does not configure (ADR 0174). Native CLI/TUI optimisation remains supported.
@@ -148,27 +148,6 @@ Buffered provider reads schedule an immediate follow-up after each 8 KiB fairnes
 budget; external runner/TUI loops honor the same backend timeout as the pull API
 (ADR 0216). There is no provider-host prewarm thread. Bounded independent file work keeps
 the joined worker policy of ADR 0132 (at most eight workers).
-
-## Speech service
-
-The CLI and native `speak` tool share `core/speech.c`, a provider table whose
-adapters produce bounded MP3 bytes. ChatGPT speech reuses Codex credentials
-regardless of the conversation backend. `util/audio.c` owns external player
-startup and anonymous audio lifetime within the existing host OS seam.
-See [ADR 0070](adr/0070-provider-independent-speech.md) and
-[ADR 0071](adr/0071-ephemeral-host-audio-playback.md).
-
-## Dictation service
-
-The CLI and composer share `core/dictation.c`, which owns capture, bounded
-WAV/transcript validation, cancellation, and result lifetime. Adapters behind
-`core/dictation_provider.h` own credentials and endpoints for Codex/ChatGPT
-and xAI, independently of the chat backend. `dictation_http.c` shares their
-bounded WAV multipart upload and incremental JSON response handling.
-`util/audio_capture.c` starts an optional local recorder only on demand.
-The existing event loop polls capture/response fds. TUI code inserts completed
-text into the draft and waits for the user's ordinary submit action.
-See [Dictation](dictation.md) and [ADR 0079](adr/0079-provider-independent-dictation.md).
 
 ## Prompt optimisation service
 

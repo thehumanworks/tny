@@ -44,7 +44,6 @@ Vendor by source file, not by package manager graphs.
 | --- | --- | --- |
 | JSON | [yyjson](https://github.com/ibireme/yyjson) | Fast, one `.c` |
 | HTTP/1.1 + SSE | BSD sockets + [picohttpparser](https://github.com/h2o/picohttpparser) + ~200 LOC SSE | Drain the chunked body after `[DONE]`. Also accept `data: DONE` |
-| Speech playback | Optional host `afplay`, `ffplay`, `mpv` or `mpg123` | External process only; no decoder library; [ADR 0071](adr/0071-ephemeral-host-audio-playback.md) |
 | TUI | Raw ANSI + termios + UTF-8 width | No ncurses, notcurses, termbox |
 | Tests | [greatest.h](https://github.com/silentbicycle/greatest) | One header. Golden files in `testdata/` |
 | MCP TOML | `src/util/toml.c` (~400 LOC subset) | Codex/grok `[mcp_servers.*]` import only ([ADR 0051](adr/0052-mcp-import-from-harnesses.md)); not a general TOML library |
@@ -79,16 +78,6 @@ See [architecture.md](architecture.md). Keep every translation unit under ~500 l
 Git worktree mode invokes the installed `git` executable only when requested.
 No Git library is linked or vendored. Native POSIX builds support local
 worktrees; wasm reports a clean error. See [Worktrees](worktrees.md).
-
-## Optional microphone capture
-
-Dictation launches an external recorder only when requested: FFmpeg with
-AVFoundation on macOS, arecord (ALSA) or FFmpeg (PulseAudio) on Linux. No
-recording/decoding library or platform framework is linked into tny; PCM16
-WAV framing is C11 in the shared service. Windows and wasm support remote
-file transcription and cleanly reject microphone capture. See
-[Dictation](dictation.md) and [ADR 0079](adr/0079-provider-independent-dictation.md).
-
 
 ## Current optimization priorities
 

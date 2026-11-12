@@ -65,8 +65,7 @@ class WindowsLtoFlags(unittest.TestCase):
                         input=".PHONY: size-policy\nsize-policy:\n"
                         "\t@printf '%s\\n' '$(REL_SIZE_OPT)' '$(PIC_CFLAGS)' "
                         "'$(DBG_CFLAGS)' '$(WASM_CFLAGS)' "
-                        "'$(OBJ_REL)/src/core/image_service.o' '$(DICTATION_FIXTURE_OBJ)' "
-                        "'$(BIN)' '$(DICTATION_FIXTURE)'\n",
+                        "'$(OBJ_REL)/src/core/image_service.o' '$(BIN)'\n",
                         cwd=ROOT,
                         capture_output=True,
                         text=True,
@@ -77,7 +76,7 @@ class WindowsLtoFlags(unittest.TestCase):
                         self.assertNotIn("-Oz", other.split())
                         self.assertNotIn("-fomit-frame-pointer", other.split())
                     commands = subprocess.run(
-                        ["make", "-n", "-B", "release", "dictation-fixture", *args],
+                        ["make", "-n", "-B", "release", *args],
                         cwd=ROOT,
                         capture_output=True,
                         text=True,
@@ -187,20 +186,20 @@ class WindowsLtoFlags(unittest.TestCase):
         for flags in other:
             self.assertNotIn("-Dyyjson_inline=inline", flags.split())
 
-    def test_real_native_and_dictation_recipes_use_inline_policy(self):
+    def test_real_native_recipes_use_inline_policy(self):
         # Inspect make's expanded commands even when outputs already exist.
         targets = subprocess.run(
             ["make", "-s", "-f", "Makefile", "-f", "-", "inline-targets-for-test"],
             input=".PHONY: inline-targets-for-test\ninline-targets-for-test:\n"
             "\t@printf '%s\\n' '$(OBJ_REL)/src/core/image_service.o' "
-            "'$(DICTATION_FIXTURE_OBJ)' '$(BIN)' '$(DICTATION_FIXTURE)'\n",
+            "'$(BIN)'\n",
             cwd=ROOT,
             capture_output=True,
             text=True,
             check=True,
         ).stdout.splitlines()
         result = subprocess.run(
-            ["make", "-n", "-B", "release", "dictation-fixture"],
+            ["make", "-n", "-B", "release"],
             cwd=ROOT,
             capture_output=True,
             text=True,

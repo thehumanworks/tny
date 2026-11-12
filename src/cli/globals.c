@@ -23,12 +23,13 @@ static const char *need_val(int argc, char **argv, int *i, const char *flag, boo
 
 bool cli_is_command(const char *name) {
     static const char *const names[] = {
-        "ask",      "edit",     "speak",          "dictate",   "image",     "ask-user", "resume",
-        "acp",      "sessions", "session",        "provider",  "providers", "backends", "models",
-        "tasks",    "task",     "permissions",    "workspace", "status",    "doctor",   "usage",
-        "cursor",   "mcp",      "login",          "logout",    "setup",     "agents",   "web",
-        "jobs",     "mailbox",  "task-workspace", "team",      "swarm",     "settings", "help",
-        "optimise", "score",    "choose",         "tool",      "memory",    "skill",    NULL};
+        "ask",      "edit",     "image",       "ask-user",  "resume",         "acp",
+        "sessions", "session",  "provider",    "providers", "backends",       "models",
+        "tasks",    "task",     "permissions", "workspace", "status",         "doctor",
+        "usage",    "cursor",   "mcp",         "login",     "logout",         "setup",
+        "agents",   "web",      "jobs",        "mailbox",   "task-workspace", "team",
+        "swarm",    "settings", "help",        "optimise",  "score",          "choose",
+        "tool",     "memory",   "skill",       NULL};
     for (size_t i = 0; names[i]; i++)
         if (strcmp(name, names[i]) == 0) return true;
     return false;
@@ -145,14 +146,6 @@ static int parse_globals(int argc, char **argv, cli_globals *g, bool diagnostics
         } else if (str_starts(a, "--resume-")) {
             g->resume = a + strlen("--resume-");
             if (strcmp(g->resume, "last") == 0) g->resume = "last";
-        } else if (strcmp(a, "--xai-api-key") == 0) {
-            if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
-            if (!*v || strpbrk(v, "\r\n")) {
-                if (diagnostics)
-                    fputs("tny: --xai-api-key must be nonempty and contain no CR/LF\n", stderr);
-                return -1;
-            }
-            g->xai_api_key = v;
         } else if (strcmp(a, "--chatgpt-token") == 0) {
             if (!(v = need_val(argc, argv, &i, a, diagnostics))) return -1;
             g->chatgpt_token = v;

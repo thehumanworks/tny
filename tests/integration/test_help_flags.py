@@ -31,8 +31,6 @@ COMMAND_PARSERS = {
     "backends": ("cmd_backends",),
     "doctor": ("cmd_doctor",),
     "edit": ("cmd_edit",),
-    "speak": ("cmd_speak",),
-    "dictate": ("cmd_dictate",),
     "optimise": ("cmd_optimise",),
     "login": ("cmd_login",),
     "image": ("cmd_image_service", "cmd_image", "tny_image_options"),

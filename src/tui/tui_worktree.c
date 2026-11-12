@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 void tui_worktree_enter(tui *t, const char *name) {
-    if (t->ctx->ssh_host || t->turn_active || t->dictation) {
+    if (t->ctx->ssh_host || t->turn_active) {
         tui_err(t, "worktree entry requires an idle local workspace; disconnect /ssh first");
         return;
     }

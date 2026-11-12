@@ -1,6 +1,6 @@
 # ADR 0176: Normalize available dictation by default
 
-Status: Accepted
+Status: Superseded by [ADR 0221](0221-remove-unproven-features.md)
 
 ## Context
 

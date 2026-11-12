@@ -54,7 +54,6 @@ static const struct {
     {"workspace", "/workspace [add|remove DIR]"},
     {"worktree", "/worktree [NAME] — create or enter a Git worktree"},
     {"image", "/image PATH — attach to the next prompt"},
-    {"dictate", "/dictate [PROVIDER] — microphone to editable prompt (Ctrl-R)"},
     {"optimise", "/optimise [--model MODEL] [--provider NAME] PROMPT — improve draft (Ctrl-O)"},
     {"ssh", "/ssh user@host[:port] [dir] | /ssh off — run tools on a remote host"},
     {"undo", "undo the last file change"},
@@ -438,7 +437,7 @@ static void cmd_help(tui *t) {
                       "esc cancel turn%s",
                       d, r);
     tui_overlay_linef(t,
-                      "%s      ctrl-v paste · ctrl-r dictate · ctrl-o optimise · "
+                      "%s      ctrl-v paste · ctrl-o optimise · "
                       "ctrl-c stop (again forces; twice exits when idle)%s",
                       d, r);
     for (int i = 0; i < N_CMDS; i++) {
@@ -716,7 +715,6 @@ void tui_command(tui *t, const char *line) {
 
     if (!*c || strcmp(c, "help") == 0) cmd_help(t);
     else if (strcmp(c, "settings") == 0) tui_settings_command(t, arg);
-    else if (strcmp(c, "dictate") == 0) tui_dictation_start(t, arg);
     else if (strcmp(c, "optimise") == 0) tui_optimise_start(t, arg ? arg : "");
     else if (strcmp(c, "worktree") == 0) tui_worktree_enter(t, arg);
     else if (strcmp(c, "ssh") == 0) {

@@ -4,7 +4,6 @@
 #include "core/execution.h"
 #include "core/image.h"
 #include "util/image_io.h"
-#include "core/speech.h"
 #include "core/image_service.h"
 #include "core/tools_image.h"
 #include "core/tools_jobs.h"
@@ -517,11 +516,6 @@ static const char *SCHEMA_JSON =
     "\"persist_manifest\":{\"type\":\"boolean\",\"description\":\"Write the private manifest "
     "beside the output recording the grid and its source hashes; default true.\"}},"
     "\"required\":[\"sources\",\"output_file\",\"size\"]}}},"
-    "{\"type\":\"function\",\"function\":{\"name\":\"speak\",\"description\":\"Speak a message "
-    "aloud to the user using their ChatGPT login. Waits for playback; no audio file is kept.\","
-    "\"parameters\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"},"
-    "\"voice\":{\"type\":\"string\",\"description\":\"Omit to use the default cove voice.\"}},"
-    "\"required\":[\"text\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"ask_user_question\",\"description\":\"Ask the "
     "user a clarifying question (interactive sessions "
     "only).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"question\":{\"type\":"
@@ -550,8 +544,6 @@ static bool schema_tool_disabled(const tools_env *env, const char *name) {
     if (strcmp(name, "image_preview") == 0) return env->ctx->library_mode || env->ctx->ssh_host;
     if (strcmp(name, "image_export") == 0 || strcmp(name, "image_contact_sheet") == 0)
         return env->ctx->library_mode || env->ctx->ssh_host || !tny_image_export_supported();
-    if (strcmp(name, "speak") == 0)
-        return env->ctx->library_mode || !tny_speech_available(env->ctx, NULL, true, NULL, 0);
     /* a child would run its tools locally, not on the --ssh host */
     if (strcmp(name, "subagent") == 0) return env->ctx->library_mode || env->ctx->ssh_host;
     /* Jobs own real child processes: the execution tools disappear where none
@@ -657,9 +649,8 @@ char *tools_catalog_json(tools_env *env) {
         (env->ctx->prompt_optimisation || env->ctx->mcp_disabled || env->ctx->library_mode ||
          (env->ctx->workspace_read_only && getenv("TNY_SWARM_NAME")) ||
          env->ctx->tool_profile != TNY_TOOLS_ALL || !tool_web_search_configured(env->ctx) ||
-         !tny_speech_available(env->ctx, NULL, true, NULL, 0) || env->ctx->ssh_host ||
-         !tny_image_capabilities(env->ctx, false, NULL) || !tny_image_export_supported() ||
-         tny_image_input_refused(env->ctx))) {
+         env->ctx->ssh_host || !tny_image_capabilities(env->ctx, false, NULL) ||
+         !tny_image_export_supported() || tny_image_input_refused(env->ctx))) {
         yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
         yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
         yyjson_mut_doc *mut = yyjson_mut_doc_new(jallocator());

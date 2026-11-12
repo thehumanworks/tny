@@ -54,3 +54,26 @@ Amends [ADR 0171](0171-formal-verification-smt-lib.md). `make test` ran
 `verify-formal`, which fails without Clang and Z3, so a plain checkout could not
 run the test suite. `verify-formal` stays a target; CI's full suite and the Nix
 check run it as a separate step.
+
+### Dictation and speech (`tny dictate`, `tny speak`, `speak` tool)
+
+Supersedes [ADR 0070](0070-provider-independent-speech.md),
+[ADR 0071](0071-ephemeral-host-audio-playback.md),
+[ADR 0079](0079-provider-independent-dictation.md),
+[ADR 0175](0175-dictation-transcript-normalization.md) and
+[ADR 0176](0176-dictation-normalization-default.md). A coding agent does not
+need a microphone, a speaker or an STT subscription to do its task. The two
+features added two provider adapters (Codex and xAI STT), host recorder and
+player processes, a transcript normalizer with a Lean proof package, a
+`dictionary.json` schema, a TUI recording mode (Ctrl-R, `/dictate`), a fixture
+binary build, three standalone toolkit operations and the global
+`--xai-api-key` flag. Their tests ran only against fixtures, and 22 of the
+baseline integration tests for xAI dictation already failed on this host.
+Removed: `src/core/dictation*`, `src/core/speech.*`, `src/util/audio*`,
+`src/cli/cmd_dictate.c`, `src/cli/cmd_speak.c`, `src/tui/tui_dictation.c`, the
+`speak` tool and terminal intercept, the toolkit operations `speak`,
+`transcribe` and `dictate` with their SDK methods, `tests/formal/dictation`
+and the related tests and docs (about 3.6k lines of `src/`, 7.3k lines of
+tests and SDK code). The prompt text check that optimisation shared with
+dictation moves to `tny_prompt_text_valid` in `core/optimise.c`. The settings
+key `dictation` stays reserved, so old settings files still load.

@@ -1,6 +1,6 @@
 # 0079 — Provider-independent dictation into the composer
 
-Status: Accepted
+Status: Superseded by [ADR 0221](0221-remove-unproven-features.md)
 
 ## Context
 

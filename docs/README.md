@@ -35,8 +35,6 @@ Optional instruction experiments (ADR 0153) are in [instruction improvement](ins
 | Doc | Why |
 | --- | --- |
 | [images.md](images.md) | Image generation/editing, provider adapters, CLI and agent tools |
-| [speech.md](speech.md) | Ephemeral speech, Codex login, agents and optional MP3 export |
-| [dictation.md](dictation.md) | Microphone/file transcription into prompts, independent STT providers |
 | [optimisation.md](optimisation.md) | Project-aware prompt rewriting, independent model, draft review |
 | [cli.md](cli.md) | Command tree, flags, agent-friendly output |
 | [workflows.md](workflows.md) | Dependency DAGs and parallel agents from shell, Python, and TypeScript |

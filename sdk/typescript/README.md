@@ -233,8 +233,7 @@ I/O. Embedded optimisation has no execution-server launcher and no direct
 fallback; no workspace exploration is performed. The method signatures remain
 available for compatibility.
 
-`Toolkit` exposes image generation/editing, speech export/playback,
-and WAV/microphone transcription through libtny ABI 1.2+.
+`Toolkit` exposes image generation/editing through libtny ABI 1.2+.
 It needs no agent runtime, session, or `tny` executable.
 
 ```typescript
@@ -242,8 +241,6 @@ import { Toolkit } from "@nothumanwork/tny";
 
 const kit = new Toolkit({ workspace: "/path/to/project" });
 const image = await kit.generateImage("A small tree", { outputFile: "tree.png" });
-await kit.speak("Hello", { outputFile: "hello.mp3" });
-const { text } = await kit.transcribe("recording.wav");
 ```
 
 Every call accepts an `AbortSignal` and joins native work on cancellation.

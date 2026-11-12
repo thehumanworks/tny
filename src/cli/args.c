@@ -112,7 +112,6 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
             return NULL;
         }
     }
-    if (g->xai_api_key) ctx->xai_api_key = xstrdup(g->xai_api_key);
     if (g->chatgpt_token) {
         if (!*g->chatgpt_token) {
             fprintf(stderr,

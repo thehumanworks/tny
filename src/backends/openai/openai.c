@@ -5,7 +5,6 @@
 #include "backends/openai/stream_decode.h"
 #include "core/tools.h"
 #include "core/team_runtime.h"
-#include "core/speech.h"
 #include "core/openai_auth.h"
 #include "core/image_service.h"
 #include "backends/openai/request_owner.h"
@@ -634,12 +633,6 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
         buf_free(image_providers);
         if (provider_oom()) return;
     }
-    if (!o->ctx->library_mode && tny_speech_available(o->ctx, NULL, true, NULL, 0))
-        buf_appends(sys,
-                    "Speech is available: use `speak` when advertised, or pipe text to "
-                    "`tny speak` through terminal to vocalise a message to the user. "
-                    "It plays automatically and keeps no audio file. Do not repeat spoken content "
-                    "in the final text response unless the user asks for both.\n");
     if (tny_tool_profile_is_shell(o->ctx)) {
         buf_appends(sys, "# Shell tool profile\n\n"
                          "Commands start in the workspace cwd, and cwd resets on every terminal "

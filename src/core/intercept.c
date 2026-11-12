@@ -4,7 +4,6 @@
  * identically to a structured tool call (docs/adr/0063). */
 #include "core/intercept.h"
 #include "cli/cli.h"
-#include "core/speech.h"
 #include "core/image_service.h"
 #include "core/image_manifest.h"
 #include "core/tools_image.h"
@@ -579,22 +578,6 @@ static tny_intercept *parse_ask_user(char **argv, int argc, int i, bool json,
     return ic_label(ic, "tny ask-user");
 }
 
-static tny_intercept *parse_speak(char **argv, int argc, int i, bool json, const buf_t *payload) {
-    const char *voice = NULL;
-    for (; i < argc; i++) {
-        if (strcmp(argv[i], "--json") == 0) json = true;
-        else if (strcmp(argv[i], "--voice") == 0 && i + 1 < argc) voice = argv[++i];
-        else return NULL; /* export and provider options retain shell semantics */
-    }
-    if (!payload) return NULL;
-    tny_intercept *ic = ic_new(TNY_INTERCEPT_SPEAK, "speak");
-    if (!ic) return NULL;
-    ic->json = json;
-    ic->target = voice ? xstrdup(voice) : NULL;
-    ic->detail = xstrdup("speak to the user");
-    return ic_label(ic, "tny speak");
-}
-
 /* `tny jobs …` typed into the terminal becomes the typed job tool it stands
  * for: the same argv grammar, the same request object, the same exact
  * permission identity. A command this parser cannot classify is refused
@@ -826,7 +809,6 @@ static tny_intercept *parse_verb(tools_env *env, const tny_words *w, const buf_t
     if (strcmp(verb, "team") == 0) return parse_team(env, argv, argc, i, payload);
     if (strcmp(verb, "task-workspace") == 0) return parse_task_workspace(env, argv, argc, i);
     if (strcmp(verb, "ask-user") == 0) return parse_ask_user(argv, argc, i, json, payload);
-    if (strcmp(verb, "speak") == 0) return parse_speak(argv, argc, i, json, payload);
     if (strcmp(verb, "ask") == 0) return parse_ask(argv, argc, i);
     if (strcmp(verb, "tool") == 0) return parse_tool();
     return NULL;
@@ -1134,29 +1116,6 @@ static char *exec_ask_user(tools_env *env, const tny_intercept *ic) {
     return ic_result(env, 0, &out, &err);
 }
 
-static char *exec_speak(tools_env *env, const tny_intercept *ic) {
-    buf_t out, err;
-    buf_init(&out);
-    buf_init(&err);
-    if (!utf8_valid_bytes(ic->stdin_data, ic->stdin_len)) {
-        buf_appends(&err, "tny: speak: invalid UTF-8 text\n");
-        return ic_result(env, 1, &out, &err);
-    }
-    char diagnostic[256] = "";
-    tny_speech_request r = {.text = ic->stdin_data,
-                            .voice = ic->target,
-                            .cancelled = env->cancelled,
-                            .userdata = env->cancelled_ud};
-    int rc;
-    if (env->ctx->library_mode) {
-        rc = 1;
-        snprintf(diagnostic, sizeof diagnostic, "speech is unavailable in embedded runtimes");
-    } else rc = tny_speech_run(env->ctx, &r, diagnostic, sizeof diagnostic);
-    if (rc) buf_appendf(&err, "tny: speak: %s\n", diagnostic);
-    else if (ic->json) buf_appends(&out, "{\"kind\":\"speak\",\"ok\":true,\"played\":true}\n");
-    return ic_result(env, rc, &out, &err);
-}
-
 static void preview_diagnostic(yyjson_val *root, buf_t *err) {
     yyjson_val *preview = jget(root, "preview");
     const char *status = jget_str(preview, "status");
@@ -1337,7 +1296,6 @@ char *tny_intercept_execute(tools_env *env, const tny_intercept *ic) {
         if (rc) buf_appendf(&err, "tny: mailbox: %s\n", diagnostic);
         return ic_result(env, rc, &out, &err);
     }
-    case TNY_INTERCEPT_SPEAK: return exec_speak(env, ic);
     case TNY_INTERCEPT_IMAGE_RENDER: return exec_image_render(env, ic);
     case TNY_INTERCEPT_IMAGE_EXPORT: return exec_image_export(env, ic);
     case TNY_INTERCEPT_IMAGE_PREVIEW: {

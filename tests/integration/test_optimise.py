@@ -504,7 +504,7 @@ class OptimiseTests(unittest.TestCase):
         self.mode = "error"
         t = self.term()
         t.send("\x0f")
-        t.expect("type or dictate a prompt first")
+        t.expect("type a prompt first")
         self.assertEqual(self.requests, [])
         t.send("/optimise fix parser\r")
         t.expect("Optimisation failed")
