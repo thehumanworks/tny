@@ -1,6 +1,5 @@
 #include "greatest.h"
 #include "core/code_policy.h"
-#include "core/code_python.h"
 #include "core/code_runtime.h"
 #include "util/process.h"
 #include "util/util.h"
@@ -289,8 +288,6 @@ TEST code_cell_acts_on_the_host(void) {
     ASSERT(real);
     ASSERT_EQ(0, setenv("TNY_CELL_TEST_VISIBLE", "inherited-value", 1));
     ASSERT_EQ(0, setenv("TNY_JOB_SCOPE_TEST", "private", 1));
-    char *quoted_real = xstrdup(json_quote_python(real));
-    ASSERT(quoted_real);
     char code[2048];
     snprintf(code, sizeof code,
              "import os, pathlib, subprocess, sys\n"
@@ -304,9 +301,11 @@ TEST code_cell_acts_on_the_host(void) {
              "                   capture_output=True, text=True)\n"
              "print(r.returncode, r.stdout.strip())\n"
              "print(os.environ.get('TNY_CELL_TEST_VISIBLE'), 'TNY_JOB_SCOPE_TEST' in os.environ)\n"
-             "print(sys.executable == %s, 'PATH' in os.environ)\n",
-             quoted_real, json_quote_python(tny_python_path()));
-    free(quoted_real);
+             /* A real interpreter path; a macOS shim may report the binary
+              * it forwards to rather than the path tny started. */
+             "print(os.path.isabs(sys.executable) and os.access(sys.executable, os.X_OK),\n"
+             "      'PATH' in os.environ)\n",
+             json_quote_python(real));
     int64_t deadline = monotonic_ms() + 10000;
     char *out = tny_code_run_with_deadline(code, dir, &deadline, NULL, NULL, NULL);
     unsetenv("TNY_CELL_TEST_VISIBLE");
