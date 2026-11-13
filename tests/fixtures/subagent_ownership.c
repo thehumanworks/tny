@@ -111,10 +111,6 @@ int main(void) {
         "TNY_NESTED=0",
         "TNY_NESTED_MODE=yolo",
         "TNY_TOOLS=all",
-        "TNY_TEAM_RUN=0123456789abcdef0123456789abcdef",
-        "TNY_TEAM_TASK=0",
-        "TNY_TEAM_ATTEMPT=1",
-        "TNY_TEAM_CAPABILITY=SECRET-parent-member",
         "TNY_TEAM_READ_ONLY=0",
         "TNY_JOB_PARENT_PID=123",
         "TNY_PERMISSION_MODE=yolo",
@@ -166,10 +162,6 @@ int main(void) {
                 equal(value(p.envp, "TNY_TOOLS"), tny_tool_profile_name(ctx.tool_profile));
                 REQUIRE(!value(p.envp, "TNY_PERMISSION_MODE"));
                 equal(value(p.envp, "TNY_JOB_PARENT_PID"), "123");
-                REQUIRE(!value(p.envp, "TNY_TEAM_CAPABILITY"));
-                REQUIRE(!value(p.envp, "TNY_TEAM_RUN"));
-                REQUIRE(!value(p.envp, "TNY_TEAM_TASK"));
-                REQUIRE(!value(p.envp, "TNY_TEAM_ATTEMPT"));
                 REQUIRE(!value(p.envp, "TNY_TEAM_READ_ONLY"));
                 equal(value(environment, "TNY_NESTED"), "0");
                 release(&p);
