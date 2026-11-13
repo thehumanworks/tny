@@ -23,8 +23,8 @@ Prompt choices: Yes / Yes and don't ask again (session grant) / No. Grants die w
 ## Direct Python in `run_code` is not mediated
 
 Everything above governs **nested tools** (`tools.call(...)` inside a
-`run_code` cell). The cell's own Python is an ordinary CPython process with the
-OS user's authority ([ADR 0180](../adr/0180-host-authorized-python-code-cells.md)):
+`run_code` cell). The cell's own Python is an ordinary process of the user's python3
+([ADR 0222](../adr/0222-host-python3-code-cells.md)) with the OS user's authority ([ADR 0180](../adr/0180-host-authorized-python-code-cells.md)):
 `open()`, `os`, `shutil`, `subprocess`, `socket`, `urllib`/`ssl` and every other
 direct call run without any tny rule, prompt, session grant, pre/post-tool hook,
 tool profile (`TNY_TOOLS`), workspace/extra-dir boundary or command sandbox, in

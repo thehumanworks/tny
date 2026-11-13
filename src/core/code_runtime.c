@@ -1,7 +1,7 @@
 /* Python code cells in a fresh child process with host authority
  * (docs/adr/0180, superseding the confinement of docs/adr/0179).
  *
- * Parent (the caller, normally the execution server): starts `--code-cell`
+ * Parent (the caller, normally the execution server): starts the cell
  * with its own environment, stdout and stderr on a pipe it drains, and one
  * private protocol socket on fd 3. It sends the trusted catalog, the working
  * directory and the source, then answers nested-call frames. It re-checks
@@ -14,11 +14,12 @@
  * imported modules or its subprocesses write to fds 1/2 keeps the first bytes
  * and the last CELL_OUTPUT_TAIL bytes, with the omitted count between them.
  *
- * Child: validates fd 3, reads the start frame, enters the working directory,
- * initializes the embedded interpreter and runs the source with the OS user's
- * ordinary authority. It exits immediately after its final frame, so no
- * finalizer runs afterwards. A fork() child of the cell loses the protocol
- * socket; exec'd programs never receive it (FD_CLOEXEC). */
+ * Child: the user's python3 (docs/adr/0222) running python/tny/_cell.py,
+ * sent as the first frame: it reads the start frame, enters the working
+ * directory and runs the source with the OS user's ordinary authority. It
+ * exits immediately after its final frame, so no finalizer runs afterwards.
+ * A fork() child of the cell loses the protocol socket; exec'd programs never
+ * receive it (it is non-inheritable). */
 #include "core/code_runtime.h"
 #include "core/code_policy.h"
 #include "core/code_python.h"
@@ -32,7 +33,6 @@
 #include <unistd.h>
 #ifndef __EMSCRIPTEN__
 #include <fcntl.h>
-#include <pthread.h>
 #endif
 
 /* Bounded wait for startup, the final frame and EOF after authority ends. */
@@ -246,13 +246,18 @@ static char *run_cell(cell_output *out, const char *code, const char *cwd, const
     int rc = output_pipe(fds) ? errno : 0;
 #endif
     tny_exec_host host = {.fd = -1, .pid = -1};
-    if (!rc) rc = tny_exec_host_start_cell(&host, fds[1]);
+    const char *python = rc ? NULL : tny_python_path();
+    const char *bootstrap = tny_python_module_source("tny._cell");
+    if (!rc && (!python || !bootstrap)) rc = ENOENT;
+    if (!rc) rc = tny_exec_host_start_cell(&host, python, TNY_PYTHON_CELL_LOADER, fds[1]);
     /* Only the child may hold the write end, or EOF could never arrive. */
     if (fds[1] >= 0) close(fds[1]);
     if (rc) {
         if (fds[0] >= 0) close(fds[0]);
         return cell_error(rc == ENOTSUP ? "Python code cells are unsupported on this host"
-                                        : "could not start the Python code cell");
+                          : rc == ENOENT
+                              ? "no usable python3 (3.8 or newer) on PATH; set TNY_PYTHON"
+                              : "could not start the Python code cell");
     }
     out->aux = (tny_exec_aux){.fd = fds[0], .drain = output_drain, .ud = out};
     size_t catalog_len = strlen(catalog), cwd_len = cwd ? strlen(cwd) : 0, code_len = strlen(code);
@@ -271,6 +276,8 @@ static char *run_cell(cell_output *out, const char *code, const char *cwd, const
     uint64_t calls = 0;
     int phase = TNY_CODE_PHASE_RUNNING;
     if (!start ||
+        tny_exec_host_send_aux(host.fd, bootstrap, aux, *deadline, deadline_passed,
+                               (void *)deadline) ||
         send_frame(host.fd, TNY_CODE_FRAME_START, start, (size_t)header_len + catalog_len + cwd_len,
                    code, code_len, aux, *deadline, deadline_passed, (void *)deadline))
         error = monotonic_ms() >= *deadline ? "deadline exceeded" : "could not start the cell";
@@ -397,186 +404,4 @@ char *tny_code_run(const char *code, int timeout_ms, const char *catalog_json,
     if (timeout_ms > TNY_CODE_MAX_TIMEOUT_MS) timeout_ms = TNY_CODE_MAX_TIMEOUT_MS;
     int64_t deadline = monotonic_ms() + timeout_ms;
     return tny_code_run_with_deadline(code, NULL, &deadline, catalog_json, call, userdata);
-}
-
-/* Child ------------------------------------------------------------------ */
-
-typedef struct {
-    int fd; /* protocol socket; -1 in a fork() child of the cell */
-    char failure[128];
-} cell_child;
-
-#ifndef __EMSCRIPTEN__
-static cell_child *forked_owner;
-static pthread_mutex_t frame_lock = PTHREAD_MUTEX_INITIALIZER;
-
-/* A fork() child keeps running Python but is not the cell: it must neither
- * hold the parent's EOF open nor ever write a frame. close() is
- * async-signal-safe; the descriptor number is invalidated so a reused fd 3
- * can never receive protocol bytes. */
-static void forked_child(void) {
-    if (forked_owner && forked_owner->fd >= 0) {
-        close(forked_owner->fd);
-        forked_owner->fd = -1;
-    }
-}
-#endif
-
-/* The parent owns time; the child only bounds its wait for a vanished parent. */
-static int64_t child_wait(void) {
-    return monotonic_ms() + TNY_CODE_MAX_TIMEOUT_MS + 5 * 60 * 1000 + CELL_SETTLE_MS;
-}
-
-/* Frames leave whole even if another Python thread trips a heap limit. */
-static int child_send(cell_child *c, const char *frame) {
-    if (c->fd < 0) {
-        errno = EBADF;
-        return -1;
-    }
-#ifndef __EMSCRIPTEN__
-    pthread_mutex_lock(&frame_lock);
-#endif
-    int rc = tny_exec_host_send(c->fd, frame, child_wait(), NULL, NULL);
-#ifndef __EMSCRIPTEN__
-    pthread_mutex_unlock(&frame_lock);
-#endif
-    return rc;
-}
-
-static char *child_call(void *ud, const char *name, const char *arguments) {
-    cell_child *c = ud;
-    size_t name_len = strlen(name), args_len = strlen(arguments);
-    char *frame = malloc(1 + 3 + name_len + args_len + 1);
-    int rc = -1;
-    if (frame) {
-        frame[0] = TNY_CODE_FRAME_CALL;
-        int prefix = snprintf(frame + 1, 4, "%03u", (unsigned)name_len);
-        if (prefix == 3 && name_len >= 1 && name_len <= TNY_CODE_NAME_BYTES) {
-            /* Copy the temporary terminator too; the following argument
-             * bytes overwrite it at the exact length-delimited boundary. */
-            memcpy(frame + 4, name, name_len + 1);
-            memcpy(frame + 4 + name_len, arguments, args_len + 1);
-            rc = child_send(c, frame);
-        }
-        free(frame);
-    }
-    char *reply = rc || c->fd < 0 ? NULL : tny_exec_host_receive(c->fd, child_wait(), NULL, NULL);
-    char *result = NULL;
-    if (reply && reply[0] == TNY_CODE_FRAME_RESULT) {
-        size_t len = strlen(reply + 1);
-        result = malloc(len + 1);
-        if (result) memcpy(result, reply + 1, len + 1);
-        else snprintf(c->failure, sizeof c->failure, "tool result allocation failed");
-    } else if (reply && reply[0] == TNY_CODE_FRAME_FAIL)
-        snprintf(c->failure, sizeof c->failure, "%s", reply + 1);
-    else
-        snprintf(c->failure, sizeof c->failure, "%s",
-                 reply ? "cell protocol violation" : "cell transport failed");
-    free(reply);
-    return result;
-}
-
-static const char *child_failure(void *ud) {
-    cell_child *c = ud;
-    return c->failure[0] ? c->failure : NULL;
-}
-
-/* Quotas are a process-terminal event, not a catchable Python exception.
- * The existing DONE frame settles a bounded error; _exit prevents any later
- * bytecode, finalizer or raw-IPC alias from asking the parent for more effects.
- * The transport uses only stack storage and bounded I/O, even under heap OOM. */
-static _Noreturn void child_abort(void *ud, const char *reason) {
-    cell_child *c = ud;
-    char frame[256];
-    frame[0] = TNY_CODE_FRAME_DONE;
-    int n = snprintf(frame + 1, sizeof frame - 1, "error: code: %s",
-                     reason ? reason : "terminal execution failure");
-    int rc = n < 0 ? -1 : child_send(c, frame);
-    _exit(rc ? 1 : 0);
-}
-
-/* "S" catalog_len ":" cwd_len ":" catalog cwd code */
-static bool parse_start(char *start, const char **catalog, size_t *catalog_len, char **cwd,
-                        const char **code) {
-    if (!start || start[0] != TNY_CODE_FRAME_START) return false;
-    char *end = NULL;
-    errno = 0;
-    unsigned long long a = strtoull(start + 1, &end, 10);
-    if (errno || end == start + 1 || *end != ':') return false;
-    char *second = end + 1;
-    unsigned long long b = strtoull(second, &end, 10);
-    if (errno || end == second || *end != ':') return false;
-    const char *body = end + 1;
-    size_t body_len = strlen(body);
-    if (a > body_len || b > body_len - a) return false;
-    *catalog = body;
-    *catalog_len = (size_t)a;
-    *cwd = NULL;
-    if (b) {
-        *cwd = malloc((size_t)b + 1);
-        if (!*cwd) return false;
-        memcpy(*cwd, body + a, (size_t)b);
-        (*cwd)[b] = 0;
-    }
-    *code = body + a + b;
-    return true;
-}
-
-int tny_code_cell_main(void) {
-    int fd = tny_exec_host_accept();
-    if (fd < 0) return 2;
-    cell_child child = {.fd = fd};
-#ifndef __EMSCRIPTEN__
-    if (pthread_atfork(NULL, NULL, forked_child)) {
-        close(fd);
-        return 2;
-    }
-    forked_owner = &child;
-#endif
-    char *start = tny_exec_host_receive(fd, child_wait(), NULL, NULL);
-    const char *catalog = NULL, *code = NULL;
-    size_t catalog_len = 0;
-    char *cwd = NULL;
-    char *output = NULL;
-    if (!parse_start(start, &catalog, &catalog_len, &cwd, &code))
-        output = cell_error("cell protocol violation");
-    else if (cwd && chdir(cwd)) {
-        char reason[160];
-        snprintf(reason, sizeof reason, "could not enter the working directory: %s",
-                 strerror(errno));
-        output = cell_error(reason);
-    } else {
-        /* Shells and tools trust PWD when it names the working directory. */
-        if (cwd) (void)setenv("PWD", cwd, 1);
-        if (!tny_code_python_available() || tny_code_python_init())
-            output = cell_error("Python runtime initialization failed");
-        else {
-            char *catalog_copy = malloc(catalog_len + 1);
-            if (catalog_copy) {
-                memcpy(catalog_copy, catalog, catalog_len);
-                catalog_copy[catalog_len] = 0;
-                tny_code_python_host host = {.catalog = catalog_copy,
-                                             .call = child_call,
-                                             .userdata = &child,
-                                             .failure = child_failure,
-                                             .abort = child_abort};
-                output = tny_code_python_run(code, &host);
-                free(catalog_copy);
-            }
-        }
-    }
-    free(cwd);
-    free(start);
-    if (!output) output = cell_error("result allocation failed");
-    int rc = -1;
-    char *frame = output ? malloc(strlen(output) + 2) : NULL;
-    if (frame) {
-        frame[0] = TNY_CODE_FRAME_DONE;
-        memcpy(frame + 1, output, strlen(output) + 1);
-        rc = child_send(&child, frame);
-    }
-    free(frame);
-    free(output);
-    /* No interpreter finalization: nothing may run after the final frame. */
-    _exit(rc ? 1 : 0);
 }

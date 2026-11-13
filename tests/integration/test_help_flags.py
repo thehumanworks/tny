@@ -79,11 +79,7 @@ PARSED_WITHOUT_HELP = {
         "--exec-server",
         "--exec-command",
         "--exec-tool",
-        # Private Python code-cell child: fd 3 socket from its execution server.
-        "--code-cell",
         "--child-context",
-        # Private Python tool extension host, started by the owning process.
-        "--tool-host",
         # Private ACP stdio MCP relay, launched only with runtime-owned IPC.
         "--acp-mcp-bridge",
         # Private lossless argv grammar for owned child launch snapshots.

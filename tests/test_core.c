@@ -1,6 +1,7 @@
 /* test_core.c — permission rules, sessions, compaction. Uses a throwaway
  * $HOME so nothing touches the real ~/.tny. */
 #include "greatest.h"
+#include "core/code_python.h"
 #include "core/config.h"
 #include "core/checkpoint.h"
 #include "core/execution_state.h"
@@ -5025,6 +5026,49 @@ TEST provider_schema_is_only_bounded_code(void) {
     PASS();
 }
 
+TEST provider_schema_is_native_catalog_without_python(void) {
+    const char *saved = getenv("TNY_PYTHON");
+    char *restore = saved ? xstrdup(saved) : NULL;
+    setenv("TNY_PYTHON", "off", 1);
+    tools_env env = {0};
+    ASSERT(!tools_code_mode(NULL));
+    /* Embedded library hosts keep run_code and its explicit refusal. */
+    tny_ctx library = {0};
+    library.library_mode = true;
+    ASSERT(tools_code_mode(&library));
+    ASSERT_STR_EQ("", tools_mode_instructions(NULL));
+    ASSERT_STR_EQ("", tools_reason_instructions(NULL));
+    char *schema = tools_schema_json(&env);
+    char *catalog = tools_catalog_json(&env);
+    ASSERT(schema && catalog);
+    ASSERT_STR_EQ(catalog, schema);
+    ASSERT(!strstr(schema, "\"name\":\"run_code\""));
+    ASSERT(strstr(schema, "\"name\":\"read_file\""));
+    /* Strict providers reject array schemas without items and top-level oneOf. */
+    yyjson_doc *doc = jparse(schema, strlen(schema));
+    ASSERT(doc);
+    size_t idx, max;
+    yyjson_val *tool;
+    yyjson_arr_foreach(yyjson_doc_get_root(doc), idx, max, tool) {
+        yyjson_val *params = jget(jget(tool, "function"), "parameters");
+        ASSERT(!jget(params, "oneOf"));
+        size_t pi, pmax;
+        yyjson_val *key, *prop;
+        yyjson_obj_foreach(jget(params, "properties"), pi, pmax, key, prop) {
+            const char *type = jget_str(prop, "type");
+            if (type && strcmp(type, "array") == 0) ASSERT(jget(prop, "items"));
+        }
+    }
+    yyjson_doc_free(doc);
+    free(schema);
+    free(catalog);
+    if (restore) setenv("TNY_PYTHON", restore, 1);
+    else unsetenv("TNY_PYTHON");
+    free(restore);
+    ASSERT(tools_code_mode(NULL) == tny_code_python_available());
+    PASS();
+}
+
 TEST responses_tools_flatten(void) {
     tools_env env;
     memset(&env, 0, sizeof env);
@@ -8025,6 +8069,7 @@ SUITE(core_suite) {
     RUN_TEST(responses_input_skips_malformed);
     RUN_TEST(code_arguments_require_nonempty_string);
     RUN_TEST(provider_schema_is_only_bounded_code);
+    RUN_TEST(provider_schema_is_native_catalog_without_python);
     RUN_TEST(responses_tools_flatten);
     RUN_TEST(responses_tools_preserve_optional_and_explicit_strict);
     RUN_TEST(embedded_tool_schema_has_no_process_spawning_tools);

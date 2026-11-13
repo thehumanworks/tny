@@ -57,9 +57,10 @@ Keep the *user-visible harness*, not another vendor's branding:
 tny owns tools, permissions and context. Agent tool calls use Python through
 `run_code`, with each native invocation in a fresh execution server
 ([ADR 0174](adr/0174-execution-server-code-mode.md)) and each cell in a fresh
-embedded-CPython child ([ADR 0179](adr/0179-python-code-mode-cpython.md)) that acts
-on the host with the OS user's authority and the bundled standard library
-([ADR 0180](adr/0180-host-authorized-python-code-cells.md)); nested tools keep
+child of the user's own python3 ([ADR 0222](adr/0222-host-python3-code-cells.md)) that acts
+on the host with the OS user's authority, environment and installed packages
+([ADR 0180](adr/0180-host-authorized-python-code-cells.md)); without a usable
+python3 the native tools are model-facing directly; nested tools keep
 tny's permissions and hooks, direct Python effects are not mediated by them. HTTP uses the native agent loop;
 optional ACP agents own their loop and reach tny tools through MCP.
 BYOK keys come from environment variables; OAuth subscription login and

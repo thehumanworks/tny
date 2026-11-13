@@ -275,7 +275,7 @@ def raw_tool(**kwargs: Any) -> dict[str, Any]:
 - `tny.Param(description=, examples=, json_schema=, name=)` adds metadata to one parameter. `json_schema` merges keys such as `minimum` or `pattern` into it.
 - `@tny.tool(name=, description=, input_schema=, timeout=)` overrides the inferred values. An explicit `input_schema` is published as is, so validate inside the function.
 - When pydantic is importable it builds the schema and validates; otherwise a built-in mapper produces the same shape.
-- The tool host runs CPython 3.14, so modern syntax (`X | None`, `list[int]`) is fine.
+- The tool host runs on your own `python3` (3.10 or newer; `TNY_PYTHON` picks another), so modern syntax (`X | None`, `list[int]`) is fine and your installed packages, including a virtual environment's, are importable.
 
 ## Example 6: proxy an existing MCP server
 

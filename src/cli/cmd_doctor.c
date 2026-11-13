@@ -1,6 +1,7 @@
 /* cmd_doctor.c — local health and preflight checks. May spawn host probes. */
 #include "cli/cli.h"
 #include "core/backend.h"
+#include "core/code_python.h"
 #include "core/sandbox.h"
 #include "core/session.h"
 #include "util/util.h"
@@ -33,6 +34,8 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     bool codex = ctx->chatgpt_token || tny_codex_auth_present(); /* a ChatGPT credential */
     bool settings_ok = !file_exists(ctx->settings_path) || ctx->settings != NULL;
     int n = 0;
+    const char *python = tny_python_path();
+    bool code_mode = tny_code_python_available();
     session_meta *m = session_list(ctx, false, 100, NULL, &n);
     session_meta_free(m, n);
     tny_sandbox_kind sandbox = tny_sandbox_effective(ctx);
@@ -62,6 +65,10 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_appendf(&b, "\"tools\":\"%s\",\"sandbox\":\"%s\",\"sandbox_note\":",
                     tny_tool_profile_name(ctx->tool_profile), tny_sandbox_kind_name(sandbox));
         jescape(&b, sandbox_note);
+        buf_appends(&b, ",\"python\":");
+        if (python) jescape(&b, python);
+        else buf_appends(&b, "null");
+        buf_appendf(&b, ",\"code_mode\":%s", code_mode ? "true" : "false");
         buf_appendf(&b, ",\"self_improve\":%s,", ctx->no_self_improve ? "false" : "true");
         buf_appends(&b, "\"providers\":[");
         for (int i = 0; i < TNY_BK_COUNT; i++) {
@@ -82,6 +89,13 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         printf("%s sandbox: %s (%s)\n", sandbox == TNY_SANDBOX_NONE ? "note" : "ok ",
                tny_sandbox_kind_name(sandbox), sandbox_note);
         printf("ok  tools: %s\n", tny_tool_profile_name(ctx->tool_profile));
+        if (!tny_code_python_build())
+            printf("note code cells: unsupported in this build; run_code reports an error\n");
+        else if (code_mode) printf("ok  code cells: %s (the model calls run_code)\n", python);
+        else
+            printf("note code cells: off, %s; the model calls native tools directly\n",
+                   python ? "process trees unsupported here"
+                          : "no python3 3.8 or newer (set TNY_PYTHON)");
         printf("%s automatic workflow learning\n", ctx->no_self_improve ? "off" : "on ");
         printf("%s codex: %s\n", codex ? "ok " : "miss",
                codex ? "ChatGPT credential found (flag, env, ~/.tny/codex-auth.json, or "

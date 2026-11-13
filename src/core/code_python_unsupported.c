@@ -1,32 +1,13 @@
-/* Builds without the embedded interpreter (libtny, wasm, MSYS2/Cygwin): code
- * cells fail explicitly. Library-hosted and wasm tool execution are already
- * refused before reaching this seam (ADR 0174); this keeps the refusal
- * explicit if a caller does reach it. */
+/* Builds that cannot start code cells (libtny, wasm, MSYS2/Cygwin): no
+ * interpreter is ever found. run_code stays the model-facing tool and is
+ * refused explicitly before reaching this seam (ADR 0174, ADR 0222). */
 #include "core/code_python.h"
-#include <stdlib.h>
-#include <string.h>
+#include <stddef.h>
+
+const char TNY_PYTHON_CELL_LOADER[] = "";
+
+const char *tny_python_path(void) { return NULL; }
+
+bool tny_code_python_build(void) { return false; }
 
 bool tny_code_python_available(void) { return false; }
-
-int tny_code_python_init(void) { return -1; }
-
-char *tny_code_python_run(const char *code, const tny_code_python_host *host) {
-    (void)code;
-    (void)host;
-    static const char text[] = "error: code: Python code cells are unavailable in this build";
-    char *out = malloc(sizeof text);
-    return out ? memcpy(out, text, sizeof text) : NULL;
-}
-
-unsigned long long tny_code_python_heap_bytes(void) { return 0; }
-
-void tny_code_python_fini(void) {}
-
-int tny_code_python_host_main(const tny_python_module *modules, size_t count, int argc,
-                              char **argv) {
-    (void)modules;
-    (void)count;
-    (void)argc;
-    (void)argv;
-    return 2;
-}

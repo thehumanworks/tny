@@ -1,7 +1,8 @@
 # 0218 — Python tool extensions
 
 Date: 2026-11-07
-Status: accepted. Supersedes [0027](0027-python-event-hooks.md) and
+Status: accepted; the tool host runs on the user's python3 (3.10 or newer) per
+[ADR 0222](0222-host-python3-code-cells.md). Supersedes [0027](0027-python-event-hooks.md) and
 [0028](0028-extension-parity-contract.md).
 
 ## Context

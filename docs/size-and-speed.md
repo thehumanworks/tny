@@ -7,6 +7,11 @@ Startup, TTFT, leak, ABI and payload bounds remain active.
 
 Measure stripped release artifacts and runtime dependencies. The harness uses native HTTP and does not depend on vendor agent binaries. [ADR 0152](adr/0152-native-http-only-providers.md) supersedes the former provider architecture; historical measurements below remain evidence for their recorded revisions.
 
+Latest measurement: the stripped Linux x86-64 glibc release binary is
+1,466,096 B after code cells moved to the user's python3, down from
+27,405,120 B with the embedded CPython
+([ADR 0222](adr/0222-host-python3-code-cells.md)).
+
 ## Historical fx baseline (not a product goal)
 
 Measured 2026-08-18 from [fx.sh](https://fx.sh), the
@@ -71,10 +76,9 @@ skips the wrapper.
    ([adr/0007](adr/0007-linux-tls-system-openssl.md), +4 KiB total, `ldd`
    stays libssl-free). Never static or vendored OpenSSL for tny's own TLS.
    musl static builds cannot dlopen: plain http works, https errors cleanly
-   there. The one exception is the embedded Python runtime for code cells
-   ([ADR 0180](adr/0180-host-authorized-python-code-cells.md)): its `ssl`
-   module links a pinned static OpenSSL (never used by tny's provider TLS),
-   so cells get HTTPS in every lane, musl included.
+   there. Code cells run the user's python3
+   ([ADR 0222](adr/0222-host-python3-code-cells.md)), so their HTTPS is that
+   interpreter's `ssl`; tny embeds no language runtime.
 5. Lazy backend load: HTTP connections stay cold until a turn. No upgrade/MCP/skill walk before first prompt.
 6. No NAPI, sounds, or bundled Node in the default CLI. wasm is the landing
    terminal ([ADR 0017](adr/0017-wasm-browser-parity.md)), not a second

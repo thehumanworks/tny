@@ -1,7 +1,8 @@
 # 0180 — Host-authorized Python code cells
 
 Date: 2026-09-28
-Status: accepted
+Status: accepted; amended by [ADR 0222](0222-host-python3-code-cells.md), which removes
+the embedded interpreter, its heap meter and the empty `sys.executable`
 Supersedes: ADR 0179's confinement and restricted-surface decisions (OS sandbox,
 empty environment, removed builtins, native JSON facade, frozen-encodings-only
 packaging, 64 MiB heap, 30 s ceiling, terminal output budget). ADR 0179's runtime

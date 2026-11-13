@@ -34,6 +34,10 @@ Tool extensions are plain Python modules with `@tny.tool` functions. Agents call
 them from code mode (`tools.call("jira.projects.list", ...)`), people run them as
 CLI commands (`tny jira projects list`), and `tny mcp serve` exposes them to other
 harnesses; see the [tool extension guide](docs/extensions.md).
+Code mode and tool extensions run on your own `python3` (or `TNY_PYTHON`), with
+your environment and installed packages; tny embeds no interpreter. Without a
+usable python3, agents call the native tools directly
+([ADR 0222](docs/adr/0222-host-python3-code-cells.md)).
 Agents changing the harness can start with the [development map](docs/development-map.md)
 and its targeted checks rather than traversing the entire codebase.
 

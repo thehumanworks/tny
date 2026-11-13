@@ -77,20 +77,6 @@ C_MUTANTS = [
         "lean",
     ),
     (
-        "memory guard dropped",
-        "core/code_policy.c",
-        r"return used <= limit && header",
-        "return header",
-        "lean",
-    ),
-    (
-        "memory sum may wrap",
-        "core/code_policy.c",
-        r"request <= limit - used - header",
-        "request + header <= limit - used",
-        "lean",
-    ),
-    (
         "result bound may wrap",
         "core/code_policy.c",
         r"result_bytes <= TNY_CODE_TOOL_RESULT_BYTES;",

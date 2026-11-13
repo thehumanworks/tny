@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -205,6 +206,8 @@ sys.exit(int(os.environ.get("SPEECH_PLAYER_EXIT", "0")))
             "TNY_CODEX_BASE_URL": self.url + "/backend-api/codex",
             "SPEECH_PLAYER_LOG": str(self.log),
             "TNY_ISOLATE": "0",
+            # PATH holds only the fixture player; cells still need a python3.
+            "TNY_PYTHON": shutil.which("python3") or sys.executable,
         }
         if WASM:
             self.env["PATH"] = os.environ["PATH"]

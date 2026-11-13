@@ -43,29 +43,20 @@ class MakeInstallTests(unittest.TestCase):
                 (prefix / "share/tny/tny.zsh").read_bytes(),
                 (ROOT / "shell/tny.zsh").read_bytes(),
             )
-            # The executable embeds CPython (ADR 0179) and the pinned
-            # libraries behind its stdlib modules (ADR 0180); their licenses ship.
+            # No language runtime is embedded (ADR 0222): tny's own license and
+            # the vendored-source notices are the whole set.
             docs = prefix / "share/doc/tny"
             self.assertEqual(  # tny's own MIT license ships with the binary
                 (docs / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes()
             )
             self.assertEqual(
-                (docs / "CPython-LICENSE").read_bytes(),
-                (ROOT / "third_party/cpython/LICENSE").read_bytes(),
+                (docs / "THIRD_PARTY_NOTICES.md").read_bytes(),
+                (ROOT / "THIRD_PARTY_NOTICES.md").read_bytes(),
             )
-            self.assertTrue((docs / "CPython-incorporated-software.rst").is_file())
-            self.assertTrue((docs / "HACL-LICENSE").is_file())
-            self.assertTrue((docs / "THIRD_PARTY_NOTICES.md").is_file())
-            pinned = sorted(p.parent for p in (ROOT / "third_party").glob("*/URL"))
-            self.assertGreaterEqual(len(pinned), 7)
-            for library in pinned:
-                texts = [*library.glob("LICENSE*"), *library.glob("COPYING*")]
-                self.assertTrue(texts, library)
-                for text in texts:
-                    self.assertEqual(
-                        (docs / f"{library.name}-{text.name}").read_bytes(),
-                        text.read_bytes(),
-                    )
+            self.assertEqual(
+                sorted(p.name for p in docs.iterdir()),
+                ["LICENSE", "THIRD_PARTY_NOTICES.md"],
+            )
 
 
 if __name__ == "__main__":

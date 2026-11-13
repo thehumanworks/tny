@@ -152,7 +152,7 @@ jobs:
           cp dist/tny-${{ matrix.triple }} dist/stage/tny
           cp python/tny_improve.py python/tny_improve_propose.py dist/stage/lib/tny/
           cp shell/tny-workflows.sh dist/stage/share/tny/
-          # The executable embeds CPython and its pinned libraries (ADR 0179, 0180).
+          # License notices; no language runtime is embedded (ADR 0222).
           sh scripts/install_licenses.sh dist/stage/share/doc/tny
           tar -C dist/stage -czf dist/tny-${{ matrix.triple }}.tar.gz tny lib share
 

@@ -173,10 +173,8 @@ class PendingManifestPermissions(ImageFixture):
         cls.build = tempfile.TemporaryDirectory(prefix="tny-manifest-pending-")
         cls.addClassCleanup(cls.build.cleanup)
         cls.binary = str(Path(cls.build.name) / "pending")
-        # This is a full executable (its main dispatches --code-cell), not
-        # libtny: like the provider fault hosts it takes the library graph with
-        # the native Python seam, so the interpreter archive must exist before
-        # REL_LDFLAGS (which carries PY_RUNTIME_LDLIBS) is expanded below.
+        # This is a full executable, not libtny: like the provider fault hosts
+        # it takes the library graph with the native host-python3 seam.
         subprocess.run(
             ["make", "-s", "-f", "Makefile", "-f", "-", "pending-prerequisites"],
             cwd=ROOT,
@@ -184,8 +182,7 @@ class PendingManifestPermissions(ImageFixture):
             text=True,
             input="""
 .PHONY: pending-prerequisites
-PENDING_PYTHON := $(if $(filter $(SRC_PY_RUNTIME),$(SRC_PY_NATIVE)),$(CPYTHON_LIB))
-pending-prerequisites: lib-shared-active $(PENDING_PYTHON)
+pending-prerequisites: lib-shared-active
 """,
         )
         variables = subprocess.check_output(
@@ -199,7 +196,6 @@ pending-variables:
 	@printf '%s\\n' '$(LIB_PIC_OBJS)' '$(call py_native_objs,$(OBJ_PIC),$(LIB_PIC_OBJS))'
 	@printf '%s\\n' '$(call objects,$(OBJ_PIC),$(SRC_PY_UNSUPPORTED))'
 	@printf '%s\\n' '$(SRC_PY_NATIVE)' '$(call objects,$(OBJ_PIC),$(SRC_PY_NATIVE))'
-	@printf '%s\\n' '$(if $(filter $(SRC_PY_RUNTIME),$(SRC_PY_NATIVE)),$(CPYTHON_INC))'
 	@printf '%s\\n' '$(call objects,$(OBJ_PIC),src/core/image_service.c)'
 """,
         ).splitlines()
@@ -213,17 +209,16 @@ pending-variables:
             unsupported,
             python_source,
             python_object,
-            python_include,
             image_service,
         ) = map(shlex.split, variables)
         cls.library_objects, cls.objects = library_objects, objects
         (cls.unsupported,) = unsupported
-        # No Make lane builds the PIC interpreter object against the pinned
-        # CPython headers, so compile the native seam privately.
+        # No Make lane builds a PIC object of the native seam, so compile it
+        # privately.
         objects.remove(*python_object)
         python = str(Path(cls.build.name) / "code-python.o")
         subprocess.run(
-            compiler + flags + python_include + ["-c", *python_source, "-o", python],
+            compiler + flags + ["-c", *python_source, "-o", python],
             cwd=ROOT,
             check=True,
         )

@@ -1,5 +1,6 @@
 /* tools.c — registry, permission gate, dispatch, result bounding. */
 #include "core/tools.h"
+#include "core/code_python.h"
 #include "core/code_runtime.h"
 #include "core/execution.h"
 #include "core/image.h"
@@ -377,13 +378,10 @@ static const char *SCHEMA_JSON =
     "capabilities.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"image_preview\",\"description\":\"Preview one "
     "successful manifest or job/item artifact without generating or "
-    "converting.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"manifest\":{\"type\":"
+    "converting. Pass either manifest, or both job and item.\",\"parameters\":{\"type\":\"object\","
+    "\"properties\":{\"manifest\":{\"type\":"
     "\"string\"},\"job\":{\"type\":\"string\",\"pattern\":\"^[0-9a-f]{32}$\"},\"item\":{\"type\":"
-    "\"integer\",\"minimum\":0,\"maximum\":63}},\"oneOf\":[{\"type\":\"object\",\"required\":["
-    "\"manifest\"],\"not\":{\"type\":\"object\","
-    "\"anyOf\":[{\"type\":\"object\",\"required\":[\"job\"]},{\"type\":\"object\",\"required\":["
-    "\"item\"]}]}},{\"type\":\"object\",\"required\":[\"job\","
-    "\"item\"],\"not\":{\"type\":\"object\",\"required\":[\"manifest\"]}}],"
+    "\"integer\",\"minimum\":0,\"maximum\":63}},"
     "\"additionalProperties\":false}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"image_generate\",\"description\":\"Generate "
     "an image from a prompt. Uses the selected image provider (codex default: ChatGPT allowance). "
@@ -460,7 +458,8 @@ static const char *SCHEMA_JSON =
     "`magick` executable. No provider is called and nothing is generated: the output is derived "
     "from bytes that already exist, its canvas is exactly the requested size, and the source file "
     "is never modified.\",\"parameters\":{\"type\":\"object\",\"properties\":{"
-    "\"sources\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":1,\"description\":\"Exactly one "
+    "\"sources\":{\"type\":\"array\",\"items\":{\"type\":\"object\"},\"minItems\":1,\"maxItems\":1,"
+    "\"description\":\"Exactly one "
     "entry: {\\\"image\\\": PATH} for a local PNG/JPEG/WebP file (at most 8 MiB), or "
     "{\\\"artifact\\\": RECORD} for an earlier manifest's verified output.\"},"
     "\"output_file\":{\"type\":\"string\",\"description\":\"Required local destination; fails if "
@@ -488,7 +487,8 @@ static const char *SCHEMA_JSON =
     "`magick` executable. No provider is called: the sheet is derived from bytes that already "
     "exist, the canvas is exactly the requested size, and no source file is "
     "modified.\",\"parameters\":{\"type\":\"object\",\"properties\":{"
-    "\"sources\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":64,\"description\":\"Ordered "
+    "\"sources\":{\"type\":\"array\",\"items\":{\"type\":\"object\"},\"minItems\":1,\"maxItems\":"
+    "64,\"description\":\"Ordered "
     "entries, each {\\\"image\\\": PATH} or {\\\"artifact\\\": RECORD}. Cell order is this "
     "order.\"},"
     "\"output_file\":{\"type\":\"string\",\"description\":\"Required local destination; fails if "
@@ -696,9 +696,10 @@ char *tools_catalog_json(tools_env *env) {
 
 static const char RUN_CODE_SCHEMA[] =
     "[{\"type\":\"function\",\"function\":{\"name\":\"run_code\","
-    "\"description\":\"Run a Python 3.14 script in a fresh CPython process on the local host, "
-    "in the workspace directory, with the OS user's access to files, network and subprocesses "
-    "and a bundled standard library. Its stdout and stderr (print, tracebacks, subprocess "
+    "\"description\":\"Run a Python script in a fresh process of the user's python3 on the "
+    "local host, in the workspace directory, with the OS user's access to files, network and "
+    "subprocesses and the interpreter's installed packages. Its stdout and stderr (print, "
+    "tracebacks, subprocess "
     "output) are the result. Nested tny tools: tools.search(query), tools.describe(name), "
     "tools.call(name, arguments_json) with JSON object text such as json.dumps({...}).\","
     "\"parameters\":{\"type\":\"object\",\"properties\":{"
@@ -709,7 +710,19 @@ static const char RUN_CODE_SCHEMA[] =
     ",\"default\":" CODE_DEFAULT_TIMEOUT_TEXT "}},"
     "\"required\":[\"code\"],\"additionalProperties\":false}}}]";
 
+bool tools_code_mode(const tny_ctx *ctx) {
+    /* Builds that cannot start cells (libtny, wasm, MSYS2) and embedded hosts
+     * keep the run_code surface and its explicit refusal (tny_execution_run):
+     * they never fall back to direct native tools. */
+    if (!tny_code_python_build()) return true;
+    if (ctx && ((ctx->library_mode && !ctx->execution_helper && !ctx->prompt_optimisation) ||
+                ctx->custom_tools || ctx->host_services))
+        return true;
+    return tny_code_python_available();
+}
+
 char *tools_schema_json(tools_env *env) {
+    if (!tools_code_mode(env ? env->ctx : NULL)) return tools_catalog_json(env);
     if (tny_settings_ui_tool_call_reasons(env ? env->ctx : NULL)) return xstrdup(RUN_CODE_SCHEMA);
     yyjson_doc *doc = jparse(RUN_CODE_SCHEMA, strlen(RUN_CODE_SCHEMA));
     yyjson_mut_doc *out = doc ? yyjson_doc_mut_copy(doc, NULL) : NULL;
@@ -724,8 +737,12 @@ char *tools_schema_json(tools_env *env) {
     return json;
 }
 
+const char *tools_mode_instructions(const tny_ctx *ctx) {
+    return tools_code_mode(ctx) ? tools_code_instructions() : "";
+}
+
 const char *tools_reason_instructions(tny_ctx *ctx) {
-    return tny_settings_ui_tool_call_reasons(ctx)
+    return tools_code_mode(ctx) && tny_settings_ui_tool_call_reasons(ctx)
                ? "\nFor each tool call, include a very short 1–10 word reason describing its "
                  "intent, "
                  "not internal reasoning. Set run_code.reason; for nested calls use "
@@ -737,20 +754,17 @@ const char *tools_reason_instructions(tny_ctx *ctx) {
 
 const char *tools_code_instructions(void) {
     return "\n# Code execution\n"
-           "The only model-facing tool is run_code. Its code is a Python 3.14 script run by a "
-           "fresh embedded CPython process per call, in the local workspace directory, with the "
-           "host environment and the OS user's own permissions (timeout_ms defaults "
+           "The only model-facing tool is run_code. Its code is a Python script run by a "
+           "fresh process of the user's own python3 per call, in the local workspace directory, "
+           "with the host environment, the user's installed packages and virtual environment, "
+           "and the OS user's own permissions (timeout_ms defaults "
            "to " CODE_DEFAULT_TIMEOUT_TEXT ", maximum " CODE_MAX_TIMEOUT_TEXT
            "; pass a smaller timeout_ms when a shorter deadline is needed). The deadline "
            "covers the entire cell, including synchronous nested tools and subagent "
            "create/message inference; explicit cancellation stops active work without waiting "
            "for that deadline. "
-           "import, open, eval and exec behave as in CPython, and the standard library "
-           "is bundled: os, pathlib, shutil, subprocess, socket, urllib.request, http.client, "
-           "ssl, hashlib, zlib, zipfile, tarfile, json, re, datetime, asyncio, sqlite3, "
-           "ctypes, bz2, lzma and compression.zstd. GUI/interactive optional modules, "
-           "dbm.gnu/dbm.ndbm, ensurepip and venv are not bundled. No third-party packages "
-           "are preinstalled; import workspace modules or call installed host programs. "
+           "It is ordinary Python: check sys.version_info before using recent language "
+           "features, and import whatever the interpreter has installed. "
            "State never persists between calls; json and tools are pre-bound.\n"
            "stdout and stderr are the result: print, warnings, tracebacks and the output of "
            "subprocesses that inherit them. Output beyond 64 KiB keeps its beginning and end. "
@@ -759,7 +773,7 @@ const char *tools_code_instructions(void) {
            "bytes. Retention limits or storage failures are reported explicitly. "
            "An unhandled exception reports its type, message and line first, then the output "
            "with the traceback. Background processes meant to outlive the cell must redirect "
-           "their output. sys.executable is empty; use multiprocessing.get_context(\"fork\").\n"
+           "their output. sys.executable is the interpreter running the cell.\n"
            "Direct Python effects are not mediated by tny tool permissions, hooks or workspace "
            "policies; nested tools are. Discover relevant tools with "
            "print(tools.search(\"file\")), then inspect one with "
@@ -785,8 +799,8 @@ const char *tools_code_instructions(void) {
            "file_info/read_tool_result/web_fetch calls overlap; other tools are serial "
            "barriers. Use tools.call for dependencies. Do not call tools from Python threads. "
            "Nested calls retain permissions, hooks and cancellation. run_code cannot "
-           "recursively call itself. A cell may make 64 nested calls; exceeding the call or "
-           "memory budget ends the cell with an error.\n"
+           "recursively call itself. A cell may make 64 nested calls; exceeding that "
+           "budget ends the cell with an error.\n"
            "When a workflow will be useful repeatedly, save a parameterized reusable "
            "script in ~/.tny/scripts/ (create it when needed), using shell, Python or JavaScript "
            "as appropriate. Inspect existing scripts before reuse, pass workspace paths as "

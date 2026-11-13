@@ -1135,6 +1135,69 @@ TEST provider_decoding_every_split(void) {
     }
     PASS();
 }
+/* Without a usable python3 the native catalog is model-facing (ADR 0222):
+ * direct calls run, and a run_code call is refused before hooks. */
+TEST provider_offers_native_tools_without_python(void) {
+    const char *saved = getenv("TNY_PYTHON");
+    char *restore = saved ? xstrdup(saved) : NULL;
+    setenv("TNY_PYTHON", "off", 1);
+    const char *names[] = {"run_code", "list_files"};
+    for (int chat = 0; chat <= 1; chat++) {
+        for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) {
+            bool direct = strcmp(names[i], "run_code") != 0;
+            pv_fixture f;
+            pv_open(&f);
+            free(f.ctx->wire_api);
+            f.ctx->wire_api = xstrdup(chat ? "chat" : "responses");
+            const char *args =
+                direct ? "{\\\"path\\\":\\\".\\\"}" : "{\\\"code\\\":\\\"print(1)\\\"}";
+            buf_t reply = {0};
+            if (chat) {
+                buf_appends(&reply, "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"message\":{"
+                                    "\"tool_calls\":[{\"id\":\"direct\",\"type\":\"function\","
+                                    "\"function\":{\"name\":");
+                jescape(&reply, names[i]);
+                buf_appendf(&reply, ",\"arguments\":\"%s\"}}]}}]}", args);
+            } else {
+                buf_appends(&reply,
+                            "{\"status\":\"completed\",\"output\":[{\"type\":\"function_call\","
+                            "\"call_id\":\"direct\",\"name\":");
+                jescape(&reply, names[i]);
+                buf_appendf(&reply, ",\"arguments\":\"%s\"}]}", args);
+                f.done_body = "{\"status\":\"completed\",\"output\":[]}";
+            }
+            f.first_body = reply.data;
+            ASSERT_EQ(0, pv_turn(&f, "inspect the tool boundary"));
+            ASSERT_EQ(2, f.requests);
+            ASSERT_EQ(direct ? 1 : 0, f.pre_tool_calls);
+            ASSERT_EQ(direct, !strstr(f.bodies[1].data, "run_code is not enabled"));
+            ASSERT(!strstr(f.bodies[1].data, "only run_code is exposed"));
+            ASSERT(!strstr(f.bodies[0].data, "# Code execution"));
+            yyjson_doc *request = jparse(f.bodies[0].data, f.bodies[0].len);
+            ASSERT(request);
+            yyjson_val *tools = jget(yyjson_doc_get_root(request), "tools");
+            ASSERT(yyjson_arr_size(tools) > 1);
+            bool has_list = false, has_run_code = false;
+            size_t idx, max;
+            yyjson_val *tool;
+            yyjson_arr_foreach(tools, idx, max, tool) {
+                const char *name = jget_str(chat ? jget(tool, "function") : tool, "name");
+                if (name && strcmp(name, "list_files") == 0) has_list = true;
+                if (name && strcmp(name, "run_code") == 0) has_run_code = true;
+            }
+            ASSERT(has_list);
+            ASSERT(!has_run_code);
+            yyjson_doc_free(request);
+            buf_free(&reply);
+            pv_close(&f);
+        }
+    }
+    if (restore) setenv("TNY_PYTHON", restore, 1);
+    else unsetenv("TNY_PYTHON");
+    free(restore);
+    PASS();
+}
+
 TEST provider_rejects_raw_tools_before_hooks(void) {
     const char *names[] = {"read_file", "run_command", "mcp_select_tool", "web_search"};
     for (int chat = 0; chat <= 1; chat++) {
@@ -2588,6 +2651,7 @@ SUITE(openai_suite) {
     RUN_TEST(cpp_ownership_boundary);
     RUN_TEST(provider_decoding_every_split);
     RUN_TEST(provider_rejects_raw_tools_before_hooks);
+    RUN_TEST(provider_offers_native_tools_without_python);
     RUN_TEST(provider_nested_controls_log_and_stop);
     RUN_TEST(execution_image_admission_reserves_parent_queue);
     RUN_TEST(provider_decoder_rejects_hosted_search);

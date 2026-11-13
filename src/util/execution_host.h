@@ -25,10 +25,11 @@ int tny_exec_host_start(tny_exec_host *host);
 int tny_exec_host_start_embedded(tny_exec_host *host, const char *executable,
                                  tny_exec_cancel_fn cancel, void *ud);
 int tny_exec_host_start_tool(tny_exec_host *host);
-/* Same channel for a `--code-cell` child: the parent's environment minus
- * tny's reserved process-scope fields, stdin on /dev/null, and stdout and
- * stderr both on output_fd. */
-int tny_exec_host_start_cell(tny_exec_host *host, int output_fd);
+/* Same channel for a Python code cell: `python -u -X utf8 -c loader` with the
+ * parent's environment minus tny's reserved process-scope fields, stdin on
+ * /dev/null, and stdout and stderr both on output_fd. python is absolute. */
+int tny_exec_host_start_cell(tny_exec_host *host, const char *python, const char *loader,
+                             int output_fd);
 /* Server validates an inherited connected AF_UNIX socket on fd3, marks CLOEXEC. */
 int tny_exec_host_accept(void);
 int tny_exec_host_send(int fd, const char *json, int64_t deadline, tny_exec_cancel_fn cancel,

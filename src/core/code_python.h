@@ -1,49 +1,34 @@
-/* code_python.h — the embedded CPython interpreter used inside one
- * code cell (docs/adr/0179). Only the cell child process calls this in
- * production; it is not an isolation boundary by itself (the OS sandbox and
- * the parent's authority checks are). Native builds link the pinned static
- * CPython; library/wasm builds link code_python_unsupported.c instead. */
+/* code_python.h — the user's own python3 for code cells and tool extensions
+ * (docs/adr/0222). tny embeds no interpreter: cells and the tool host run on
+ * the python3 the user would run, with their environment and packages.
+ * Native builds link code_python.c; library/wasm builds link
+ * code_python_unsupported.c, which never finds an interpreter. */
 #ifndef TNY_CODE_PYTHON_H
 #define TNY_CODE_PYTHON_H
 
-#include "core/code_runtime.h"
 #include <stdbool.h>
-#include <stddef.h>
 
-typedef struct {
-    const char *catalog;   /* borrowed JSON array of permitted tool schemas */
-    tny_code_call_fn call; /* NULL result: terminal failure, see failure() */
-    void *userdata;
-    /* Optional reason for the last NULL call result (borrowed text). */
-    const char *(*failure)(void *userdata);
-    /* Production terminal handler: no allocation and no return to Python.
-     * It closes execution authority before a limit can be caught or bypassed
-     * through an alias of the inherited IPC descriptor. Optional test hosts
-     * may omit it; they are not the production process-isolation boundary. */
-    void (*abort)(void *userdata, const char *reason);
-} tny_code_python_host;
+/* Oldest Python a code cell accepts; older interpreters count as absent. */
+#define TNY_PYTHON_MIN_MAJOR 3
+#define TNY_PYTHON_MIN_MINOR 8
 
-/* False when this build has no embedded interpreter. */
+/* Absolute path of a usable python3, or NULL. TNY_PYTHON names one (a path,
+ * or a command looked up on PATH); TNY_PYTHON=off (or 0, none, false) means
+ * none. Otherwise the first python3 on PATH, as a shell would run it: a
+ * virtual environment's interpreter is kept as is, never resolved to its base.
+ * The answer is probed once (it runs the interpreter) and cached until
+ * TNY_PYTHON or PATH changes. The returned string is owned by the cache. */
+const char *tny_python_path(void);
+/* False for builds that link code_python_unsupported.c (libtny, wasm, MSYS2):
+ * they keep run_code with its explicit refusal instead of direct tools. */
+bool tny_code_python_build(void);
+/* True when code cells can run here, so run_code is the model-facing tool. */
 bool tny_code_python_available(void);
-/* Initialize once per process with the heap budget in force. 0 on success. */
-int tny_code_python_init(void);
-/* Run one cell in fresh globals. Returns malloc-owned output, "error: code:
- * ..." text, or NULL only on host allocation failure. */
-char *tny_code_python_run(const char *code, const tny_code_python_host *host);
-/* Bytes currently charged to the interpreter heap budget (diagnostics). */
-unsigned long long tny_code_python_heap_bytes(void);
-void tny_code_python_fini(void);
 
-/* One module of the embedded `tny` package (scripts/embed_python.sh). */
-typedef struct {
-    const char *name;
-    bool is_package;
-    const char *source;
-} tny_python_module;
-/* Tool host process body (ADR 0218): imports the embedded package and runs
- * tny._host.main(argv). Returns the process exit status; 2 when this build
- * has no interpreter. */
-int tny_code_python_host_main(const tny_python_module *modules, size_t count, int argc,
-                              char **argv);
+/* `python3 -u -X utf8 -c LOADER`: reads one length-prefixed source frame
+ * from fd 3 and executes it (the cell bootstrap, python/tny/_cell.py). */
+extern const char TNY_PYTHON_CELL_LOADER[];
+/* Source of python/tny/<module>.py embedded in the binary, or NULL. */
+const char *tny_python_module_source(const char *module);
 
 #endif

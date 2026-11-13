@@ -1,6 +1,7 @@
 """The tool host: load extension modules and serve them over MCP stdio.
 
-``tny --tool-host`` runs this inside tny's embedded CPython. The C side
+tny runs this on the user's own python3 (3.10 or newer, ADR 0222), loading
+the embedded ``tny`` package from its first stdin line. The C side
 passes the extension directories in precedence order (project before
 global); a project module shadows a global module of the same name.
 
