@@ -1,6 +1,6 @@
 # Prompt optimisation
 
-Type or dictate a draft, then press **Ctrl-O**, or enter:
+Type a draft, then press **Ctrl-O**, or enter:
 
 ```text
 /optimise fix the parser error
@@ -9,9 +9,8 @@ Type or dictate a draft, then press **Ctrl-O**, or enter:
 ```
 
 The optimiser rewrites the prompt in the composer. Edit it, then press Enter
-to send it through the conversation's selected provider and model. Dictation
-works normally: Ctrl-R, speak, Enter to transcribe, Ctrl-O to optimise, then
-Enter to submit. `/transcript` displays the conversation transcript.
+to send it through the conversation's selected provider and model.
+`/transcript` displays the conversation transcript.
 
 Optimisation requires an idle composer. While it runs, Esc, Ctrl-C, or Ctrl-D
 cancels it; typed/pasted text and Enter do not submit or modify the draft.
@@ -79,7 +78,7 @@ in the TUI and wasm. Parent step limits do not apply (ADR 0083).
 ```sh
 tny optimise 'fix the parser error'
 tny optimise --model inception/mercury-2.5 --json 'fix the parser error'
-tny dictate --seconds 10 | tny optimise --stdin
+git diff --stat | tny optimise --stdin
 ```
 
 `--provider` and `--model` before or after `optimise` select the optimiser.

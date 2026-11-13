@@ -168,22 +168,17 @@ jobs:
           make install-lib DESTDIR="$root" PREFIX=/usr/local
           if [ "$(uname -s)" = Darwin ]; then
             current_library=libtny.1.dylib
-            compat_library=libtny.0.dylib
             linker_name=libtny.dylib
           else
             current_library=libtny.so.1
-            compat_library=libtny.so.0
             linker_name=libtny.so
           fi
           library="$root/usr/local/lib/$current_library"
-          test -f "$library" -a -f "$root/usr/local/lib/$compat_library"
+          test -f "$library"
           python3 scripts/check_native_compat.py "$library"
           current_stage="$PWD/dist/libtny1-stage"
-          compat_stage="$PWD/dist/libtny0-stage"
           mkdir -p "$current_stage/usr/local/include" "$current_stage/usr/local/lib/pkgconfig" \
-            "$current_stage/usr/local/share/tny/abi" "$current_stage/usr/local/share/doc/tny" \
-            "$compat_stage/usr/local/include" "$compat_stage/usr/local/lib/pkgconfig" \
-            "$compat_stage/usr/local/share/tny"
+            "$current_stage/usr/local/share/tny/abi" "$current_stage/usr/local/share/doc/tny"
           cp -R "$root/usr/local/include/tny" "$current_stage/usr/local/include/"
           cp -P "$library" "$root/usr/local/lib/$linker_name" "$current_stage/usr/local/lib/"
           cp "$root/usr/local/lib/pkgconfig/libtny.pc" "$current_stage/usr/local/lib/pkgconfig/"
@@ -195,20 +190,9 @@ jobs:
             "$current_stage/usr/local/share/tny/ARTIFACT.json"
           python3 scripts/artifact_manifest.py "$current_stage" \
             "$current_stage/usr/local/share/tny/MANIFEST.sha256"
-          cp -R "$root/usr/local/include/tny-0" "$compat_stage/usr/local/include/"
-          cp "$root/usr/local/lib/$compat_library" "$compat_stage/usr/local/lib/"
-          cp "$root/usr/local/lib/pkgconfig/libtny-0.pc" "$compat_stage/usr/local/lib/pkgconfig/"
-          cp abi/compat0.json "$compat_stage/usr/local/share/tny/COMPAT0.json"
-          python3 scripts/artifact_manifest.py "$compat_stage" \
-            "$compat_stage/usr/local/share/tny/MANIFEST.sha256"
           tar -C "$current_stage" -czf "dist/libtny1-${{ matrix.triple }}.tar.gz" usr/local
-          tar -C "$compat_stage" -czf "dist/libtny0-compat-${{ matrix.triple }}.tar.gz" usr/local
           current_listing="$(tar -tzf "dist/libtny1-${{ matrix.triple }}.tar.gz")"
-          compat_listing="$(tar -tzf "dist/libtny0-compat-${{ matrix.triple }}.tar.gz")"
           printf '%s\n' "$current_listing" | grep "usr/local/lib/$current_library"
-          printf '%s\n' "$compat_listing" | grep "usr/local/lib/$compat_library"
-          if printf '%s\n' "$current_listing" | grep -q "$compat_library"; then exit 1; fi
-          if printf '%s\n' "$compat_listing" | grep -q "$current_library"; then exit 1; fi
 
       - name: Build, certify, and package language SDKs
         run: |

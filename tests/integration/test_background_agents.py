@@ -1046,7 +1046,6 @@ def locked_saved_inspection_retry():
                 "/status",
                 "/undo",
                 "/optimise BAD",
-                "/dictate",
             ):
                 term.send(command + "\r")
                 term.expect_next("read-only session replica:")

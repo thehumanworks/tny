@@ -1,12 +1,9 @@
 /* tools_ext.c — memory, read_tool_result, skills, vision, MCP glue; the
  * subagent tool lives in subagent.c. */
 #include "core/tools.h"
-#include "core/speech.h"
 #include "core/tools_image.h"
 #include "core/tools_jobs.h"
 #include "core/tools_workspace.h"
-#include "core/tools_team.h"
-#include "core/team_runtime.h"
 #include "core/image.h"
 #include "core/skills.h"
 #include "core/subagent.h"
@@ -173,38 +170,10 @@ static char *t_ask_user(tools_env *env, yyjson_val *args) {
                     "proceed with your best judgment and note the assumption");
 }
 
-static char *t_speak(tools_env *env, yyjson_val *args) {
-    if (env->ctx->library_mode) return tool_err("speak is unavailable in embedded runtimes");
-    size_t text_len = 0, voice_len = 0;
-    const char *text = jget_strn(args, "text", &text_len);
-    const char *voice = jget_strn(args, "voice", &voice_len);
-    if (!text || !utf8_valid_bytes(text, text_len) ||
-        (voice && !utf8_valid_bytes(voice, voice_len)))
-        return tool_err("speech requires UTF-8 text and voice without embedded NUL");
-    tny_speech_request r = {
-        .text = text, .voice = voice, .cancelled = env->cancelled, .userdata = env->cancelled_ud};
-    char err[256] = "";
-    int rc = tny_speech_run(env->ctx, &r, err, sizeof err);
-    return rc ? tool_err("%s", err) : xstrdup("Speech played successfully.");
-}
-
 char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool *handled) {
     *handled = true;
     /* subagent answers every unsupported runtime itself (stable codes) */
     if (strcmp(name, "subagent") == 0) return tny_subagent_execute(env, args);
-    if (strcmp(name, "team_control") == 0) {
-        buf_t out;
-        buf_init(&out);
-        char err[320] = "";
-        int rc = tool_team_run(env, tny_team_op_parse(jget_str(args, "action")),
-                               jget(args, "request"), &out, err, sizeof err);
-        if (rc) {
-            char *result = tool_err("%s\n%s", err, out.data ? out.data : "");
-            buf_free(&out);
-            return result;
-        }
-        return buf_detach(&out);
-    }
     if (tool_workspace_op(name) != TNY_WORKSPACE_NONE) {
         buf_t out;
         buf_init(&out);
@@ -214,17 +183,6 @@ char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool 
             char *result = tool_err("%s\n%s", err, out.data ? out.data : "");
             buf_free(&out);
             return result;
-        }
-        return buf_detach(&out);
-    }
-    if (strcmp(name, "team_mailbox") == 0) {
-        buf_t out;
-        buf_init(&out);
-        char err[320] = "";
-        int rc = tny_team_mailbox_run(env, args, false, &out, err, sizeof err);
-        if (rc) {
-            buf_free(&out);
-            return tool_err("%s", err[0] ? err : "mailbox operation failed");
         }
         return buf_detach(&out);
     }
@@ -258,7 +216,6 @@ char *tool_ext_execute(tools_env *env, const char *name, yyjson_val *args, bool 
         buf_free(&out);
         return result ? result : tool_err("the job result could not be returned");
     }
-    if (strcmp(name, "speak") == 0) return t_speak(env, args);
     if (strcmp(name, "memory") == 0) return t_memory(env, args);
     if (strcmp(name, "search_transcript") == 0) return t_search_transcript(env, args);
     if (strcmp(name, "read_tool_result") == 0) return t_read_tool_result(env, args);

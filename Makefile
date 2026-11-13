@@ -185,7 +185,7 @@ SRC_ALL := $(C_SRC_ALL) $(CPP_SRC)
 # hand-rolled HTTP/1.1) and the poll(2) wrapper are excluded
 # from the wasm build wholesale rather than #ifdef-riddled; src/net/net_wasm.c
 # replaces the whole seam there (fetch, browser WebSocket, pseudo-fd registry).
-SRC_NATIVE := src/backends/acp/acp_proc.c src/net/tcp.c src/net/stream.c src/net/http1.c src/net/http_server.c \
+SRC_NATIVE := src/backends/acp/acp_proc.c src/net/tcp.c src/net/stream.c src/net/http1.c \
               src/util/tny_poll.c src/util/tui_shell_host.c
 SRC_WASM_ONLY := src/net/net_wasm.c src/backends/acp/acp_proc_wasm.c src/util/tui_shell_host_wasm.c
 # Python code cells (docs/adr/0179). The embedded interpreter is native CLI
@@ -324,18 +324,9 @@ FUZZ_CXX ?= $(call cxx_driver,$(FUZZ_CC))
 FUZZ_CXXFLAGS = $(call cxx_flags,$(FUZZ_CFLAGS))
 FUZZ_HARNESS_CXXFLAGS = $(call cxx_flags,$(FUZZ_HARNESS_CFLAGS))
 
-ABI0_COMPAT_COMMIT := 510a95c2ef89aa9ec02a66d8b0a5cadd953025a8
-ABI0_COMPAT_ARCHIVE ?=
-ABI0_COMPAT_ARCHIVE_SHA256 := 8718336dbde47f3f8427bf6b3a724127e3ed24b61eaedb6f315523ec2a00c2f6
-ABI0_COMPAT_ROOT := $(BUILD)/compat0/$(ABI0_COMPAT_COMMIT)
-ABI0_COMPAT_SRC := $(ABI0_COMPAT_ROOT)/src
-ABI0_COMPAT_BUILD := $(abspath $(ABI0_COMPAT_ROOT)/out)
-ABI0_COMPAT_STAMP := $(ABI0_COMPAT_ROOT)/.source-verified
 ifeq ($(UNAME_S),Darwin)
   LIB_REAL := $(BUILD)/lib/libtny.1.dylib
   LIB_LINK := $(BUILD)/lib/libtny.dylib
-  LIB_COMPAT0_REAL := $(BUILD)/lib/libtny.0.dylib
-  ABI0_COMPAT_BUILT := $(ABI0_COMPAT_BUILD)/lib/libtny.0.dylib
   LIB_LDFLAGS := -dynamiclib -Wl,-install_name,@rpath/libtny.1.dylib \
                  -Wl,-compatibility_version,1.0.0 \
                  -Wl,-current_version,$(LIBTNY_MACH_CURRENT_VERSION) \
@@ -351,12 +342,9 @@ ifeq ($(UNAME_S),Darwin)
                        -Wl,-compatibility_version,1.0.0 \
                        -Wl,-current_version,$(LIBTNY_MACH_CURRENT_VERSION) \
                        -Wl,-dead_strip
-  ABI0_COMPAT_LIBS := -ltny.0
 else
   LIB_REAL := $(BUILD)/lib/libtny.so.1
   LIB_LINK := $(BUILD)/lib/libtny.so
-  LIB_COMPAT0_REAL := $(BUILD)/lib/libtny.so.0
-  ABI0_COMPAT_BUILT := $(ABI0_COMPAT_BUILD)/lib/libtny.so.0
   LIB_LDFLAGS := -shared -Wl,-soname,libtny.so.1 -Wl,--gc-sections \
                  -Wl,--version-script,abi/libtny.map -pthread -ldl
   LIB_EXPORT_FILE := abi/libtny.map
@@ -370,7 +358,6 @@ else
   LIB_TSAN_LINK := $(BUILD)/lib-tsan/libtny.so
   TSAN_HOST := $(BUILD)/tsan/libtny-tsan-host
   TSAN_CUSTOM_HOST := $(BUILD)/tsan/libtny-custom-tools-tsan
-  ABI0_COMPAT_LIBS := -l:libtny.so.0
 endif
 
 TEST_SRC := $(wildcard tests/*.c tests/*.cpp)
@@ -460,13 +447,6 @@ python-embed-bench: $(PYTHON_EMBED_BENCH)
 verify-formal: verify-execution-protocol
 	python3 tests/formal/test_lean_golden.py
 
-# Lean 4 proofs of dictation normalization (ADR 0175): prove, regenerate the
-# golden tables the C unit suite replays, and fail if they changed. Needs
-# lake (elan); CI's lean-proofs job runs it. make test replays the tables.
-.PHONY: verify-dictation-proofs
-verify-dictation-proofs:
-	python3 tests/formal/check_lean_golden.py tests/formal/dictation
-
 # ACP version admission and lifecycle (ADR 0177). Ordinary tests replay the
 # exported versions in C and the handshake transitions over the fixture wire.
 .PHONY: verify-acp-proofs
@@ -478,7 +458,7 @@ verify-acp-proofs:
 verify-execution-protocol:
 	python3 tests/formal/check_execution_protocol.py
 
-.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-tool-extensions test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-sdk-examples test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-compat0 lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
+.PHONY: all release debug test test-unit test-event-schema test-conformance-contract test-tool-extensions test-shell-workflows test-install-prefix test-abi test-sdk-python test-sdk-typescript test-sdks test-sdk-examples test-libtny-fault test-libtny-fault-sanitize test-libtny-tsan test-libtny-mutation test-libtny-fuzz-smoke test-libtny-fuzz size size-check pack smoke bench clean install install-lib install-lib-active lib-shared lib-shared-active lib-shared-fault lib-shared-fault-sanitize lib-shared-tsan site FORCE
 
 all: release
 
@@ -537,23 +517,6 @@ $(ACP_DEADLINE_FIXTURE): $(filter-out $(OBJ_REL)/src/main.o $(OBJ_REL)/src/core/
 acp-bridge-deadline-fixture: $(ACP_DEADLINE_FIXTURE)
 test-acp-bridge-deadline: $(ACP_DEADLINE_FIXTURE)
 	TNY_ACP_DEADLINE_BIN=$(abspath $(ACP_DEADLINE_FIXTURE)) python3 tests/integration/test_acp_bridge_deadline.py
-
-# A separate, never-installed binary redirects only xAI STT to fake loopback
-# fixtures. The shipped adapter is always pinned to https://api.x.ai/v1/stt.
-DICTATION_FIXTURE = $(BUILD)/tny-dictation-fixture$(EXE)
-DICTATION_FIXTURE_OBJ = $(OBJ_REL)/dictation_xai_fixture.o
-$(DICTATION_FIXTURE_OBJ): src/core/dictation_xai.c | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(CC) $(REL_CFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -DTNY_DICTATION_FIXTURE -MMD -MP -c -o $@ $<
-
-$(DICTATION_FIXTURE): $(filter-out $(OBJ_REL)/src/core/dictation_xai.o,$(REL_OBJS)) $(DICTATION_FIXTURE_OBJ)
-	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $^ $(REL_LDFLAGS)
-
-.PHONY: dictation-fixture test-dictation wasm-dictation-fixture
-dictation-fixture: $(DICTATION_FIXTURE)
-test-dictation: $(TEST_BIN) $(BIN) $(DICTATION_FIXTURE)
-	./$(TEST_BIN) -s dictation
-	TNY=$(abspath $(BIN)) TNY_DICTATION_FIXTURE_BIN=$(abspath $(DICTATION_FIXTURE)) python3 tests/integration/test_dictation.py
 
 # The interpreter layer compiles against the pinned CPython headers only.
 $(call objects,$(OBJ_REL),$(SRC_PY_RUNTIME)): REL_CFLAGS += $(CPYTHON_INC)
@@ -654,10 +617,9 @@ $(BUILD)/lib/tny-executor: $(SDK_EXECUTOR_OBJS) $(CPYTHON_LIB)
 	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $(SDK_EXECUTOR_OBJS) $(REL_LDFLAGS) $(SDK_EXECUTOR_LDFLAGS)
 	strip $@ 2>/dev/null || strip -x $@
 lib-shared-active: $(LIB_LINK)
-lib-shared: lib-shared-active $(LIB_COMPAT0_REAL)
-lib-shared-compat0: $(LIB_COMPAT0_REAL)
+lib-shared: lib-shared-active
 else
-lib-shared lib-shared-active lib-shared-compat0 sdk-executor:
+lib-shared lib-shared-active sdk-executor:
 	@echo "error: ABI 1 shared libtny is supported only on macOS arm64 and glibc Linux x86_64/aarch64 dynamic builds" >&2
 	@exit 2
 endif
@@ -684,30 +646,6 @@ $(LIB_REAL): $(LIB_PIC_OBJS) $(LIB_EXPORT_FILE)
 $(LIB_LINK): $(LIB_REAL)
 	@mkdir -p $(@D)
 	@cd $(@D) && ln -sf $(notdir $(LIB_REAL)) $(notdir $@)
-
-$(ABI0_COMPAT_STAMP): abi/compat0.json scripts/check_abi_baseline.py
-	@mkdir -p $(ABI0_COMPAT_SRC)
-	@if $(GIT) cat-file -e $(ABI0_COMPAT_COMMIT)^{commit} 2>/dev/null; then \
-		$(GIT) archive $(ABI0_COMPAT_COMMIT) | tar -x -C $(ABI0_COMPAT_SRC); \
-	elif test -n "$(ABI0_COMPAT_ARCHIVE)" && \
-		test -f "$(ABI0_COMPAT_ARCHIVE)"; then \
-		actual=$$(shasum -a 256 "$(ABI0_COMPAT_ARCHIVE)" | awk '{print $$1}'); \
-		test "$$actual" = "$(ABI0_COMPAT_ARCHIVE_SHA256)" || { \
-			echo "error: ABI0_COMPAT_ARCHIVE hash mismatch" >&2; exit 1; }; \
-		tar -xf "$(ABI0_COMPAT_ARCHIVE)" -C $(ABI0_COMPAT_SRC); \
-	else \
-		echo "error: frozen ABI0 commit unavailable; use a full checkout or set ABI0_COMPAT_ARCHIVE to the verified git archive" >&2; \
-		exit 1; \
-	fi
-	python3 scripts/check_abi_baseline.py --compat0 abi/compat0.json \
-		--compat0-source-root $(ABI0_COMPAT_SRC)
-	@touch $@
-
-$(LIB_COMPAT0_REAL): $(ABI0_COMPAT_STAMP)
-	$(MAKE) -C $(ABI0_COMPAT_SRC) BUILD=$(ABI0_COMPAT_BUILD) \
-		CC='$(CC)' TNY_VERSION='$(TNY_VERSION)' lib-shared
-	@mkdir -p $(@D)
-	cp $(ABI0_COMPAT_BUILT) $@
 
 $(LIB_FAULT_REAL): $(FAULT_PIC_OBJS) $(LIB_EXPORT_FILE)
 	@mkdir -p $(@D)
@@ -814,7 +752,6 @@ test-abi: TNY_VERSION=1.0.0
 test-abi: lib-shared
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 		-s tests/abi -p 'test_*.py' -v
-	python3 scripts/check_abi_baseline.py --compat0 abi/compat0.json
 	python3 scripts/check_abi_baseline.py \
 		--candidate $(BUILD)/abi/libtny-v1-current.json
 	python3 scripts/check_abi_baseline.py \
@@ -1104,7 +1041,7 @@ $(SAN_CUSTOM_CPP_HOST): tests/integration/libtny_custom_tools_cpp.cpp $(LIB_FAUL
 
 # Provider OOM regressions use the complete allocator-instrumented object graph
 # (ADR 0117): real ACP/Cursor/OpenAI backends with injected C and C++ owners.
-PROVIDER_FAULT_TEST_SRC :=                            tests/test_openai.c tests/test_ownership.cpp \
+PROVIDER_FAULT_TEST_SRC := tests/test_openai.c tests/http_server.c tests/test_ownership.cpp \
                            tests/integration/libtny_provider_fault_host.c
 PROVIDER_FAULT_TEST := $(BUILD)/lib-fault/provider-faults
 PROVIDER_FAULT_SAN_TEST := $(BUILD)/lib-fault-san/provider-faults
@@ -1252,7 +1189,7 @@ test-subagent-e2e: release
 verify-subagents-live: release
 	python3 tests/integration/live_subagent_check.py --live --tny '$(abspath $(BIN))' --output '$(BUILD)/subagents-live.json'
 
-test: test-code-mode-language verify-formal dictation-fixture test-unit test-openai-errors test-event-schema test-conformance-contract test-tool-extensions test-install-prefix test-help-flags test-shell-quick-ask release
+test: test-code-mode-language test-unit test-openai-errors test-event-schema test-conformance-contract test-tool-extensions test-install-prefix test-help-flags test-shell-quick-ask release
 	tests/integration/run.sh
 
 size: release
@@ -1310,21 +1247,7 @@ install-lib-active: lib-shared-active
 		libtny.pc.in > \
 		"$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny.pc"
 
-install-lib: lib-shared
-	mkdir -p "$(DESTDIR)$(PREFIX)/include/tny" \
-		"$(DESTDIR)$(PREFIX)/include/tny-0/tny" \
-		"$(DESTDIR)$(PREFIX)/lib/pkgconfig"
-	cp include/tny/tny.h "$(DESTDIR)$(PREFIX)/include/tny/tny.h"
-	cp $(ABI0_COMPAT_SRC)/include/tny/tny.h \
-		"$(DESTDIR)$(PREFIX)/include/tny-0/tny/tny.h"
-	cp -P $(LIB_REAL) $(LIB_LINK) $(LIB_COMPAT0_REAL) \
-		"$(DESTDIR)$(PREFIX)/lib/"
-	sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@VERSION@|$(TNY_VERSION)|g' \
-		libtny.pc.in > \
-		"$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny.pc"
-	sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@VERSION@|$(TNY_VERSION)|g' \
-		-e 's|@COMPAT_LIBS@|$(ABI0_COMPAT_LIBS)|g' libtny-0.pc.in > \
-		"$(DESTDIR)$(PREFIX)/lib/pkgconfig/libtny-0.pc"
+install-lib: install-lib-active
 
 site: release
 	python3 scripts/site_build.py
@@ -1511,10 +1434,9 @@ LEAKS         ?= leaks
 # its correlation tests fork a runner and a terminal child.
 # terminal_task_suite also forks a detached waiter; the inherited atExit hook
 # stops that waiter before its launch handshake (ADR 0136).
-# learning_process_suite forks writers to verify concurrent evidence merging.
 # execution_transport_process_suite forks fault/transport peers whose exit() inherits
 # the macOS atExit hook and deadlocks. Linux Valgrind still covers the suite.
-LEAK_SUITE_SKIP := mcp_suite runner_suite learning_process_suite execution_transport_process_suite \
+LEAK_SUITE_SKIP := mcp_suite runner_suite execution_transport_process_suite \
 	session_bg_suite ssh_suite terminal_task_suite task_workspace_process_suite
 LEAK_SUITES = $(filter-out $(LEAK_SUITE_SKIP),\
 	$(if $(wildcard tests/test_main.c),$(shell sed -n 's/.*RUN_SUITE(\([A-Za-z0-9_]*\)).*/\1/p' tests/test_main.c)))
@@ -1608,20 +1530,6 @@ $(WASM_WEB): $(WASM_OBJS) src/wasm/pre_web.js
 		--pre-js src/wasm/pre_web.js -o $@ $(WASM_OBJS)
 	@wc -c $@ $(@:.mjs=.wasm)
 
-WASM_DICTATION_FIXTURE_OBJ = $(OBJ_WASM)/dictation_xai_fixture.o
-WASM_DICTATION_FIXTURE = $(BUILD)/wasm/tny-dictation-fixture.js
-$(WASM_DICTATION_FIXTURE_OBJ): src/core/dictation_xai.c | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(EMCC) $(WASM_CFLAGS) -DTNY_DICTATION_FIXTURE -MMD -MP -c -o $@ $<
-
-$(WASM_DICTATION_FIXTURE): $(filter-out $(OBJ_WASM)/src/core/dictation_xai.o,$(WASM_OBJS)) $(WASM_DICTATION_FIXTURE_OBJ) src/wasm/pre_node.js
-	$(EMCXX) $(WASM_LDFLAGS) -sENVIRONMENT=node -sNODERAWFS \
-		--pre-js src/wasm/pre_node.js -o $@ $(filter %.o,$^)
-	@printf '#!/bin/sh\nexec node "%s" "$$@"\n' "$(abspath $(WASM_DICTATION_FIXTURE))" > $(@D)/tny-dictation-fixture
-	@chmod +x $(@D)/tny-dictation-fixture
-
-wasm-dictation-fixture: $(WASM_DICTATION_FIXTURE)
-
 wasm: $(WASM_NODE)
 wasm-web: $(WASM_WEB)
 
@@ -1661,7 +1569,6 @@ endif
          $(TSAN_PIC_OBJS:.o=.d) $(FUZZ_OBJS:.o=.d) $(TEST_OBJS:.o=.d) \
          $(patsubst %.o,%.d,$(call objects,$(OBJ_DBG),$(TEST_SRC)))
 
--include $(DICTATION_FIXTURE_OBJ:.o=.d) $(WASM_DICTATION_FIXTURE_OBJ:.o=.d)
 
 -include $(WASM_OBJS:.o=.d) $(FUZZ_SMOKE_OBJ:.o=.d) $(FUZZ_HARNESS_OBJ:.o=.d)
 

@@ -182,6 +182,8 @@ jobs:
           "${CXX:-c++}" --version
           if [ "${{ matrix.suite }}" = full ]; then
             make -j"$jobs" test
+            # Formal checks need Clang and Z3; they stay out of `make test` (ADR 0221).
+            make verify-formal
           else
             make -j"$jobs" test-unit test-subagent-e2e release
             TNY="$PWD/build/tny" python3 tests/integration/test_execution_code_mode.py
@@ -300,15 +302,13 @@ jobs:
           em++ --version | head -1
           python3 -m unittest tests.integration.test_cpp_build.CppBuild.test_wasm_exception_catching
           node --version
-          make -j"$(getconf _NPROCESSORS_ONLN)" wasm wasm-web wasm-dictation-fixture
+          make -j"$(getconf _NPROCESSORS_ONLN)" wasm wasm-web
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 python3 tests/integration/test_acp_client.py
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 python3 tests/integration/test_execution_code_mode.py
           # Sign in with ChatGPT: seeded store, plan requests, refresh, logout (ADR 0186).
           TNY="$PWD/build/wasm/tny" python3 tests/integration/test_openai_signin.py
-          # Standalone services and explicit unsupported process seams remain
-          # testable without admitting provider-driven native tool execution.
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_dictation.py
-          TNY="$PWD/build/wasm/tny" python3 tests/integration/test_tnyjev.py
+          # Explicit unsupported process seams remain testable without
+          # admitting provider-driven native tool execution.
           tests/integration/test_provider_setup.sh "$PWD/build/wasm/tny"
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 python3 tests/integration/test_background.py
           TNY="$PWD/build/wasm/tny" TNY_TEST_EXPECT_WASM=1 python3 tests/integration/test_jobs.py "$PWD/build/wasm/tny"
@@ -381,8 +381,8 @@ jobs:
           retention-days: 14
 
   lean-proofs:
-    # Lean 4 proofs of dictation normalization, ACP admission/lifecycle and
-    # the Python code-cell gates (ADRs 0175, 0177, 0179). `make test` replays
+    # Lean 4 proofs of ACP admission/lifecycle and the Python code-cell
+    # gates (ADRs 0177, 0179). `make test` replays
     # the committed golden tables against the C verifier and lifecycle; this
     # job proves their definitions and rejects golden-table drift. The replay
     # cases connect those specifications to C without claiming a full C proof.
@@ -393,11 +393,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: leanprover/lean-action@v1
         with:
-          lake-package-directory: tests/formal/dictation
+          lake-package-directory: tests/formal/acp
           auto-config: false
           build: true
-      - name: Golden tables match the proven definitions
-        run: make verify-dictation-proofs
       - name: ACP admission proofs and golden transitions
         run: make verify-acp-proofs
       - name: Python code-cell gate proofs from the production C (ADR 0179)

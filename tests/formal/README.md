@@ -1,7 +1,7 @@
 # Formal contracts
 
-Two formalisms live here: Lean 4 for production code-cell gates, dictation and
-ACP contracts, and Z3 for source-linked execution admission.
+Two formalisms live here: Lean 4 for production code-cell gates and ACP
+contracts, and Z3 for source-linked execution admission.
 
 Benchmark-only decision proofs were replaced with direct offline tests by
 [ADR 0188](../../docs/adr/0188-focused-verification-maintenance.md). The original
@@ -69,22 +69,3 @@ These tests are bounded evidence, not all-input proofs. In particular the unit
 shell test clears the disclosure buffer itself; it must not be cited as proof
 that production prompt submission consumes it exactly once.
 
-## Lean 4: dictation normalization (`dictation/`)
-
-`dictation/` specifies and proves transcript normalization (ADR 0175) in Lean
-4.30 with no Mathlib: correction application and its soundness
-(`Dictation/Apply.lean`), text classes, the number grammar and a Levenshtein
-row DP proven equal to its recursive specification (`Text.lean`), the
-project-wins dictionary merge (`Dictionary.lean`), the verifier with fail-open
-delivery (`Verify.lean`) and the normalization lifecycle invariants
-(`Lifecycle.lean`). No `sorry` or axioms. `lake exe export golden` writes
-`golden/lifecycle.tsv`, `golden/dictionaries.tsv` and `golden/verify.tsv`.
-
-`make test` (via `tests/test_dictation.c`) replays those committed tables
-against `tny_norm_step`, `tny_dictionary_parse`, `tny_norm_proposal_parse` and
-`tny_norm_verify`, so it needs no Lean toolchain. `make verify-dictation-proofs`
-(and the CI `lean-proofs` job) rebuilds the proofs and fails if regenerated
-tables differ from the committed ones. Install the toolchain with elan; the
-pin is `dictation/lean-toolchain`. Like the SMT contracts, this proves the
-specification and ties the C implementation to it on the exported inputs; it
-does not prove the C code, the transport or the model.

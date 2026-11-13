@@ -23,8 +23,6 @@ SUITE_EXTERN(util_suite);
 SUITE_EXTERN(worktree_suite);
 SUITE_EXTERN(task_workspace_suite);
 SUITE_EXTERN(task_workspace_process_suite);
-SUITE_EXTERN(team_runtime_suite);
-SUITE_EXTERN(swarm_manifest_suite);
 SUITE_EXTERN(net_suite);
 SUITE_EXTERN(http_server_suite);
 SUITE_EXTERN(core_suite);
@@ -39,8 +37,6 @@ SUITE_EXTERN(terminal_task_suite);
 SUITE_EXTERN(runner_suite);
 SUITE_EXTERN(ssh_suite);
 SUITE_EXTERN(tasks_suite);
-SUITE_EXTERN(learning_suite);
-SUITE_EXTERN(learning_process_suite);
 SUITE_EXTERN(mcp_suite);
 SUITE_EXTERN(web_search_suite);
 SUITE_EXTERN(skills_suite);
@@ -49,9 +45,6 @@ SUITE_EXTERN(edit_suite);
 SUITE_EXTERN(perm_suite);
 SUITE_EXTERN(intercept_suite);
 SUITE_EXTERN(provider_extras_suite);
-SUITE_EXTERN(speech_suite);
-SUITE_EXTERN(dictation_suite);
-SUITE_EXTERN(tnyjev_suite);
 SUITE_EXTERN(image_service_suite);
 
 int test_acp_stdin_probe(void);
@@ -69,16 +62,12 @@ int main(int argc, char **argv) {
      * Tests select their own profiles explicitly; ambient TNY_TOOLS must not
      * hide fixture tools, including when leaks runs one suite per process. */
     unsetenv("TNY_TOOLS");
-    unsetenv("TNY_SELF_IMPROVE");
     GREATEST_MAIN_BEGIN();
     RUN_SUITE(acp_compat_suite);
     RUN_SUITE(agent_presets_suite);
     RUN_SUITE(retrieval_sources_suite);
     RUN_SUITE(retrieval_suite);
     RUN_SUITE(image_service_suite);
-    RUN_SUITE(speech_suite);
-    RUN_SUITE(dictation_suite);
-    RUN_SUITE(tnyjev_suite);
     RUN_SUITE(code_runtime_suite);
     RUN_SUITE(execution_protocol_suite);
     RUN_SUITE(execution_transport_suite);
@@ -88,8 +77,6 @@ int main(int argc, char **argv) {
     RUN_SUITE(worktree_suite);
     RUN_SUITE(task_workspace_suite);
     RUN_SUITE(task_workspace_process_suite);
-    RUN_SUITE(team_runtime_suite);
-    RUN_SUITE(swarm_manifest_suite);
     RUN_SUITE(net_suite);
     RUN_SUITE(http_server_suite);
     RUN_SUITE(core_suite);
@@ -104,8 +91,6 @@ int main(int argc, char **argv) {
     RUN_SUITE(runner_suite);
     RUN_SUITE(ssh_suite);
     RUN_SUITE(tasks_suite);
-    RUN_SUITE(learning_suite);
-    RUN_SUITE(learning_process_suite);
     RUN_SUITE(mcp_suite);
     RUN_SUITE(web_search_suite);
     RUN_SUITE(skills_suite);

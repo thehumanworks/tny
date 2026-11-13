@@ -105,8 +105,8 @@ advertised.
 See the [capability and verification matrix](../verification/acp-client/README.md)
 and [ADR 0164](../adr/0164-optional-acp-clients.md) for authority/resource bounds.
 
-Managed jobs, DAGs, shared admission, read-only teams and collective/manifest
-swarms can request verified Claude ACP children. Every launch, including ordinary non-DAG jobs, carries a required
+Managed jobs, DAGs, shared admission and read-only workspaces can request verified
+Claude ACP children. Every launch, including ordinary non-DAG jobs, carries a required
 tools-authority constraint: after the owned launch is counted, the child checks
 the actual adapter identity/version before session/new or load. Parsing, help
 and status never launch a verifier. Guarded children initialize in private
@@ -147,13 +147,6 @@ The frozen C event view retains zero placeholders and additive metadata getters
 provide currency, cumulative scope and token-reporting status. Workflow totals
 exclude cumulative session costs rather than risk counting the same session twice.
 
-Swarm activation and subscribed team messages are durably queued with their
-receipt/activation state and forwarded at ACP prompt boundaries. A successful
-end-turn acknowledgement clears only the forwarded prefix; errors and
-cancellation retain it for retry/resume. The forwarding queue is bounded to
-256 messages and 1 MiB. ACP does not expose the external agent's internal
-model-call boundaries for automatic mid-prompt mailbox injection. Native tny
-team/mailbox tools remain available during a prompt.
 
 Guarded launches require an absolute adapter executable or a PATH command;
 relative executable paths containing a slash fail before spawn with guidance.
@@ -161,7 +154,7 @@ Use absolute paths for script/config arguments too, since guarded adapters run
 in private scratch space. Settings command arrays preserve literal empty and
 `--` arguments in frozen child snapshots.
 
-Native search, image and speech services retain their existing provider and
+Native search and image services retain their existing provider and
 credential requirements. A Claude account login does not supply credentials
 for those independent HTTP services; configure them as described in their
 native service guides.

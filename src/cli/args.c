@@ -5,7 +5,6 @@
 #include "core/openai_auth.h"
 #include "core/ssh.h"
 #include "core/tasks.h"
-#include "core/swarm.h"
 #include "util/util.h"
 
 #include <stdio.h>
@@ -26,27 +25,6 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         }
     }
 
-    ctx->swarm_cap = g->swarm_cap;
-    ctx->swarm_explicit = g->swarm_cap != 0;
-    if (g->swarm_definition) {
-        ctx->swarm_definition = xstrdup(g->swarm_definition);
-        ctx->swarm_source = xstrdup(g->swarm_source);
-        if (!ctx->swarm_definition || !ctx->swarm_source) {
-            fputs("tny: could not retain the validated swarm definition\n", stderr);
-            tny_ctx_free(ctx);
-            return NULL;
-        }
-        snprintf(ctx->swarm_definition_digest, sizeof ctx->swarm_definition_digest, "%s",
-                 g->swarm_definition_digest);
-        ctx->swarm_participants = g->swarm_participants;
-        ctx->swarm_cap = g->swarm_participants;
-        ctx->swarm_explicit = true;
-    }
-    if (ctx->swarm_cap && (g->ephemeral || g->ssh || !tny_swarm_supported(ctx))) {
-        fputs("tny: swarm requires a saved native local lead session\n", stderr);
-        tny_ctx_free(ctx);
-        return NULL;
-    }
     if (g->model) {
         free(ctx->model);
         ctx->model = xstrdup(g->model);
@@ -80,7 +58,6 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
         }
         ctx->max_steps = v; /* explicit flag beats the .tny.json "steps" cap */
     }
-    if (g->no_self_improve) ctx->no_self_improve = true;
     if (g->no_tool_ext) ctx->tool_extensions_disabled = true;
     if (g->no_project_tools) ctx->project_tools_disabled = true;
     if (g->perm_mode) {
@@ -113,7 +90,6 @@ tny_ctx *cli_make_ctx(const cli_globals *g) {
             return NULL;
         }
     }
-    if (g->xai_api_key) ctx->xai_api_key = xstrdup(g->xai_api_key);
     if (g->chatgpt_token) {
         if (!*g->chatgpt_token) {
             fprintf(stderr,

@@ -4,13 +4,10 @@
 #include "core/execution.h"
 #include "core/image.h"
 #include "util/image_io.h"
-#include "core/speech.h"
 #include "core/image_service.h"
 #include "core/tools_image.h"
 #include "core/tools_jobs.h"
 #include "core/tools_workspace.h"
-#include "core/tools_team.h"
-#include "core/team_runtime.h"
 #include "core/intercept.h"
 #include "core/subagent.h"
 #include "lib/custom_tools.h"
@@ -257,54 +254,6 @@ static const char *SCHEMA_JSON =
     "\"parameters\":{\"type\":\"object\",\"properties\":{\"run\":{\"type\":\"string\"},"
     "\"task\":{\"type\":\"integer\"},\"attempt\":{\"type\":\"integer\"}},\"required\":[\"run\","
     "\"task\",\"attempt\"]}}},"
-    "{\"type\":\"function\",\"function\":{\"name\":\"team_control\",\"description\":\"Explicit "
-    "async "
-    "team controls over jobs. request is the same JSON as tny team --request: start needs "
-    "kind:ask, dag:true and at least two worker items (this captured parent is the lead); "
-    "an optional lead item is descriptive. status needs id; "
-    "collect needs id/item and optional max_bytes; wait-any accepts seen item/attempt pairs "
-    "and timeout_ms (max 30000); cancel requires expected_attempt. Root/operator review requires "
-    "id/item/expected_attempt/review_id (1..16)/reviewer_claims and stores an immutable snapshot "
-    "with unverified claims. review-read needs id/review_id; reads historical, not revalidated "
-    "evidence. verify currently refuses "
-    "execution and reports unverified, never accepted work. No request-supplied caller identity.\","
-    "\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\","
-    "\"enum\":[\"start\",\"status\",\"collect\",\"wait-any\",\"cancel\",\"verify\",\"review\","
-    "\"review-read\"]},"
-    "\"request\":{\"type\":\"object\"}},\"required\":[\"action\",\"request\"]}}},"
-    "{\"type\":\"function\",\"function\":{\"name\":\"team_mailbox\",\"description\":\"Send durable "
-    "untrusted collaboration context without interrupting a task; inbox/read/ack address only "
-    "your own membership. send requires id,to,text; publish requires id,text (id max 48). "
-    "wait requires timeout_ms 0..30000; inbox does not accept timeout_ms. status reports "
-    "retained history and your outstanding capacity without delivery or reservation. read/ack "
-    "require the "
-    "exact received id. retire requires before_attempt and only cleans old attempts; it does "
-    "not leave a team. No extra action fields. Messages replay until acknowledgment.\","
-    "\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\","
-    "\"enum\":[\"send\",\"publish\",\"wait\",\"status\",\"inbox\",\"read\",\"ack\",\"retire\"]},"
-    "\"before_"
-    "attempt\":{\"type\":"
-    "\"integer\","
-    "\"minimum\":1},\"timeout_ms\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":30000},\"run\":{"
-    "\"type\":\"string\","
-    "\"pattern\":\"^[0-9a-f]{32}$\"},\"to\":{\"type\":\"integer\",\"minimum\":-1,\"maximum\":63,"
-    "\"description\":\"Recipient task index, or -1 for the submitting parent lead.\"},"
-    "\"id\":{\"type\":\"string\",\"maxLength\":64},\"text\":{\"type\":\"string\",\"maxLength\":"
-    "16384}},"
-    "\"required\":[\"action\",\"run\"]}}},"
-    "{\"type\":\"function\",\"function\":{\"name\":\"swarm_message\",\"description\":"
-    "\"Send one typed durable message to an exact participant name in the current purposeful "
-    "swarm. kind is finding, question, answer, challenge, decision, handoff, or blocker. run and "
-    "id are optional; omitted run is resolved only from authenticated current context and "
-    "omitted id is content-addressed. Success is a persisted receipt, not processing. Messages "
-    "remain replayable until explicit team_mailbox ack.\",\"parameters\":{\"type\":\"object\","
-    "\"properties\":{\"to\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":64},"
-    "\"kind\":{\"type\":\"string\",\"enum\":[\"finding\",\"question\",\"answer\","
-    "\"challenge\",\"decision\",\"handoff\",\"blocker\"]},\"topic\":{\"type\":"
-    "\"string\",\"minLength\":1,\"maxLength\":256},\"text\":{\"type\":\"string\","
-    "\"minLength\":1,\"maxLength\":16384},\"id\":{\"type\":\"string\",\"minLength\":1,"
-    "\"maxLength\":64},\"run\":{\"type\":\"string\",\"pattern\":\"^[0-9a-f]{32}$\"}},"
-    "\"required\":[\"to\",\"kind\",\"topic\",\"text\"],\"additionalProperties\":false}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"job_submit\",\"description\":\"Submit durable "
     "ask or image work that keeps running after this turn. One item, or a bounded batch of 1-64 "
     "items of the same kind with concurrency 1-16. Returns the job id, its metadata path and the "
@@ -517,11 +466,6 @@ static const char *SCHEMA_JSON =
     "\"persist_manifest\":{\"type\":\"boolean\",\"description\":\"Write the private manifest "
     "beside the output recording the grid and its source hashes; default true.\"}},"
     "\"required\":[\"sources\",\"output_file\",\"size\"]}}},"
-    "{\"type\":\"function\",\"function\":{\"name\":\"speak\",\"description\":\"Speak a message "
-    "aloud to the user using their ChatGPT login. Waits for playback; no audio file is kept.\","
-    "\"parameters\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"},"
-    "\"voice\":{\"type\":\"string\",\"description\":\"Omit to use the default cove voice.\"}},"
-    "\"required\":[\"text\"]}}},"
     "{\"type\":\"function\",\"function\":{\"name\":\"ask_user_question\",\"description\":\"Ask the "
     "user a clarifying question (interactive sessions "
     "only).\",\"parameters\":{\"type\":\"object\",\"properties\":{\"question\":{\"type\":"
@@ -550,8 +494,6 @@ static bool schema_tool_disabled(const tools_env *env, const char *name) {
     if (strcmp(name, "image_preview") == 0) return env->ctx->library_mode || env->ctx->ssh_host;
     if (strcmp(name, "image_export") == 0 || strcmp(name, "image_contact_sheet") == 0)
         return env->ctx->library_mode || env->ctx->ssh_host || !tny_image_export_supported();
-    if (strcmp(name, "speak") == 0)
-        return env->ctx->library_mode || !tny_speech_available(env->ctx, NULL, true, NULL, 0);
     /* a child would run its tools locally, not on the --ssh host */
     if (strcmp(name, "subagent") == 0) return env->ctx->library_mode || env->ctx->ssh_host;
     /* Jobs own real child processes: the execution tools disappear where none
@@ -559,9 +501,6 @@ static bool schema_tool_disabled(const tools_env *env, const char *name) {
     if (tool_jobs_is_tool(name)) return !tool_jobs_available(env->ctx, name);
     if (tool_workspace_op(name) != TNY_WORKSPACE_NONE)
         return !tool_workspace_available(env->ctx, name);
-    if (strcmp(name, "team_control") == 0) return !tool_team_available(env->ctx);
-    if (strcmp(name, "team_mailbox") == 0 || strcmp(name, "swarm_message") == 0)
-        return env->ctx->library_mode || env->ctx->ssh_host || !tny_jobs_execution_supported();
     if (!env->ctx->library_mode) return false;
     return strcmp(name, "terminal") == 0 || strcmp(name, "open_file") == 0 ||
            strcmp(name, "skill") == 0 || strcmp(name, "install_skill") == 0 ||
@@ -584,15 +523,6 @@ static bool schema_tool_hidden(const tools_env *env, const char *name) {
     if (schema_tool_disabled(env, name)) return true;
     if (!env || !env->ctx || !name) return false;
     if (!profile_allows_builtin(env, name)) return true;
-    /* Explicitly read-only purposeful participants keep the full-profile
-     * advertised surface aligned with it; direct calls still use the existing
-     * permission engine. Shell-only profiles retain their explicit interface. */
-    if (env->ctx->workspace_read_only && getenv("TNY_SWARM_NAME") &&
-        env->ctx->tool_profile == TNY_TOOLS_ALL && !perm_tool_is_safe(name) &&
-        strcmp(name, "team_control") != 0 && strcmp(name, "team_mailbox") != 0 &&
-        strcmp(name, "swarm_message") != 0 && strcmp(name, "job_status") != 0 &&
-        strcmp(name, "job_workspace_inspect") != 0)
-        return true;
     return strcmp(name, "web_search") == 0 && !tool_web_search_configured(env->ctx);
 }
 
@@ -655,11 +585,9 @@ static char *append_extension_schema(char *base, tools_env *env) {
 char *tools_catalog_json(tools_env *env) {
     if (env && env->ctx &&
         (env->ctx->prompt_optimisation || env->ctx->mcp_disabled || env->ctx->library_mode ||
-         (env->ctx->workspace_read_only && getenv("TNY_SWARM_NAME")) ||
          env->ctx->tool_profile != TNY_TOOLS_ALL || !tool_web_search_configured(env->ctx) ||
-         !tny_speech_available(env->ctx, NULL, true, NULL, 0) || env->ctx->ssh_host ||
-         !tny_image_capabilities(env->ctx, false, NULL) || !tny_image_export_supported() ||
-         tny_image_input_refused(env->ctx))) {
+         env->ctx->ssh_host || !tny_image_capabilities(env->ctx, false, NULL) ||
+         !tny_image_export_supported() || tny_image_input_refused(env->ctx))) {
         yyjson_doc *doc = jparse(SCHEMA_JSON, strlen(SCHEMA_JSON));
         yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
         yyjson_mut_doc *mut = yyjson_mut_doc_new(jallocator());
@@ -1066,47 +994,12 @@ int tools_call_prepare(tools_env *env, const char *name, const char *args_json, 
         call->detail = tool_image_export_detail(
             env, call->args, strcmp(call->name, "image_contact_sheet") == 0, &call->error);
         if (call->error || !call->detail) return -1;
-    } else if (strcmp(call->name, "team_control") == 0) {
-        tny_team_op op = tny_team_op_parse(jget_str(call->args, "action"));
-        const char *permission = tny_team_permission_tool(op);
-        free(call->permission_tool);
-        call->permission_tool = permission ? xstrdup(permission) : NULL;
-        char *why = NULL;
-        call->detail = tool_team_detail(env, op, jget(call->args, "request"), &why);
-        if (!call->permission_tool || !call->detail) {
-            call->error = tool_err("%s", why ? why : "invalid team operation");
-            free(why);
-            return -1;
-        }
-        free(why);
     } else if (tool_workspace_op(call->name) != TNY_WORKSPACE_NONE) {
         const char *why = NULL;
         call->detail =
             tny_workspace_detail(env->ctx, tool_workspace_op(call->name), call->args, &why);
         if (!call->detail) {
             call->error = tool_err("%s", why ? why : "invalid workspace request");
-            return -1;
-        }
-    } else if (strcmp(call->name, "team_mailbox") == 0) {
-        const char *permission = tny_team_mailbox_permission(call->args);
-        free(call->permission_tool);
-        call->permission_tool = permission ? xstrdup(permission) : NULL;
-        call->detail = tny_team_mailbox_detail(call->args);
-        if (!call->permission_tool || !call->detail) {
-            call->error = tool_err(
-                "invalid team mailbox request: send needs id,to,text; publish needs id,text; "
-                "wait needs timeout_ms; read/ack need id; retire needs before_attempt "
-                "(old-attempt cleanup, not team departure). inbox accepts only action,run.");
-            return -1;
-        }
-    } else if (strcmp(call->name, "swarm_message") == 0) {
-        free(call->permission_tool);
-        call->permission_tool = xstrdup("team_send");
-        char why[320] = "";
-        call->detail =
-            tny_swarm_message_prepare(env, call->args, &call->swarm_message_plan, why, sizeof why);
-        if (!call->permission_tool || !call->detail) {
-            call->error = tool_err("%s", why[0] ? why : "invalid swarm_message request");
             return -1;
         }
     } else if (tool_jobs_is_tool(call->name)) {
@@ -1179,28 +1072,7 @@ const char *tools_call_label(const tools_call *call) {
     return call && call->intercept ? call->intercept->label : NULL;
 }
 
-void tools_learning_edit_result(tools_env *env, const char *target, const char *replacement,
-                                bool replace_all, tny_edit_status status) {
-    if (!env || !env->ctx || env->ctx->no_self_improve || !target || !replacement) return;
-    if (status != TNY_EDIT_OK && status != TNY_EDIT_NOT_FOUND && status != TNY_EDIT_AMBIGUOUS)
-        return;
-    env->learning_fact = (tools_learning_fact){.valid = true,
-                                               .ok = status == TNY_EDIT_OK,
-                                               .event = TNY_LEARN_EDIT,
-                                               .scope = fnv1a(target, strlen(target)),
-                                               .intent = fnv1a(replacement, strlen(replacement)) ^
-                                                         (replace_all ? UINT64_MAX : 0)};
-}
-
-void tools_learning_read_result(tools_env *env, tny_learning_event event, const char *target,
-                                bool useful) {
-    if (!env || !env->ctx || env->ctx->no_self_improve || !target || !useful) return;
-    env->learning_fact = (tools_learning_fact){
-        .valid = true, .ok = true, .event = event, .scope = fnv1a(target, strlen(target))};
-}
-
 char *tools_call_execute(tools_env *env, tools_call *call) {
-    env->learning_fact = (tools_learning_fact){0};
     const char *name = call->name;
     yyjson_val *args = call->args;
 
@@ -1267,18 +1139,6 @@ char *tools_call_execute(tools_env *env, tools_call *call) {
         return tool_image_export_execute(env, args, strcmp(name, "image_contact_sheet") == 0,
                                          call->detail);
 
-    if (strcmp(name, "swarm_message") == 0) {
-        buf_t result = {0};
-        char why[320] = "";
-        int rc = tny_swarm_message_run_prepared(env, args, call->swarm_message_plan, &result, why,
-                                                sizeof why);
-        if (rc) {
-            buf_free(&result);
-            return tool_err("%s", why[0] ? why : "swarm_message failed");
-        }
-        return buf_detach(&result);
-    }
-
     bool handled;
     char *out = tool_ssh_execute(env, name, args, &handled);
     if (!handled) out = tool_fs_execute(env, name, args, &handled);
@@ -1322,7 +1182,6 @@ void tools_call_release_storage(tools_call *call) {
     free(call->error);
     tool_image_plan_free(call->image_plan);
     tny_image_preview_selection_free(call->image_selection);
-    tny_swarm_message_plan_free(call->swarm_message_plan);
     tny_intercept_free(call->intercept);
     yyjson_doc_free(call->doc);
     memset(call, 0, sizeof *call);

@@ -58,8 +58,7 @@ The returned `run_id` equals the existing job `id`. Each item exposes `task_id`,
 its existing canonical result references. CLI `parent_session_id` is null.
 Trusted runtime adapters can supply their active session with
 `tny_jobs_run_context`; supplied parent/run IDs in JSON are refused and never
-create membership or authority. Tool schema and runtime lineage wiring remain
-lead-owned integration work.
+create authority.
 
 A descendant waits for all dependencies to succeed with intact artifacts.
 A failed/cancelled/interrupted dependency makes the descendant `failed` with
@@ -77,7 +76,6 @@ transaction**, including when the job is already terminal. Missing or stale
 attempts return `stale_attempt` without changing flags. Do not automatically
 refresh and replay a stale cancellation: inspect the new attempt first. Ordinary
 batch cancellation retains its existing grammar and semantics without this fence.
-The team-control adapter must pass its expected attempt through to jobs.
 
 A DAG also persists `execution_scope_sha256` before launch. This one-way
 fingerprint covers the resolved provider endpoint, credential/account identity,
@@ -345,39 +343,14 @@ admission deadline is implemented here. Positive child `max_steps` remains a
 separate turn ceiling; HTTP retries and host-owned loops are not model-call
 billing guarantees.
 
-## Private member capability provisioning
+## Private identity fields
 
-Every DAG item preparation creates a fresh random 32-byte value encoded as a
-64-hex bearer. Before admission, the supervisor persists only its SHA-256 hex
-verifier as `item.mailbox_capability_sha256` under `state.lock`. The child gets:
-
-- `TNY_TEAM_RUN`: existing job ID;
-- `TNY_TEAM_TASK`: stable item index;
-- `TNY_TEAM_ATTEMPT`: current item/job launch attempt;
-- `TNY_TEAM_CAPABILITY`: the private bearer.
-
-The bearer is not written to job metadata, status, logs or argv. Its temporary
-owned environment and supervisor buffer are wiped after spawn. Ordinary batch
-children get no team membership. Ambient parent team/admission fields are not
-forwarded as membership; inherited read-only ceilings remain restrictive.
 Request-supplied private identity, bearer and verifier fields are refused.
-Root `peer_messages` must be boolean when supplied and defaults to false.
-
-Before a sensitive legacy jobs operation, inherited `TNY_TEAM_RUN` is checked
-against that run's private verifier and current item/job attempt under its state
-lock. Invalid membership is refused. Valid members are also explicitly refused
-legacy submit/cancel/retry/remove controls (`member_control_unsupported`), rather
-than receiving operator authority over a supplied job ID. This conservative slice
-does not expose a member-safe own-task mutation through legacy jobs; use the lead
-or a dedicated authorized task adapter. CLI operators outside nested member
-contexts retain existing authority. Parent-session lineage comes only from the
-trusted `tny_jobs_run_context` adapter argument, never a request sender/session.
-
-These fields match the lead's `team_runtime` verifier contract without adding a
-link dependency on that runtime here. Mailbox delivery, trusted parent adapter
-wiring and synchronous-subagent membership stripping remain runtime integration,
-not a second controller implemented in jobs. The runtime must validate inherited
-identity and verifier under the job state lock before granting member operations.
+Ambient `TNY_TEAM_*` and admission variables are not forwarded to children;
+inherited read-only ceilings remain restrictive. Team membership bearers and
+`peer_messages` were removed with team control and the mailbox (ADR 0221).
+Parent-session lineage comes only from the trusted `tny_jobs_run_context`
+adapter argument, never a request sender/session.
 
 ## Surfaces
 
@@ -750,17 +723,6 @@ and supervisor loss, and a compiled root-wait fault. The Windows x64 CI job
 runs it against the release executable. `test_jobs_cleanup_hold.py` exercises
 post-owner-exit reservation, retry and removal refusal, malformed records and
 the allowed abandoned-owner reclaim paths.
-
-### Bounded startup diagnostics
-
-A native DAG child can record a private, write-once category for failure during
-initial engine startup. The supervisor reads it only after failed-child
-cleanup and exposes `items[].startup_error_code`. Categories are limited to
-`MAILBOX_BUSY`, `MAILBOX_IO`, `CONTEXT_PERSISTENCE`, and `PROVIDER_START`; no raw
-child stderr, provider body or credential is published. The run/task/attempt and
-private capability are validated. Absence or an unreadable sidecar is **unknown**,
-not proof of success or permission to replay external effects. Retry clears the
-current projection while retaining earlier attempt evidence.
 
 ## Implementation ownership map
 

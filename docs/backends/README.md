@@ -16,7 +16,7 @@ defines the current scope.
 [Sign in with ChatGPT](openai-chatgpt.md) is the way to use a ChatGPT plan
 ([ADR 0186](../adr/0186-sign-in-with-chatgpt-openai-provider.md)).
 [Codex](codex.md) documents the legacy subscription login, still used for
-speech, images, web search and the weekly allowance. Claude models may be
+images, web search and the weekly allowance. Claude models may be
 selected through a configured gateway; no built-in Claude login is supported.
 
 Both HTTP wires work on wasm through fetch subject to endpoint CORS. Codex's

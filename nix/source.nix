@@ -29,10 +29,6 @@
 # Its C ABI capability probes reuse the existing include/src/tests filesets.
 # ACP client mocks and test-acp-bridge-deadline use the existing Python stdlib,
 # compiler, and native source/test filesets; the deadline fixture controls time.
-# Collective swarm tests reuse the existing stdlib/PTY/compiler closure;
-# test_collective_{swarm,cap}.py and mailbox helpers are included under tests.
-# tnyjev uses existing src/tests filesets; its HTTP fixtures generate all data
-# with Python stdlib and synthetic credentials (no live Jev calls).
 # test_leakcheck.py uses the existing tests/scripts filesets and creates fake
 # checkers in private temporary directories; no platform leak tool is needed.
 # Source filters shared by every tny derivation.
@@ -95,9 +91,9 @@ let
     ../docs
     # tests/formal is included by the ../tests fileset below; make test reads
     # its SMT-LIB obligations and checker with the Z3 input from nix/tests.nix.
-    # Committed Lean tables in tests/formal/{dictation,acp}/golden are replayed
-    # by C unit and ACP wire integration tests. verify-acp-proofs (like
-    # verify-dictation-proofs) runs separately in CI, not in this sandbox;
+    # Committed Lean tables in tests/formal/acp/golden are replayed by ACP
+    # wire integration tests. verify-acp-proofs runs separately in CI, not in
+    # this sandbox;
     # make verify-code-policy separately uses the declared Lean input to prove
     # source-linked production C policies. No proof step downloads dependencies.
     ../examples
@@ -132,8 +128,6 @@ let
     # test_fault_sweep_inventory.py prevents shrinking discovered fault indices.
     # Runner/job ownership (fixtures/runner_ownership.cpp, fixtures/resource_host_faults.c,
     # mutation/runner_critical.py) uses the same C/C++ compiler and Python.
-    # Default native learning uses src/core/learning and src/util/learning_store;
-    # its CLI/TUI mock benchmark imports test_default_learning from tests/.
     # No new external fixture directory or package is needed.
     # Instruction-evolution replay benchmark and its in-memory Python mutation
     # checks use these existing tests/ and python/ trees, with stdlib only.
@@ -199,35 +193,14 @@ let
     # fcntl locks. Native Windows-only test_jobs_msys.py and its two C fixtures
     # (jobs_msys_scope.c/jobs_msys_tree.c) are included by ../tests and skip
     # outside MSYS2; no guest image or generated executable is an input.
-    # examples/swarm supplies checked team request/parent-launch templates and the
-    # purposeful nested definition; schemas/swarm.schema.json is included above.
-    # test_swarm_parent.py uses the same stdlib provider and real CLI under
-    # a fresh HOME/Git checkout; no helper driver or live account is required.
-    # test_swarm_startup.py compiles a private syscall fault/reader fixture with
-    # the existing compiler and release objects, then uses actual CLI/provider
-    # boundaries. All source is under ../tests and ../src; no live account input.
-    # test_swarm_delivery.py adds stdlib provider/barrier and wasm-refusal checks;
-    # test_team_runtime.c covers captured identity/ambiguity in the unit runner.
-    # The swarm-auth mutation focus uses existing compiler/test machinery.
-    # Admission/mailbox compile fixtures under tests/fixtures and their C
-    # service/host sources under ../src. The managed-workspace unit fixture
-    # uses real Git under a private HOME. All inputs are included above.
-    # test_swarm_agents.py reuses test_jobs.py and test_tui.py for real DAG
-    # status projection and the run-filtered PTY tree; ../tests includes all
-    # three, and no generated artifact or additional source directory is needed.
-    # test_purposeful_swarm.py uses the same stdlib loopback provider, temporary
-    # HOME and the real CLI; the parser/unit sources are already under src/tests.
+    # Admission compile fixtures under tests/fixtures and their C service/host
+    # sources under ../src. The managed-workspace unit fixture uses real Git
+    # under a private HOME. All inputs are included above.
     # The durable-jobs suite (test_jobs.py, ADR 0093) adds no media asset: it
     # runs the built tny against a stdlib loopback provider under a throwaway
     # HOME, generates its own PNG bytes with zlib, and observes real detached
     # children through `ps` — which nix/tests.nix already declares for the TUI
     # and ask-event suites.
-    # Speech fixtures (test_speech.py) generate their fake player in a temp
-    # directory; no MP3 asset or host audio package enters the fileset.
-    # make dictation-fixture/test-dictation reuse the same src/ and stdlib
-    # fixtures, with fake xAI/Grok credentials and a test-only loopback URL.
-    # Dictation fixtures generate PCM WAV bytes and fake microphone recorders
-    # in temporary directories; no microphone or external media asset is needed.
     # Prompt optimisation fixtures create a nested project and loopback HTTP
     # server, reusing test_tui.py; all inputs are covered by ../tests above.
     # test_interrupt.py compiles fixtures/slow_lock.c on Darwin to exercise

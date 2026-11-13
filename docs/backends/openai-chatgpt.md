@@ -17,7 +17,7 @@ tny --provider openai logout --forget
 ```
 
 The legacy [`codex` profile](codex.md) keeps its own login and the ChatGPT
-backend. Speech, images, web search, dictation and the `/status` weekly
+backend. Images, web search and the `/status` weekly
 allowance still use the Codex login: they live on `chatgpt.com/backend-api`,
 which a SIWC token must never reach.
 

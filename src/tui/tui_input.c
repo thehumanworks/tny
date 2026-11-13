@@ -31,25 +31,6 @@ static bool ins(tui *t, const char *s, size_t n) {
     return true;
 }
 
-bool tui_dictation_insert(tui *t, const char *text) {
-    size_t n = text ? strlen(text) : 0;
-    if (!text || !n || !tny_dictation_text_valid(text, n)) return false;
-    buf_t insert = {0};
-    if (t->cur && !strchr(" \r\n\t", t->input.data[t->cur - 1]) && !strchr(" \r\n\t", text[0]))
-        buf_appends(&insert, " ");
-    buf_appends(&insert, text);
-    if (t->cur < t->input.len && !strchr(" \r\n\t", t->input.data[t->cur]) &&
-        !strchr(" \r\n\t", text[n - 1]))
-        buf_appends(&insert, " ");
-    bool ok = !insert.oom && ins(t, insert.data, insert.len);
-    buf_free(&insert);
-    if (ok) {
-        tui_pick_close(t);
-        t->dirty = true;
-    }
-    return ok;
-}
-
 static void del_range(tui *t, size_t from, size_t to) {
     if (from >= to || to > t->input.len) return;
     memmove(t->input.data + from, t->input.data + to, t->input.len - to);
@@ -490,13 +471,6 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         else if (k == TUI_K_PASTE_BEGIN) t->in_paste = true;
         return;
     }
-    if (t->dictation) {
-        if (k == TUI_K_ESC || k == TUI_K_CTRLC || k == TUI_K_CTRLD)
-            tny_dictation_cancel(t->dictation);
-        else if (k == TUI_K_ENTER || k == TUI_K_DICTATE) tny_dictation_finish(t->dictation);
-        else if (k == TUI_K_PASTE_BEGIN) t->in_paste = true;
-        return; /* recording/transcription keys cannot submit or mutate the draft */
-    }
 
     if (t->settings_open) {
         if (k == TUI_K_ESC || k == TUI_K_ENTER || k == TUI_K_CTRLC) tui_overlay_clear(t);
@@ -602,7 +576,6 @@ static void do_key(tui *t, int k, const char *ch, size_t chlen) {
         t->dirty = true;
         break;
     case TUI_K_PASTE: do_paste(t); break;
-    case TUI_K_DICTATE: tui_dictation_start(t, NULL); break;
     case TUI_K_PASTE_BEGIN: t->in_paste = true; break;
     case TUI_K_BS:
         if (t->cur > 0) {
@@ -844,7 +817,6 @@ size_t tui_decode_one(const char *p, size_t n, bool final, tui_decoded *out) {
         case 0x0b: set_key(out, TUI_K_KILL_EOL); return 1;
         case 0x0c: set_key(out, TUI_K_CTRLL); return 1;
         case 0x0f: set_key(out, TUI_K_CTRLO); return 1;
-        case 0x12: set_key(out, TUI_K_DICTATE); return 1; /* Ctrl-R */
         case 0x15: set_key(out, TUI_K_KILL_BOL); return 1;
         case 0x16: set_key(out, TUI_K_PASTE); return 1; /* Ctrl-V */
         case 0x17: set_key(out, TUI_K_WBS); return 1;
@@ -922,14 +894,12 @@ size_t tui_decode_one(const char *p, size_t n, bool final, tui_decoded *out) {
             if (a == 13) set_key(out, b <= 1 ? TUI_K_ENTER : TUI_K_NEWLINE);
             else if (a == 10 || a == 106) set_key(out, TUI_K_NEWLINE);
             else if (a == 118 && b >= 5) set_key(out, TUI_K_PASTE);
-            else if (a == 114 && b == 5) set_key(out, TUI_K_DICTATE);
             break;
         case '~':
             if (a == 27) { /* modifyOtherKeys: ESC [ 27 ; mod ; key ~ */
                 if (csi_c == 13) set_key(out, b <= 1 ? TUI_K_ENTER : TUI_K_NEWLINE);
                 else if (csi_c == 10 || csi_c == 106) set_key(out, TUI_K_NEWLINE);
                 else if (csi_c == 118 && b >= 5) set_key(out, TUI_K_PASTE);
-                else if (csi_c == 114 && b == 5) set_key(out, TUI_K_DICTATE);
             } else if (a == 3) set_key(out, TUI_K_DEL);
             else if (a == 1 || a == 7) set_key(out, b == 5 ? TUI_K_SCROLL_HOME : TUI_K_HOME);
             else if (a == 4 || a == 8) set_key(out, b == 5 ? TUI_K_SCROLL_END : TUI_K_END);
@@ -1019,7 +989,7 @@ static bool decode_all(tui *t, bool final) {
             buf_init(&txt);
             bool done = false;
             used = tui_paste_scan(g_kb, g_kn, &txt, &done);
-            if (txt.len && !t->approval && !t->dictation && !t->optimise && !t->settings_open) {
+            if (txt.len && !t->approval && !t->optimise && !t->settings_open) {
                 if (t->agents_dashboard && !t->g->agents_run)
                     dashboard_filter_append(t, txt.data, txt.len);
                 else {
@@ -1030,8 +1000,7 @@ static bool decode_all(tui *t, bool final) {
             buf_free(&txt);
             if (done) {
                 t->in_paste = false;
-                if (!t->approval && !t->dictation && !t->optimise && !t->agents_dashboard &&
-                    !t->settings_open)
+                if (!t->approval && !t->optimise && !t->agents_dashboard && !t->settings_open)
                     tui_pick_refresh(t);
             }
         } else {

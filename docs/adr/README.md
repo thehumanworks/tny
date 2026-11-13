@@ -12,8 +12,8 @@ files in this directory are the complete record.
 | [0171](0171-formal-verification-smt-lib.md) | SMT-LIB 2/Z3 formal protocol contracts, paired with concrete integration checks |
 | [0167](0167-workspace-dashboard-navigation.md) | Current-workspace-first session sections and fuzzy directory filtering |
 | [0166](0166-global-sessions-and-immediate-backgrounding.md) | Fresh native runners, immediate background detachment and a dashboard of all saved workspaces |
-| [0165](0165-tnyjev-decision-engine.md) | Isolated typed tnyjev decision client and standalone score/choose commands |
-| [0157](0157-purposeful-file-defined-swarms.md) | Strict versioned swarm files compile bounded nesting into one durable team with persisted provenance |
+| [0165](0165-tnyjev-decision-engine.md) | Isolated typed tnyjev decision client (removed by 0221) |
+| [0157](0157-purposeful-file-defined-swarms.md) | Superseded by 0221. Strict versioned swarm files compile bounded nesting into one durable team with persisted provenance |
 | [0150](0150-agent-first-harness-and-measured-footprint.md) | Agent-first harness: effective context, no binary-size ceiling, no competitor-size target |
 | [0136](0136-terminal-background-completion.md) | Owned background terminal completion, bounded observation and no PID polling |
 | [0001](0001-run-all-agents-in-yolo-mode.md) | All agents run in yolo mode by default |
@@ -84,8 +84,8 @@ files in this directory are the complete record.
 | [0067](0067-provider-request-extras.md) | Vendor-specific request add-ons (first: OpenCode Go's `x-opencode-session: <session id>`) live in one detachable table in `provider_extras.c`, matched per request by base-URL host or `opencode*` profile name, called from a single seam in the openai backend, and switched off wholesale by `TNY_PROVIDER_EXTRAS=0` — never a `tny_ctx` field, a settings key, or profile-resolver logic |
 | [0068](0068-mcp-tool-schema-discovery.md) | `tny mcp tools SERVER` and `tny mcp describe SERVER/TOOL` print the cached `tools/list` — argument names, or one tool's full `inputSchema` — in text or `--json`, are answered in-process by the warmed client under the `mcp_search_tools` identity, the shell-profile prompt tells the model to describe before its first call, and a rejected `tny mcp call` prints the tool's input schema after the error; no client-side validator |
 | [0069](0069-native-loop-stream-error-recovery.md) | The native loop retries one model call with bounded non-blocking backoff when it fails before any output (408/409/425/429/5xx, lost or empty streams, transient SSE error events), classifies failures into status + a bounded category token (never provider text; `TNY_DEBUG_PROVIDER_ERRORS=1` opts in), sends the provider a repaired view of the transcript (every tool call paired, empty assistant messages skipped), and echoes provider reasoning (`reasoning_details`, `reasoning_content`, encrypted Responses `reasoning` items) back with the tool calls it produced |
-| [0070](0070-provider-independent-speech.md) | Provider-independent speech service reuses Codex login and gates agent availability |
-| [0071](0071-ephemeral-host-audio-playback.md) | Automatic anonymous MP3 playback through an external host player; explicit atomic export |
+| [0070](0070-provider-independent-speech.md) | Superseded by 0221. Provider-independent speech service reuses Codex login and gates agent availability |
+| [0071](0071-ephemeral-host-audio-playback.md) | Superseded by 0221. Automatic anonymous MP3 playback through an external host player; explicit atomic export |
 | [0072](0072-zsh-ephemeral-quick-ask.md) | Opt-in Zsh Ctrl-X then a widget sends the literal edit buffer to ephemeral ask over stdin, preserving Enter and excluding prompts from shell history |
 | [0073](0073-quick-ask-preserves-rendered-output.md) | Quick ask uses normal ZLE refresh after external output; final-screen tests prevent multiline prompts from erasing answer rows |
 | [0074](0074-extensible-image-service.md) | Provider-independent image service, Codex Images adapter, bounded requests/results and atomic artifacts |
@@ -93,7 +93,7 @@ files in this directory are the complete record.
 | [0076](0076-structured-system-prompt.md) | Short native prompt directives for autonomy, verification, and clear work/checks/blockers reporting; environment facts stay separate and skill discovery matches the tool profile |
 | [0077](0077-openai-prompt-cache-routing.md) | OpenAI session cache routing, turn-scoped ChatGPT affinity, and complete cache usage accounting |
 | [0078](0078-workspace-shared-prompt-cache.md) | Reuse cache affinity across independent tasks in the same workspace while keeping conversation and turn state separate |
-| [0079](0079-provider-independent-dictation.md) | Independent microphone/file dictation service and Codex account adapter; explicit composer review before submission, bounded ephemeral audio, lazy external recorders, and remote-only file transcription on wasm |
+| [0079](0079-provider-independent-dictation.md) | Superseded by 0221. Independent microphone/file dictation service and Codex account adapter; explicit composer review before submission, bounded ephemeral audio, lazy external recorders, and remote-only file transcription on wasm |
 | [0082](0082-prompt-optimisation.md) | Independent OpenRouter prompt optimiser; read-only project exploration, configurable model, and explicit draft review before submission |
 | [0083](0083-optimiser-timeout.md) | Remove the optimiser step cap; use a configurable 300-second default timeout with validated CLI, environment, project, and user overrides |
 | [0084](0084-codex-image-defaults.md) | Codex generation and editing default to GPT Image 2.5 Sunburst with high quality; preserve model overrides and all six quality settings; model default superseded by [0217](0217-codex-image-2-6-default.md) |
@@ -148,9 +148,9 @@ files in this directory are the complete record.
 - [0143 — Durable DAG execution over existing jobs](0143-durable-dag-over-jobs.md)
 - [0144 — Lazy, selective workflow context](0144-lazy-selective-workflow-context.md)
 - [0145 — Managed task workspaces with explicit integration](0145-managed-task-workspaces.md)
-- [0146 — Bounded durable collaboration mailboxes](0146-durable-team-mailbox.md)
+- [0146 — Bounded durable collaboration mailboxes](0146-durable-team-mailbox.md) (superseded by 0221)
 - [0147 — Shared launch admission](0147-shared-admission.md)
-- [0148 — Thin asynchronous team controls](0148-team-control-over-jobs.md)
+- [0148 — Thin asynchronous team controls](0148-team-control-over-jobs.md) (superseded by 0221)
 - [0149 — Native team boundaries and safe delivery](0149-native-team-boundaries.md)
 - [0150 — Agent-first harness and measured footprint](0150-agent-first-harness-and-measured-footprint.md)
 - [0151 — Actionable exact-edit failures](0151-actionable-exact-edit-failures.md)
@@ -166,13 +166,13 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0153: Environment keys, OAuth stores and atomic provider selection](0153-environment-keys-and-oauth-credentials.md)
 - [0154 — Agents session inspection and continuation](0154-agents-session-inspection-and-continuation.md) — proposed: attach when available, otherwise inspect read-only; explicit ownership and `/continue` for saved-checkpoint recovery; preserves ADR 0104.
 
-- [0157: Purposeful file-defined swarms](0157-purposeful-file-defined-swarms.md) — required coordinators, bounded nested definitions and one durable runtime.
-- [0158: Capability-aligned purposeful participant context](0158-purposeful-capability-surface.md) — readonly reviewer tool surface and evidence-based evaluation.
+- [0157: Purposeful file-defined swarms](0157-purposeful-file-defined-swarms.md) (superseded by 0221) — required coordinators, bounded nested definitions and one durable runtime.
+- [0158: Capability-aligned purposeful participant context](0158-purposeful-capability-surface.md) (superseded by 0221) — readonly reviewer tool surface and evidence-based evaluation.
 - [0159: Yolo and writable defaults for every agent](0159-yolo-agent-defaults.md) — writable team/swarm defaults, explicit read-only overrides.
 
-- [0160: Swarm contribution contracts](0160-swarm-contribution-contracts.md) — causal readiness, bounded direct evidence and explicit isolated workspaces.
-- [0161: Typed swarm messages](0161-typed-swarm-messages.md) — named recipients and approval-bound durable sends.
-- [0162: Durable swarm review continuity](0162-durable-swarm-review-continuity.md) — immutable review packets, explicit follow-up work, capacity visibility and profile-aligned guidance.
+- [0160: Swarm contribution contracts](0160-swarm-contribution-contracts.md) (superseded by 0221) — causal readiness, bounded direct evidence and explicit isolated workspaces.
+- [0161: Typed swarm messages](0161-typed-swarm-messages.md) (superseded by 0221) — named recipients and approval-bound durable sends.
+- [0162: Durable swarm review continuity](0162-durable-swarm-review-continuity.md) (superseded by 0221) — immutable review packets, explicit follow-up work, capacity visibility and profile-aligned guidance.
 - [0163: Explicit reasoning effort for embedded runtimes](0163-sdk-reasoning-effort.md) — ABI 1.3 `tny_runtime_options_v3`, `reasoning_effort` / `reasoningEffort` in both SDKs.
 
 - [0164: Optional ACP clients with an owning-runtime MCP bridge](0164-optional-acp-clients.md)
@@ -183,7 +183,7 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0173: Local interactive shell mode](0173-interactive-shell-mode.md) — host shell commands stream into the TUI and are disclosed to the next agent prompt.
 
 - [0174: Isolated execution server and code-only agent tools](0174-execution-server-code-mode.md) — one provider tool surface; bounded Lua until ADR 0179 (Python).
-- [0175: Dictation transcript normalization](0175-dictation-transcript-normalization.md) — opt-in rewrite on the STT subscription's small model with a user dictionary; verified in C against Lean-proven golden tables, raw transcript on any failure.
+- [0175: Dictation transcript normalization](0175-dictation-transcript-normalization.md) (superseded by 0221) — opt-in rewrite on the STT subscription's small model with a user dictionary; verified in C against Lean-proven golden tables, raw transcript on any failure.
 - [0177: Minimum-compatible Claude ACP admission](0177-acp-minimum-compatible-version.md) — stable versions >= 0.75.1, exact identity and fresh handshake authority, with Lean 4 admission/lifecycle proofs.
 
 - [0178: Retain Lua after the Codex language benchmark](0178-retain-lua-after-codex-language-benchmark.md) — measured agent efficiency, native embedding probes, synthetic evidence and source-linked Lean decision gates. Superseded by 0179.
@@ -202,7 +202,7 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0191 — Metadata-driven releases](0191-metadata-driven-releases.md)
 - [0192: Budgeted recoverable working context](0192-budgeted-recoverable-working-context.md) — reversible old tool-output references at native request boundaries; preserve exact user constraints and latest batches instead of automatic lossy turn summaries.
 - [0200 — Bounded instruction evolution](0200-bounded-instruction-evolution.md)
-- [0201 — Default automatic workflow learning](0201-default-automatic-workflow-learning.md)
+- [0201 — Default automatic workflow learning](0201-default-automatic-workflow-learning.md) (removed by 0221)
 - [0202 — Verification value density](0202-verification-value-density.md)
 - [0203 — Explicit current-route benchmark profiles](0203-current-route-benchmarks.md)
 - [0193: Strict owned command checks](0193-strict-owned-command-checks.md) — opt-in Linux guardian adoption and drainage without changing ordinary shell semantics.
@@ -230,3 +230,4 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0218: Python tool extensions](0218-python-tool-extensions.md) — `@tny.tool` modules in `~/.tny/extensions/tools` and `<repo>/.tny/extensions/tools`, served by one embedded tool host to code mode, the CLI and MCP; replaces the event hooks of 0027/0028.
 - [0219: MIT license](0219-mit-license.md) — tny, its SDKs and Nix packages are MIT; wheels and npm packages carry the root `LICENSE`, and registry publication stays gated on the owner's switch (PyPI uploads with twine and an API token).
 - [0220: The build's shell in every shipped path](0220-build-shell-in-every-shipped-path.md) — `TNY_SHELL_PATH` also replaces `/bin/sh` in the TUI shell fallback and the frozen CPython stdlib, so a Nix build names no host shell.
+- [0221: Remove features without evidence of value](0221-remove-unproven-features.md) — Jev, default workflow learning and the other items listed in the ADR leave the product; each removal is its own revertable commit.

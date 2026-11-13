@@ -25,6 +25,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import signal
 import struct
 import subprocess
@@ -34,7 +35,6 @@ import threading
 import time
 import unittest
 import zlib
-from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -90,6 +90,12 @@ def png(width: int, height: int) -> bytes:
         + chunk(b"IDAT", zlib.compress(rows, 1))
         + chunk(b"IEND", b"")
     )
+
+
+def envdump_command(command, prompt):
+    """Fill {item} from an `ITEM<n>` marker in the prompt (fixture item identity)."""
+    marker = re.search(r"ITEM(\d+)", prompt)
+    return command.replace("{item}", marker.group(1) if marker else "")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -253,9 +259,7 @@ class Handler(BaseHTTPRequestHandler):
                 b'{"error":{"message":"fixture refuses"}}',
             )
             return
-        if not after_tool and (
-            ("ENVDUMP" in prompt and state["envdump"]) or "MEMBER_CONTROL" in prompt
-        ):
+        if not after_tool and ("ENVDUMP" in prompt and state["envdump"]):
             # A real tool call: the item child runs it, so the file it writes
             # is that child's own environment, captured from the inside.
             call = {
@@ -264,16 +268,11 @@ class Handler(BaseHTTPRequestHandler):
                 "type": "function",
                 "function": {
                     "name": "terminal",
-                    "arguments": json.dumps({"command": state["envdump"]}),
+                    "arguments": json.dumps(
+                        {"command": envdump_command(state["envdump"], prompt)}
+                    ),
                 },
             }
-            if "MEMBER_CONTROL" in prompt:
-                call["function"] = {
-                    "name": "job_control",
-                    "arguments": json.dumps(
-                        {"action": "cancel", "id": state["member_target"]}
-                    ),
-                }
             frames = [
                 {"choices": [{"index": 0, "delta": {"tool_calls": [call]}}]},
                 {
@@ -654,8 +653,6 @@ class JobsFixture(unittest.TestCase):
         """Bounded local engine diagnostics, not provider bodies or credentials."""
         found = []
         for item in record.get("items", []):
-            if item.get("startup_error_code"):
-                found.append((item["index"], "startup", item["startup_error_code"]))
             path = Path(item["log_path"])
             if not path.exists() or not path.resolve().is_relative_to(
                 self.home.resolve()
@@ -672,9 +669,7 @@ class JobsFixture(unittest.TestCase):
                     text = event.get("text", "")
                     safe = (
                         text[:200]
-                        if text.startswith(
-                            ("MAILBOX_", "could not persist team", "the job supervisor")
-                        )
+                        if text.startswith("the job supervisor")
                         else "provider/runner error"
                     )
                     found.append((item["index"], event.get("error_code"), safe))
@@ -861,90 +856,6 @@ with open(sys.argv[1], "r+b") as owner:
                 # Reap the writer first, then perform that cleanup exactly once.
                 if not cleanup_started:
                     cleanup()
-
-
-class JobsStartupMailbox(JobsFixture):
-    @contextmanager
-    def startup_member(self):
-        # Start from a real, completed DAG record, then hold its owner lock as
-        # the test supervisor. The member capability and state are fixture-owned.
-        _, payload = self.submit(
-            "batch",
-            stdin=json.dumps(
-                dict(kind="ask", dag=True, items=[{"prompt": "startup setup"}])
-            ).encode(),
-        )
-        record = self.await_terminal(payload["id"])
-        self.assertEqual(record["state"], "succeeded", record)
-        path = Path(record["metadata_path"])
-        original = path.read_bytes()
-        with self.lock_held(path.parent / "owner.lock"):
-            stored = json.loads(original)
-            token = "a" * 64
-            stored["state"] = "running"
-            stored["items"][0]["state"] = "running"
-            stored["items"][0]["mailbox_capability_sha256"] = hashlib.sha256(
-                token.encode()
-            ).hexdigest()
-            path.write_text(json.dumps(stored))
-            env = dict(
-                self.env,
-                TNY_TEAM_RUN=payload["id"],
-                TNY_TEAM_TASK="0",
-                TNY_TEAM_ATTEMPT=str(stored["attempt"]),
-                TNY_TEAM_CAPABILITY=token,
-                TNY_ISOLATE="0",
-            )
-            try:
-                yield path.parent, env
-            finally:
-                path.write_bytes(original)
-
-    def test_startup_retries_transient_mailbox_lock_before_provider_request(self):
-        with self.startup_member() as (directory, env):
-            requests = len(self.ask_requests())
-            with self.lock_held(directory / "state.lock") as lock:
-                with self.spawn_tny(
-                    "ask", "--json", "startup contention", env=env
-                ) as child:
-                    # This real lock outlives the public mailbox's 250ms retry
-                    # budget. Startup must wait without sending a provider POST.
-                    with self.assertRaises(subprocess.TimeoutExpired):
-                        child.wait(timeout=0.6)
-                    self.assertEqual(len(self.ask_requests()), requests)
-                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-                    stdout, stderr = child.communicate(timeout=10)
-                    self.assertEqual(child.returncode, 0, stderr)
-                    self.assertEqual(json.loads(stdout)["exit_code"], 0)
-                    self.assertEqual(len(self.ask_requests()), requests + 1)
-
-    def test_startup_persistent_mailbox_lock_still_fails_without_provider_request(self):
-        with self.startup_member() as (directory, env):
-            requests = len(self.ask_requests())
-            with self.lock_held(directory / "state.lock"):
-                with self.spawn_tny(
-                    "ask", "--json", "startup blocked", env=env
-                ) as child:
-                    stdout, stderr = child.communicate(timeout=5)
-                    self.assertNotEqual(child.returncode, 0)
-                    self.assertEqual(
-                        json.loads(stdout)["error"], "MAILBOX_BUSY", stderr
-                    )
-            self.assertEqual(len(self.ask_requests()), requests)
-
-    def test_startup_mailbox_lock_retry_observes_cancellation(self):
-        with self.startup_member() as (directory, env):
-            requests = len(self.ask_requests())
-            with self.lock_held(directory / "state.lock"):
-                with self.spawn_tny(
-                    "ask", "--json", "startup cancelled", env=env
-                ) as child:
-                    with self.assertRaises(subprocess.TimeoutExpired):
-                        child.wait(timeout=0.6)
-                    child.send_signal(signal.SIGINT)
-                    child.communicate(timeout=1)
-                    self.assertNotEqual(child.returncode, 0)
-            self.assertEqual(len(self.ask_requests()), requests)
 
 
 class JobsSubmitAndStatus(JobsFixture):
@@ -1651,13 +1562,11 @@ class JobsEnrollment(DAGFixture):
         self.assertEqual(retry.returncode, 1)
 
     def test_isolated_workers_edit_same_relative_file_and_keep_provenance(self):
-        self.state["envdump"] = (
-            "printf '%s' \"$TNY_TEAM_TASK\" > same.txt; git add same.txt"
-        )
+        self.state["envdump"] = "printf '%s' '{item}' > same.txt; git add same.txt"
         run, payload = self.dag_submit(
             [
-                {"prompt": "ENVDUMP edit first", "workspace": {"policy": "isolated"}},
-                {"prompt": "ENVDUMP edit second", "workspace": {"policy": "isolated"}},
+                {"prompt": "ENVDUMP ITEM0 first", "workspace": {"policy": "isolated"}},
+                {"prompt": "ENVDUMP ITEM1 second", "workspace": {"policy": "isolated"}},
             ]
         )
         self.assertEqual(run.returncode, 0, run.stderr)
@@ -1679,11 +1588,11 @@ class JobsEnrollment(DAGFixture):
             record["items"][0]["session_id"], record["items"][1]["session_id"]
         )
 
-    def test_capability_private_environment_and_max_steps(self):
+    def test_private_environment_and_max_steps(self):
         dump = self.home / "member.json"
         script = (
             "import os,json; json.dump({k:os.getenv(k) for k in "
-            "['TNY_TEAM_RUN','TNY_TEAM_TASK','TNY_TEAM_ATTEMPT','TNY_TEAM_CAPABILITY',"
+            "['TNY_TEAM_RUN','TNY_TEAM_CAPABILITY',"
             "'TNY_TEAM_READ_ONLY','TNY_ADMISSION_ENROLLED']},open("
             + repr(str(dump))
             + ",'w'))"
@@ -1694,7 +1603,6 @@ class JobsEnrollment(DAGFixture):
         request = dict(
             kind="ask",
             dag=True,
-            peer_messages=True,
             admission=self.enrollment(),
             items=[
                 {
@@ -1715,30 +1623,18 @@ class JobsEnrollment(DAGFixture):
         payload = json.loads(run.stdout)
         self.assertTrue(self.state["dag_entered"].wait(30))
         member = json.loads(dump.read_text())
-        self.assertEqual(member["TNY_TEAM_RUN"], payload["id"])
-        self.assertEqual(member["TNY_TEAM_TASK"], "0")
-        self.assertEqual(member["TNY_TEAM_ATTEMPT"], "1")
+        # Team membership bearers were removed (ADR 0221); none is exported.
+        self.assertIsNone(member["TNY_TEAM_RUN"])
+        self.assertIsNone(member["TNY_TEAM_CAPABILITY"])
         self.assertIsNone(member["TNY_TEAM_READ_ONLY"])
         self.assertEqual(member["TNY_ADMISSION_ENROLLED"], "1")
-        bearer = member["TNY_TEAM_CAPABILITY"]
-        self.assertEqual(len(bearer), 64)
-        import hashlib
-
         record = self.status(payload["id"])
-        raw = Path(record["metadata_path"]).read_text()
-        verifier = json.loads(raw)["items"][0]["mailbox_capability_sha256"]
-        self.assertEqual(hashlib.sha256(bearer.encode()).hexdigest(), verifier)
-        self.assertNotIn(bearer, raw)
-        self.assertNotIn(bearer, json.dumps(record))
         argv = "\n".join(pids_argv(self.home.name))
-        self.assertNotIn(bearer, argv)
         self.assertIn("--max-steps 4", argv)
-        self.assertTrue(record["peer_messages"])
         self.assertEqual(record["max_steps"], 4)
         self.state["dag_release"].set()
         final = self.await_terminal(payload["id"])
         self.assertEqual(final["state"], "succeeded", final)
-        self.assertNotIn(bearer, Path(final["items"][0]["log_path"]).read_text())
 
     def test_default_worker_has_no_read_only_marker(self):
         run, payload = self.dag_submit([{"prompt": "DAG_BARRIER writable default"}])
@@ -1900,9 +1796,6 @@ class JobsEnrollment(DAGFixture):
         job_id = json.loads(run.stdout)["id"]
         first = self.await_terminal(job_id)
         self.assertEqual(first["state"], "failed", first)
-        old_hash = json.loads(Path(first["metadata_path"]).read_text())["items"][0][
-            "mailbox_capability_sha256"
-        ]
         self.state["fail_ask"] = False
         self.state["dag_release"].clear()
         self.state["dag_entered"].clear()
@@ -1911,8 +1804,6 @@ class JobsEnrollment(DAGFixture):
         record = self.status(job_id)
         self.assertEqual(record["max_steps"], 4)
         self.assertIn("--max-steps 4", "\n".join(pids_argv(self.home.name)))
-        current = json.loads(Path(record["metadata_path"]).read_text())
-        self.assertNotEqual(current["items"][0]["mailbox_capability_sha256"], old_hash)
         self.state["dag_release"].set()
         final = self.await_terminal(job_id)
         self.assertEqual(final["state"], "succeeded", final)
@@ -2236,53 +2127,6 @@ int flock(int fd,int op) { return fenced_flock(fd,op); }
         raw = Path(final["metadata_path"]).read_text()
         self.assertNotIn("refreshed-fixture-token", raw)
         self.assertNotIn(TOKEN, raw)
-
-    def test_actual_member_cannot_control_unrelated_run_via_cli_or_tool(self):
-        import shlex
-
-        run, target = self.submit("ask", stdin=b"DAG_BARRIER unrelated sentinel")
-        self.assertEqual(run.returncode, 0)
-        self.assertTrue(self.state["dag_entered"].wait(30))
-        target_id = target["id"]
-        dump = self.home / "member-controls.json"
-        script = (
-            "import subprocess,json; results=[]; "
-            + "\nfor action in ['cancel','retry','rm']:\n r=subprocess.run("
-            + repr([TNY, "--provider", "openai", "jobs"])
-            + "+[action,"
-            + repr(target_id)
-            + ",'--json'],capture_output=True); results.append([r.returncode,r.stderr.decode()])\n"
-            + "json.dump(results,open("
-            + repr(str(dump))
-            + ",'w'))"
-        )
-        self.state["envdump"] = "python3 -c " + shlex.quote(script)
-        self.state["member_target"] = target_id
-        run, member = self.dag_submit(
-            [
-                {
-                    "prompt": "ENVDUMP member CLI controls",
-                    "workspace": {"policy": "shared_writable"},
-                },
-                {
-                    "prompt": "MEMBER_CONTROL typed cancel",
-                    "workspace": {"policy": "shared_writable"},
-                },
-            ]
-        )
-        self.assertEqual(run.returncode, 0, run.stderr)
-        result = self.await_terminal(member["id"])
-        self.assertEqual(result["state"], "succeeded", result)
-        for code, error in json.loads(dump.read_text()):
-            self.assertEqual(code, 1)
-            self.assertIn("member_control_unsupported", error)
-        self.assertIn("member_control_unsupported", json.dumps(self.state["bodies"]))
-        sentinel = self.status(target_id)
-        self.assertEqual(sentinel["state"], "running")
-        self.assertFalse(sentinel["cancel_requested"])
-        # An ordinary local operator retains legacy batch authority.
-        self.run_tny("jobs", "cancel", target_id, "--json")
-        self.assertEqual(self.await_terminal(target_id)["state"], "cancelled")
 
 
 class JobsSoftBudget(DAGFixture):
@@ -2658,7 +2502,7 @@ class JobsProviderSelection(DAGFixture):
             "'CHATGPT_ACCESS_TOKEN','ROOT_ALIAS','LANG','TNY_TOOLS']; "
             "json.dump({k:os.getenv(k) for k in names},open("
             + repr(str(self.home / "env-"))
-            + "+os.environ['TNY_TEAM_TASK']+'.json','w'))"
+            + "+'{item}.json','w'))"
         )
         command = "python3 -c " + shlex.quote(script)
         self.state["envdump"] = command
@@ -2676,12 +2520,12 @@ class JobsProviderSelection(DAGFixture):
             dag=True,
             items=[
                 {
-                    "prompt": "ENVDUMP DAG_BARRIER first",
+                    "prompt": "ENVDUMP ITEM0 DAG_BARRIER first",
                     "provider": "alpha",
                     "workspace": {"policy": "shared_writable"},
                 },
                 {
-                    "prompt": "ENVDUMP DAG_BARRIER second",
+                    "prompt": "ENVDUMP ITEM1 DAG_BARRIER second",
                     "provider": "beta",
                     "workspace": {"policy": "shared_writable"},
                 },
@@ -3594,7 +3438,6 @@ class JobsOutputs(JobsFixture):
         self.assertEqual(item["output_path"], os.path.realpath(target))
         self.assertTrue(target.is_file())
         self.assertEqual(item["output_bytes"], target.stat().st_size)
-        import hashlib
 
         self.assertEqual(
             item["output_sha256"], hashlib.sha256(target.read_bytes()).hexdigest()
@@ -4297,7 +4140,6 @@ class JobsReviewedRaces(JobsFixture):
 
     def test_legacy_image_success_without_manifest_cannot_be_carried(self):
         import copy
-        import hashlib
 
         job_id, directory = self.finished_failure()
         metadata = directory / "job.json"

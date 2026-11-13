@@ -1,8 +1,8 @@
 # ADR 0201: Default automatic workflow learning
 
-Status: accepted
+Status: superseded by [ADR 0221](0221-remove-unproven-features.md)
 
-- Status: accepted
+- Status: superseded by ADR 0221
 - Date: 2026-09-19
 - Extends [ADR 0153](0200-bounded-instruction-evolution.md)
 - Renumbered from ADR 0154 (serial collision with the agents-session-inspection-and-continuation ADR) on 2026-10-19.

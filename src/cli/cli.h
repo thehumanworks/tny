@@ -20,21 +20,14 @@ typedef struct {
     const char *effort;            /* --effort | --reasoning-effort */
     const char *system_prompt;     /* --system-prompt */
     const char *child_context;     /* private durable-job context snapshot */
-    int swarm_cap;                 /* --swarm[=N], -1 means lead decides */
-    const char *swarm_file;        /* --swarm-file PATH */
-    char *swarm_definition;        /* validated canonical snapshot */
-    char *swarm_source;            /* absolute selection provenance */
-    char swarm_definition_digest[65];
-    int swarm_participants;
-    const char *task;      /* --task NAME */
-    const char *perm_mode; /* --permission-mode | --yolo | --auto */
-    const char *max_steps; /* --max-steps N|unlimited (0 = no cap) */
-    bool no_self_improve;  /* --no-self-improve */
-    bool no_tool_ext;      /* --no-tool-extensions */
-    bool no_project_tools; /* --no-project-tools */
-    bool ultrafast;        /* --ultrafast (OpenAI Responses only) */
-    bool fast;             /* --fast (providers with TNY_CAP_FAST) */
-    const char **add_dirs; /* --add-dir, repeatable */
+    const char *task;              /* --task NAME */
+    const char *perm_mode;         /* --permission-mode | --yolo | --auto */
+    const char *max_steps;         /* --max-steps N|unlimited (0 = no cap) */
+    bool no_tool_ext;              /* --no-tool-extensions */
+    bool no_project_tools;         /* --no-project-tools */
+    bool ultrafast;                /* --ultrafast (OpenAI Responses only) */
+    bool fast;                     /* --fast (providers with TNY_CAP_FAST) */
+    const char **add_dirs;         /* --add-dir, repeatable */
     int n_add_dirs;
     bool json;              /* --json */
     int tui_mode;           /* 0=settings, 1=inline, 2=fullscreen */
@@ -50,7 +43,6 @@ typedef struct {
     bool resume_last;       /* -c / --continue */
     const char *resume;     /* --resume value */
     /* backend-specific */
-    const char *xai_api_key;        /* --xai-api-key: dictation only */
     const char *chatgpt_token;      /* --chatgpt-token (docs/adr/0066) */
     const char *chatgpt_account_id; /* --chatgpt-account-id */
     const char **agent_argv;        /* --agent CMD -- arg... --, never evaluated by a shell */
@@ -66,8 +58,6 @@ int cli_parse_globals(int argc, char **argv, cli_globals *g);
 bool cli_is_command(const char *name);
 /* Quiet grammar-only command lookup; frees all temporary parser allocations. */
 int cli_command_index(int argc, char **argv);
-/* Reject unsupported swarm execution before workspace/SSH setup. */
-int cli_swarm_preflight(cli_globals *g, const char *command, int argc, char **argv);
 
 /* --ssh TARGET: open the remote tool runtime on ctx (docs/adr/0022). Prints
  * its own error; 0 ok. Shared by cli_make_ctx and the TUI /ssh command. */
@@ -91,20 +81,13 @@ int cli_ask_exit_status(int stream, bool terminal, int stop);
 int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 /* Stateless and config-free; dispatched before cli_make_ctx. */
 int cmd_image_service(const cli_globals *g, int argc, char **argv);
-int cmd_speak(const cli_globals *g, int argc, char **argv);
-int cmd_dictate(const cli_globals *g, int argc, char **argv);
 int cmd_optimise(const cli_globals *g, int argc, char **argv);
-int cmd_jev(const cli_globals *g, int argc, char **argv, bool choose);
 int cmd_edit(const cli_globals *g, int argc, char **argv);
 int cmd_settings(const cli_globals *g, int argc, char **argv);
 /* Durable ask/image jobs (docs/jobs.md, docs/adr/0093). `jobs _worker ID` is
  * the hidden supervisor entry point, never a documented verb. */
 int cmd_jobs(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
-int cmd_mailbox(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_task_workspace(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
-int cmd_team(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
-/* Stateless definition validation; dispatched before context/provider setup. */
-int cmd_swarm(const cli_globals *g, int argc, char **argv);
 int cmd_resume(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_sessions(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);
 int cmd_session(tny_ctx *ctx, const cli_globals *g, int argc, char **argv);

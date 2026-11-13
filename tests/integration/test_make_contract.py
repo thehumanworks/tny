@@ -26,8 +26,7 @@ class MakeTestContract(unittest.TestCase):
             ):
                 binary = str(Path(temp) / "tny")
                 # A fresh output tree exposes prerequisites hidden by local
-                # builds. Skip the shared-library subtree: its frozen ABI0
-                # recursive make executes even during a dry run.
+                # builds. The shared-library subtree is checked by test-abi.
                 result = subprocess.run(
                     [
                         "make",

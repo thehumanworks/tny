@@ -37,14 +37,11 @@ static bool array_prefix(yyjson_val *before, yyjson_val *after) {
     return true;
 }
 /* Version 1 is the nested-tool session contract, not a transcript snapshot.
- * Team delivery needs dedup/cursor state and the bounded ACP forwarding queue.
- * Task/swarm metadata remains available; owner history and audit stay private.
+ * It carries task metadata; owner history and audit stay private.
  * messages starts empty and is an append-only delivery outbox. */
 static bool session_field(const char *key) {
     if (!key) return false;
-    static const char *fields[] = {
-        "task",          "swarm_cap",    "swarm_definition",   "team_runs",
-        "team_receipts", "team_cursors", "acp_pending_context"};
+    static const char *fields[] = {"task"};
     for (size_t i = 0; i < sizeof(fields) / sizeof(*fields); ++i)
         if (strcmp(key, fields[i]) == 0) return true;
     return false;
@@ -129,18 +126,12 @@ yyjson_mut_val *tny_execution_state_encode(yyjson_mut_doc *d, tools_env *env, yy
                                            bool initial) {
     if (!d || !env || env->n_pending_images < 0 || env->n_pending_images > 8) return NULL;
     yyjson_mut_val *out = yyjson_mut_obj(d), *grants = yyjson_mut_arr(d),
-                   *results = yyjson_mut_arr(d), *images = yyjson_mut_arr(d),
-                   *fact = yyjson_mut_obj(d);
+                   *results = yyjson_mut_arr(d), *images = yyjson_mut_arr(d);
     bool ok = out && add(d, out, "session", encode_session(d, env, baseline, initial)) &&
               add(d, out, "grants", grants) && add(d, out, "mem_results", results) &&
-              add(d, out, "images", images) && add(d, out, "learning", fact) &&
+              add(d, out, "images", images) &&
               yyjson_mut_obj_add_uint(d, out, "pending_count", (unsigned)env->n_pending_images) &&
-              yyjson_mut_obj_add_bool(d, out, "perm_blocked", env->perm_blocked) &&
-              yyjson_mut_obj_add_bool(d, fact, "valid", env->learning_fact.valid) &&
-              yyjson_mut_obj_add_bool(d, fact, "ok", env->learning_fact.ok) &&
-              yyjson_mut_obj_add_uint(d, fact, "event", (unsigned)env->learning_fact.event) &&
-              yyjson_mut_obj_add_uint(d, fact, "scope", env->learning_fact.scope) &&
-              yyjson_mut_obj_add_uint(d, fact, "intent", env->learning_fact.intent);
+              yyjson_mut_obj_add_bool(d, out, "perm_blocked", env->perm_blocked);
     if (env->perm) {
         if (env->perm->n_grants < 0 || (unsigned)env->perm->n_grants > STATE_ENTRIES) return NULL;
         for (int i = 0; ok && i < env->perm->n_grants; ++i)
@@ -352,25 +343,13 @@ bool tny_execution_state_apply(tools_env *env, yyjson_val *state, bool initial) 
         return false;
     yyjson_val *session = jget(state, "session"), *grants = jget(state, "grants"),
                *results = jget(state, "mem_results"), *images = jget(state, "images"),
-               *fact = jget(state, "learning"), *blocked = jget(state, "perm_blocked"),
-               *pending = jget(state, "pending_count");
+               *blocked = jget(state, "perm_blocked"), *pending = jget(state, "pending_count");
     if ((!yyjson_is_obj(session) && !yyjson_is_null(session)) || !yyjson_is_arr(grants) ||
-        !yyjson_is_arr(results) || !yyjson_is_arr(images) || !yyjson_is_obj(fact) ||
-        !yyjson_is_bool(blocked) || !yyjson_is_uint(pending) || yyjson_get_uint(pending) > 8 ||
+        !yyjson_is_arr(results) || !yyjson_is_arr(images) || !yyjson_is_bool(blocked) ||
+        !yyjson_is_uint(pending) || yyjson_get_uint(pending) > 8 ||
         yyjson_arr_size(grants) > STATE_ENTRIES || yyjson_arr_size(results) > STATE_ENTRIES ||
         yyjson_arr_size(images) > 8 || (initial && yyjson_arr_size(images)))
         return false;
-    yyjson_val *valid = jget(fact, "valid"), *ok = jget(fact, "ok"), *event = jget(fact, "event"),
-               *scope = jget(fact, "scope"), *intent = jget(fact, "intent");
-    if (!yyjson_is_bool(valid) || !yyjson_is_bool(ok) || !yyjson_is_uint(event) ||
-        yyjson_get_uint(event) > TNY_LEARN_OTHER || !yyjson_is_uint(scope) ||
-        !yyjson_is_uint(intent))
-        return false;
-    tools_learning_fact learning = {.valid = yyjson_get_bool(valid),
-                                    .ok = yyjson_get_bool(ok),
-                                    .event = (tny_learning_event)yyjson_get_uint(event),
-                                    .scope = yyjson_get_uint(scope),
-                                    .intent = yyjson_get_uint(intent)};
     tny_session_state *fresh = NULL;
     yyjson_mut_doc *merged = NULL;
     char **new_grants = NULL;
@@ -525,7 +504,6 @@ bool tny_execution_state_apply(tools_env *env, yyjson_val *state, bool initial) 
         image_stage.pending_images[j] = NULL;
         image_stage.pending_capture[j].data = NULL;
     }
-    env->learning_fact = learning;
     env->perm_blocked = env->perm_blocked || yyjson_get_bool(blocked);
     success = !publish_session || session_save(env->session) == 0;
 done:

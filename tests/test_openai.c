@@ -20,7 +20,7 @@
 #include "core/perm.h"
 #include "core/session.h"
 #include "core/tools.h"
-#include "net/http_server.h"
+#include "http_server.h"
 #include "util/tny_poll.h"
 #include "util/util.h"
 #include "util/alloc.h"

@@ -7,7 +7,6 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import patch
 
 import tny
 
@@ -15,15 +14,12 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "tests/fixtures"))
 from toolkit_provider import (  # noqa: E402
     ACCOUNT,
-    MP3,
     OPTIMISE_TOKEN,
     PNG,
     REQUEST_ID,
     SEED,
-    TEXT,
     TOKEN,
     Provider,
-    fake_audio,
     workspace,
 )
 
@@ -195,25 +191,6 @@ class ToolkitTests(unittest.TestCase):
         record = json.loads(result.manifest_path.read_text())
         self.assertEqual(record["actual"], {"seed": SEED, "request_id": REQUEST_ID})
 
-    def test_speech_export_and_file_transcription(self):
-        result = self.toolkit.speak("Hello", output_file="speech.mp3", voice="cove")
-        self.assertFalse(result.played)
-        self.assertEqual(result.path.read_bytes(), MP3)
-        transcript = self.toolkit.transcribe("input.wav", provider="codex")
-        self.assertEqual(transcript.text, TEXT.encode())
-        self.assertNotIn(TEXT, repr(transcript))
-        self.assertTrue(self.provider.requests[-1]["body"]["wav"])
-
-    def test_microphone_and_playback_with_fake_host_devices(self):
-        binaries = self.path / "bin"
-        fake_audio(binaries)
-        with patch.dict(os.environ, {"PATH": str(binaries)}):
-            result = self.toolkit.dictate(seconds=1, provider="codex")
-            self.assertEqual(result.text, TEXT.encode())
-            speech = self.toolkit.speak("Hello")
-            self.assertTrue(speech.played)
-            self.assertIsNone(speech.path)
-
     def test_optimise_refuses_without_provider_or_file_effects(self):
         before = {
             p.relative_to(self.path): p.read_bytes()
@@ -327,9 +304,6 @@ class ToolkitTests(unittest.TestCase):
             lambda: self.toolkit.generate_image(
                 "tree", output_file="out.png", size="portrait", strict_size=True
             ),
-            lambda: self.toolkit.dictate(seconds=True),
-            lambda: self.toolkit.dictate(seconds=0),
-            lambda: self.toolkit.dictate(seconds=301),
             lambda: self.toolkit.optimise("text", timeout_seconds=0),
         ]
         for call in calls:
@@ -341,7 +315,9 @@ class ToolkitTests(unittest.TestCase):
         token = tny.CancellationToken()
         token.cancel()
         with self.assertRaises(tny.CancelledError):
-            self.toolkit.speak("hello", output_file="speech.mp3", cancellation=token)
+            self.toolkit.generate_image(
+                "tree", output_file="cancelled.png", cancellation=token
+            )
         self.assertEqual(self.provider.requests, [])
         self.provider.mode = "stall"
         token = tny.CancellationToken()
@@ -511,14 +487,12 @@ class ToolkitTests(unittest.TestCase):
     def test_async_results_and_cancellation_join(self):
         async def exercise():
             toolkit = tny.AsyncToolkit(self.config, library=LIBRARY)
-            image, speech, transcript = await asyncio.gather(
+            image, other = await asyncio.gather(
                 toolkit.generate_image("tree", output_file="async.png"),
-                toolkit.speak("hi", output_file="async.mp3"),
-                toolkit.transcribe("input.wav", provider="codex"),
+                toolkit.generate_image("bush", output_file="async-2.png"),
             )
             self.assertEqual(image.path.read_bytes(), PNG)
-            self.assertEqual(speech.path.read_bytes(), MP3)
-            self.assertEqual(transcript.text, TEXT.encode())
+            self.assertEqual(other.path.read_bytes(), PNG)
             request_count = len(self.provider.requests)
             with self.assertRaises(tny.UnsupportedError):
                 await toolkit.optimise("Improve context", **self.optimise_options())

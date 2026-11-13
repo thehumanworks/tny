@@ -74,8 +74,8 @@ loader's normal search path. Discovery order is explicit argument,
 `TNY_LIBRARY_PATH`, wheel payload, then the system loader. The current working
 directory and repository-relative paths are never searched.
 The current SDK loads only ABI major 1 and never falls back to
-`libtny.0.dylib` or `libtny.so.0`. The frozen ABI-0 artifact exists only for
-old-consumer compatibility and is rejected even when passed explicitly.
+`libtny.0.dylib` or `libtny.so.0`; an ABI-0 library is rejected even when
+passed explicitly.
 
 The wheel uses the `py3-none-<platform>` tag because cffi ABI mode has no
 package-specific CPython extension ABI. Python 3.10 and newer are supported.
@@ -266,8 +266,8 @@ I/O. Embedded optimisation has no execution-server launcher and no direct
 fallback; no workspace exploration is performed. The method signatures remain
 available for compatibility.
 
-`Toolkit` and `AsyncToolkit` expose image generation/editing, speech
-export/playback and WAV/microphone transcription through libtny ABI 1.2+.
+`Toolkit` and `AsyncToolkit` expose image generation/editing through
+libtny ABI 1.2+.
 They need no agent runtime, session, or `tny` executable.
 
 ```python
@@ -275,8 +275,6 @@ from tny import Toolkit, ToolkitConfig
 
 kit = Toolkit(ToolkitConfig(workspace="/path/to/project"))
 image = kit.generate_image("A small tree", output_file="tree.png")
-kit.speak("Hello", output_file="hello.mp3")
-text = kit.transcribe("recording.wav").text
 ```
 
 Use the same methods on `AsyncToolkit` with `await`. Every call accepts a

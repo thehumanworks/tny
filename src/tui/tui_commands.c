@@ -9,7 +9,6 @@
 #include "cli/cli.h"
 #include "core/ssh.h"
 #include "core/tasks.h"
-#include "core/swarm.h"
 #include "core/jobs.h"
 #include "mcp/mcp.h"
 
@@ -41,7 +40,6 @@ static const struct {
     {"provider", "/provider [NAME]"}, /* hint built from cmd_hint() */
     {"fast", "/fast [fast|priority|ultrafast|default] — provider speed tier"},
     {"effort", "/effort [" TNY_EFFORT_LEVELS "|default]"},
-    {"swarm", "/swarm [N] — collective mode; optional collaborator cap 1..16"},
     {"task", "/task [NAME|clear] — select a session task preset"},
     {"max-steps", "/max-steps [set N|clear] — cap the agent loop per turn"},
     {"status", "provider, auth, workspace, subscription usage"},
@@ -54,7 +52,6 @@ static const struct {
     {"workspace", "/workspace [add|remove DIR]"},
     {"worktree", "/worktree [NAME] — create or enter a Git worktree"},
     {"image", "/image PATH — attach to the next prompt"},
-    {"dictate", "/dictate [PROVIDER] — microphone to editable prompt (Ctrl-R)"},
     {"optimise", "/optimise [--model MODEL] [--provider NAME] PROMPT — improve draft (Ctrl-O)"},
     {"ssh", "/ssh user@host[:port] [dir] | /ssh off — run tools on a remote host"},
     {"undo", "undo the last file change"},
@@ -438,7 +435,7 @@ static void cmd_help(tui *t) {
                       "esc cancel turn%s",
                       d, r);
     tui_overlay_linef(t,
-                      "%s      ctrl-v paste · ctrl-r dictate · ctrl-o optimise · "
+                      "%s      ctrl-v paste · ctrl-o optimise · "
                       "ctrl-c stop (again forces; twice exits when idle)%s",
                       d, r);
     for (int i = 0; i < N_CMDS; i++) {
@@ -716,7 +713,6 @@ void tui_command(tui *t, const char *line) {
 
     if (!*c || strcmp(c, "help") == 0) cmd_help(t);
     else if (strcmp(c, "settings") == 0) tui_settings_command(t, arg);
-    else if (strcmp(c, "dictate") == 0) tui_dictation_start(t, arg);
     else if (strcmp(c, "optimise") == 0) tui_optimise_start(t, arg ? arg : "");
     else if (strcmp(c, "worktree") == 0) tui_worktree_enter(t, arg);
     else if (strcmp(c, "ssh") == 0) {
@@ -928,47 +924,6 @@ void tui_command(tui *t, const char *line) {
                 tui_linef(t, "  reasoning effort: %s%s (next turn on)", arg,
                           tny_effort_canonical(arg) ? ""
                                                     : " (provider-advertised value, unverified)");
-        }
-        t->dirty = true;
-    } else if (strcmp(c, "swarm") == 0) {
-        int cap = arg && *arg ? tny_swarm_count(arg) : -1;
-        if (!cap) tui_err(t, "swarm count must be a positive integer 1..16");
-        else if (t->turn_active || !tny_swarm_supported(t->ctx))
-            tui_err(t, "swarm requires an idle saved native local lead session");
-        else if (t->session && !t->ctx->swarm_cap &&
-                 !tny_jobs_swarm_transition_safe(t->ctx, t->session->id))
-            tui_err(t, "finish or cancel existing owned work before enabling swarm");
-        else if (t->ctx->swarm_cap && t->ctx->swarm_cap != cap && t->session &&
-                 (session_turns(t->session) > 0 ||
-                  yyjson_mut_obj_get(yyjson_mut_doc_get_root(t->session->doc), "team_runs")))
-            tui_err(t, "swarm cap is fixed once enabled; start /new for a different cap");
-        else {
-            int old = t->ctx->swarm_cap;
-            bool explicit_old = t->ctx->swarm_explicit;
-            pid_t runner_pid = t->rc_pid;
-            bool had_runner = t->rc != NULL;
-            tui_runner_invalidate(t);
-            if (had_runner) {
-                char error[256];
-                if (!tui_worktree_wait_runner(runner_pid) || !t->session ||
-                    session_lock_acquire(t->session) != 0 ||
-                    session_reload_locked(t->session, error, sizeof error) != 0) {
-                    tui_err(t, "previous runner has not released the session; swarm unchanged");
-                    return;
-                }
-            }
-            t->ctx->swarm_cap = cap;
-            t->ctx->swarm_explicit = true;
-            if (t->session && (tny_swarm_bind(t->session) || session_save(t->session))) {
-                t->ctx->swarm_cap = old;
-                t->ctx->swarm_explicit = explicit_old;
-                (void)tny_swarm_bind(t->session);
-                tui_err(t, "could not persist swarm selection");
-            } else {
-                drop_backend(t);
-                tui_sys(t, cap < 0 ? "collective swarm selected; lead chooses count"
-                                   : "collective swarm selected with collaborator cap");
-            }
         }
         t->dirty = true;
     } else if (strcmp(c, "task") == 0) {

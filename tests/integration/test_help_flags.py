@@ -31,17 +31,10 @@ COMMAND_PARSERS = {
     "backends": ("cmd_backends",),
     "doctor": ("cmd_doctor",),
     "edit": ("cmd_edit",),
-    "speak": ("cmd_speak",),
-    "dictate": ("cmd_dictate",),
     "optimise": ("cmd_optimise",),
-    "score": ("cmd_jev",),
-    "choose": ("cmd_jev",),
     "login": ("cmd_login",),
     "image": ("cmd_image_service", "cmd_image", "tny_image_options"),
     "jobs": ("cmd_jobs", "tny_jobs_parse_argv"),
-    "team": ("cmd_team", "tny_team_parse_argv"),
-    "swarm": ("cmd_swarm",),
-    "mailbox": ("cmd_mailbox", "tny_team_mailbox_parse_argv"),
     "task-workspace": ("cmd_task_workspace", "tny_workspace_parse_argv"),
     "logout": ("cmd_logout",),
     "mcp": ("cmd_mcp", "cmd_mcp_serve"),
@@ -109,8 +102,6 @@ SOURCE_PATHS = [
     ROOT / "src/tui/tui_agents.c",
     ROOT / "src/core/image_service.c",
     ROOT / "src/core/jobs.cpp",
-    ROOT / "src/core/team_control.c",
-    ROOT / "src/core/team_runtime.c",
     ROOT / "src/core/tools_workspace.c",
     ROOT / "src/cli/args.c",
     ROOT / "src/cli/globals.c",
@@ -337,7 +328,7 @@ class CwdFlagTest(unittest.TestCase):
             launch = Path(tmp) / "launch"
             workspace.mkdir(parents=True)
             launch.mkdir()
-            env = dict(os.environ, HOME=str(home), TNY_SELF_IMPROVE="0")
+            env = dict(os.environ, HOME=str(home))
             for cwd, expected in (
                 (None, launch),
                 (str(workspace), workspace),
@@ -362,7 +353,7 @@ class CwdFlagTest(unittest.TestCase):
 
     def test_tilde_needs_home_and_invalid_directory_fails(self) -> None:
         with tempfile.TemporaryDirectory(prefix="tny-cwd-") as tmp:
-            env = dict(os.environ, HOME="", TNY_SELF_IMPROVE="0")
+            env = dict(os.environ, HOME="")
             result = subprocess.run(
                 [str(TNY), "--cwd", "~/project", "workspace", "list"],
                 cwd=tmp,

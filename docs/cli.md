@@ -19,18 +19,11 @@ Design the CLI so humans and coding agents can run it without menus. Every input
 
 Binary name: `tny`.
 
-`score` and `choose` use the independent [tnyjev decision module](tnyjev.md).
-They require `TYPESAFE_API_KEY`, accept explicit or piped state, and return
-plain values or `--json`. They do not start a chat session or execute routes.
-
 ## Command tree
 
 ```text
 tny                         # interactive TUI, fresh session
 tny ask [prompt]            # one turn, then exit
-tny speak                   # speak stdin aloud; --output-file exports MP3
-tny score QUESTION          # Jev P(yes), 0..1; explicit state or stdin
-tny choose --choices JSON   # Jev route key for state; no route execution
 tny edit FILE               # exact-match replacement from stdin
 tny ask-user QUESTION       # ask the owning runner frontend (inside terminal)
 tny image generate          # prompt on stdin; --output-file required
@@ -188,11 +181,6 @@ Report prioritized findings; do not edit unless explicitly asked.
 
 Save it as `.tny/tasks/release-review.md`, then run
 `tny --task release-review ask "Review this release"`.
-
-Automatic workflow learning is **on by default**, without selecting a preset.
-`--no-self-improve`, `TNY_SELF_IMPROVE=0`, or `"self_improve": false` disables it.
-`status --json` and `doctor --json` expose `self_improve`. See
-[instruction improvement](instruction-improvement.md) for scope and evidence.
 
 The bundled `self-improve` preset guides optional broader instruction experiments:
 `tny --task self-improve ask "Design an experiment for our review task"`.
@@ -1039,8 +1027,8 @@ tny --provider opencode tool call subagent '{"action":"create","prompt":"…"}'
   result writer are the agent's. `ask` mode with no reviewer fails closed
   exactly as in `tny ask`; permission rules and read-only workspaces apply.
 - **Catalog.** The list is the current nested catalog, so it follows
-  credentials and configuration (for example `image_generate` and `speak`
-  appear only with a Codex login, `web_search` only when configured). Tools
+  credentials and configuration (for example `image_generate`
+  appears only with a Codex login, `web_search` only when configured). Tools
   whose input or effect belongs to a live conversation turn — `read_image`,
   `read_tool_result`, `search_transcript`, `ask_user_question` — are omitted
   and `call` refuses them; use `tny ask --image PATH` for images.
@@ -1333,53 +1321,10 @@ or a dispatched subcommand missing from top-level help fails the test
 ([ADR 0042](adr/0042-help-flag-alignment.md)). The small source allowlist is
 reserved for explicitly justified compatibility or passthrough syntax.
 
-## Dictation
-
-`tny dictate` records the microphone and prints prompt text. Enter finishes
-recording; Ctrl-C cancels. `--seconds N` enables timed capture;
-`--input-file speech.wav` transcribes a PCM WAV without a microphone.
-`--stt-provider codex|xai` is independent of the agent's `--provider`.
-`TNY_STT_PROVIDER` sets the STT default; without it, `codex` remains the default.
-The leading global `--xai-api-key KEY` works for standalone and TUI dictation:
-
-```sh
-tny --xai-api-key "$XAI_API_KEY" dictate --stt-provider xai --input-file speech.wav
-TNY_STT_PROVIDER=xai tny --provider grok
-# Inside the TUI: /dictate xai, then Enter to transcribe, then Enter to send.
-```
-
-xAI credential precedence is flag, `XAI_API_KEY`, named `xai` settings
-(`api_key_env`), then Grok login only when no explicit key source is configured.
-A missing explicit environment variable, empty or CR/LF-bearing value fails locally. Grok login credentials refresh only at
-transcription start. STT uses `https://api.x.ai/v1/stt` with its service-selected
-model; chat/profile base URLs and models are ignored. `--check` opens no audio,
-makes no request, and performs no refresh; success means local prerequisites,
-not verified entitlement. Windows/wasm remain file-only.
-`--json` returns one object with `kind`, `provider`, and `text`.
-
-`--normalize` (or `TNY_DICTATION_NORMALIZE=1`, or settings
-`dictation.normalize`) makes one structured rewrite of the transcript with the
-STT subscription's own small model (`gpt-6-luna` for codex, `grok-4.7` for xai)
-and the user/project `dictionary.json`, verified in C before use; `--no-normalize`
-forces it off. It is off by default. Plain stdout stays transcript-only. With
-`--json` and normalization enabled, the object also carries `raw`,
-`normalized`, `model`, `effort`, `service_tier`, `corrections[]`, and
-`skipped_reason` when the rewrite did not apply. Any failure keeps the raw
-transcript with exit status 0 and one stderr line:
-
-```sh
-tny dictate --input-file speech.wav --normalize --json
-TNY_DICTATION_NORMALIZE=1 tny dictate --seconds 10 | tny ask --stdin
-```
-
-See [Dictation](dictation.md) for account credentials, devices, bounds,
-cancellation, platform support, and the dictionary format.
-
 ## Prompt optimisation
 
 `tny optimise PROMPT` rewrites a draft using relevant project files, and prints
-the result without executing it. `--stdin` accepts a piped draft, including
-`tny dictate --seconds 10 | tny optimise --stdin`. `--model` and `--provider`
+the result without executing it. `--stdin` accepts a piped draft. `--model` and `--provider`
 override the independent default: OpenRouter `inception/mercury-2.5`.
 `--json` prints `kind`, `provider`, `model`, and `text`.
 `tny optimise --optimise-timeout 600 PROMPT` sets the timeout in seconds.
@@ -1390,12 +1335,6 @@ values fail before a provider request. There is no step cap, even if the
 conversation or project sets one; cancellation and the timeout still apply.
 The TUI offers `/optimise PROMPT` and Ctrl-O, followed by draft review and
 explicit Enter to submit. See [Prompt optimisation](optimisation.md).
-
-## Speech
-
-`printf 'The tests passed.' | tny speak` plays ephemeral speech using your
-ChatGPT login, independently of the chat provider. See [Speech](speech.md)
-for voices, availability, export, agent tools and platform behavior.
 
 ## Durable jobs (`tny jobs`)
 
@@ -1436,22 +1375,3 @@ are never modified, and the result is a derived artifact recorded as such. Run
 [images.md](images.md) for flags, result schema, limits, permissions and platform
 behavior, and `tny image --help` for examples.
 
-### Collective mode
-
-`--swarm[=N]` (global or ask-local) and interactive `/swarm [N]` select collective
-facilitation. N is 1..16 collaborators excluding the lead; omission lets the lead
-choose. See [collective swarm](collective-swarm.md) for persistence, admission,
-`mailbox publish`, bounded `mailbox wait --timeout-ms`, and platform limits.
-`mailbox status --run RUN` reports retained history and caller backlog capacity
-without delivery, acknowledgment or reservation. Root/operator `team review` and
-`team review-read` preserve immutable contribution snapshots and separately labelled
-reviewer claims; see [review continuity](swarm-review.md). They never execute checks
-or establish acceptance.
-
-`--swarm-file PATH` (global or ask-local) strictly validates, snapshots and activates
-a [purposeful swarm](purposeful-swarms.md), including version-2
-[contribution contracts](swarm-factory.md). It is mutually exclusive with
-`--swarm`; the file's flattened participants set the cap. `tny swarm validate FILE
-[--json]` performs local, side-effect-free validation. Activation requires a native
-local saved lead session, while resume uses the persisted canonical snapshot rather
-than silently rereading a changed file.

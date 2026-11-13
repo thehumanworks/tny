@@ -1,11 +1,5 @@
 # Architecture
 
-[Automatic workflow learning](instruction-improvement.md) runs by default inside
-ordinary native turns. Typed tool outcomes update bounded workspace evidence;
-eligible recovery advice enters later requests without extra inference or tasks
-(ADR 0154). The broader instruction-evolution controller remains an optional
-external workflow (ADR 0153). Neither changes permission policy or task snapshots.
-
 tny is a native agent harness with one OpenAI-compatible HTTP provider backend
 ([ADR 0152](adr/0152-native-http-only-providers.md)). CLI, TUI and libtny share
 the runtime, session store, permissions, tools, MCP and event loop. Profiles
@@ -77,7 +71,7 @@ callback exclusions and fail-closed nested approvals remain in force. See
 [ADR 0215](adr/0215-native-sdk-tool-workers.md).
 
 Standalone SDK toolkit jobs ([ADR 0086](adr/0086-standalone-sdk-toolkit.md))
-call the shared image, speech and dictation services directly. Public SDK
+call the shared image service directly. Public SDK
 optimisation currently returns `TNY_STATUS_UNSUPPORTED` before any I/O: it
 requires a trusted execution-server launcher that this standalone toolkit path
 does not configure (ADR 0174). Native CLI/TUI optimisation remains supported.
@@ -140,7 +134,7 @@ BYOK credentials come from environment variables (`OPENAI_API_KEY` or profile-sp
 ```text
 src/
   cli/ tui/ lib/     # frontends and public C ABI
-  core/             # runtime, sessions, tools, permissions, login, jobs/teams
+  core/             # runtime, sessions, tools, permissions, login, jobs
   backends/openai/  # Responses + Chat Completions, streaming and tool loop
   net/              # HTTP/1.1, SSE, TLS seam
   mcp/              # stdio and Streamable HTTP MCP clients
@@ -154,38 +148,6 @@ Buffered provider reads schedule an immediate follow-up after each 8 KiB fairnes
 budget; external runner/TUI loops honor the same backend timeout as the pull API
 (ADR 0216). There is no provider-host prewarm thread. Bounded independent file work keeps
 the joined worker policy of ADR 0132 (at most eight workers).
-
-## Jev decision service
-
-`core/tnyjev` is an isolated typed C11 client for TypeSafe Jev, with no runtime,
-settings, environment, session or chat-provider dependency. `score` and `choose`
-are thin CLI toolkit adapters; the former maps to Noul P(yes), the latter to
-Choice. Configuration and cancellation are explicit; results have no owned
-pointers. Shared HTTP/JSON and `tny_poll` retain native/wasm parity. This is not
-a chat backend or a change to existing harness decisions. Future reasoning,
-routing and memory/reaction integrations remain out of scope. See
-[tnyjev](tnyjev.md) and [ADR 0165](adr/0165-tnyjev-decision-engine.md).
-
-## Speech service
-
-The CLI and native `speak` tool share `core/speech.c`, a provider table whose
-adapters produce bounded MP3 bytes. ChatGPT speech reuses Codex credentials
-regardless of the conversation backend. `util/audio.c` owns external player
-startup and anonymous audio lifetime within the existing host OS seam.
-See [ADR 0070](adr/0070-provider-independent-speech.md) and
-[ADR 0071](adr/0071-ephemeral-host-audio-playback.md).
-
-## Dictation service
-
-The CLI and composer share `core/dictation.c`, which owns capture, bounded
-WAV/transcript validation, cancellation, and result lifetime. Adapters behind
-`core/dictation_provider.h` own credentials and endpoints for Codex/ChatGPT
-and xAI, independently of the chat backend. `dictation_http.c` shares their
-bounded WAV multipart upload and incremental JSON response handling.
-`util/audio_capture.c` starts an optional local recorder only on demand.
-The existing event loop polls capture/response fds. TUI code inserts completed
-text into the draft and waits for the user's ordinary submit action.
-See [Dictation](dictation.md) and [ADR 0079](adr/0079-provider-independent-dictation.md).
 
 ## Prompt optimisation service
 
@@ -268,18 +230,6 @@ preserves the source. Async invalidation, cancellation deferral, continuation,
 consumed tool indices and persistence remain explicit C transitions. Destructors
 only release resources. See [ADR 0127](adr/0127-native-provider-request-owners.md)
 and the [ownership inventory](verification/issue-144/ownership.md).
-
-[Collective swarm mode](collective-swarm.md) composes a stable facilitation policy
-with existing session checkpoints, shared launch admission and durable run mailboxes.
-Directory notifications in `util/jobs_host` drive bounded native mailbox waits
-(ADR 0156); no second agent loop, scheduler or broker owns task state.
-[Purposeful definitions](purposeful-swarms.md) are strictly validated and flattened
-into one team DAG. Nested coordinators are ordinary durable participants with group
-and upward-synthesis metadata; the canonical definition and provenance remain part
-of the session/checkpoint identity. A persisted activation nonce joins an interrupted
-session to exactly one parent-owned job, while the jobs boundary accepts topology only
-through a transient compiler-owned manifest and validates the ordered durable
-projection before adoption (ADR 0157).
 
 ### Owned foreground checks
 

@@ -194,8 +194,7 @@ This prevents local project instructions from crossing into the remote workspace
 | Enter during a turn | steer the running native turn |
 | Ctrl-J / Alt-J / Shift-Enter | insert a newline in the composer |
 | Ctrl-V | paste a clipboard image path (or text) |
-| Ctrl-R | record dictation; Enter/Ctrl-R transcribes into the editable draft; Esc/Ctrl-C cancels |
-| Ctrl-O | optimise the typed/dictated draft using an independent model; review before Enter submits |
+| Ctrl-O | optimise the typed draft using an independent model; review before Enter submits |
 | Left with an empty composer | background an active native turn and open all saved sessions; idle Left opens the same dashboard; drafts and focused inputs still edit |
 | Ctrl-X / `/agents` | all saved sessions; detach an active foreground turn into background mode |
 
@@ -382,12 +381,6 @@ when exiting. Enter or rejection keeps the worktree. See [Worktrees](worktrees.m
 for branch naming, reuse and cleanup rules; `--worktree [NAME]` selects the
 same mode at startup.
 
-Input: `/dictate [PROVIDER]` records the local microphone and inserts the
-transcript at the caret. Codex/ChatGPT handles dictation by default even when
-the conversation uses Grok or another provider. Enter finishes recording;
-another Enter sends the editable draft. Cancel leaves the draft unchanged.
-See [Dictation](dictation.md) for recorder setup, limits, and file/CLI use.
-
 A `/name` line whose first token is not a builtin but names a discovered
 skill is a prompt, sent with that `SKILL.md` ahead of the text ([ADR
 0056](adr/0056-skill-mention-injection.md)); `$name` anywhere in a message
@@ -453,8 +446,3 @@ to make no local conversation write.
 ## Permissions UI
 
 Permission prompts expose **Yes** / **Yes, and don’t ask again** / **No**, mapped to `y` / `a` / `n`. The native loop owns these gates for every provider.
-`/swarm [N]` enables [collective mode](collective-swarm.md) in an idle saved local
-conversation, preserving history and rebinding its runner. N optionally caps
-collaborators (1..16, lead excluded); `/new` permits another cap.
-Purposeful file-defined membership is selected before launch with
-`tny --swarm-file PATH`; there is no mid-session file-loading slash command.

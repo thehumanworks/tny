@@ -1,6 +1,6 @@
 # ADR 0158: Capability-aligned purposeful participant context
 
-Status: accepted. Date: 2026-09-20. Extends ADR 0157.
+Status: Superseded by [ADR 0221](0221-remove-unproven-features.md). Date: 2026-09-20. Extends ADR 0157.
 
 ## Evidence
 

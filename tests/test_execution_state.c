@@ -9,12 +9,12 @@
 static bool set_run(tny_session_state *s, const char *run) {
     yyjson_mut_val *array = yyjson_mut_arr(s->doc);
     return array && yyjson_mut_arr_add_strcpy(s->doc, array, run) &&
-           yyjson_mut_obj_put(yyjson_mut_doc_get_root(s->doc), yyjson_mut_str(s->doc, "team_runs"),
+           yyjson_mut_obj_put(yyjson_mut_doc_get_root(s->doc), yyjson_mut_str(s->doc, "task"),
                               array);
 }
 static const char *first_run(tny_session_state *s) {
     return yyjson_mut_get_str(
-        yyjson_mut_arr_get(yyjson_mut_obj_get(yyjson_mut_doc_get_root(s->doc), "team_runs"), 0));
+        yyjson_mut_arr_get(yyjson_mut_obj_get(yyjson_mut_doc_get_root(s->doc), "task"), 0));
 }
 static tny_session_state *state_session(tny_ctx *ctx) {
     tny_session_state *s = calloc(1, sizeof(*s));
@@ -27,7 +27,7 @@ static tny_session_state *state_session(tny_ctx *ctx) {
     s->event_sequence = 12;
     s->agent_sequence = 7;
     s->task_body = xstrdup("private task body");
-    const char *input = "{\"messages\":[],\"team_cursors\":{},\"swarm_cap\":1}";
+    const char *input = "{\"messages\":[]}";
     yyjson_doc *d = jparse(input, strlen(input));
     s->doc = d ? yyjson_doc_mut_copy(d, jallocator()) : NULL;
     yyjson_doc_free(d);
@@ -66,8 +66,7 @@ static int owner_save_rpc(void *userdata) {
     if (!ok) return -1;
     yyjson_doc *disk = jparse_file(rpc->path);
     const char *marker =
-        disk ? yyjson_get_str(yyjson_arr_get(jget(yyjson_doc_get_root(disk), "team_runs"), 0))
-             : NULL;
+        disk ? yyjson_get_str(yyjson_arr_get(jget(yyjson_doc_get_root(disk), "task"), 0)) : NULL;
     rpc->persisted_before_ack = marker && strcmp(marker, "merged-before-ack") == 0;
     yyjson_doc_free(disk);
     yyjson_doc *next = yyjson_mut_doc_imut_copy(rpc->snapshot->session->doc, jallocator());
@@ -123,7 +122,6 @@ TEST execution_state_initial_and_delta_preserve_parent(void) {
     ASSERT(baseline);
     yyjson_mut_val *root = yyjson_mut_doc_get_root(child.session->doc);
     ASSERT(set_run(child.session, "server-change"));
-    yyjson_mut_obj_remove_key(root, "swarm_cap");
     ASSERT(yyjson_mut_obj_add_strcpy(parent.session->doc,
                                      yyjson_mut_doc_get_root(parent.session->doc), "callback",
                                      "parent-change"));
@@ -135,15 +133,12 @@ TEST execution_state_initial_and_delta_preserve_parent(void) {
     ASSERT(h2 && h3);
     ASSERT(state_image(&child, "/never-reopened-child.png"));
     child.perm_blocked = true;
-    child.learning_fact = (tools_learning_fact){
-        .valid = true, .ok = true, .event = TNY_LEARN_EDIT, .scope = 123, .intent = 456};
     yyjson_doc *delta = state_snapshot(&child, yyjson_doc_get_root(baseline), false);
     ASSERT(delta);
     ASSERT(tny_execution_state_apply(&parent, yyjson_doc_get_root(delta), false));
     root = yyjson_mut_doc_get_root(parent.session->doc);
     ASSERT_STR_EQ("server-change", first_run(parent.session));
     ASSERT_STR_EQ("parent-change", yyjson_mut_get_str(yyjson_mut_obj_get(root, "callback")));
-    ASSERT(yyjson_mut_obj_get(root, "swarm_cap") == NULL);
     ASSERT_EQ(1u, yyjson_mut_arr_size(yyjson_mut_obj_get(root, "messages")));
     ASSERT_EQ(3, parent.perm->n_grants);
     ASSERT_EQ(3, parent.session->n_mem_results);
@@ -151,9 +146,18 @@ TEST execution_state_initial_and_delta_preserve_parent(void) {
     ASSERT_STR_EQ("/never-reopened-parent.png", parent.pending_images[0]);
     ASSERT_STR_EQ("/never-reopened-child.png", parent.pending_images[1]);
     ASSERT_EQ(0, memcmp(parent.pending_capture[1].data, child.pending_capture[0].data, 8));
-    ASSERT(parent.perm_blocked && parent.learning_fact.valid);
-    ASSERT_EQ(456u, parent.learning_fact.intent);
+    ASSERT(parent.perm_blocked);
     ASSERT_EQ(12u, parent.session->event_sequence);
+    /* A field removed by the child is removed from the parent. */
+    yyjson_doc_free(baseline);
+    baseline = yyjson_mut_doc_imut_copy(child.session->doc, jallocator());
+    ASSERT(baseline);
+    yyjson_mut_obj_remove_key(yyjson_mut_doc_get_root(child.session->doc), "task");
+    yyjson_doc_free(delta);
+    delta = state_snapshot(&child, yyjson_doc_get_root(baseline), false);
+    ASSERT(delta);
+    ASSERT(tny_execution_state_apply(&parent, yyjson_doc_get_root(delta), false));
+    ASSERT(yyjson_mut_obj_get(yyjson_mut_doc_get_root(parent.session->doc), "task") == NULL);
     free(h1);
     free(h2);
     free(h3);
@@ -184,7 +188,7 @@ TEST execution_state_failed_apply_is_atomic(void) {
     yyjson_mut_doc *original_doc = parent.session->doc;
     ASSERT_FALSE(tny_execution_state_apply(&parent, yyjson_doc_get_root(delta), false));
     ASSERT(parent.session->doc == original_doc);
-    ASSERT(yyjson_mut_obj_get(yyjson_mut_doc_get_root(original_doc), "team_runs") == NULL);
+    ASSERT(yyjson_mut_obj_get(yyjson_mut_doc_get_root(original_doc), "task") == NULL);
     ASSERT_EQ(0, parent.perm->n_grants);
     ASSERT_EQ(0, parent.n_pending_images);
     yyjson_doc_free(initial);
@@ -234,7 +238,7 @@ TEST execution_snapshot_defers_save_to_merged_owner(void) {
     yyjson_doc *disk = jparse_file(path);
     ASSERT(disk);
     ASSERT_STR_EQ("preserve-on-disk", jget_str(yyjson_doc_get_root(disk), "owner_hook"));
-    ASSERT(jget(yyjson_doc_get_root(disk), "team_runs") == NULL);
+    ASSERT(jget(yyjson_doc_get_root(disk), "task") == NULL);
     yyjson_doc_free(disk);
     state_save_rpc rpc = {.owner = &parent, .snapshot = &child, .baseline = baseline, .path = path};
     child.session->execution_save = owner_save_rpc;
@@ -247,7 +251,7 @@ TEST execution_snapshot_defers_save_to_merged_owner(void) {
     ASSERT(disk);
     ASSERT_STR_EQ("preserve-on-disk", jget_str(yyjson_doc_get_root(disk), "owner_hook"));
     ASSERT_STR_EQ("merged-before-ack",
-                  yyjson_get_str(yyjson_arr_get(jget(yyjson_doc_get_root(disk), "team_runs"), 0)));
+                  yyjson_get_str(yyjson_arr_get(jget(yyjson_doc_get_root(disk), "task"), 0)));
     yyjson_doc_free(disk);
     yyjson_doc_free(baseline);
     baseline = yyjson_mut_doc_imut_copy(child.session->doc, jallocator());
@@ -265,13 +269,13 @@ TEST execution_snapshot_defers_save_to_merged_owner(void) {
     ASSERT(tny_execution_state_apply(&parent, yyjson_doc_get_root(delta), false));
     yyjson_doc_free(delta);
     ASSERT(yyjson_mut_obj_put(yyjson_mut_doc_get_root(child.session->doc),
-                              yyjson_mut_str(child.session->doc, "swarm_cap"),
+                              yyjson_mut_str(child.session->doc, "task"),
                               yyjson_mut_int(child.session->doc, 2)));
     delta = state_snapshot(&child, yyjson_doc_get_root(baseline), false);
     ASSERT(delta);
     ASSERT_FALSE(tny_execution_state_apply(&parent, yyjson_doc_get_root(delta), false));
-    ASSERT_EQ(2, yyjson_mut_get_int(yyjson_mut_obj_get(yyjson_mut_doc_get_root(parent.session->doc),
-                                                       "swarm_cap")));
+    ASSERT_EQ(2, yyjson_mut_get_int(
+                     yyjson_mut_obj_get(yyjson_mut_doc_get_root(parent.session->doc), "task")));
     yyjson_doc_free(delta);
     yyjson_doc_free(baseline);
     yyjson_doc_free(initial);
@@ -279,6 +283,10 @@ TEST execution_snapshot_defers_save_to_merged_owner(void) {
     state_cleanup(&child);
     ASSERT_EQ(0, unlink(blocked));
     ASSERT_EQ(0, unlink(path));
+    char *task_file = path_join(directory, "task.md"); /* session task body, if persisted */
+    ASSERT(task_file);
+    (void)unlink(task_file);
+    free(task_file);
     ASSERT_EQ(0, rmdir(directory));
     free(blocked);
     free(path);
@@ -303,7 +311,7 @@ TEST execution_state_appends_preserve_both_writers_exactly_once(void) {
     ASSERT(tny_execution_state_apply(&child, yyjson_doc_get_root(initial), true));
     yyjson_doc *baseline = yyjson_mut_doc_imut_copy(child.session->doc, jallocator());
     ASSERT(baseline);
-    const char *fields[] = {"acp_pending_context", "team_receipts"};
+    const char *fields[] = {"task"};
     for (int round = 0; round < 2; ++round) {
         session_add_text(parent.session, "user", round ? "owner-two" : "owner-one");
         session_add_text(child.session, "user", round ? "server-two" : "server-one");
@@ -317,7 +325,7 @@ TEST execution_state_appends_preserve_both_writers_exactly_once(void) {
         ASSERT(delta);
         yyjson_val *changes = jget(yyjson_doc_get_root(delta), "session");
         ASSERT_EQ(0u, yyjson_obj_size(jget(changes, "set")));
-        ASSERT_EQ(3u, yyjson_obj_size(jget(changes, "append")));
+        ASSERT_EQ(2u, yyjson_obj_size(jget(changes, "append")));
         ASSERT(tny_execution_state_apply(&parent, yyjson_doc_get_root(delta), false));
         yyjson_doc_free(delta);
         yyjson_doc_free(baseline);
@@ -402,6 +410,10 @@ TEST execution_snapshot_omits_history_and_preserves_large_owner(void) {
     ASSERT_EQ(13u, yyjson_arr_size(jget(yyjson_doc_get_root(saved), "messages")));
     yyjson_doc_free(saved);
     ASSERT_EQ(0, unlink(path));
+    char *task_file = path_join(directory, "task.md"); /* session task body, if persisted */
+    ASSERT(task_file);
+    (void)unlink(task_file);
+    free(task_file);
     ASSERT_EQ(0, rmdir(directory));
     free(path);
     yyjson_doc_free(delta);

@@ -574,7 +574,7 @@ class PublicationFaults(ImageFixture):
         build_root = Path(TNY).parent
         objects_root = build_root / "rel"
         # Use the actual executable inventory. A recursive glob also collects
-        # dictation and other fixture objects, causing duplicate definitions
+        # other fixture objects, causing duplicate definitions
         # after a full make test even though an isolated build can link.
         variables = subprocess.check_output(
             [

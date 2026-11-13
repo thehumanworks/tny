@@ -17,8 +17,8 @@ Standalone SDK `optimise` / `optimize` remains unsupported and refuses before
 provider, credential or workspace I/O. It never launches the Python/Node host
 as an execution server. Other standalone toolkit services remain separate.
 
-ABI 1.2 also exposes [standalone toolkit jobs](sdk-toolkit.md) for images,
-speech, transcription, and prompt optimisation, independent of runtime/session
+ABI 1.2 also exposes [standalone toolkit jobs](sdk-toolkit.md) for images
+and prompt optimisation, independent of runtime/session
 handles. Existing ABI 1.0/1.1 records, symbols, and defaults remain compatible.
 
 `libtny` contains the ABI-1 headless C candidate for the same runtime
@@ -36,8 +36,8 @@ The ABI1 candidate builds a shared library on:
 - macOS arm64: `libtny.1.dylib`;
 - Linux glibc x86_64/aarch64: `libtny.so.1`.
 
-Final ABI0.8 major-0 artifacts install side-by-side from exact commit
-`510a95c`. Windows DLL, static, musl-shared and wasm embedding artifacts are
+ABI 0 artifacts are no longer built ([ADR 0221](adr/0221-remove-unproven-features.md)).
+Windows DLL, static, musl-shared and wasm embedding artifacts are
 unsupported and advertise neither shared nor static linkage capability.
 
 ## Build and install
@@ -54,9 +54,7 @@ capability queries, and event reads likewise take the matching caller
 capacity. Prefix capacities must end on a documented field boundary; unknown
 tails and nonzero reserved bytes are ignored.
 
-ABI1 uses `include/tny` and `libtny.pc`. ABI0 uses the separate
-`include/tny-0` root and `libtny-0.pc`; mixing either header with the other
-major's artifact is rejected by the consumer matrix.
+ABI1 uses `include/tny` and `libtny.pc`.
 
 An in-tree example is [`examples/embed.c`](../examples/embed.c). It creates a
 runtime and session, starts a turn, pulls copied events, answers permissions,

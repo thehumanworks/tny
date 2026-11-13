@@ -9,7 +9,6 @@
 
 #include "cli/cli.h"
 #include "core/backend.h"
-#include "core/dictation.h"
 #include "core/optimise.h"
 #include "core/perm.h"
 #include "core/runner.h"
@@ -92,10 +91,9 @@ typedef struct tui {
     buf_t shell_pending; /* bounded disclosure for the next user prompt */
     bool shell_truncated;
     bool shell_line_start;
-    buf_t input;              /* composer, '\n' separates continuation lines */
-    size_t cur;               /* byte offset of the caret in input */
-    bool in_paste;            /* inside a bracketed paste: bytes are literal text */
-    tny_dictation *dictation; /* independent of the conversation backend */
+    buf_t input;   /* composer, '\n' separates continuation lines */
+    size_t cur;    /* byte offset of the caret in input */
+    bool in_paste; /* inside a bracketed paste: bytes are literal text */
     tny_optimise *optimise;
 
     char **hist;
@@ -209,7 +207,6 @@ typedef enum {
     TUI_K_CTRLL,
     TUI_K_CTRLO,
     TUI_K_CTRLX,
-    TUI_K_DICTATE,
     TUI_K_PASTE,
     TUI_K_PASTE_BEGIN,
     TUI_K_CPR /* cursor position report: the answer to tui_size_probe */
@@ -288,9 +285,6 @@ void tui_shell_queue_ready(tui *t);
 char *tui_shell_prompt(const tui *t, const char *text);
 const char *tui_shell_visible(const char *text); /* strip only the display echo */
 void tui_cancel_turn(tui *t);
-void tui_dictation_start(tui *t, const char *provider);
-void tui_dictation_step(tui *t);
-bool tui_dictation_insert(tui *t, const char *text);
 void tui_optimise_start(tui *t, const char *arg);
 void tui_optimise_step(tui *t);
 /* Queue management (docs/adr/0011). */

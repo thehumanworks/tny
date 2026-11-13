@@ -112,12 +112,9 @@ Keep tool names stable so task prompts and agent integrations transfer:
 | Images | `read_image` (png/jpeg/gif/webp via magic bytes; `vision` is an alias). A configured-false `image_input` policy hides and refuses this tool and image attachment; image generation remains independent. Tool result is a short text; the pixels are **captured when the tool runs** and go out as a follow-up user `image_url` message ([ADR 0008](../adr/0008-native-loop-images.md), [ADR 0096](../adr/0096-captured-image-queue-and-preview-lifecycle.md)), so rewriting the file later in the same batch cannot change what is sent. `tny ask --image PATH` attaches the same shape on the first user message (max 16 flags; a 17th is exit 1) |
 | Skills | `skill`, `install_skill` |
 | Subagents | `subagent` (`create`, `message`, `inspect`, `lifecycle`; see [Subagents](#subagents)) |
-| Team control | `team_control` (`start`, `status`, `collect`, `wait-any`, `cancel`): job-backed async teams with captured parent/member identity and bounded collection. `verify` explicitly refuses; no accepted status is fabricated. Native saved local contexts only. See [team control](../team-control.md) |
-| Team messages | `team_mailbox` (`send`, `inbox`, `read`, `ack`, `retire`): bounded durable collaboration context. Native local only; private member capabilities or the recorded submitting session establish membership, never supplied sender/session IDs. See [mailboxes](../team-mailbox.md) |
 | Task workspaces | `job_workspace_inspect`, `job_workspace_integrate`, `job_workspace_cleanup`: explicit operations with separate permissions on proven-owned, terminal isolated task worktrees. Native local only. See [managed workspaces](../task-workspaces.md) |
 | Jobs | `job_submit`, `job_control` (`cancel`/`retry`/`rm`), `job_status` (`status`/`wait`/`logs`/`list`): durable ask/image work that outlives the turn ([jobs.md](../jobs.md), [ADR 0093](../adr/0093-durable-native-jobs-and-verified-retry.md)). Native only; hidden in embedded runtimes, under `--ssh`, and — for the execution tools — wherever no child process can be owned |
 | MCP | `mcp_search_tools`, `mcp_select_tool`, `mcp_features` only; namespaced `server/tool` names are discovered inside code, never separate provider functions ([ADR 0174](../adr/0174-execution-server-code-mode.md)) |
-| Speech | `speak` (text, optional voice): automatic ephemeral playback using the Codex login, independent of the chat provider; advertised only with credentials and a player. [Speech contract](../speech.md) |
 | Runtime | `ask_user_question`, `memory`, `read_tool_result` |
 
 Large results: bounded preview + session handle; `read_tool_result` reads a byte range. Background commands persist pid, cwd, log path, detected URL.
@@ -206,12 +203,9 @@ execution cell's MCP client, and the `--ssh` route:
 | `tny memory get\|set\|list …` | the `memory` tool | `memory` |
 | `tny skill show NAME` | the `skill` tool | `skill` |
 | `tny image attach PATH` | the same queue as `read_image`, allowed roots only | `read_image` |
-| `printf … \| tny speak [--voice NAME] [--json]` (or quoted heredoc) | the shared speech service, on the tny host | `speak` |
 | `tny ask-user [--json] QUESTION` | the frontend ask hook, with no socket round trip | `ask_user_question` |
 | `tny jobs submit ask\|image\|batch …` | the durable job service, with the prompt from `--prompt` or a piped producer | `job_submit` + job/items/outputs/request digest |
 | `tny jobs status\|wait\|logs\|list …` | the same service, read-only | `job_status` + job id |
-| `tny mailbox send\|inbox\|read\|ack\|retire …` | durable team messaging, with the active trusted caller identity | `team_send`, `team_inbox`, `team_ack`, or `team_retire` + run/task/id and payload hash; never a payload or member secret |
-| `tny team OP --request FILE\|-` | job-backed team service with captured caller identity | separate `team_start`, `team_status`, `team_collect`, `team_wait_any`, `team_cancel`, `team_verify` identities |
 | `tny task-workspace inspect\|integrate\|cleanup …` | proven-owned workspace service, with no automatic merge or removal | separate `job_workspace_inspect`, `job_workspace_integrate`, `job_workspace_cleanup` identities |
 | `tny jobs cancel\|retry\|rm …` | the same service | `job_cancel` / `job_retry` / `job_rm` + job id |
 | `tny jobs …` that does not parse | refused with the reason: never handed to the shell, so the classifier cannot bypass the job identities | — |
@@ -493,7 +487,7 @@ Durable child sessions ([ADR 0087](../adr/0197-explicit-subagent-contract-and-pr
 the enclosing `run_code` budget. Its default is ten minutes; an explicit shorter
 `timeout_ms` can interrupt the child. Keep sequential child calls within the
 remaining budget, or use separate cells. For work that must outlive a cell, use
-the durable [jobs](../jobs.md) or [team control](../team-control.md) tools.
+the durable [jobs](../jobs.md) tools.
 
 Inspect `tools.describe("subagent")` before the first invocation. Every action
 requires the `action` field; the tool name alone does not select `create`.

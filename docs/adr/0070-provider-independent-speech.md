@@ -1,7 +1,7 @@
 # 0070 — Provider-independent speech using the Codex login
 
 Date: 2026-09-05
-Status: accepted
+Status: Superseded by [ADR 0221](0221-remove-unproven-features.md)
 
 ## Context
 
