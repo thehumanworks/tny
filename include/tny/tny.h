@@ -415,7 +415,7 @@ TNY_API tny_bytes TNY_CALL tny_library_version(void);
  * prefix, and capacities above UINT32_MAX. They touch at most the intersection
  * of the caller capacity and ABI-1 frozen size, record the caller capacity in
  * struct_size, and never read or clear an unknown caller tail. ABI-0.8's
- * unsafe one-argument signatures exist only in the compat0 artifact/header. */
+ * unsafe one-argument signatures are gone (ADR 0221 removed the compat build). */
 TNY_API int32_t TNY_CALL tny_runtime_options_init(tny_runtime_options_v0 *options,
                                                   uint64_t capacity);
 TNY_API int32_t TNY_CALL tny_runtime_options_v1_init(tny_runtime_options_v1 *options,

@@ -1,4 +1,4 @@
-"""Standalone native image, audio, and prompt services (libtny ABI 1.2+)."""
+"""Standalone native image and prompt services (libtny ABI 1.2+)."""
 
 from __future__ import annotations
 
@@ -68,7 +68,6 @@ class ToolkitConfig:
     chatgpt_token: Text | None = field(default=None, repr=False)
     chatgpt_account_id: Text | None = field(default=None, repr=False)
     codex_base_url: str | None = field(default=None, repr=False)
-    xai_api_key: Text | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,21 +252,6 @@ def _image_failure_detail(raw: bytes) -> ImageDetail | None:
 
 
 @dataclass(frozen=True, slots=True)
-class SpeechResult:
-    path: Path | None
-    played: bool
-    provider: str
-    voice: str
-    mime_type: str
-
-
-@dataclass(frozen=True, slots=True)
-class TranscriptionResult:
-    text: bytes = field(repr=False)
-    provider: str
-
-
-@dataclass(frozen=True, slots=True)
 class OptimisationResult:
     text: bytes = field(repr=False)
     provider: str
@@ -302,20 +286,6 @@ def _image(result: dict[str, Any]) -> ImageResult:
         result.get("seed"),
         result.get("request_id"),
     )
-
-
-def _speech(result: dict[str, Any]) -> SpeechResult:
-    return SpeechResult(
-        Path(result["path"]) if result["path"] is not None else None,
-        result["played"],
-        result["provider"],
-        result["voice"],
-        result["mime_type"],
-    )
-
-
-def _transcription(result: dict[str, Any]) -> TranscriptionResult:
-    return TranscriptionResult(result["text"].encode("utf-8"), result["provider"])
 
 
 def _optimisation(result: dict[str, Any]) -> OptimisationResult:
@@ -369,7 +339,6 @@ class Toolkit:
             "chatgpt_token": config.chatgpt_token,
             "chatgpt_account_id": config.chatgpt_account_id,
             "codex_base_url": config.codex_base_url,
-            "xai_api_key": config.xai_api_key,
         }
         try:
             payload = json.dumps(
@@ -489,66 +458,6 @@ class Toolkit:
                     "strict_size": strict_size,
                     "persist_manifest": persist_manifest,
                     "from_manifest": from_manifest,
-                },
-                cancellation,
-            )
-        )
-
-    def speak(
-        self,
-        text: Text,
-        *,
-        output_file: PathLike | None = None,
-        provider: str | None = None,
-        voice: str | None = None,
-        cancellation: CancellationToken | None = None,
-    ) -> SpeechResult:
-        return _speech(
-            self._run(
-                "speak",
-                {
-                    "text": text,
-                    "output_file": output_file,
-                    "provider": provider,
-                    "voice": voice,
-                },
-                cancellation,
-            )
-        )
-
-    def transcribe(
-        self,
-        input_file: PathLike,
-        *,
-        provider: str | None = None,
-        cancellation: CancellationToken | None = None,
-    ) -> TranscriptionResult:
-        return _transcription(
-            self._run(
-                "transcribe",
-                {
-                    "input_file": input_file,
-                    "provider": provider,
-                },
-                cancellation,
-            )
-        )
-
-    def dictate(
-        self,
-        *,
-        seconds: int,
-        provider: str | None = None,
-        device: str | None = None,
-        cancellation: CancellationToken | None = None,
-    ) -> TranscriptionResult:
-        return _transcription(
-            self._run(
-                "dictate",
-                {
-                    "seconds": seconds,
-                    "provider": provider,
-                    "device": device,
                 },
                 cancellation,
             )
@@ -696,66 +605,6 @@ class AsyncToolkit:
                     "strict_size": strict_size,
                     "persist_manifest": persist_manifest,
                     "from_manifest": from_manifest,
-                },
-                cancellation,
-            )
-        )
-
-    async def speak(
-        self,
-        text: Text,
-        *,
-        output_file: PathLike | None = None,
-        provider: str | None = None,
-        voice: str | None = None,
-        cancellation: CancellationToken | None = None,
-    ) -> SpeechResult:
-        return _speech(
-            await self._run(
-                "speak",
-                {
-                    "text": text,
-                    "output_file": output_file,
-                    "provider": provider,
-                    "voice": voice,
-                },
-                cancellation,
-            )
-        )
-
-    async def transcribe(
-        self,
-        input_file: PathLike,
-        *,
-        provider: str | None = None,
-        cancellation: CancellationToken | None = None,
-    ) -> TranscriptionResult:
-        return _transcription(
-            await self._run(
-                "transcribe",
-                {
-                    "input_file": input_file,
-                    "provider": provider,
-                },
-                cancellation,
-            )
-        )
-
-    async def dictate(
-        self,
-        *,
-        seconds: int,
-        provider: str | None = None,
-        device: str | None = None,
-        cancellation: CancellationToken | None = None,
-    ) -> TranscriptionResult:
-        return _transcription(
-            await self._run(
-                "dictate",
-                {
-                    "seconds": seconds,
-                    "provider": provider,
-                    "device": device,
                 },
                 cancellation,
             )

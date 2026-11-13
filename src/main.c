@@ -81,13 +81,6 @@ int main(int argc, char **argv) {
         }
         goto done;
     }
-    /* Definition validation is deliberately context-free: no workspace,
-     * settings, provider, session, or jobs state is opened. */
-    if (cmd && strcmp(cmd, "swarm") == 0) {
-        rc = cmd_swarm(&g, cargc, cargv);
-        goto done;
-    }
-    if (cli_swarm_preflight(&g, cmd, cargc, cargv) != 0) goto done;
     /* Expand only a local home prefix, not shell expressions or remote SSH paths.
      * Do this before --worktree and all context/standalone command paths. */
     if (g.cwd && g.cwd[0] == '~' && (g.cwd[1] == '\0' || g.cwd[1] == '/')) {
@@ -128,11 +121,8 @@ int main(int argc, char **argv) {
         goto done;
     }
 
-    if (cmd &&
-        (strcmp(cmd, "speak") == 0 || strcmp(cmd, "image") == 0 || strcmp(cmd, "dictate") == 0)) {
-        rc = strcmp(cmd, "image") == 0     ? cmd_image_service(&g, cargc, cargv)
-             : strcmp(cmd, "dictate") == 0 ? cmd_dictate(&g, cargc, cargv)
-                                           : cmd_speak(&g, cargc, cargv);
+    if (cmd && strcmp(cmd, "image") == 0) {
+        rc = cmd_image_service(&g, cargc, cargv);
         goto done;
     }
 
@@ -140,11 +130,6 @@ int main(int argc, char **argv) {
      * provider config or create a runtime merely to contact the runner. */
     if (cmd && strcmp(cmd, "ask-user") == 0) {
         rc = cmd_ask_user(g.json, cargc, cargv);
-        goto done;
-    }
-
-    if (cmd && (strcmp(cmd, "score") == 0 || strcmp(cmd, "choose") == 0)) {
-        rc = cmd_jev(&g, cargc, cargv, strcmp(cmd, "choose") == 0);
         goto done;
     }
 
@@ -209,12 +194,8 @@ int main(int argc, char **argv) {
         rc = cmd_ask(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "jobs") == 0) {
         rc = cmd_jobs(ctx, &g, cargc, cargv);
-    } else if (strcmp(cmd, "mailbox") == 0) {
-        rc = cmd_mailbox(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "task-workspace") == 0) {
         rc = cmd_task_workspace(ctx, &g, cargc, cargv);
-    } else if (strcmp(cmd, "team") == 0) {
-        rc = cmd_team(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "resume") == 0) {
         rc = cmd_resume(ctx, &g, cargc, cargv);
     } else if (strcmp(cmd, "acp") == 0) {
@@ -266,8 +247,6 @@ done:
     free(expanded_cwd);
     free(g.add_dirs);
     free(g.agent_argv);
-    free(g.swarm_definition);
-    free(g.swarm_source);
 #ifdef __EMSCRIPTEN__
     /* an Asyncified main's return value is dropped after an unwind; only an
      * explicit exit() carries the code to the host (docs/adr/0017) */

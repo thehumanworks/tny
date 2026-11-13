@@ -173,14 +173,10 @@ perm_verdict perm_check(perm_engine *p, const char *tool, const char *detail) {
     tny_ctx *ctx = p->ctx;
     /* A shared read-only workspace is an inherited ceiling, not an ordinary
      * preference that a yolo flag, session grant or permissive rule can widen.
-     * Collaboration/status may change harness records, never workspace files. */
+     * Job status/inspection may read harness records, never change workspace files. */
     if (ctx->workspace_read_only && !perm_tool_is_safe(tool) &&
         !(strcmp(rule_category(tool), "bash") == 0 && read_command(detail)) &&
-        strcmp(tool, "job_status") != 0 && strcmp(tool, "job_workspace_inspect") != 0 &&
-        strcmp(tool, "team_status") != 0 && strcmp(tool, "team_collect") != 0 &&
-        strcmp(tool, "team_wait_any") != 0 && strcmp(tool, "team_cancel") != 0 &&
-        strcmp(tool, "team_send") != 0 && strcmp(tool, "team_inbox") != 0 &&
-        strcmp(tool, "team_ack") != 0 && strcmp(tool, "team_review_read") != 0)
+        strcmp(tool, "job_status") != 0 && strcmp(tool, "job_workspace_inspect") != 0)
         return PERM_DENY;
     if (ctx->perm_mode == TNY_MODE_YOLO) return PERM_ALLOW;
 

@@ -9,10 +9,7 @@ retired desktop terminal emulator.
 
 Do not start product code until you have read this index and the files it names. tny is a harness for agents, built by agents, focused on the agent ([ADR 0150](adr/0150-agent-first-harness-and-measured-footprint.md)). Use one native OpenAI-compatible HTTP backend, including Codex subscriptions and Grok ([ADR 0152](adr/0152-native-http-only-providers.md)). Stay fast, portable and small through measurement; there is no binary-size ceiling and no competitor-size target.
 
-[Automatic workflow learning](instruction-improvement.md) runs by default during
-normal agent work, without selecting a task preset (ADR 0154). The same page
-covers optional broader instruction experiments (ADR 0153). Both distinguish
-reproducible offline evidence from unmeasured live-model improvement.
+Optional instruction experiments (ADR 0153) are in [instruction improvement](instruction-improvement.md).
 
 ## Read first
 
@@ -38,18 +35,9 @@ reproducible offline evidence from unmeasured live-model improvement.
 | Doc | Why |
 | --- | --- |
 | [images.md](images.md) | Image generation/editing, provider adapters, CLI and agent tools |
-| [speech.md](speech.md) | Ephemeral speech, Codex login, agents and optional MP3 export |
-| [dictation.md](dictation.md) | Microphone/file transcription into prompts, independent STT providers |
 | [optimisation.md](optimisation.md) | Project-aware prompt rewriting, independent model, draft review |
-| [tnyjev.md](tnyjev.md) | Independent typed Jev decisions: `score` and `choose` |
 | [cli.md](cli.md) | Command tree, flags, agent-friendly output |
 | [workflows.md](workflows.md) | Dependency DAGs and parallel agents from shell, Python, and TypeScript |
-| [team-control.md](team-control.md) | Job-backed async teams, captured parent identity, bounded collection and truthful verification state |
-| [team-mailbox.md](team-mailbox.md) | Durable addressed collaboration, safe-boundary delivery, acknowledgment and retirement |
-| [purposeful-swarms.md](purposeful-swarms.md) | Strict file-defined nested teams, activation, persistence and platform limits |
-| [swarm-factory.md](swarm-factory.md) | Version-2 contribution contracts, causal dependencies, isolated writers and bounded evidence |
-| [swarm-messages.md](swarm-messages.md) | Typed named-peer messages, approval-bound delivery, retries and acknowledgment |
-| [swarm-review.md](swarm-review.md) | Immutable review packets, truthful evidence boundaries and explicit follow-up work |
 | [task-workspaces.md](task-workspaces.md) | Isolated editing, provenance, explicit integration and conflict-safe cleanup |
 | [admission.md](admission.md) | Shared launch permits, cleanup holds, scope limits and honest usage policies |
 | [settings.md](settings.md) | settings.json defaults, schema, env-key HTTP profiles |

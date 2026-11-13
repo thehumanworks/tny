@@ -42,13 +42,12 @@ dated, not a product goal.
 Keep the *user-visible harness*, not another vendor's branding:
 
 - Interactive shell: streaming transcript, `/` commands, `@` file picker, `$` skill picker, interrupt, resume.
-- Dictation: microphone speech to an editable prompt, using an STT provider independently of the agent provider.
 - Prompt optimisation: `/optimise` or Ctrl-O rewrites a draft using relevant project files and an independently configured model, with review before submission.
 - One-shot `ask` for scripts/CI with Markdown on stdout and JSON mode.
 - Sessions: list, inspect, resume `last` or id, compact, recover.
 - Git worktrees: optional isolated checkouts, named reuse, and explicit merge/remove/keep on TUI exit.
 - Permissions: `ask` / `auto` / `yolo`, persistent rules, session grants, command sandbox.
-- Built-in tools (files, grep/glob, shell, web fetch/search, vision fallback, memory, speech, image generation/editing).
+- Built-in tools (files, grep/glob, shell, web fetch/search, vision fallback, memory, image generation/editing).
 - Skills (`SKILL.md`), MCP client, session-backed subagents.
 - `status`, `doctor`, models, usage, workspace extra dirs, project `AGENTS.md` (over `--ssh`: remote cwd, not the launch directory).
 
@@ -66,15 +65,12 @@ optional ACP agents own their loop and reach tny tools through MCP.
 BYOK keys come from environment variables; OAuth subscription login and
 refresh are native. Claude models work through configured compatible gateways.
 
-## Bounded self-improvement
+## Optional instruction experiments
 
-[Automatic workflow learning](instruction-improvement.md) is on by default in
-normal CLI/TUI work. Verified recovery outcomes revise bounded, workspace-scoped
-advice used in later requests and sessions. It currently learns exact-edit
-recovery, with no extra inference or user-selected preset. An explicit opt-out is
-available. A separate optional controller can evolve larger task-instruction
-bodies. Neither trains model weights or rewrites harness code automatically.
-Offline replay results are not claims of general live coding gains.
+An optional controller can evolve task-instruction bodies
+([instruction improvement](instruction-improvement.md)). It does not train model
+weights or rewrite harness code. Automatic workflow learning was removed by
+[ADR 0221](adr/0221-remove-unproven-features.md).
 
 ## Embedding
 
@@ -111,8 +107,3 @@ same ABI ([SDK contract](sdks.md)); they do not contain provider-wire logic.
 No vendor agent binary is a runtime dependency.
 Dated bake-off numbers versus fx v0.0.3 live in
 [size-and-speed.md](size-and-speed.md) as historical measurements.
-
-Opt-in [collective swarm mode](collective-swarm.md) adds peer proposals, challenges,
-shared-channel publication and bounded event-driven mailbox waits over durable teams.
-[Purposeful swarm files](purposeful-swarms.md) add strictly validated names, purposes
-and bounded nested coordination, compiled into that same durable runtime.

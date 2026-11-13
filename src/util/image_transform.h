@@ -1,6 +1,6 @@
 /* image_transform.h — the optional external image-transform tool (ADR 0094).
  *
- * This is a host OS seam like util/process.c and util/audio.c: the one place
+ * This is a host OS seam like util/process.c: the one place
  * allowed to know that an explicit export may run ImageMagick 7. tny links no
  * image decoder; `magick` is optional, is never required for provider
  * generation, and is only ever started by an explicitly requested export or

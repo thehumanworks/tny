@@ -67,7 +67,6 @@ typedef struct tny_ctx {
     tny_tool_profile tool_profile; /* native-loop built-ins advertised/accepted */
     bool json_out;
     bool no_save;
-    bool no_self_improve;     /* default-on bounded workflow learning; explicit opt-out */
     bool no_color;            /* --no-color | --color=never: no SGR at all */
     bool force_color;         /* --color=always: SGR even piped, beats NO_COLOR */
     bool library_mode;        /* deterministic embed: never write host stdio */
@@ -87,7 +86,6 @@ typedef struct tny_ctx {
                                * by builtin profiles (ChatGPT account, grok
                                * proxy auth — docs/adr/0019); never persisted */
 
-    char *xai_api_key; /* explicit STT credential only; never selects chat */
     /* codex (docs/adr/0065, 0066): a ChatGPT token + account id handed in
      * by flag (--chatgpt-token / --chatgpt-account-id) — the file-less
      * credential source; env and the stores are read in codex_auth.c */
@@ -135,15 +133,6 @@ typedef struct tny_ctx {
      * credential).  The complete body is persisted alongside metadata. */
     char task_digest[TNY_TASK_DIGEST_HEX_LEN + 1];
     bool task_explicit;
-    int swarm_cap; /* 0 off, -1 lead decides, positive collaborator ceiling */
-    bool swarm_explicit;
-    /* A file-selected swarm is held as validated canonical JSON. The source
-     * path is provenance only: resume/rebind use this snapshot and never
-     * silently reread the path. */
-    char *swarm_definition;
-    char *swarm_source;
-    char swarm_definition_digest[65];
-    int swarm_participants;
 
     /* reasoning effort (all providers). Canonical levels are
      * TNY_EFFORT_LEVELS; other tokens are provider-advertised values passed

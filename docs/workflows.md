@@ -18,11 +18,9 @@ The shell surface selects native HTTP profiles, including Codex and Grok. SDK ta
 
 ## Instruction evolution
 
-[Automatic workflow learning](instruction-improvement.md) runs by default inside
-normal turns. It updates bounded empirical recovery guidance without a preset
-or additional model calls. The optional broader instruction experiment uses
-fresh sessions and trusted external checks; its instruction-file promotion
-remains explicit. Neither adds another provider implementation.
+The optional instruction experiment ([instruction improvement](instruction-improvement.md))
+uses fresh sessions and trusted external checks; its instruction-file promotion
+remains explicit.
 
 ## Shell functions
 

@@ -203,11 +203,6 @@ static void maybe_gap(tui *t, bool for_text) {
 tny_perm_decision tui_ask_perm(tui *t, const char *tool, const char *summary) {
     if (t->ctx->perm_mode == TNY_MODE_YOLO) return TNY_PERM_DECISION_ALLOW;
     tui_tools_view_close(t);
-    if (t->dictation) {
-        tny_dictation_cancel(t->dictation);
-        tui_dictation_step(t);
-    }
-
     char line[512];
     oneline(line, sizeof line, summary && *summary ? summary : tool);
     tui_linef(t, "%s%s? %s%s", tui_attr(t, "\x1b[1m"), tui_c(t, "\x1b[33m"), line,
@@ -305,10 +300,6 @@ static tny_perm_decision perm_hook(const char *tool, const char *summary, void *
 char *tui_ask_user(tui *t, const char *question) {
     tui_tools_view_close(t);
     if (!t || !t->tty) return NULL;
-    if (t->dictation) {
-        tny_dictation_cancel(t->dictation);
-        tui_dictation_step(t);
-    }
     buf_t saved, answer;
     buf_init(&saved);
     buf_init(&answer);
@@ -1005,11 +996,10 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
         }
         nfds_t nfds = 1;
         if (nb > 0) nfds += (nfds_t)nb;
-        if (t.dictation) fds[nfds++] = (struct pollfd){tny_dictation_fd(t.dictation), POLLIN, 0};
         int no = tny_optimise_pollfds(t.optimise, fds + nfds, TNY_BACKEND_POLLFD_MAX);
         if (no > 0) nfds += (nfds_t)no;
         if (t.shell_fd >= 0) fds[nfds++] = (struct pollfd){t.shell_fd, POLLIN, 0};
-        int wait_ms = t.turn_active || t.dictation || t.optimise || t.shell_pid > 0 ? 40 : 400;
+        int wait_ms = t.turn_active || t.optimise || t.shell_pid > 0 ? 40 : 400;
         if (rn_fd < 0 && t.turn_active) wait_ms = tny_engine_poll_timeout(t.engine, wait_ms);
         wait_ms = tny_optimise_poll_timeout(t.optimise, wait_ms);
         int pr = tny_poll(fds, nfds, wait_ms);
@@ -1028,7 +1018,6 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
             g_sigint = 0;
             if (t.shell_pid > 0) tui_shell_stop(&t);
             else if (t.optimise) tny_optimise_cancel(t.optimise);
-            else if (t.dictation) tny_dictation_cancel(t.dictation);
             else if (t.turn_active) tui_cancel_turn(&t);
             else {
                 t.quit = true;
@@ -1062,7 +1051,6 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
             t.turn_done = false;
             after_turn(&t);
         }
-        tui_dictation_step(&t);
         tui_optimise_step(&t);
         /* a host that never confirms the cancel must not wedge the shell */
         if (t.turn_active && t.cancel_ms && now_ms() - t.cancel_ms > 5000) {
@@ -1073,8 +1061,6 @@ static int tui_run(tny_ctx *ctx, const cli_globals *g, const char *session_id) {
     tui_shell_stop(&t);
     tny_optimise_free(t.optimise);
     t.optimise = NULL;
-    tny_dictation_free(t.dictation);
-    t.dictation = NULL;
     if (t.turn_active && t.engine) {
         tny_engine_cancel(t.engine);
         drain_engine_events(&t);

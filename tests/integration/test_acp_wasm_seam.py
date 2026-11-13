@@ -67,7 +67,6 @@ class AcpWasmSeam(unittest.TestCase):
         self.env.update(
             HOME=str(self.home),
             TNY_SETTINGS_PATH=str(self.home / "settings.json"),
-            TNY_SELF_IMPROVE="0",
             TNY_ISOLATE="0",
         )
         self.command = [

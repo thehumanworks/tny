@@ -85,7 +85,6 @@ class Ctx:
         # narrower TNY_TOOLS profile even when the caller unsets it.
         env = dict(os.environ)
         env.pop("TNY_TOOLS", None)
-        env.pop("TNY_SELF_IMPROVE", None)
         return dict(
             env,
             HOME=self.home,

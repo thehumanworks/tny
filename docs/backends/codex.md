@@ -14,7 +14,7 @@ registry, and no Codex CLI at all: tny signs in itself.
 > [ADR 0186](../adr/0186-sign-in-with-chatgpt-openai-provider.md)): it uses
 > the public Responses API with tny's own registered client. `codex` stays
 > for existing logins and for the features that only exist on
-> `chatgpt.com/backend-api` — speech, images, web search, dictation and the
+> `chatgpt.com/backend-api` — images, web search and the
 > weekly allowance in `tny status` — which a Sign in with ChatGPT token must
 > never reach.
 
@@ -183,24 +183,6 @@ selects DuckDuckGo; failed or invalid logged-in requests are errors, not fallbac
 Explicit command/URL settings remain authoritative. API-key-only Codex auth is
 not a subscription login. See [ADR 0106](../adr/0106-native-web-search-and-duckduckgo.md)
 and its routing amendment [ADR 0109](../adr/0109-provider-independent-codex-search.md).
-
-## Dictation normalization
-
-With dictation normalization enabled ([docs/dictation.md](../dictation.md#normalization-and-the-dictionary),
-[ADR 0175](../adr/0175-dictation-transcript-normalization.md)), the `codex` STT
-adapter's ChatGPT credential also makes one Responses request after
-transcription: `POST {TNY_CODEX_BASE_URL or https://chatgpt.com/backend-api/codex}/responses`
-with the bearer, `chatgpt-account-id`, `OpenAI-Beta: responses=v1` and
-`originator: tny`; body `model` (default `gpt-6-luna`, never the conversation
-model), `store:false`, `stream:true`, `instructions` (fixed rules plus the
-dictionary entries), one `input_text` (the transcript), `text.format` with the
-strict `dictation_normalization` JSON schema, `reasoning.effort` (default
-`none`; retried once without the field on HTTP 400/422) and, only with
-`dictation.normalize.fast`, `service_tier: "priority"`. It needs no conversation
-profile, session or tool schema and is independent of `--provider`, `--model`,
-`--effort` and `--fast`. Which effort values `gpt-6-luna` accepts on this wire
-and the fast-tier latency/cost trade-off are pending a live probe recorded in
-ADR 0175.
 
 ## Model catalog (`tny models`, `/models`)
 

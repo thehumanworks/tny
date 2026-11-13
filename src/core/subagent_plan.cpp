@@ -34,8 +34,6 @@ bool inherited(const char *entry, bool token, bool account, bool acp, const tny_
     }
     return !(env_named(entry, TNY_SUBAGENT_KEY_ENV) || env_named(entry, TNY_SUBAGENT_URL_ENV) ||
              env_named(entry, "TNY_NESTED") || env_named(entry, "TNY_NESTED_MODE") ||
-             env_named(entry, "TNY_TEAM_RUN") || env_named(entry, "TNY_TEAM_TASK") ||
-             env_named(entry, "TNY_TEAM_ATTEMPT") || env_named(entry, "TNY_TEAM_CAPABILITY") ||
              env_named(entry, "TNY_TEAM_READ_ONLY") || env_named(entry, "TNY_TOOLS") ||
              env_named(entry, "TNY_ACP_REQUIRE_TOOLS_AUTHORITY") ||
              env_named(entry, "TNY_ACP_FROZEN_COMMAND") ||
@@ -153,7 +151,6 @@ struct tny_subagent_plan_owner {
         arg("--permission-mode");
         arg(tny_perm_mode_name(ctx.perm_mode));
         if (ctx.no_save) arg("--ephemeral");
-        if (ctx.no_self_improve) arg("--no-self-improve");
         arg("ask");
         if (preset) arg("--preset-input");
         arg("--json");

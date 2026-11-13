@@ -4,9 +4,8 @@ The native ABI1.0 baseline is active. Its machine-readable state is `active`
 in [`abi/baseline-v1.json`](../abi/baseline-v1.json). Activation followed
 immutable Linux x86_64/aarch64 consumer verification and the complete
 supported-platform, conformance, sanitizer, fuzz, SDK, and packaging matrices.
-The final ABI0.8 compatibility artifact and header are built from exact commit
-`510a95c` and verified against
-[`abi/compat0.json`](../abi/compat0.json).
+ABI 0 is no longer built or shipped
+([ADR 0221](adr/0221-remove-unproven-features.md)).
 
 ## Compatibility promises
 
@@ -60,17 +59,12 @@ SDK packages load only the versioned library shipped for their ABI major.
 
 ## ABI 0 transition
 
-The ABI-1 release includes final ABI-0 shared artifacts and the versioned
-header from `510a95c`. `libtny-0.pc` points only at the ABI0 include root;
-`libtny.pc` points only at ABI1. ABI 0 receives only security and critical data-loss fixes until
-the later of 180 days or product release 1.2.0. Both majors are side-by-side
-installable. ABI-1 deprecations retain a replacement for at least 12 months and
-two minor releases; removal waits for ABI 2.
-
-Commit `510a95c` and its archive hash are permanent initial-GA provenance.
-An ABI0 security fix uses an appended reviewed, hash-pinned maintenance commit
-in `abi/compat0.json`; it may not change the frozen header, layouts, signatures,
-exports, artifact identity, or old-consumer results.
+Releases up to 0.39.0 shipped final ABI-0 artifacts built from commit
+`510a95c`; those release assets stay available. ADR 0221 ended the ABI 0
+maintenance window early: no outside ABI 0 consumer is known, and the build
+rebuilt a frozen historical commit on every `make lib-shared`. ABI-1
+deprecations retain a replacement for at least 12 months and two minor
+releases; removal waits for ABI 2.
 
 ## Automated evidence
 

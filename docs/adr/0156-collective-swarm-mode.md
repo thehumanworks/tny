@@ -1,6 +1,6 @@
 # ADR 0156: collective swarm policy over durable teams
 
-Date: 2026-09-19. Status: accepted.
+Date: 2026-09-19. Status: Superseded by [ADR 0221](0221-remove-unproven-features.md).
 
 ## Decision
 

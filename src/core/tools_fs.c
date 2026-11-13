@@ -764,7 +764,6 @@ static char *t_read_file(tools_env *env, yyjson_val *args) {
         return buf_detach(&notice);
     }
     char *res = tool_bound_result(env, data, len);
-    if (res) tools_learning_read_result(env, TNY_LEARN_READ, abs, len > 0);
     free(abs);
     free(data);
     return res;
@@ -814,7 +813,6 @@ static char *t_edit_file(tools_env *env, yyjson_val *args) {
     tny_edit_result result = {0};
     tny_edit_hooks hooks = {.before_write = edit_record_undo, .before_write_userdata = env};
     tny_edit_status status = tny_edit_file_exact(abs, olds, news, all, &hooks, &result);
-    tools_learning_edit_result(env, abs, news, all, status);
     if (status == TNY_EDIT_BINARY) {
         char *e = tool_err("%s contains NUL bytes; exact edits require NUL-free text", abs);
         free(abs);

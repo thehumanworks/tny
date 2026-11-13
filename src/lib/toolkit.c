@@ -2,13 +2,10 @@
  * All provider behavior stays in the same core services used by the CLI. */
 #define TNY_BUILDING_LIBRARY 1
 #include "tny/tny.h"
-#include "core/dictation.h"
 #include "core/image_service.h"
 #include "core/optimise.h"
-#include "core/speech.h"
 #include "lib/error.h"
 #include "util/alloc.h"
-#include "util/tny_poll.h"
 
 #include <stdatomic.h>
 #include <stdio.h>
@@ -19,7 +16,7 @@
 #define REQUEST_MAX (256u * 1024u)
 
 enum { JOB_READY, JOB_RUNNING, JOB_DONE };
-enum { GENERATE, EDIT, SPEAK, TRANSCRIBE, DICTATE, OPTIMISE };
+enum { GENERATE, EDIT, OPTIMISE, OPERATION_COUNT };
 struct tny_toolkit_job {
     pid_t pid;
     atomic_int state;
@@ -36,8 +33,7 @@ struct tny_toolkit_job {
     bool image_committed;
 };
 
-static const char *const operations[] = {"generate_image", "edit_image", "speak",
-                                         "transcribe",     "dictate",    "optimise"};
+static const char *const operations[] = {"generate_image", "edit_image", "optimise"};
 
 /* Validate names as well as values. Never print user data in diagnostics. */
 static bool fields(yyjson_val *object, const char *const *names, size_t count) {
@@ -87,17 +83,14 @@ static bool url_field(yyjson_val *o, const char *key) {
 
 static bool request_valid(tny_toolkit_job *job) {
     static const char *const envelope[] = {"version", "operation", "config", "request"};
-    static const char *const config[] = {"workspace",          "settings_path",  "chatgpt_token",
-                                         "chatgpt_account_id", "codex_base_url", "xai_api_key"};
+    static const char *const config[] = {"workspace", "settings_path", "chatgpt_token",
+                                         "chatgpt_account_id", "codex_base_url"};
     /* Generate accepts the first nine names; edit adds the two reference
      * forms. Adding a name here is the deliberate act that lets an SDK option
      * through, so nothing new is silently discarded or silently accepted. */
     static const char *const image[] = {
         "prompt",      "output_file",      "provider",      "model",    "quality", "size",
         "strict_size", "persist_manifest", "from_manifest", "artifact", "images"};
-    static const char *const speech[] = {"text", "output_file", "provider", "voice"};
-    static const char *const transcribe[] = {"input_file", "provider"};
-    static const char *const dictate[] = {"seconds", "device", "provider"};
     static const char *const optimise[] = {"text",    "provider", "model",          "base_url",
                                            "api_key", "wire_api", "timeout_seconds"};
     yyjson_val *root = yyjson_doc_get_root(job->doc);
@@ -107,15 +100,14 @@ static bool request_valid(tny_toolkit_job *job) {
         !string_field(root, "operation", 32, true))
         return false;
     const char *op = jget_str(root, "operation");
-    for (job->operation = 0; job->operation < 6; job->operation++)
+    for (job->operation = 0; job->operation < OPERATION_COUNT; job->operation++)
         if (!strcmp(op, operations[job->operation])) break;
-    if (job->operation == 6) return false;
+    if (job->operation == OPERATION_COUNT) return false;
     yyjson_val *c = jget(root, "config"), *r = jget(root, "request");
-    if (!fields(c, config, 6) || !string_field(c, "workspace", 4096, true) ||
+    if (!fields(c, config, 5) || !string_field(c, "workspace", 4096, true) ||
         *jget_str(c, "workspace") != '/' || !string_field(c, "settings_path", 4096, false) ||
         !string_value(jget(c, "chatgpt_token"), 16384, false, true) ||
         !string_value(jget(c, "chatgpt_account_id"), 1024, false, true) ||
-        !string_value(jget(c, "xai_api_key"), 16384, false, true) ||
         !url_field(c, "codex_base_url") || !string_field(r, "provider", 128, false))
         return false;
     switch (job->operation) {
@@ -152,20 +144,12 @@ static bool request_valid(tny_toolkit_job *job) {
         yyjson_arr_foreach(images, i, n, v) if (!string_value(v, 4096, true, false)) return false;
         return true;
     }
-    case SPEAK:
-        return fields(r, speech, 4) && string_field(r, "text", TNY_SPEECH_TEXT_MAX, true) &&
-               string_field(r, "voice", 64, false) && string_field(r, "output_file", 4096, false);
-    case TRANSCRIBE: return fields(r, transcribe, 2) && string_field(r, "input_file", 4096, true);
-    case DICTATE:
-        return fields(r, dictate, 3) && integer_field(r, "seconds", 300, true) &&
-               string_field(r, "device", 1024, false);
     case OPTIMISE: {
         const char *wire = jget_str(r, "wire_api");
         const char *text = jget_str(r, "text");
         return fields(r, optimise, 7) && string_field(r, "text", TNY_OPTIMISE_TEXT_MAX, true) &&
-               tny_dictation_text_valid(text, strlen(text)) &&
-               string_field(r, "model", 128, false) && url_field(r, "base_url") &&
-               string_value(jget(r, "api_key"), 16384, false, true) &&
+               tny_prompt_text_valid(text, strlen(text)) && string_field(r, "model", 128, false) &&
+               url_field(r, "base_url") && string_value(jget(r, "api_key"), 16384, false, true) &&
                string_field(r, "wire_api", 16, false) &&
                (!wire || !strcmp(wire, "chat") || !strcmp(wire, "responses")) &&
                integer_field(r, "timeout_seconds", 86400, false);
@@ -181,19 +165,6 @@ static bool stopped(void *opaque) {
 
 static char *workspace_path(const tny_ctx *ctx, const char *path) {
     return !path ? NULL : *path == '/' ? xstrdup(path) : path_join(ctx->cwd, path);
-}
-
-static void text_result(tny_toolkit_job *job, const char *provider, const char *model,
-                        const char *text) {
-    buf_appends(&job->result, "{\"provider\":");
-    jescape(&job->result, provider);
-    if (model) {
-        buf_appends(&job->result, ",\"model\":");
-        jescape(&job->result, model);
-    }
-    buf_appends(&job->result, ",\"text\":");
-    jescape(&job->result, text);
-    buf_appends(&job->result, "}");
 }
 
 static int run_image(tny_toolkit_job *job, tny_ctx *ctx, yyjson_val *r, char *err, size_t len) {
@@ -257,58 +228,6 @@ static int run_image(tny_toolkit_job *job, tny_ctx *ctx, yyjson_val *r, char *er
     return rc;
 }
 
-static int run_speech(tny_toolkit_job *job, tny_ctx *ctx, yyjson_val *r, char *err, size_t len) {
-    char *output = workspace_path(ctx, jget_str(r, "output_file"));
-    tny_speech_request req = {.text = jget_str(r, "text"),
-                              .provider = jget_str(r, "provider"),
-                              .voice = jget_str(r, "voice"),
-                              .output_file = output,
-                              .cancelled = stopped,
-                              .userdata = job};
-    int rc = tny_alloc_scope_failed() ? 1 : tny_speech_run(ctx, &req, err, len);
-    if (!rc) {
-        buf_appends(&job->result, "{\"provider\":");
-        jescape(&job->result, req.provider ? req.provider : "codex");
-        buf_appends(&job->result, ",\"voice\":");
-        jescape(&job->result, req.voice ? req.voice : "cove");
-        buf_appends(&job->result, ",\"mime_type\":\"audio/mpeg\",\"path\":");
-        if (output) jescape(&job->result, output);
-        else buf_appends(&job->result, "null");
-        buf_appendf(&job->result, ",\"played\":%s}", output ? "false" : "true");
-    }
-    free(output);
-    return rc;
-}
-
-static int run_dictation(tny_toolkit_job *job, tny_ctx *ctx, yyjson_val *r, char *err, size_t len) {
-    char *input = workspace_path(ctx, jget_str(r, "input_file"));
-    tny_dictation_request req = {.provider = jget_str(r, "provider"),
-                                 .input_file = input,
-                                 .device = jget_str(r, "device"),
-                                 .seconds = (int)yyjson_get_uint(jget(r, "seconds")),
-                                 /* The embedding ABI keeps raw transcripts. */
-                                 .normalize = TNY_DICTATION_NORMALIZE_OFF,
-                                 .cancelled = stopped,
-                                 .userdata = job};
-    tny_dictation *d = tny_alloc_scope_failed() ? NULL : tny_dictation_start(ctx, &req, err, len);
-    int rc = 1;
-    if (d) {
-        while (tny_dictation_get_state(d) != TNY_DICTATION_DONE) {
-            tny_dictation_step(d);
-            if (tny_dictation_get_state(d) == TNY_DICTATION_DONE) break;
-            struct pollfd fd = {tny_dictation_fd(d), POLLIN, 0};
-            (void)tny_poll(&fd, 1, 50);
-        }
-        const char *text = NULL, *error = NULL;
-        rc = tny_dictation_result(d, &text, &error);
-        if (!rc) text_result(job, tny_dictation_provider_name(d), NULL, text);
-        else snprintf(err, len, "%s", error ? error : "transcription failed");
-        tny_dictation_free(d);
-    }
-    free(input);
-    return rc;
-}
-
 static int32_t run(tny_toolkit_job *job) {
     if (stopped(job)) return TNY_STATUS_CANCELLED;
     /* Public embedding has no matching execution-server launcher. Re-execing
@@ -331,16 +250,12 @@ static int32_t run(tny_toolkit_job *job) {
         jget_str(c, "chatgpt_account_id") ? xstrdup(jget_str(c, "chatgpt_account_id")) : NULL;
     ctx->codex_base_url =
         jget_str(c, "codex_base_url") ? xstrdup(jget_str(c, "codex_base_url")) : NULL;
-    ctx->xai_api_key = jget_str(c, "xai_api_key") ? xstrdup(jget_str(c, "xai_api_key")) : NULL;
     int rc = 1;
     char err[512] = "";
     if (!settings_error && !tny_alloc_scope_failed() && !stopped(job)) {
         switch (job->operation) {
         case GENERATE:
         case EDIT: rc = run_image(job, ctx, r, err, sizeof err); break;
-        case SPEAK: rc = run_speech(job, ctx, r, err, sizeof err); break;
-        case TRANSCRIBE:
-        case DICTATE: rc = run_dictation(job, ctx, r, err, sizeof err); break;
         case OPTIMISE: break; /* rejected before creating a context */
         }
     }

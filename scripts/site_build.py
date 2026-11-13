@@ -788,7 +788,7 @@ def docs_tui() -> str:
 </table>
 <p>Menus are transient overlays. They draw in the bottom block, Escape hides them, and the next submit clears them — they never enter the scrollback. <code>/</code> <code>@</code> <code>$</code> popovers disable while an approval is focused so paths like <code>/tmp/x</code> stay literal.</p>
 <h2 id="slash">Slash commands</h2>
-<p><code>/optimise PROMPT</code> rewrites a typed or dictated prompt using relevant project files. The default model is OpenRouter <code>inception/mercury-2.5</code>; <code>--model</code> and <code>--provider</code> override it. Ctrl-O uses the configured defaults. Escape cancels and preserves the draft. <code>/transcript</code> displays the conversation.</p>
+<p><code>/optimise PROMPT</code> rewrites a typed prompt using relevant project files. The default model is OpenRouter <code>inception/mercury-2.5</code>; <code>--model</code> and <code>--provider</code> override it. Ctrl-O uses the configured defaults. Escape cancels and preserves the draft. <code>/transcript</code> displays the conversation.</p>
 <p>Sessions: <code>/help</code> <code>/clear</code> <code>/new</code> <code>/reset</code> <code>/resume</code> <code>/continue</code> <code>/rename</code> <code>/compact</code> <code>/quit</code></p>
 <p>Runtime: <code>/models</code> <code>/model</code> <code>/permissions</code> <code>/sandbox</code> <code>/backend</code> <code>/task</code> <code>/status</code> <code>/usage</code></p>
 <p>Tools: <code>/mcp</code> <code>/skills</code> <code>/workspace</code> <code>/image</code> <code>/ssh</code> <code>/undo</code> <code>/copy</code> <code>/trace</code></p>

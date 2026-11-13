@@ -8,194 +8,13 @@ import copy
 import hashlib
 import json
 import re
-import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
 
 class BaselineError(ValueError):
     pass
-
-
-def _git_blob(commit: str, path: str) -> bytes:
-    completed = subprocess.run(
-        ["git", "show", f"{commit}:{path}"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise BaselineError(
-            f"frozen ABI0 source {commit}:{path} is unavailable; "
-            "full git checkouts must retain commit 510a95c and source "
-            "tarball builds must set ABI0_COMPAT_ARCHIVE to a separately "
-            "verified compatibility source archive"
-        )
-    return completed.stdout
-
-
-def validate_compat0(path: Path, source_root: Path | None = None) -> list[str]:
-    value = _read(path)
-    errors: list[str] = []
-    commit = value.get("source_commit")
-    initial_commit = "510a95c2ef89aa9ec02a66d8b0a5cadd953025a8"
-    initial_archive = "8718336dbde47f3f8427bf6b3a724127e3ed24b61eaedb6f315523ec2a00c2f6"
-    lineage = value.get("maintenance_lineage")
-    if (
-        not isinstance(lineage, list)
-        or not lineage
-        or lineage[0].get("commit") != initial_commit
-        or lineage[0].get("git_archive_sha256") != initial_archive
-        or lineage[0].get("review_ref") != "issue-45-initial-ga"
-    ):
-        errors.append(
-            "compat0 maintenance lineage must preserve the 510a95c initial GA identity"
-        )
-        return errors
-    active = [
-        entry
-        for entry in lineage
-        if isinstance(entry, dict) and entry.get("commit") == commit
-    ]
-    if (
-        len(active) != 1
-        or not active[0].get("review_ref")
-        or value.get("git_archive_sha256") != active[0].get("git_archive_sha256")
-    ):
-        errors.append(
-            "compat0 active source is not an approved hash-pinned maintenance commit"
-        )
-        return errors
-    header_spec = value.get("header", {})
-    export_spec = value.get("exports", {})
-    blobs: dict[str, bytes] = {}
-    for label, blob_path, expected in (
-        ("header", header_spec.get("path"), header_spec.get("sha256")),
-        ("ELF exports", export_spec.get("elf_path"), export_spec.get("elf_sha256")),
-        (
-            "macOS exports",
-            export_spec.get("macos_path"),
-            export_spec.get("macos_sha256"),
-        ),
-    ):
-        if not isinstance(blob_path, str) or not isinstance(expected, str):
-            errors.append(f"compat0 {label} path/hash is missing")
-            continue
-        if source_root is None:
-            blob = _git_blob(commit, blob_path)
-        else:
-            try:
-                blob = (source_root / blob_path).read_bytes()
-            except OSError as error:
-                errors.append(f"compat0 {label} is unavailable: {error}")
-                continue
-        blobs[label] = blob
-        actual = hashlib.sha256(blob).hexdigest()
-        if actual != expected:
-            errors.append(f"compat0 {label} hash: expected {expected}, got {actual}")
-    if errors or "header" not in blobs:
-        return errors
-    header = blobs["header"].decode("utf-8")
-    for define, number in (("TNY_ABI_MAJOR", 0), ("TNY_ABI_MINOR", 8)):
-        if not re.search(rf"#define\s+{define}\s+{number}u\b", header):
-            errors.append(f"compat0 header does not define {define}={number}")
-    header_exports = set(
-        re.findall(r"TNY_API\s+[^;]*?\b(tny_[a-z0-9_]+)\s*\(", header, re.DOTALL)
-    )
-    elf_exports = set(
-        re.findall(
-            r"^\s+(tny_[a-z0-9_]+);", blobs.get("ELF exports", b"").decode(), re.M
-        )
-    )
-    mac_exports = set(
-        re.findall(
-            r"^_(tny_[a-z0-9_]+)$", blobs.get("macOS exports", b"").decode(), re.M
-        )
-    )
-    if header_exports != elf_exports or header_exports != mac_exports:
-        errors.append("compat0 frozen header and platform export allowlists differ")
-    if export_spec.get("elf_version_node") != "LIBTNY_0":
-        errors.append("compat0 ELF version node must remain LIBTNY_0")
-    artifacts = value.get("artifacts", {})
-    expected_artifacts = {
-        "linux_soname": "libtny.so.0",
-        "macos_install_name": "@rpath/libtny.0.dylib",
-        "pkg_config": "libtny-0",
-    }
-    if artifacts != expected_artifacts:
-        errors.append(f"compat0 artifact identity drift: {artifacts!r}")
-
-    compiler = shutil.which("cc")
-    structs = value.get("structs", {})
-    if compiler is None:
-        errors.append("C compiler is required to verify compat0 layouts/signatures")
-        return errors
-    assertions = ["#include <stddef.h>", '#include "tny/tny.h"']
-    for name, dimensions in sorted(structs.items()):
-        if (
-            not isinstance(dimensions, list)
-            or len(dimensions) != 2
-            or not all(isinstance(item, int) for item in dimensions)
-        ):
-            errors.append(f"compat0 struct manifest is invalid for {name}")
-            continue
-        assertions.append(
-            f'_Static_assert(sizeof({name}) == {dimensions[0]}, "{name} size");'
-        )
-        assertions.append(
-            f'_Static_assert(_Alignof({name}) == {dimensions[1]}, "{name} align");'
-        )
-    declarations = {
-        "tny_capabilities_init": "void (TNY_CALL *sig_cap_init)(tny_capabilities_v0 *) = tny_capabilities_init;",
-        "tny_capabilities_v1_init": "void (TNY_CALL *sig_cap1_init)(tny_capabilities_v1 *) = tny_capabilities_v1_init;",
-        "tny_event_read": "int32_t (TNY_CALL *sig_event_read)(const tny_event *, tny_event_view_v0 *) = tny_event_read;",
-        "tny_event_view_init": "void (TNY_CALL *sig_event_init)(tny_event_view_v0 *) = tny_event_view_init;",
-        "tny_host_services_v1_init": "void (TNY_CALL *sig_host_init)(tny_host_services_v1 *) = tny_host_services_v1_init;",
-        "tny_runtime_create": "int32_t (TNY_CALL *sig_create)(const tny_runtime_options_v0 *, tny_runtime **, tny_error **) = tny_runtime_create;",
-        "tny_runtime_create_v1": "int32_t (TNY_CALL *sig_create1)(const tny_runtime_options_v1 *, tny_runtime **, tny_error **) = tny_runtime_create_v1;",
-        "tny_runtime_get_capabilities": "int32_t (TNY_CALL *sig_caps)(const tny_runtime *, tny_capabilities_v0 *) = tny_runtime_get_capabilities;",
-        "tny_runtime_get_capabilities_v1": "int32_t (TNY_CALL *sig_caps1)(const tny_runtime *, tny_capabilities_v1 *) = tny_runtime_get_capabilities_v1;",
-        "tny_runtime_options_init": "void (TNY_CALL *sig_opts)(tny_runtime_options_v0 *) = tny_runtime_options_init;",
-        "tny_runtime_options_v1_init": "void (TNY_CALL *sig_opts1)(tny_runtime_options_v1 *) = tny_runtime_options_v1_init;",
-        "tny_tool_result_v1_init": "void (TNY_CALL *sig_result)(tny_tool_result_v1 *) = tny_tool_result_v1_init;",
-        "tny_tool_spec_v1_init": "void (TNY_CALL *sig_spec)(tny_tool_spec_v1 *) = tny_tool_spec_v1_init;",
-    }
-    if set(value.get("legacy_signatures", {})) != set(declarations):
-        errors.append("compat0 legacy signature manifest names drifted")
-    assertions.extend(declarations.values())
-    assertions.append("int main(void) { return 0; }")
-    with tempfile.TemporaryDirectory() as directory:
-        include = Path(directory) / "tny"
-        include.mkdir()
-        (include / "tny.h").write_bytes(blobs["header"])
-        completed = subprocess.run(
-            [
-                compiler,
-                "-std=c11",
-                "-Wall",
-                "-Wextra",
-                "-Werror",
-                "-I",
-                directory,
-                "-x",
-                "c",
-                "-",
-                "-fsyntax-only",
-            ],
-            input="\n".join(assertions),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-    if completed.returncode != 0:
-        errors.append(
-            f"compat0 frozen layout/signature probe failed: {completed.stderr.strip()}"
-        )
-    return errors
 
 
 def _numeric_version(value: str, label: str) -> tuple[int, int, int]:
@@ -612,8 +431,6 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline", type=Path, default=Path("abi/baseline-v1.json"))
     parser.add_argument("--candidate", type=Path)
-    parser.add_argument("--compat0", type=Path)
-    parser.add_argument("--compat0-source-root", type=Path)
     parser.add_argument("--mach-version")
     parser.add_argument("--development-fallback", action="store_true")
     args = parser.parse_args()
@@ -626,22 +443,6 @@ def main() -> int:
         except BaselineError as error:
             print(f"ABI baseline error: {error}", file=sys.stderr)
             return 1
-    if args.compat0 is not None:
-        try:
-            errors = validate_compat0(
-                args.compat0.resolve(),
-                args.compat0_source_root.resolve()
-                if args.compat0_source_root
-                else None,
-            )
-        except BaselineError as error:
-            errors = [str(error)]
-        if errors:
-            for error in sorted(set(errors)):
-                print(f"ABI baseline error: {error}", file=sys.stderr)
-            return 1
-        print("libtny ABI 0.8 frozen compatibility manifest: ok")
-        return 0
     try:
         baseline = load(args.baseline.resolve())
         errors = validate(baseline, "baseline")

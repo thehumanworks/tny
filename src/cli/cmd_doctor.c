@@ -68,8 +68,7 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_appends(&b, ",\"python\":");
         if (python) jescape(&b, python);
         else buf_appends(&b, "null");
-        buf_appendf(&b, ",\"code_mode\":%s", code_mode ? "true" : "false");
-        buf_appendf(&b, ",\"self_improve\":%s,", ctx->no_self_improve ? "false" : "true");
+        buf_appendf(&b, ",\"code_mode\":%s,", code_mode ? "true" : "false");
         buf_appends(&b, "\"providers\":[");
         for (int i = 0; i < TNY_BK_COUNT; i++) {
             if (i) buf_appends(&b, ",");
@@ -96,7 +95,6 @@ int cmd_doctor(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
             printf("note code cells: off, %s; the model calls native tools directly\n",
                    python ? "process trees unsupported here"
                           : "no python3 3.8 or newer (set TNY_PYTHON)");
-        printf("%s automatic workflow learning\n", ctx->no_self_improve ? "off" : "on ");
         printf("%s codex: %s\n", codex ? "ok " : "miss",
                codex ? "ChatGPT credential found (flag, env, ~/.tny/codex-auth.json, or "
                        "$CODEX_HOME/auth.json)"

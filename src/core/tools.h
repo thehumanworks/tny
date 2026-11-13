@@ -11,7 +11,6 @@
 #include "core/backend.h"
 #include "backends/openai/openai.h"
 #include "core/image_preview.h"
-#include "core/learning.h"
 #include "util/terminal_task.h"
 
 #ifdef __cplusplus
@@ -25,7 +24,6 @@ bool tools_search_can_skip(size_t index, int hits, int limit, size_t last_comple
 struct mcp_client;    /* mcp/mcp.h */
 struct tny_intercept; /* core/intercept.h */
 struct tny_image_plan;
-struct tny_swarm_message_plan;
 struct tny_tool_registration;
 struct custom_tool_pending;
 
@@ -58,16 +56,7 @@ typedef enum {
     TNY_IMAGE_FLUSH_PREVIEW_FATAL /* an accepted preview cannot be delivered */
 } tools_image_flush_outcome;
 
-typedef struct {
-    bool valid;
-    bool ok;
-    tny_learning_event event;
-    uint64_t scope;
-    uint64_t intent; /* transient hash of intended replacement; never persisted */
-} tools_learning_fact;
-
 typedef struct tools_env {
-    tools_learning_fact learning_fact; /* actual executor fact, not rendered tool text */
     tny_ctx *ctx;
     tny_session_state *session;
     perm_engine *perm;
@@ -84,7 +73,7 @@ typedef struct tools_env {
      * only socket control traffic; it must never dispatch the backend. */
     int (*control_pump)(void *ud, int timeout_ms);
     void *control_pump_ud;
-    /* Cooperative cancellation for blocking host services such as speech. */
+    /* Cooperative cancellation for blocking host services. */
     bool (*cancelled)(void *ud);
     void *cancelled_ud;
     const char *session_sock;
@@ -101,8 +90,6 @@ typedef struct tools_env {
     /* Reverse RPC from nested calls to the owning runtime extension hooks. */
     tny_openai_control_cb execution_control;
     void *execution_control_ud;
-    void (*execution_observe)(void *ud);
-    void *execution_observe_ud;
     tny_image_preview_admit preview_admit;
     bool (*preview_ready)(void *ud); /* observation only; shares preview_ud */
     void *preview_ud;
@@ -147,7 +134,6 @@ typedef struct {
     tny_image_preview_selection *image_selection;
     /* Exact authenticated endpoint and canonical payload authorized for a
      * typed send. Execution never resolves model arguments a second time. */
-    struct tny_swarm_message_plan *swarm_message_plan;
 } tools_call;
 
 /* Human label of an intercepted call ("tny edit docs/x.md"), or NULL for an
@@ -180,10 +166,6 @@ char *tools_execute(tools_env *env, const char *name, const char *args_json);
 int tools_call_prepare(tools_env *env, const char *name, const char *args_json, tools_call *call);
 void tools_call_grant(tools_env *env, const tools_call *call);
 char *tools_call_execute(tools_env *env, tools_call *call);
-void tools_learning_edit_result(tools_env *env, const char *target, const char *replacement,
-                                bool replace_all, tny_edit_status status);
-void tools_learning_read_result(tools_env *env, tny_learning_event event, const char *target,
-                                bool useful);
 bool tools_call_pending(const tools_call *call);
 int tools_call_take_async(tools_call *call, char **result, bool *is_error);
 void tools_call_invalidate_async(tools_call *call);

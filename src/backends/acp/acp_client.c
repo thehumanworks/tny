@@ -9,7 +9,6 @@
 #include "core/instructions.h"
 #include "core/skills.h"
 #include "core/tasks.h"
-#include "core/swarm.h"
 #include "util/alloc.h"
 #include "util/process.h"
 
@@ -552,12 +551,6 @@ static int ac_send(tny_backend *b, const char *prompt, const char **images, tny_
 
     buf_t context;
     buf_init(&context);
-    if (tny_acp_bridge_prepare_prompt(o->bridge, &context, errbuf, errlen) != 0) {
-        buf_free(&context);
-        if (tny_alloc_scope_failed()) tny_acp_bridge_abort(o->bridge);
-        else tny_acp_bridge_end_turn(o->bridge);
-        return ac_setup_failed(o, errbuf, errlen);
-    }
     buf_t p;
     buf_init(&p);
     buf_appends(&p, "{\"sessionId\":");
@@ -572,7 +565,6 @@ static int ac_send(tny_backend *b, const char *prompt, const char **images, tny_
                     "Workspace tools run remotely over SSH. Remote cwd: %s. The agent local cwd is "
                     "private staging, never your workspace.\n",
                     o->ctx->ssh_cwd);
-    tny_swarm_policy(o->ctx, &context);
     buf_appends(&context, tools_mode_instructions(o->ctx));
     buf_appends(&context, tools_reason_instructions(o->ctx));
     instructions_collect(o->ctx, &context);

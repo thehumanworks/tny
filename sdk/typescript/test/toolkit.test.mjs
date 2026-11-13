@@ -146,19 +146,6 @@ test("toolkit records manifests, lineage and the persistence opt-out", async t =
   assert.deepEqual(kept.actual, { seed: f.assets.seed, request_id: f.assets.requestId });
 });
 
-test("toolkit speech and transcription use independent media credentials", async t => {
-  const f = await fixture(t);
-  const [speech, transcript] = await Promise.all([
-    f.toolkit.speak("hello", { outputFile: "out.mp3", voice: "cove" }),
-    f.toolkit.transcribe("input.wav", { provider: "codex" }),
-  ]);
-  assert.equal(speech.played, false);
-  assert.deepEqual(readFileSync(speech.path), Buffer.from(f.assets.mp3, "base64"));
-  assert.equal(transcript.text, f.assets.text);
-  assert.equal(transcript.provider, "codex");
-  assert.ok((await f.requests()).find(r => r.body.wav));
-});
-
 test("toolkit optimisation refuses before provider I/O or file effects", async t => {
   const f = await fixture(t);
   const before = readdirSync(f.workspace).sort();
@@ -201,9 +188,7 @@ test("toolkit rejects invalid requests before provider I/O", async t => {
     () => f.toolkit.generateImage("tree", { outputFile: "out.png", strictSize: true }),
     () => f.toolkit.generateImage("tree", { outputFile: "out.png", size: "auto", strictSize: true }),
     () => f.toolkit.editImage("edit", { outputFile: "out.png", images: [] }),
-    () => f.toolkit.dictate({ seconds: true }),
-    () => f.toolkit.dictate({ seconds: 1.5 }),
-    () => f.toolkit.dictate({ seconds: 301 }),
+    () => f.toolkit.optimise("text", { timeoutSeconds: 1.5 }),
     () => f.toolkit.optimise("text", { timeoutSeconds: 0 }),
   ]) await assert.rejects(run);
   assert.equal((await f.requests()).length, 0);
@@ -288,7 +273,7 @@ test("toolkit errors and cancellation preserve existing outputs", async t => {
   const before = (await f.requests()).length;
   const abort = new AbortController();
   abort.abort();
-  await assert.rejects(f.toolkit.speak("hello", { signal: abort.signal }), error => error.status === -12);
+  await assert.rejects(f.toolkit.generateImage("tree", { outputFile: "aborted.png", signal: abort.signal }), error => error.status === -12);
   assert.equal((await f.requests()).length, before);
   await f.mode("stall");
   const controller = new AbortController();
@@ -375,26 +360,6 @@ test("a failed manifest finalization keeps the paid image and says so", async t 
   // The paid artifact is exactly the provider's bytes, and kept.
   assert.deepEqual(readFileSync(output), Buffer.from(f.assets.png, "base64"));
   assert.deepEqual(staging(f.workspace, "out.png"), []);
-});
-
-test("toolkit microphone and playback run through fake host devices", async t => {
-  const f = await fixture(t);
-  const bin = join(f.workspace, "bin");
-  mkdirSync(bin);
-  for (const name of ["ffmpeg", "arecord"]) {
-    writeFileSync(join(bin, name), `#!${f.assets.python}\nimport signal, sys\nsys.stdout.buffer.write(b'\\0' * 48000)\nsys.stdout.buffer.flush()\nsignal.pause()\n`, { mode: 0o755 });
-  }
-  for (const name of ["afplay", "ffplay", "mpv", "mpg123"]) {
-    writeFileSync(join(bin, name), `#!${f.assets.python}\nimport sys\nassert sys.stdin.buffer.read().startswith(b'ID3')\n`, { mode: 0o755 });
-  }
-  const oldPath = process.env.PATH;
-  process.env.PATH = bin;
-  try {
-    assert.equal((await f.toolkit.dictate({ seconds: 1, provider: "codex" })).text, f.assets.text);
-    const speech = await f.toolkit.speak("hello");
-    assert.equal(speech.played, true);
-    assert.equal(speech.path, null);
-  } finally { process.env.PATH = oldPath; }
 });
 
 test("worker termination cancels native toolkit work before environment cleanup", async t => {

@@ -54,9 +54,9 @@ previously took over two hours, so this change does not silently move it into
 a short native job. The macOS lane now explicitly requires ImageMagick 7 and
 runs the conversion suite, preserving coverage formerly supplied by Nix.
 
-The `lean-proofs` job verifies dictation normalization, ACP admission/lifecycle,
-and the source-linked production C code-cell policies. Committed dictation and
-ACP tables are replayed by native tests; the proof gate checks that their
+The `lean-proofs` job verifies ACP admission/lifecycle and the source-linked
+production C code-cell policies. Committed ACP tables are replayed by native
+tests; the proof gate checks that their
 generators still produce the same cases. These specifications and their finite replays do not
 prove the entire application correct.
 
@@ -318,7 +318,8 @@ make quality           # formatting, lint, tidy, strict warnings; GCC analyzer o
 make leaks             # valgrind (Linux) / leaks (macOS) over the unit suite + smoke
 make test-shell-workflows # the workflow scheduler under both Bash and Zsh
 make test              # unit (ASan) + integration fixtures
-make test-abi          # ABI baseline, old consumers, exports, artifacts
+make verify-formal     # SMT/Lean golden checks; needs Clang and Z3
+make test-abi          # ABI baseline, consumers, exports, artifacts
 make test-sdks         # Python and TypeScript SDK + conformance adapters
 make size-check        # report stripped size (no product byte ceiling)
 make STATIC=1 release  # musl static, on Alpine or a musl toolchain

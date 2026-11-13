@@ -1,7 +1,7 @@
 # 0071 — Ephemeral host audio playback without a decoder dependency
 
 Date: 2026-09-05
-Status: accepted
+Status: Superseded by [ADR 0221](0221-remove-unproven-features.md)
 
 ## Context
 

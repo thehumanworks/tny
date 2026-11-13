@@ -10,7 +10,7 @@ behavior is in the linked feature contract; ADRs explain decisions when needed.
 | ChatGPT sign-in | `src/core/openai_{login,auth}.c`, [contract](backends/openai-chatgpt.md) | `tests/integration/test_openai_signin.py` |
 | Claude connection | `src/backends/acp/`, [contract](backends/acp.md) | `test_acp_client.py`, `test_acp_managed.py` |
 | Add/change a tool extension or the `tny` Python package | `python/tny/`, `src/core/tool_extensions.c`, `src/core/tool_host.c`, `src/cli/cmd_tool_ext.c`, [guide](extensions.md) | `make test-tool-extensions`, `tests/integration/test_tool_extensions.py` |
-| Prompt reuse / context stability | `src/core/skills.c`, `learning.c`, native request builder | `skills_suite`, `learning_suite`, `tests/bench/bench_prefix_stability.py` |
+| Prompt reuse / context stability | `src/core/skills.c`, native request builder | `skills_suite` |
 | Model-visible tool discovery | `src/core/tools.c` (`tools_code_mode`), `python/tny/_cell.py` | `code_runtime_suite`, `test_execution_code_mode.py` |
 | Search scope / completeness | `core/tools_fs.c`, [contract](adr/0208-truthful-scoped-file-search.md) | `test_search_coverage.py`, `bench_search_coverage.py` |
 | Large file/web content | `tools_fs.c`, `tools_web.c`, session result writer, [contract](adr/0212-size-aware-content-returns.md) | `test_read_file_ranges.py`, `test_content_bounds.py` |
@@ -22,9 +22,8 @@ behavior is in the linked feature contract; ADRs explain decisions when needed.
 | Run/cancel a code cell | `execution*.c`, `code_runtime.c`, `code_python.c` (finding python3), `python/tny/_cell.py`, `util/execution_*.c` | `test_execution_code_mode.py`, `test_terminal_cancel.py` |
 | Resume/crash recovery | `session.c`, `checkpoint.cpp`, `runner.cpp` | `runner_suite`, session/checkpoint fixtures |
 | Durable job records and transactions | `core/jobs_record.cpp`, private `jobs_record.hpp` | `make test-runner-ownership test-runner-mutation`; job corruption fixtures |
-| Durable background orchestration | `core/jobs.cpp`, `team_*.c`, `util/jobs_host.c` | job/team integration fixtures |
+| Durable background orchestration | `core/jobs.cpp`, `util/jobs_host.c` | job integration fixtures |
 | Shell DAG scheduling | `shell/tny-workflows.sh`, [workflows](workflows.md) | `make test-shell-workflows` (Bash and Zsh) |
-| Bounded workflow learning | `learning.c`, `util/learning_store.c`, [contract](instruction-improvement.md) | `learning_suite`, `learning_process_suite` |
 | CLI / TUI presentation | `src/cli/`, `src/tui/` | CLI JSON/help fixtures, PTY tests |
 | Public embedding | `include/tny/tny.h`, `src/lib/`, `sdk/` | ABI/conformance/SDK gates |
 

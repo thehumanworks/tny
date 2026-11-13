@@ -4,8 +4,6 @@
 #include "backends/openai/openai.h"
 #include "backends/openai/stream_decode.h"
 #include "core/tools.h"
-#include "core/team_runtime.h"
-#include "core/speech.h"
 #include "core/openai_auth.h"
 #include "core/image_service.h"
 #include "backends/openai/request_owner.h"
@@ -13,9 +11,7 @@
 #include "core/image.h"
 #include "core/instructions.h"
 #include "core/intercept.h"
-#include "core/learning.h"
 #include "core/tasks.h"
-#include "core/swarm.h"
 #include "core/skills.h"
 #include "mcp/mcp.h"
 #include "lib/custom_tools.h"
@@ -62,10 +58,6 @@ typedef enum {
 typedef struct {
     tny_ctx *ctx;
     tools_env env;
-    tny_learning learning;
-    bool learning_initialized;
-    uint64_t learning_target;
-    uint64_t learning_intent;
     oa_connection_owner *connection;
     sse_parser sse;
     oa_state state;
@@ -529,7 +521,6 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
     }
     buf_appends(sys, tools_mode_instructions(o->ctx));
     buf_appends(sys, tools_reason_instructions(o->ctx));
-    tny_swarm_policy(o->ctx, sys);
     buf_appends(
         sys,
         "You are an AI assistant working through tny, a terminal agent harness.\n"
@@ -601,8 +592,6 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
      * MCP servers only inside the execution server through nested tools. */
     mcp_catalog_collect(o->ctx, sys);
     if (provider_oom()) return;
-    tny_learning_collect(&o->learning, sys);
-    if (provider_oom()) return;
     if (o->ctx->task_instructions && *o->ctx->task_instructions) {
         buf_appends(sys, "\n");
         if (!provider_oom()) tny_task_collect(o->ctx, sys);
@@ -641,12 +630,6 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
         buf_free(image_providers);
         if (provider_oom()) return;
     }
-    if (!o->ctx->library_mode && tny_speech_available(o->ctx, NULL, true, NULL, 0))
-        buf_appends(sys,
-                    "Speech is available: use `speak` when advertised, or pipe text to "
-                    "`tny speak` through terminal to vocalise a message to the user. "
-                    "It plays automatically and keeps no audio file. Do not repeat spoken content "
-                    "in the final text response unless the user asks for both.\n");
     if (tny_tool_profile_is_shell(o->ctx)) {
         buf_appends(sys, "# Shell tool profile\n\n"
                          "Commands start in the workspace cwd, and cwd resets on every terminal "
@@ -1098,8 +1081,6 @@ request_oom:
 }
 
 static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
-    if (tny_swarm_activate(&o->env, errbuf, errlen) != 0) return -1;
-    if (tny_team_deliver(&o->env, errbuf, errlen) != 0) return -1;
     return start_post_mode(o, errbuf, errlen, false);
 }
 
@@ -1198,7 +1179,6 @@ static void finish_turn_ok(oa_impl *o) {
         return;
     }
     session_recovery_clear(s);
-    if (!o->ctx->no_self_improve) tny_learning_flush(&o->learning);
     emit_turn_end(o, o->final_stop);
 }
 
@@ -1269,41 +1249,13 @@ static void complete_tool(oa_impl *o, const char *cid, const char *name, const c
 
 static int run_tools(oa_impl *o);
 
-static void reset_learning_episode(oa_impl *o) {
-    tny_learning_observe(&o->learning, TNY_LEARN_OTHER, 0, false);
-    o->learning_target = o->learning_intent = 0;
-}
-
 static void complete_rejected_tool(oa_impl *o, const char *cid, const char *name,
                                    const char *original_args, const char *effective_args,
                                    const char *control_extension, const char *control_reason,
                                    const char *result) {
-    reset_learning_episode(o);
     complete_tool(o, cid, name, original_args, effective_args, control_extension, control_reason,
                   result);
 }
-
-/* Learn only from an actually executed first-party operation, before extension
- * result replacement. Denied, cancelled, custom and asynchronous proposals do
- * not establish successful recovery. No tool text becomes durable guidance. */
-static void observe_learning(oa_impl *o) {
-    if (o->cancelled || o->env.perm_blocked || provider_oom()) return;
-    const tools_learning_fact *fact = &o->env.learning_fact;
-    if (!fact->valid || (fact->event != TNY_LEARN_EDIT && fact->scope != o->learning_target)) {
-        tny_learning_observe(&o->learning, TNY_LEARN_OTHER, 0, false);
-        o->learning_target = o->learning_intent = 0;
-        return;
-    }
-    if (fact->event == TNY_LEARN_EDIT) {
-        if (fact->intent != o->learning_intent || fact->scope != o->learning_target)
-            tny_learning_observe(&o->learning, TNY_LEARN_OTHER, 0, false);
-        o->learning_intent = fact->ok ? 0 : fact->intent;
-        o->learning_target = fact->ok ? 0 : fact->scope;
-    }
-    tny_learning_observe(&o->learning, fact->event, fact->scope, fact->ok);
-}
-
-static void execution_observe(void *ud) { observe_learning(ud); }
 
 static int execute_call(oa_impl *o, const char *cid, const char *original_args,
                         const char *effective_args, const char *control_extension,
@@ -1321,15 +1273,10 @@ static int execute_call(oa_impl *o, const char *cid, const char *original_args,
     if (provider_oom()) return -1;
     subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_START, cid, call, NULL, false);
     if (provider_oom()) return -1;
-    if (call->custom) {
-        tny_learning_observe(&o->learning, TNY_LEARN_OTHER, 0, false);
-        o->learning_target = o->learning_intent = 0;
-    }
     char *result = o->cancelled ? tool_err("interrupted before %s ran", call->name)
                                 : tools_call_execute(&o->env, call);
     if (!result) return tools_call_pending(call) ? 1 : -1;
     bool ok = !str_starts(result, "error:");
-    if (strcmp(call->name, "run_code") != 0) observe_learning(o);
     subagent_control(o, TNY_OPENAI_CONTROL_SUBAGENT_END, cid, call, result, ok);
     complete_tool(o, cid, call->name, original_args, effective_args, control_extension,
                   control_reason, result);
@@ -1576,7 +1523,6 @@ static int run_tools(oa_impl *o) {
             emit_tool_end(o, cid, name, result, false);
             session_add_tool_result(o->env.session, cid, result);
             o->tool_batch_failed++;
-            reset_learning_episode(o);
             o->tool_index++;
             continue;
         }
@@ -1978,16 +1924,6 @@ static int oa_send(tny_backend *b, const char *prompt, const char **images, tny_
     o->usage_in = o->usage_out = 0;
     memset(&o->usage, 0, sizeof o->usage);
     o->usage_seen = o->usage_recorded = false;
-    o->learning_target = o->learning_intent = 0;
-    bool learn = !o->ctx->no_self_improve && !o->ctx->prompt_optimisation;
-    bool persist_learning = !o->ctx->no_save && !o->ctx->library_mode && !o->ctx->ssh_host;
-    if (o->learning_initialized)
-        tny_learning_resume(&o->learning, o->ctx->tny_dir, o->ctx->cwd, o->env.session->id, learn,
-                            persist_learning);
-    else
-        tny_learning_begin(&o->learning, o->ctx->tny_dir, o->ctx->cwd, o->env.session->id, learn,
-                           persist_learning);
-    o->learning_initialized = true;
     secure_zero(o->turn_state, sizeof o->turn_state);
     o->env.perm_blocked = false;
     pending_perm_clear(o);
@@ -2481,8 +2417,6 @@ void tny_backend_openai_bind(tny_backend *b, tny_session_state *session, perm_en
     o->control_ud = control_ud;
     o->env.execution_control = execution_control;
     o->env.execution_control_ud = o;
-    o->env.execution_observe = execution_observe;
-    o->env.execution_observe_ud = o;
     o->env.ev_cb = execution_event;
     o->env.ev_ud = o;
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Settings editor contract and generated headless UI persistence checks.
 
-Schema tests cover agent_presets, image_input, dictation.normalize and ui, including reserved
+Schema tests cover agent_presets, image_input and ui, including reserved
 root names. Uses jsonschema when installed and always checks stdlib patterns.
 The UI CLI tests use TNY (default build/tny) and a temporary HOME without
 provider credentials, verifying strict values, field preservation and output
@@ -33,9 +33,6 @@ try:  # optional: full-document validation when the library is available
     import jsonschema
 except ImportError:  # pragma: no cover - depends on the environment
     jsonschema = None
-
-
-DICTIONARY = json.loads((ROOT / "schemas/dictionary.schema.json").read_text())
 
 
 class UiSettingsTests(unittest.TestCase):
@@ -98,7 +95,6 @@ class UiSettingsTests(unittest.TestCase):
             env = {
                 "PATH": os.environ.get("PATH", ""),
                 "HOME": home,
-                "TNY_SELF_IMPROVE": "0",
             }
             settings = Path(home) / ".tny/settings.json"
 
@@ -258,65 +254,6 @@ class UiSettingsTests(unittest.TestCase):
                         json.loads(settings.read_text())["ui"]["tool_call_view"],
                         "compact" if legacy else "full",
                     )
-
-
-class DictationSchemaTests(unittest.TestCase):
-    """dictation.normalize and dictionary.json (docs/adr/0175)."""
-
-    def test_normalize_accepts_documented_shapes(self):
-        if jsonschema is None:
-            self.skipTest("jsonschema is not installed in this environment")
-        for doc in (
-            {"dictation": {"normalize": True}},
-            {"dictation": {"normalize": {"enabled": True, "model": "gpt-6-luna"}}},
-            {
-                "dictation": {
-                    "normalize": {
-                        "enabled": True,
-                        "model": {"codex": "gpt-6-luna", "xai": "grok-4.7"},
-                        "effort": "omit",
-                        "fast": False,
-                        "timeout_seconds": 120,
-                    }
-                }
-            },
-        ):
-            jsonschema.validate(doc, SCHEMA)
-        for doc in (
-            {"dictation": {"normalize": "yes"}},
-            {"dictation": {"normalize": {"timeout_seconds": 0}}},
-            {"dictation": {"normalize": {"model": {"claude": "x"}}}},
-            {"dictation": {"normalize": {"conversation_model": True}}},
-            {"dictation": {"stt": "codex"}},
-        ):
-            with self.assertRaises(jsonschema.ValidationError, msg=doc):
-                jsonschema.validate(doc, SCHEMA)
-
-    def test_dictionary_schema_matches_runtime_limits(self):
-        (pattern,) = DICTIONARY["patternProperties"].keys()
-        word = re.compile(pattern)
-        for key in ("tny", "kubectl", "Claude Code", ".NET", "C++", "世界"):
-            self.assertTrue(word.fullmatch(key), key)
-        for key in ("", " padded", "...", "x" * 65, "bad\u001bword"):
-            self.assertFalse(word.fullmatch(key), key)
-        entry = DICTIONARY["patternProperties"][pattern]["oneOf"][1]
-        self.assertEqual(entry["properties"]["aliases"]["maxItems"], 8)
-        self.assertEqual(entry["properties"]["case"]["enum"], ["exact", "insensitive"])
-        self.assertFalse(entry["additionalProperties"])
-        if jsonschema is None:
-            return
-        jsonschema.validate(
-            {
-                "$schema": "https://example.invalid/dictionary.schema.json",
-                "tny": "the agent harness",
-                "kubectl": {"aliases": ["kube cuddle"]},
-                "Jev": {"context": "decision engine", "case": "exact"},
-            },
-            DICTIONARY,
-        )
-        for doc in ({"tny": 1}, {"tny": {"weight": 2}}, {"tny": {"case": "upper"}}):
-            with self.assertRaises(jsonschema.ValidationError, msg=doc):
-                jsonschema.validate(doc, DICTIONARY)
 
 
 class SpeedTierSchemaTests(unittest.TestCase):

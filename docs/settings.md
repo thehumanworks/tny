@@ -93,39 +93,6 @@ be a positive integer from 1 to 86400 (one day); invalid values report an
 error before contacting the provider. Environment and config overrides also
 apply to Ctrl-O and `/optimise`. Parent step limits are not inherited.
 
-## Dictation normalization
-
-`dictation.normalize` opts dictation into one verified rewrite by the STT
-subscription's own small model with your `dictionary.json` (default off;
-[Dictation](dictation.md#normalization-and-the-dictionary),
-[ADR 0175](adr/0175-dictation-transcript-normalization.md)):
-
-```json
-{
-  "dictation": {
-    "normalize": {
-      "enabled": true,
-      "model": { "codex": "gpt-6-luna", "xai": "grok-4.7" },
-      "effort": "off",
-      "fast": false,
-      "timeout_seconds": 20
-    }
-  }
-}
-```
-
-`"normalize": true` is shorthand for the defaults. An object without
-`"enabled": true` stays off. Precedence: `tny dictate --normalize` /
-`--no-normalize`, then `TNY_DICTATION_NORMALIZE` (`1`/`0`), then settings.
-`TNY_DICTATION_NORMALIZE_MODEL` and `TNY_DICTATION_NORMALIZE_EFFORT` override
-`model` and `effort` (`omit` sends no effort field). `fast` applies only to
-codex and is never inherited from the conversation's `fast`. `timeout_seconds`
-is 1–120. Only user settings are read; a project cannot turn it on, but a
-project `.tny/dictionary.json` adds words (it wins per word over
-`~/.tny/dictionary.json`; schema
-[`schemas/dictionary.schema.json`](../schemas/dictionary.schema.json)). An
-invalid value keeps the raw transcript with `skipped_reason: "invalid_config"`.
-
 ## Task presets
 
 Task presets are intentionally not settings keys: their instruction bodies are
@@ -166,12 +133,10 @@ child. See [the retrieval contract](adr/0214-explicit-retrieval-agent-presets.md
 | `effort` | string, or per-provider object | `--effort LEVEL` |
 | `fast` | boolean/string, or per-provider object | `--fast` when true/`fast`/`priority`; `--ultrafast` when `ultrafast` (openai Responses, gpt-6-astra or gpt-6.1-sol only); standard tier when false/`default` |
 | `permission_mode` | `ask`, `auto`, or `yolo` | `--permission-mode` |
-| `self_improve` | boolean, default `true` | Default automatic recovery learning; `TNY_SELF_IMPROVE=0` or `--no-self-improve` disables it ([ADR 0154](adr/0201-default-automatic-workflow-learning.md)) |
 | `tools` | `all`, `terminal+edit`, or `terminal` | Native-loop tool profile; `TNY_TOOLS` wins; default `all` ([ADR 0062](adr/0062-native-tool-profiles-advertise-and-enforce.md)) |
 | `web_search_command` | shell command template with `{query}` or `{{query}}` | overrides automatic Codex-login/DDG search; runs like `terminal` ([ADR 0055](adr/0055-web-search-gating-and-command-provider.md)); wins over `web_search_url` |
 | `web_search_url` | URL template with `{query}` or `{{query}}` | overrides automatic Codex-login/DDG search; fetched like `web_fetch` |
 | `web_search_model` | nonempty supported Codex model ID | Independent search service model; default `gpt-5.6-sol`, never the conversation model |
-| `dictation.normalize` | boolean, or object (`enabled`, `model`, `effort`, `fast`, `timeout_seconds`) | `tny dictate --normalize`; default off ([Dictation normalization](#dictation-normalization)) |
 | `web_search_timeout_seconds` | integer 1–300 | Independent Codex search/refresh deadline; default 120 seconds ([ADR 0109](adr/0109-provider-independent-codex-search.md)) |
 | `mcp.import_from` | array of `codex`, `claude`, `grok`, `cursor-agent` (`cursor` alias accepted) | `tny mcp list` (opt-in; off by default; project files for enabled sources are trusted, [ADR 0051](adr/0052-mcp-import-from-harnesses.md)) |
 
@@ -247,17 +212,6 @@ settings keys are needed):
 rejected: export the value, configure its environment name, then delete the
 stored key. SDK in-memory credential injection and browser-tab ephemeral
 environment intake remain supported. Native OAuth login stores are separate.
-
-`tny dictate --stt-provider xai` reads independent credentials: leading
-`--xai-api-key`, then `XAI_API_KEY`, then the profile's `api_key_env`, then an
-existing Grok OAuth login when no explicit key source was configured.
-Present empty or CR/LF-bearing credentials fail rather than falling through.
-Grok credentials refresh only when an actual transcription starts; `--check`
-is local-only and does not confirm entitlement. STT always uses the official
-`https://api.x.ai/v1/stt` endpoint and its service-selected model, ignoring
-the profile's `base_url`, model, and custom auth headers. The `base_url`
-remains required to identify a named profile and still configures chat when
-explicitly selected with `--provider xai`. See [Dictation](dictation.md).
 
 ## MCP server profile
 

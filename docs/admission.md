@@ -8,14 +8,14 @@ declare enrollment**. Other jobs and ordinary turns are not automatically counte
 
 ## Declare a scope
 
-Add this object to a native ask job request (including a team start request):
+Add this object to a native ask job request:
 
 ```json
 {"admission":{"label":"review-batch","provider_scope":"work-account","cap":2,"queue_cap":32,"claim_limit":20}}
 ```
 
-This is a request fragment, not a standalone start request. See
-[team control](team-control.md) for the complete `kind`, `dag` and `items` shape.
+This is a request fragment, not a standalone request. See [jobs](jobs.md) for the
+complete `kind`, `dag` and `items` shape.
 The same canonical private root and public scope aliases are required to share
 limits across supervisors. Use stable public aliases, not keys, tokens, account
 secrets, endpoint URLs or credential hashes. Aliases are 1–63 ASCII letters,

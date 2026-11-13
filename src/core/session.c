@@ -1,5 +1,4 @@
 #include "core/session.h"
-#include "core/swarm.h"
 #include "core/tasks.h"
 #include "core/retrieval.h"
 #include "util/util.h"
@@ -173,7 +172,6 @@ void session_task_clear(tny_session_state *s) {
 
 static int session_task_reconcile_impl(tny_session_state *s, char *err, size_t errsz) {
     if (!s || !s->ctx) return -1;
-    if (tny_swarm_restore(s, err, errsz) != 0) return -1;
     yyjson_mut_val *task = yyjson_mut_obj_get(root_of(s), "task");
     if (!task) {
         if (s->ctx->task_explicit && session_turns(s) > 0) {
@@ -264,37 +262,12 @@ int session_task_reconcile(tny_session_state *s, char *err, size_t errsz) {
         s->ctx->retrieval_state = previous_retrieval;
         return -1;
     }
-    int previous_cap = s->ctx->swarm_cap;
-    int previous_participants = s->ctx->swarm_participants;
-    char previous_digest[sizeof s->ctx->swarm_definition_digest];
-    snprintf(previous_digest, sizeof previous_digest, "%s", s->ctx->swarm_definition_digest);
-    char *previous_definition = s->ctx->swarm_definition ? xstrdup(s->ctx->swarm_definition) : NULL;
-    char *previous_source = s->ctx->swarm_source ? xstrdup(s->ctx->swarm_source) : NULL;
-    if ((s->ctx->swarm_definition && !previous_definition) ||
-        (s->ctx->swarm_source && !previous_source)) {
-        free(previous_definition);
-        free(previous_source);
-        snprintf(err, errsz, "could not preserve swarm selection during reconciliation");
-        free(s->ctx->retrieval_state);
-        s->ctx->retrieval_state = previous_retrieval;
-        return -1;
-    }
     int rc = session_task_reconcile_impl(s, err, errsz);
     if (rc) {
         free(s->ctx->retrieval_state);
         s->ctx->retrieval_state = previous_retrieval;
-        s->ctx->swarm_cap = previous_cap;
-        s->ctx->swarm_participants = previous_participants;
-        free(s->ctx->swarm_definition);
-        free(s->ctx->swarm_source);
-        s->ctx->swarm_definition = previous_definition;
-        s->ctx->swarm_source = previous_source;
-        snprintf(s->ctx->swarm_definition_digest, sizeof s->ctx->swarm_definition_digest, "%s",
-                 previous_digest);
     } else {
         free(previous_retrieval);
-        free(previous_definition);
-        free(previous_source);
     }
     return rc;
 }
@@ -334,10 +307,6 @@ tny_session_state *session_new(tny_ctx *ctx) {
     if (!turns_key || !turns || !messages_key || !messages ||
         !yyjson_mut_obj_put(root_of(s), turns_key, turns) ||
         !yyjson_mut_obj_put(root_of(s), messages_key, messages)) {
-        session_close(s);
-        return NULL;
-    }
-    if (tny_swarm_bind(s) != 0) {
         session_close(s);
         return NULL;
     }
@@ -500,37 +469,6 @@ void session_add_text(tny_session_state *s, const char *role, const char *conten
     yyjson_mut_obj_put(m, yyjson_mut_strcpy(s->doc, "role"), yyjson_mut_strcpy(s->doc, role));
     yyjson_mut_obj_put(m, yyjson_mut_strcpy(s->doc, "content"), yyjson_mut_strcpy(s->doc, content));
     yyjson_mut_arr_add_val(session_messages(s), m);
-}
-
-int session_add_runtime_context(tny_session_state *s, const char *content) {
-    if (!s || !content || tny_alloc_scope_failed()) return -1;
-    yyjson_mut_val *pending = NULL;
-    if (s->ctx->backend == TNY_BK_ACP) {
-        pending = yyjson_mut_obj_get(root_of(s), "acp_pending_context");
-        size_t bytes = strlen(content), i, count;
-        yyjson_mut_val *value;
-        if (pending && !yyjson_mut_is_arr(pending)) return -1;
-        if (yyjson_mut_arr_size(pending) >= 256 || bytes > 1024u * 1024u) return -1;
-        yyjson_mut_arr_foreach(pending, i, count, value) {
-            if (!yyjson_mut_is_str(value) || yyjson_mut_get_len(value) > 1024u * 1024u - bytes)
-                return -1;
-            bytes += yyjson_mut_get_len(value);
-        }
-        if (!pending) {
-            pending = yyjson_mut_arr(s->doc);
-            if (!pending ||
-                !yyjson_mut_obj_add_val(s->doc, root_of(s), "acp_pending_context", pending))
-                return -1;
-        }
-        if (!yyjson_mut_arr_add_strcpy(s->doc, pending, content)) return -1;
-    }
-    size_t before = yyjson_mut_arr_size(session_messages(s));
-    session_add_text(s, "user", content);
-    if (tny_alloc_scope_failed() || yyjson_mut_arr_size(session_messages(s)) != before + 1) {
-        if (pending) yyjson_mut_arr_remove_last(pending);
-        return -1;
-    }
-    return 0;
 }
 
 void session_add_assistant_ex(tny_session_state *s, const char *content, const char *tc_json,

@@ -24,7 +24,7 @@ session socket lookup is added. Conversation-native tools and CLI preview are
 separate owning-turn operations described in [images](images.md).
 
 Python's `Toolkit` / `AsyncToolkit` and TypeScript's `Toolkit` expose the native
-image, speech and transcription services directly. They
+image service directly. They
 require **libtny ABI 1.2+** on the existing native SDK platforms: macOS arm64 and
 Linux glibc x86_64/aarch64. They need no `tny` executable, agent `Runtime`,
 session, or disposal call. Each method releases its native operation before
@@ -34,17 +34,13 @@ returning or raising.
 | --- | --- | --- | --- |
 | Generate image | `generate_image(prompt, output_file=...)` | `generateImage(prompt, {outputFile})` | Path, MIME type, byte count, provider, model, requested/effective size, actual width/height, size status, operation id, manifest path, provider seed/request id |
 | Edit image | `edit_image(prompt, images=[...], output_file=...)` | `editImage(prompt, {images, outputFile})` | Same image result; one to five references from paths and/or an earlier record |
-| Text to speech | `speak(text, output_file=...)` | `speak(text, {outputFile})` | MP3 path or `None`/`null`, played flag, provider, voice, MIME type |
-| File to text | `transcribe(input_file)` | `transcribe(inputFile)` | Transcript and provider |
-| Microphone to text | `dictate(seconds=...)` | `dictate({seconds})` | Transcript and provider |
 | Prompt optimisation | `optimise(text, ...)` | `optimise(text, options)` | Explicit unsupported error; no I/O or result |
 
 Both languages also accept `optimize`. `AsyncToolkit` has the same Python
-methods and options, awaited. Python transcript/prompt text is `bytes`, matching
+methods and options, awaited. Python prompt text is `bytes`, matching
 the existing SDK's explicit decoding contract; metadata is `str`, and paths
 are `pathlib.Path`. TypeScript results contain strings and are frozen. Image
-exports require an output path. Omit the speech output path to play locally.
-Capture requires an explicit integer duration of 1–300 seconds.
+exports require an output path.
 
 ```python
 from tny import Toolkit, ToolkitConfig
@@ -52,9 +48,6 @@ from tny import Toolkit, ToolkitConfig
 kit = Toolkit(ToolkitConfig(workspace="/path/to/project"))
 image = kit.generate_image("A small tree", output_file="tree.png")
 kit.edit_image("Make the leaves blue", images=[image.path], output_file="blue.png")
-kit.speak("Your image is ready", output_file="message.mp3")
-transcript = kit.transcribe("recording.wav")
-print(transcript.text.decode("utf-8"))
 ```
 
 ```typescript
@@ -65,9 +58,6 @@ const image = await kit.generateImage("A small tree", { outputFile: "tree.png" }
 await kit.editImage("Make the leaves blue", {
   images: [image.path], outputFile: "blue.png",
 });
-await kit.speak("Your image is ready", { outputFile: "message.mp3" });
-const transcript = await kit.transcribe("recording.wav");
-console.log(transcript.text);
 ```
 
 ## Configuration and authority
@@ -77,13 +67,10 @@ input, output, reference, and settings paths resolve there; calls never change
 the process directory. Concurrent calls have independent native contexts.
 Callers must coordinate writes to the same output path.
 
-Images and speech use `codex`. Transcription/capture support `codex` and `xai`;
-omission follows `TNY_STT_PROVIDER`, then `codex`. Every call accepts a `provider`
-override. Image calls also accept `model`, `quality` (`auto`, `low`, `medium`,
+Images use `codex`. Every call accepts a `provider` override. Image calls also accept `model`, `quality` (`auto`, `low`, `medium`,
 `high`, `xhigh`, `max`), `size`, the boolean `strict_size` / `strictSize`, the
 boolean `persist_manifest` / `persistManifest`, and `from_manifest` /
-`fromManifest`. Editing also accepts `artifact`. Speech accepts `voice`;
-capture accepts `device`. Defaults are those of the shared CLI services.
+`fromManifest`. Editing also accepts `artifact`. Defaults are those of the shared CLI services.
 
 Every successful image call writes a private per-operation manifest beside its
 output and returns `operation_id` / `operationId` and `manifest_path` /
@@ -135,14 +122,13 @@ cancellation and out-of-memory ones, and neither enters `str`, `repr`,
 tracebacks, `message`, `stack`, `JSON.stringify` or default inspection — you
 have to ask for it.
 
-`ToolkitConfig` accepts `chatgpt_token`, `chatgpt_account_id`, `codex_base_url`,
-and `xai_api_key`. TypeScript uses `chatgptToken`, `chatgptAccountId`,
-`codexBaseUrl`, and `xaiApiKey`. Explicit credentials take precedence over the
+`ToolkitConfig` accepts `chatgpt_token`, `chatgpt_account_id` and
+`codex_base_url`. TypeScript uses `chatgptToken`, `chatgptAccountId` and
+`codexBaseUrl`. Explicit credentials take precedence over the
 existing environment/login resolution; empty or invalid explicit credentials
 are errors. A Codex token can supply its account id through its JWT claim.
 The Codex gateway override has the same shape as `TNY_CODEX_BASE_URL` (normally
 ending in `/backend-api/codex`). It never inherits an optimisation URL/key.
-xAI STT retains its fixed native `https://api.x.ai/v1/stt` endpoint.
 
 The toolkit reads `~/.tny/settings.json` for profiles and optimisation defaults.
 Set `settings_path` / `settingsPath` to use an explicit file; missing or
@@ -168,23 +154,19 @@ TypeScript accepts `signal: AbortSignal` on every call. Abort rejection and Node
 worker termination wait for native cleanup. Connect/TLS setup can take up to
 its existing 15-second deadline; cancellation is cooperative.
 
-Image/speech exports retain atomic replacement: failure/cancellation before
+Image exports retain atomic replacement: failure/cancellation before
 commit preserves existing output. A completed commit wins a late cancellation.
-Capture/playback start only when explicitly invoked and require the same host
-recorder/player as the CLI. File transcription/export need no audio hardware.
 Returned artifact paths are caller-owned and are not automatically deleted.
 
-Shared limits apply: image prompts/speech text up to 16 KiB; one to five edit
-references up to 8 MiB each; image output up to 32 MiB; MP3 output up to 16 MiB;
-PCM16 WAV input up to 25 MiB and 1–300 seconds (mono/stereo, 8–96 kHz); and
-transcript/optimisation text up to 64 KiB. Validation fails before provider I/O.
+Shared limits apply: image prompts up to 16 KiB; one to five edit
+references up to 8 MiB each; image output up to 32 MiB; and optimisation text
+up to 64 KiB. Validation fails before provider I/O.
 Errors use existing `TnyError` categories and omit credentials, prompts, and
-provider response bodies. Python result reprs omit transcript/prompt text.
+provider response bodies. Python result reprs omit prompt text.
 Native request strings and staging copies are wiped on release; language-owned
 immutable strings cannot promise wiping.
 
-No wasm/browser SDK is introduced. Existing wasm CLI services retain their
-documented file transcription/export behavior and clean host-audio errors.
+No wasm/browser SDK is introduced.
 
 ## C ABI envelope (version 1)
 
@@ -206,9 +188,6 @@ the Python names above. Request fields are:
 | --- | --- | --- |
 | `generate_image` | `output_file`, and `prompt` unless `from_manifest` | `provider`, `model`, `quality`, `size`, `strict_size`, `persist_manifest`, `from_manifest` |
 | `edit_image` | `output_file`, `prompt` unless `from_manifest`, and references from `images`, `artifact` or `from_manifest` | `provider`, `model`, `quality`, `size`, `strict_size`, `persist_manifest`, `from_manifest`, `artifact` |
-| `speak` | `text` | `provider`, `voice`, `output_file` |
-| `transcribe` | `input_file` | `provider` |
-| `dictate` | `seconds` | `provider`, `device` |
 | `optimise` | `text` | `provider`, `model`, `base_url`, `api_key`, `wire_api`, `timeout_seconds` |
 
 `tny_toolkit_job_create` copies/validates without I/O; `tny_toolkit_job_run`
@@ -230,8 +209,6 @@ Image JSON retains native fields `kind`, `ok`, `operation`, `provider`, `model`,
 `path`, `mime_type`, and `bytes`, and adds `requested_size`, `effective_size`,
 `width`, `height`, `size_status`, `native`, `transform`, `operation_id`,
 `manifest_path`, `seed` and `request_id`. The last four are `null` when
-persistence was declined or the provider returned no such identifier. Speech returns `provider`, `voice`, `mime_type`,
-`path` (null for playback), and `played`. Transcription returns `provider` and
-`text`. The optimisation result shape (`text`, `provider`, `model`) remains
+persistence was declined or the provider returned no such identifier. The optimisation result shape (`text`, `provider`, `model`) remains
 reserved for compatibility; this release returns no optimisation result. SDKs
 copy successful supported-service results before destroying the job.

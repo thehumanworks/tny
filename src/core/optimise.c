@@ -1,11 +1,21 @@
 #include "core/optimise.h"
-#include "core/dictation.h"
 #include "core/runtime.h"
 #include "util/util.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+bool tny_prompt_text_valid(const void *data, size_t n) {
+    if (!n || n > TNY_OPTIMISE_TEXT_MAX || !utf8_valid_bytes(data, n)) return false;
+    const unsigned char *p = data;
+    if (str_ws_prefix(data, n) == n) return false;
+    for (size_t i = 0; i < n; i++)
+        if ((p[i] < 0x20 && p[i] != '\n' && p[i] != '\r' && p[i] != '\t') || p[i] == 0x7f ||
+            (p[i] == 0xc2 && i + 1 < n && p[i + 1] >= 0x80 && p[i + 1] <= 0x9f))
+            return false;
+    return true;
+}
 
 struct tny_optimise {
     tny_ctx *ctx;
@@ -53,7 +63,7 @@ static tny_perm_decision deny(const char *tool, const char *summary, void *ud) {
 
 tny_optimise *tny_optimise_start(const tny_ctx *parent, const tny_optimise_request *r, char *err,
                                  size_t errlen) {
-    if (!parent || !r || !r->text || !tny_dictation_text_valid(r->text, strlen(r->text))) {
+    if (!parent || !r || !r->text || !tny_prompt_text_valid(r->text, strlen(r->text))) {
         snprintf(err, errlen, "optimisation needs a nonempty UTF-8 prompt of at most 64 KiB");
         return NULL;
     }
@@ -245,7 +255,7 @@ void tny_optimise_step(tny_optimise *o) {
                      ev->stop == TNY_STOP_STEP_LIMIT ? "optimisation step limit reached"
                                                      : "optimisation did not complete",
                      1);
-            else if (!tny_dictation_text_valid(o->text.data, o->text.len))
+            else if (!tny_prompt_text_valid(o->text.data, o->text.len))
                 fail(o, "empty or invalid optimised prompt", 1);
             else o->result = 0;
         }

@@ -36,7 +36,6 @@ def clean_env(home: Path) -> dict[str, str]:
         HOME=str(home),
         TNY_SETTINGS_PATH=str(home / ".tny/settings.json"),
         TNY_TOOLS="all",
-        TNY_SELF_IMPROVE="0",
         TNY_ACP_BRIDGE_EXECUTABLE=str(TNY),
         TNY_ACP_RPC_TIMEOUT_MS="3000",
         ACP_FIXTURE_NAME="@agentclientprotocol/claude-agent-acp",

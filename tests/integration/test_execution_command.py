@@ -27,14 +27,13 @@ class ExecutionCommand(unittest.TestCase):
 
     def test_guardian_preserves_output_exit_and_nested_environment(self):
         command = (
-            'printf \'%s|%s|%s|%s\' "$PWD" "$TNY_NESTED" '
-            '"$TNY_NESTED_MODE" "$TNY_SELF_IMPROVE"; '
+            'printf \'%s|%s|%s|\' "$PWD" "$TNY_NESTED" "$TNY_NESTED_MODE"; '
             "printf stderr-marker >&2; exit 27"
         )
         code = f"print(tools.call('terminal', {python_string(json.dumps({'command': command}))}))"
         output = self.run_code(code)
         self.assertIn("exit code: 27", output)
-        self.assertIn(f"{self.workspace}|1|yolo|0", output)
+        self.assertIn(f"{self.workspace}|1|yolo|", output)
         self.assertIn("stderr-marker", output)
 
     @unittest.skipUnless(sys.platform == "linux", "Linux owned checks")
@@ -280,7 +279,6 @@ class OwnedCommand(unittest.TestCase):
             "session_sock": None,
             "session_id": None,
             "permission_mode": "yolo",
-            "self_improve": False,
             "owned_check": True,
         }
         wire = json.dumps(request).encode()

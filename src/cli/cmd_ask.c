@@ -13,13 +13,11 @@
 #include "core/runner.h"
 #include "core/runtime.h"
 #include "core/tasks.h"
-#include "core/swarm.h"
 #include "backends/openai/openai.h"
 #include "mcp/mcp.h"
 #include "util/tny_poll.h"
 #include "util/process.h"
 #include "core/jobs.h"
-#include "core/team_runtime.h"
 #include <limits.h>
 #include "util/util.h"
 
@@ -542,24 +540,7 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
                 quiet = strcmp(value, "none") == 0;
             } else if (strcmp(a, "--auto") == 0) ctx->perm_mode = TNY_MODE_AUTO;
             else if (strcmp(a, "--yolo") == 0) ctx->perm_mode = TNY_MODE_YOLO;
-            else if (strcmp(a, "--swarm") == 0 || str_starts(a, "--swarm=")) {
-                ctx->swarm_cap = tny_swarm_option(argc, argv, &i);
-                ctx->swarm_explicit = true;
-                if (!ctx->swarm_cap) {
-                    ask_diag(events, "invalid_option", "--swarm count must be 1..16", NULL);
-                    yyjson_doc_free(preset_input);
-                    buf_free(&prompt);
-                    return 1;
-                }
-            } else if (strcmp(a, "--swarm-file") == 0) {
-                if (++i >= argc || !ctx->swarm_definition) {
-                    ask_diag(events, "invalid_option", "--swarm-file requires a validated PATH",
-                             "tny ask --swarm-file swarm.json \"task\"");
-                    yyjson_doc_free(preset_input);
-                    buf_free(&prompt);
-                    return 1;
-                }
-            } else if (strcmp(a, "--task") == 0) {
+            else if (strcmp(a, "--task") == 0) {
                 if (i + 1 >= argc) {
                     ask_diag(events, "invalid_option", "ask: --task requires a value",
                              "tny ask --task review \"inspect the current diff\"");
@@ -682,12 +663,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         return 1;
     }
     ctx->no_save = ephemeral;
-    if (ctx->swarm_cap && !tny_swarm_supported(ctx)) {
-        ask_diag(events, "unsupported", "swarm requires a saved native local lead session", NULL);
-        yyjson_doc_free(preset_input);
-        buf_free(&prompt);
-        return 1;
-    }
     ctx->json_out = json;
 
     /* The event stream is this process's own engine: the detached runner
@@ -1034,7 +1009,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
      * stdin path above) */
     if (!bk) bk = tny_backend_create((tny_backend_id)ctx->backend, ctx);
     if (!bk) {
-        tny_team_startup_diagnostic(ctx, "PROVIDER_START");
         /* the constructor already explained itself on stderr in human mode */
         if (events) ask_diag(events, "provider", "cannot create the provider client", NULL);
         yyjson_doc_free(preset_input);
@@ -1053,7 +1027,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         crc = bk->connect(bk, err, sizeof err);
     }
     if (crc != 0) {
-        tny_team_startup_diagnostic(ctx, "PROVIDER_START");
         ask_diag(events, "provider", err, NULL);
         bk->destroy(bk);
         session_close(session);
@@ -1078,7 +1051,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         return 1;
     }
     if (tny_engine_prepare(engine, bk, TNY_ENGINE_PREPARE_CONNECTED, err, sizeof err) != 0) {
-        tny_team_startup_diagnostic(ctx, "PROVIDER_START");
         ask_diag(events, "provider", err, NULL);
         tny_engine_free(engine);
         perm_free(perm);
@@ -1109,11 +1081,9 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
     signal(SIGINT, on_sigint);
     signal(SIGPIPE, SIG_IGN);
 
-    tny_team_startup_begin(ctx);
     if (tny_engine_start(engine, prompt.data, n_images ? images : NULL, err, sizeof err) != 0) {
         /* No turn was accepted, so no event exists to emit: the machine
          * diagnostic is the only honest output (docs/adr/0090). */
-        tny_team_startup_end(ctx, true);
         ask_diag(events, "start_failed", err, NULL);
         tny_engine_free(engine);
         perm_free(perm);
@@ -1124,8 +1094,6 @@ int cmd_ask(tny_ctx *ctx, const cli_globals *g, int argc, char **argv) {
         buf_free(&st.errline);
         return 2;
     }
-
-    tny_team_startup_end(ctx, false);
 
     tny_event_writer writer = {0};
     tny_event_write_rc stream = TNY_EVENT_WRITE_OK;

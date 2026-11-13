@@ -14,19 +14,6 @@
 - https://semver.org/spec/v2.0.0.html — numeric core ordering and build metadata;
   tny deliberately accepts stable releases only, with uint32 core components.
 
-## TypeSafe Jev decision engine (tnyjev)
-
-Primary API documentation consulted 2026-09-22; model default `jev-latest`
-(versioned IDs can be selected explicitly). The no/yes CLI `score` maps to
-Noul, not the separate ordinal Score primitive. See [tnyjev](tnyjev.md).
-
-- https://docs.typesafe.ai/api — `POST https://api.typesafe.ai/v1/systemone`,
-  typed Noul/Choice requests and answers, Bearer auth, usage, HTTP errors.
-- https://docs.typesafe.ai/introduction/quickstart — `TYPESAFE_API_KEY` and examples.
-- https://docs.typesafe.ai/primitives/noul — `[0,1]` no/yes probability.
-- https://docs.typesafe.ai/primitives/choice — option descriptions and distribution.
-- https://docs.typesafe.ai/models — aliases and versioned model IDs.
-
 ## Bounded instruction evolution (2026-09-19)
 
 Primary-source snapshots and applicability are recorded in
@@ -174,29 +161,6 @@ release claims.
 - GPT Image 2.6 models (verified 2026-11-07): https://developers.openai.com/api/docs/models/all
 - Codex CLI 2.6 status report (2026-11-06): https://github.com/openai/codex/issues/59890
 - Subscription usage: https://learn.chatgpt.com/docs/image-generation
-
-## Dictation (ADR 0079)
-
-- Account transcription contract, release **rust-v0.105.0**: https://github.com/openai/codex/blob/rust-v0.105.0/codex-rs/tui/src/voice.rs#L751-L833
-- FFmpeg input devices (AVFoundation audio selection and PulseAudio): https://ffmpeg.org/ffmpeg-devices.html
-- ALSA recording CLI: https://github.com/alsa-project/alsa-utils/blob/v1.2.14/aplay/aplay.1
-- The account route is live-tested separately; it is not the API-key-only `/v1/audio/transcriptions` route.
-
-### xAI REST STT (verified 2026-09-09)
-
-- Primary guide: https://docs.x.ai/developers/model-capabilities/audio/speech-to-text
-- REST reference: https://docs.x.ai/developers/rest-api-reference/inference/speech-to-text
-- Model overview: https://docs.x.ai/developers/models/speech-to-text
-- Protocol pin: `POST https://api.x.ai/v1/stt`, Bearer xAI API key,
-  `multipart/form-data` with `file` last (tny sends only `file`, `audio.wav`,
-  `audio/wav`); JSON object with string `text`. Container WAV is auto-detected;
-  omit raw-audio fields. REST has no `model` field or published versioned model
-  selector; use the service default, not the realtime `grok-transcribe` option.
-- Profile/chat base URLs are ignored by STT. Grok token fallback uses the
-  existing auth reader/refresh and the same Bearer header, only at the official
-  API endpoint. The STT docs do not guarantee Grok subscription entitlement.
-- Local fixture builds replace only the xAI adapter URL; installed/release
-  binaries contain no STT endpoint override. No live credentials enter tests.
 
 ## Native Grok HTTP
 

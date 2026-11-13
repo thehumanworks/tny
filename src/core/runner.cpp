@@ -646,7 +646,7 @@ static void rn_accept(rn_state *r) {
         }
 /* GCC 14's analyzer confuses the listener with the descriptor accept()
  * returned and reports r->lfd.borrow() leaking at the first operation on the new fd
- * (the same false trace src/net/http_server.c scopes off); the listener
+ * (the same false trace tests/http_server.c scopes off); the listener
  * lives for the runner's lifetime and the accepted fd is stored in cl[]. */
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push

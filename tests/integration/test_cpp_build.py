@@ -700,7 +700,11 @@ void conversions(const char *text) {
             "int tny_code_python_fixture(void);\n"
             "int tny_code_python_fixture(void) { return 1; }\n",
         )
-        for name in ("test_openai.c", "integration/libtny_provider_fault_host.c"):
+        for name in (
+            "test_openai.c",
+            "http_server.c",
+            "integration/libtny_provider_fault_host.c",
+        ):
             self.write(f"tests/{name}", "typedef int provider_fault_fixture;\n")
         self.write(
             "tests/test_ownership.cpp", "int ownership_fixture() { return 0; }\n"

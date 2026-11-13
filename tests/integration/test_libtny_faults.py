@@ -263,7 +263,7 @@ def child_case(libpath, scenario, base_url, report_path):
     stats = [0, False]
     with tempfile.TemporaryDirectory() as root:
         if scenario in ("toolkit_create", "toolkit_run"):
-            # Unknown provider stops before credentials/network/audio; every
+            # Unknown provider stops before credentials/network; every
             # context/JSON allocation still belongs to the public OOM scope.
             settings = os.path.join(root, "settings.json")
             with open(settings, "w", encoding="ascii") as value:
@@ -272,12 +272,12 @@ def child_case(libpath, scenario, base_url, report_path):
                 json.dumps(
                     {
                         "version": 1,
-                        "operation": "speak",
+                        "operation": "generate_image",
                         "config": {"workspace": root, "settings_path": settings},
                         "request": {
-                            "text": "fixture text",
+                            "prompt": "fixture text",
                             "provider": "fixture-unsupported",
-                            "output_file": "speech.mp3",
+                            "output_file": "image.png",
                         },
                     }
                 )
