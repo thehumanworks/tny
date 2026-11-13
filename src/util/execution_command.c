@@ -33,8 +33,8 @@ static bool optional(yyjson_mut_doc *d, yyjson_mut_val *obj, const char *name, c
 }
 int tny_exec_command_start(char *const argv[], const char *cwd, int timeout_ms,
                            const char *session_sock, const char *session_id,
-                           const char *permission_mode, bool owned_check,
-                           int output_fd, pid_t *pid, int *lifeline) {
+                           const char *permission_mode, bool owned_check, int output_fd, pid_t *pid,
+                           int *lifeline) {
     *pid = -1;
     *lifeline = -1;
     if (!argv || !argv[0] || !cwd || !permission_mode || timeout_ms < 1 || timeout_ms > 600000 ||
@@ -241,8 +241,8 @@ int tny_exec_command_main(void) {
 #else
 int tny_exec_command_start(char *const argv[], const char *cwd, int timeout_ms,
                            const char *session_sock, const char *session_id,
-                           const char *permission_mode, bool owned_check,
-                           int output_fd, pid_t *pid, int *lifeline) {
+                           const char *permission_mode, bool owned_check, int output_fd, pid_t *pid,
+                           int *lifeline) {
     (void)argv;
     (void)cwd;
     (void)timeout_ms;

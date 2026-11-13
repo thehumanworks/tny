@@ -231,10 +231,10 @@ char *tool_shell_execute(tools_env *env, const char *name, yyjson_val *args, boo
     int lifeline = -1;
     pid_t pid = -1;
     if (env->execution_server) {
-        int rc = tny_exec_command_start(
-            sandbox.argv, env->ctx->cwd, (int)(timeout_s * 1000), env->session_sock,
-            env->session_id, tny_perm_mode_name(env->ctx->perm_mode), owned_check,
-            pipefd[1], &pid, &lifeline);
+        int rc = tny_exec_command_start(sandbox.argv, env->ctx->cwd, (int)(timeout_s * 1000),
+                                        env->session_sock, env->session_id,
+                                        tny_perm_mode_name(env->ctx->perm_mode), owned_check,
+                                        pipefd[1], &pid, &lifeline);
         if (rc) {
             tny_sandbox_command_free(&sandbox);
             close(pipefd[0]);
