@@ -138,9 +138,10 @@ class ReleaseValidatorTests(unittest.TestCase):
         )[0]
         self.assertIn("find . -mindepth 2 -type f", publish_job)
         self.assertIn(
-            "files=( tny-* libtny1-* libtny0-compat-* conformance-* nothumanwork-* )",
+            "files=( tny-* libtny1-* conformance-* nothumanwork-* )",
             publish_job,
         )
+        self.assertNotIn("libtny0", workflow)
 
     def test_synthetic_three_platform_cardinality_passes(self) -> None:
         counts = {

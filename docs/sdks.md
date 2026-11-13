@@ -157,9 +157,8 @@ packages or wheel targets, macOS deployment floors above 13.0, and content
 reports which cannot be reproduced from their archives. Artifact metadata
 schema 2 records ABI major and SONAME/install-name; Node build manifests use
 schema 2, native registry manifests schema 3, and release provenance schema 2.
-GitHub releases publish disjoint `libtny1-<triple>.tar.gz` and
-`libtny0-compat-<triple>.tar.gz` assets with independent manifests; neither
-archive may contain the other ABI major.
+GitHub releases publish `libtny1-<triple>.tar.gz` assets with their own
+manifests; the ABI 0 compatibility archive was removed (ADR 0221).
 
 tny is licensed under the MIT License ([ADR 0219](adr/0219-mit-license.md)).
 Every npm package and wheel carries the root `LICENSE` bytes, MIT metadata and
