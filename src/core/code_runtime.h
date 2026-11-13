@@ -8,10 +8,6 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-/* Metered interpreter heap (Python objects and the stdlib codecs that use
- * CPython's allocators), including its initialization baseline. It stops a
- * runaway allocation loop; subprocesses are not metered. */
-#define TNY_CODE_MEMORY_BYTES (1024ull * 1024u * 1024u)
 /* Captured stdout/stderr kept in a result; the excess is summarized. */
 #define TNY_CODE_OUTPUT_BYTES (64u * 1024u)
 /* A final result: captured output, or an error line plus bounded output. */
@@ -36,14 +32,14 @@ typedef char *(*tny_code_call_fn)(void *userdata, const char *name, const char *
 
 /* Returns malloc-owned output, or an "error: code: ..." result; NULL only on
  * host allocation failure. Catalog and userdata are borrowed for this call.
- * The code runs in a fresh `--code-cell` child of the current executable
+ * The code runs in a fresh child on the user's python3 (tny_python_path)
  * with this process's environment (minus tny's reserved process-scope
  * fields), stdin on /dev/null and stdout/stderr captured into the result.
  * Direct Python effects (files, sockets, subprocesses) have the OS user's
  * authority and are not tool-permission mediated. This caller re-checks
  * every nested call and owns the deadline: the child and its owned
  * descendants are stopped when it passes, whatever the child is doing.
- * Hosts without process support return an error. */
+ * Hosts without process support or python3 return an error. */
 char *tny_code_run(const char *code, int timeout_ms, const char *catalog_json,
                    tny_code_call_fn call, void *userdata);
 
@@ -62,8 +58,5 @@ char *tny_code_run_with_output(const char *code, const char *cwd, const int64_t 
                                const char *catalog_json, tny_code_call_fn call, void *userdata,
                                tny_code_output_fn output, void *output_userdata,
                                bool *recovery_needed);
-
-/* Private `--code-cell` entry point: fd 3 is the parent's socket. */
-int tny_code_cell_main(void);
 
 #endif

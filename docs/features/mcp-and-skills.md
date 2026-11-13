@@ -23,7 +23,9 @@ Native loop only, unless noted.
 
 ## Code-only agent interface
 
-Agents receive exactly `run_code({code, timeout_ms?, reason?})`. A Python 3.14 script
+When the user's python3 (3.8 or newer) can run cells, agents receive exactly
+`run_code({code, timeout_ms?, reason?})`; without one they receive the native
+tools directly ([ADR 0222](../adr/0222-host-python3-code-cells.md)). A Python script
 (timeout 600 s by default, up to 600 s) composes the tools below through
 `tools.call(name, arguments_json)`, with progressive discovery via `tools.search(query)` and
 `tools.describe(name)`. Results are strings; the pre-bound stdlib `json` module
@@ -64,10 +66,11 @@ print(tools.describe("read_file"))
 The deadline covers the entire cell, including nested tools and child inference;
 set a smaller `timeout_ms` for a shorter budget. Explicit cancellation still
 interrupts active work. [ADR 0184](../adr/0184-code-cell-delegation-budget.md)
-replaces the former five-second default. The script is also an ordinary CPython
-program on the local host
-([ADR 0180](../adr/0180-host-authorized-python-code-cells.md)): the bundled
-standard library imports, and `open`, `subprocess`, `socket`/`urllib`/`ssl` act
+replaces the former five-second default. The script is also an ordinary program of the user's
+python3 on the local host
+([ADR 0180](../adr/0180-host-authorized-python-code-cells.md),
+[ADR 0222](../adr/0222-host-python3-code-cells.md)): the interpreter's standard
+library and installed packages import, and `open`, `subprocess`, `socket`/`urllib`/`ssl` act
 with the OS user's authority in the local workspace directory with the host
 environment. Its stdout/stderr (print, tracebacks, inherited subprocess output)
 is the result, bounded to 64 KiB with the beginning and end kept. Omitted or

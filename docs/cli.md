@@ -1076,6 +1076,14 @@ and `--no-project-tools` are global flags; `TNY_TOOL_EXTENSIONS=0|global` and
 settings `extensions.tools.enabled|project` do the same. Exit codes match
 `tny tool call`. wasm: no tool host, so extensions are off.
 
+Code cells (`run_code`) and the tool host run on the user's own python3
+([ADR 0222](adr/0222-host-python3-code-cells.md)). `TNY_PYTHON` names one (a
+path, or a command looked up on `PATH`); `TNY_PYTHON=off` (or `0`, `none`,
+`false`) means none. Otherwise tny uses the first `python3` on `PATH`, keeping a
+virtual environment's interpreter as is. Cells need Python 3.8 or newer, tool
+extensions 3.10 or newer. With no usable interpreter the model gets the native
+tools directly instead of `run_code`; `tny doctor` says which applies.
+
 ## Background one-shots (`tny ask -B`)
 
 `-B` / `--background` runs the identical ask turn detached and defers its

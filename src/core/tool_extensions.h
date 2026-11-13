@@ -1,11 +1,11 @@
 /* tool_extensions.h — Python tool extensions (docs/extensions.md, ADR 0218).
  *
  * Extensions are Python modules in <workspace>/.tny/extensions/tools/ and
- * ~/.tny/extensions/tools/. One host process per tny process (the embedded
- * interpreter, `tny --tool-host serve`) imports them and serves their tools
- * over newline-delimited MCP. The catalog is cached on disk, keyed by a
- * fingerprint of the module files, so listing tools never starts Python
- * unless a module changed. */
+ * ~/.tny/extensions/tools/. One host process per tny process (the user's
+ * python3, 3.10 or newer, ADR 0222) imports them and serves their tools over
+ * newline-delimited MCP. The catalog is cached on disk, keyed by a fingerprint
+ * of the module files and the interpreter path, so listing tools never starts
+ * Python unless one of them changed. */
 #ifndef TNY_CORE_TOOL_EXTENSIONS_H
 #define TNY_CORE_TOOL_EXTENSIONS_H
 

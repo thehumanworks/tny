@@ -147,9 +147,6 @@ ifeq ($(UNAME_S),Linux)
   REL_LDFLAGS += -ldl -lm
   DBG_LDFLAGS += -ldl -lm
 endif
-# The embedded CPython archive and the system libraries it needs, last.
-REL_LDFLAGS += $(PY_RUNTIME_LDLIBS)
-DBG_LDFLAGS += $(PY_RUNTIME_LDLIBS)
 
 ifeq ($(STATIC),1)
   ifneq ($(UNAME_S),Darwin)
@@ -188,8 +185,8 @@ SRC_ALL := $(C_SRC_ALL) $(CPP_SRC)
 SRC_NATIVE := src/backends/acp/acp_proc.c src/net/tcp.c src/net/stream.c src/net/http1.c \
               src/util/tny_poll.c src/util/tui_shell_host.c
 SRC_WASM_ONLY := src/net/net_wasm.c src/backends/acp/acp_proc_wasm.c src/util/tui_shell_host_wasm.c
-# Python code cells (docs/adr/0179). The embedded interpreter is native CLI
-# only; libtny, wasm and MSYS2/Cygwin link the explicit unsupported seam.
+# Python code cells run on the user's python3 (docs/adr/0222). Starting them
+# is native CLI only; libtny, wasm and MSYS2/Cygwin link the unsupported seam.
 SRC_PY_RUNTIME := src/core/code_python.c
 SRC_PY_UNSUPPORTED := src/core/code_python_unsupported.c
 ifeq ($(WINDOWS),1)
@@ -202,54 +199,6 @@ SRC := $(SRC_SHARED) $(SRC_NATIVE) $(SRC_PY_NATIVE)
 
 TP := third_party/yyjson/yyjson.c third_party/picohttpparser/picohttpparser.c
 TP_WASM := third_party/yyjson/yyjson.c
-
-# Pinned, self-contained CPython for code cells (docs/adr/0179, 0180): built
-# from the hash-verified python.org source into static archives with every
-# buildable stdlib extension module, pinned static OpenSSL and zlib, and the
-# pure-Python standard library frozen in, so no stdlib directory or system
-# Python is used at run time. `make fetch-cpython` downloads the pinned
-# tarballs; CPYTHON_TARBALL=/path and CPYTHON_DEPS_DIR=/dir supply existing
-# copies (Nix, offline).
-# The default cache lives under build/, so `make clean` removes it too.
-CPYTHON_VERSION := $(shell cat third_party/cpython/VERSION)
-CPYTHON_SHA256 := $(shell cat third_party/cpython/SHA256)
-# 1: download the pinned tarballs when missing; 0: fail instead (offline).
-CPYTHON_FETCH ?= 1
-CPYTHON_URL := https://www.python.org/ftp/python/$(CPYTHON_VERSION)/Python-$(CPYTHON_VERSION).tar.xz
-CPYTHON_TARBALL ?= build/deps/Python-$(CPYTHON_VERSION).tar.xz
-# Native libraries behind stdlib extension modules (ssl/hashlib, zlib, bz2,
-# lzma, compression.zstd, sqlite3, ctypes), pinned in third_party/<name>/
-# {URL,SHA256}; their tarballs are looked up in CPYTHON_DEPS_DIR by file name.
-CPYTHON_LIBRARIES := zlib bzip2 xz zstd sqlite libffi openssl
-CPYTHON_DEPS_DIR ?= build/deps
-CPYTHON_PINS := $(foreach d,$(CPYTHON_LIBRARIES),third_party/$(d)/URL third_party/$(d)/SHA256)
-CPYTHON_JOBS ?= 4
-CPYTHON_TARGET := $(shell $(CC) -dumpmachine 2>/dev/null | sed -E 's/-(pc|unknown|alpine)-/-/')
-# glibc Linux keeps the published glibc floor in the interpreter objects too.
-# musl has no symbol versions to pin, and the header's forced _GNU_SOURCE
-# makes bundled OpenSSL expect GNU strerror_r (char *) where musl returns int.
-CPYTHON_FLOOR_H := $(if $(filter %-musl,$(CPYTHON_TARGET)),,$(if $(CXX_GLIBC_FLOOR),src/util/cxx_glibc_floor.h))
-CPYTHON_CFLAGS ?= -Os -ffunction-sections -fdata-sections \
-                  $(if $(CPYTHON_FLOOR_H),-include $(abspath $(CPYTHON_FLOOR_H)))
-# Shared by every lane (release/debug/leak builds): release-flag C objects.
-# One archive per target ABI (arch + libc; the vendor field is dropped so gcc
-# and clang share it) and per interpreter flags, under the selected BUILD, so
-# a glibc archive never reaches a musl link and flag changes rebuild.
-# A non-default TNY_SHELL_PATH is frozen into the stdlib (docs/adr/0220), so
-# it selects its own archive; the default leaves existing keys unchanged.
-CPYTHON_SHELL_KEY := $(if $(filter-out /bin/sh,$(TNY_SHELL_PATH)), shell=$(TNY_SHELL_PATH))
-CPYTHON_FLAGS_KEY := $(shell { printf '%s' '$(CPYTHON_CFLAGS) $(MACOSX_DEPLOYMENT_TARGET)$(CPYTHON_SHELL_KEY)'; cat $(CPYTHON_PINS); } | cksum | cut -d' ' -f1)
-CPYTHON_DIR ?= $(BUILD)/cpython-$(CPYTHON_VERSION)-$(or $(CPYTHON_TARGET),host)-$(CPYTHON_FLAGS_KEY)
-CPYTHON_LIB = $(CPYTHON_DIR)/libpython3.14.a
-CPYTHON_INC := -isystem $(CPYTHON_DIR)/include
-ifeq ($(SRC_PY_NATIVE),$(SRC_PY_RUNTIME))
-  # Expanded when a link recipe runs. Every link containing the interpreter
-  # object has already built the archive (an order-only prerequisite of that
-  # object); other links simply do not reference it. The libraries libpython
-  # itself recorded (for example libintl where _locale found it) follow it.
-  PY_RUNTIME_LDLIBS = $(wildcard $(CPYTHON_LIB)) \
-                      $(if $(wildcard $(CPYTHON_LIB)),$(shell cat $(CPYTHON_DIR)/ldlibs 2>/dev/null))
-endif
 
 REL_OBJS := $(call objects,$(OBJ_REL),$(SRC)) $(call objects,$(OBJ_REL),$(TP))
 
@@ -277,9 +226,6 @@ LIB_SRC := $(SRC_PUBLIC_API) \
 SDK_EXECUTOR_SRC := $(filter-out $(SRC_PY_UNSUPPORTED),$(LIB_SRC)) $(SRC_PY_RUNTIME) sdk/native/executor.c
 $(OBJ_REL)/sdk/native/executor.o: REL_LTO := -fno-lto
 SDK_EXECUTOR_OBJS := $(call objects,$(OBJ_REL),$(SDK_EXECUTOR_SRC)) $(call objects,$(OBJ_REL),$(TP))
-ifeq ($(UNAME_S),Linux)
-  SDK_EXECUTOR_LDFLAGS := -Wl,--wrap=fmod -Wl,--wrap=hypot
-endif
 OBJ_PIC := $(BUILD)/pic
 LIB_PIC_OBJS := $(call objects,$(OBJ_PIC),$(LIB_SRC)) $(call objects,$(OBJ_PIC),$(TP))
 PIC_CFLAGS := $(REL_CFLAGS) -fPIC -fvisibility=hidden \
@@ -394,9 +340,6 @@ test-code-mode-language:
 	python3 -m unittest discover -s tests/bench/harness_bench -p 'test_*.py'
 	python3 tests/bench/code_mode/test_benchmark.py
 	python3 tests/build/test_code_cell_seams.py
-	python3 tests/build/test_cpython_freeze_shell.py
-	python3 tests/bench/python_runtime/test_evidence.py
-	python3 tests/bench/python_runtime/test_policy.py
 
 # Explicitly pass CODE_MODE_DOWNLOAD=--download to fetch the hash-pinned probe
 # source. CPython 3.14 headers/library and Linux bwrap/prlimit are required.
@@ -411,37 +354,6 @@ bench-code-mode-language:
 verify-code-policy:
 	python3 tests/formal/check_code_policy.py --lean "$(LEAN)"
 	LEAN="$(LEAN)" python3 tests/formal/python_code_mode/test_mutations.py
-
-# Replay executor for the frozen code-mode corpus on the shipped cell path:
-# the preserved benchmark host linked with the release objects (not main).
-PYTHON_CELL_BENCH = $(BUILD)/python-runtime-bench/production
-$(BUILD)/python-cell-bench/host.o: tests/bench/code_mode/host.c | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(CC) $(REL_CFLAGS) -Itests/bench/code_mode -Dmain=bench_host_main -c -o $@ $<
-$(BUILD)/python-cell-bench/production.o: tests/bench/python_runtime/production.c | $(VERSION_H)
-	@mkdir -p $(@D)
-	$(CC) $(REL_CFLAGS) -Itests/bench/code_mode -c -o $@ $<
-$(PYTHON_CELL_BENCH): $(filter-out $(OBJ_REL)/src/main.o,$(REL_OBJS)) \
-		$(BUILD)/python-cell-bench/host.o $(BUILD)/python-cell-bench/production.o
-	@mkdir -p $(@D)
-	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) -o $@ $^ $(REL_LDFLAGS)
-.PHONY: python-cell-bench
-python-cell-bench: $(PYTHON_CELL_BENCH)
-
-# Same virtual-capability host as the alternative interpreters, but link the
-# actual CPython/JSON bridge (not a bootstrap-only size lower bound).
-PYTHON_EMBED_BENCH := $(BUILD)/python-runtime-bench/cpython_embedded
-PYTHON_EMBED_SOURCES := tests/bench/code_mode/host.c tests/bench/python_runtime/cpython_embedded.c \
-    src/core/code_python.c src/core/code_policy.c third_party/yyjson/yyjson.c
-$(PYTHON_EMBED_BENCH): $(PYTHON_EMBED_SOURCES) tests/bench/code_mode/bench.h \
-    src/core/code_python.h src/core/code_policy.h src/core/code_runtime.h $(CPYTHON_LIB) $(VERSION_H)
-	@mkdir -p $(@D)
-	$(CC) $(REL_CFLAGS) $(REL_LTO) -Itests/bench/code_mode \
-	    -isystem $(CPYTHON_DIR)/include -isystem $(CPYTHON_DIR)/frozen \
-	    $(PYTHON_EMBED_SOURCES) -o $@ $(REL_LDFLAGS)
-	strip $@ 2>/dev/null || strip -x $@
-.PHONY: python-embed-bench
-python-embed-bench: $(PYTHON_EMBED_BENCH)
 
 .PHONY: verify-formal verify-execution-protocol
 verify-formal: verify-execution-protocol
@@ -518,40 +430,6 @@ acp-bridge-deadline-fixture: $(ACP_DEADLINE_FIXTURE)
 test-acp-bridge-deadline: $(ACP_DEADLINE_FIXTURE)
 	TNY_ACP_DEADLINE_BIN=$(abspath $(ACP_DEADLINE_FIXTURE)) python3 tests/integration/test_acp_bridge_deadline.py
 
-# The interpreter layer compiles against the pinned CPython headers only.
-$(call objects,$(OBJ_REL),$(SRC_PY_RUNTIME)): REL_CFLAGS += $(CPYTHON_INC)
-$(call objects,$(OBJ_DBG),$(SRC_PY_RUNTIME)): DBG_CFLAGS += $(CPYTHON_INC)
-# A real prerequisite, not order-only: -MMD omits the -isystem headers, so a
-# rebuilt interpreter (new pin or flags) must recompile its only includer.
-$(call objects,$(OBJ_REL),$(SRC_PY_RUNTIME)) $(call objects,$(OBJ_DBG),$(SRC_PY_RUNTIME)): $(CPYTHON_LIB)
-# Full native fault hosts (not libtny itself) run production code cells too.
-$(call objects,$(OBJ_FAULT_PIC),$(SRC_PY_RUNTIME)): FAULT_PIC_CFLAGS += $(CPYTHON_INC)
-$(call objects,$(OBJ_FAULT_SAN_PIC),$(SRC_PY_RUNTIME)): FAULT_SAN_PIC_CFLAGS += $(CPYTHON_INC)
-$(call objects,$(OBJ_FAULT_PIC),$(SRC_PY_RUNTIME)) \
-$(call objects,$(OBJ_FAULT_SAN_PIC),$(SRC_PY_RUNTIME)): $(CPYTHON_LIB)
-
-$(CPYTHON_LIB): scripts/cpython_runtime.sh scripts/cpython_freeze_stdlib.py \
-		third_party/cpython/VERSION third_party/cpython/SHA256 $(CPYTHON_PINS) \
-		$(CPYTHON_FLOOR_H)
-	CC='$(CC)' CPYTHON_CFLAGS='$(CPYTHON_CFLAGS)' CPYTHON_JOBS='$(CPYTHON_JOBS)' \
-		TNY_CPYTHON_FETCH='$(CPYTHON_FETCH)' TNY_CPYTHON_DEPS_DIR='$(CPYTHON_DEPS_DIR)' \
-		TNY_SHELL_PATH='$(TNY_SHELL_PATH)' \
-		$(SHELL) scripts/cpython_runtime.sh $(CPYTHON_DIR) $(CPYTHON_TARBALL) \
-		$(CPYTHON_SHA256) $(CPYTHON_URL)
-
-.PHONY: fetch-cpython cpython-runtime
-fetch-cpython:
-	@set -e; fetch() { \
-		mkdir -p $$(dirname $$1); \
-		if [ ! -f $$1 ]; then curl -fsSL --retry 3 -o $$1.part $$3 && mv $$1.part $$1; fi; \
-		actual=$$( (sha256sum $$1 2>/dev/null || shasum -a 256 $$1) | cut -d' ' -f1); \
-		test "$$actual" = "$$2" || { echo "error: $$1 SHA256 mismatch" >&2; exit 1; }; }; \
-	fetch $(CPYTHON_TARBALL) $(CPYTHON_SHA256) $(CPYTHON_URL); \
-	for d in $(CPYTHON_LIBRARIES); do \
-		url=$$(cat third_party/$$d/URL); \
-		fetch $(CPYTHON_DEPS_DIR)/$${url##*/} $$(cat third_party/$$d/SHA256) $$url; \
-	done
-cpython-runtime: $(CPYTHON_LIB)
 
 $(OBJ_REL)/%.o: %.c | $(VERSION_H)
 	@mkdir -p $(@D)
@@ -612,9 +490,9 @@ $(OBJ_FUZZ)/%.cpp.o: %.cpp | $(VERSION_H)
 .PHONY: sdk-executor
 ifeq ($(LIBTNY_SHARED_SUPPORTED),1)
 sdk-executor: $(BUILD)/lib/tny-executor
-$(BUILD)/lib/tny-executor: $(SDK_EXECUTOR_OBJS) $(CPYTHON_LIB)
+$(BUILD)/lib/tny-executor: $(SDK_EXECUTOR_OBJS)
 	@mkdir -p $(@D)
-	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $(SDK_EXECUTOR_OBJS) $(REL_LDFLAGS) $(SDK_EXECUTOR_LDFLAGS)
+	$(CXX) $(REL_CXXFLAGS) $(REL_LTO) $(REL_INLINE) $(REL_SIZE_OPT) -o $@ $(SDK_EXECUTOR_OBJS) $(REL_LDFLAGS)
 	strip $@ 2>/dev/null || strip -x $@
 lib-shared-active: $(LIB_LINK)
 lib-shared: lib-shared-active
@@ -698,7 +576,7 @@ $(TEST_BIN): $(TEST_OBJS) $(call objects,$(OBJ_DBG),$(TEST_SRC))
 	$(CXX) $(DBG_CXXFLAGS) -o $@ $^ $(DBG_LDFLAGS)
 
 # Provider failure policy is also linked without the backend/runtime graph.
-# Keep this fast gate independent of the embedded interpreter and transports.
+# Keep this fast gate independent of code cells and transports.
 OPENAI_ERRORS_SRC := src/backends/openai/errors.c src/util/alloc.c src/util/util.c \
                      src/json/json.c third_party/yyjson/yyjson.c
 OPENAI_ERRORS_TEST_OBJ := $(BUILD)/openai-errors/test_openai_errors.o
@@ -707,7 +585,7 @@ $(OPENAI_ERRORS_TEST_OBJ): tests/test_openai_errors.c | $(VERSION_H)
 	@mkdir -p $(@D)
 	$(CC) $(DBG_CFLAGS) -DTNY_OPENAI_ERRORS_STANDALONE=1 -MMD -MP -c -o $@ $<
 $(OPENAI_ERRORS_TEST): $(OPENAI_ERRORS_TEST_OBJ) $(call objects,$(OBJ_DBG),$(OPENAI_ERRORS_SRC))
-	$(CC) $(DBG_CFLAGS) -o $@ $^ $(filter-out $(PY_RUNTIME_LDLIBS),$(DBG_LDFLAGS))
+	$(CC) $(DBG_CFLAGS) -o $@ $^ $(DBG_LDFLAGS)
 .PHONY: test-openai-errors
 test-openai-errors: $(OPENAI_ERRORS_TEST)
 	./$(OPENAI_ERRORS_TEST)
@@ -1047,9 +925,9 @@ PROVIDER_FAULT_TEST := $(BUILD)/lib-fault/provider-faults
 PROVIDER_FAULT_SAN_TEST := $(BUILD)/lib-fault-san/provider-faults
 PROVIDER_FAULT_TEST_OBJS := $(call objects,$(OBJ_FAULT_PIC),$(PROVIDER_FAULT_TEST_SRC))
 PROVIDER_FAULT_SAN_TEST_OBJS := $(call objects,$(OBJ_FAULT_SAN_PIC),$(PROVIDER_FAULT_TEST_SRC))
-# These hosts are full native executables (their mains dispatch --code-cell):
-# the lane's library graph with the native Python seam in place of libtny's
-# unsupported one, so code cells run the production interpreter (ADR 0179).
+# These hosts are full native executables that run code cells: the lane's
+# library graph with the native Python seam in place of libtny's unsupported
+# one, so cells start the user's python3 as in production (ADR 0222).
 py_native_objs = $(filter-out $(call objects,$(1),$(SRC_PY_UNSUPPORTED)),$(2)) \
                  $(call objects,$(1),$(SRC_PY_NATIVE))
 PROVIDER_FAULT_HOST_OBJS := $(call py_native_objs,$(OBJ_FAULT_PIC),$(FAULT_PIC_OBJS))
@@ -1301,11 +1179,7 @@ TIDY_CPP_SRC = $(filter %.cpp,$(TIDY_SRC))
 # scripts/tidy_cpp.py discovers the selected CXX driver's STL/system paths;
 # a standalone clang-tidy wheel may not know the host toolchain layout.
 TIDY_CXXFLAGS = $(call cxx_flags,$(TIDY_CFLAGS))
-TIDY_CFLAGS  = $(STD) $(filter-out -Werror,$(WARN)) $(INC) $(DEFS) $(TIDY_PY_INC)
-# The interpreter layer is linted against the pinned CPython headers (system
-# includes: their own diagnostics are CPython's, not tny's).
-TIDY_PY_INC = $(if $(filter $(SRC_PY_RUNTIME),$(TIDY_C_SRC)),$(CPYTHON_INC))
-TIDY_PY_DEPS = $(if $(filter $(SRC_PY_RUNTIME),$(TIDY_C_SRC)),$(CPYTHON_LIB))
+TIDY_CFLAGS  = $(STD) $(filter-out -Werror,$(WARN)) $(INC) $(DEFS)
 ifeq ($(UNAME_S),Darwin)
   TIDY_CFLAGS += -isysroot $(shell xcrun --show-sdk-path)
 endif
@@ -1338,20 +1212,20 @@ format-check: format-c-check
 analyze-cpp: $(VERSION_H)
 	$(if $(TIDY_CPP_SRC),python3 scripts/tidy_cpp.py --cxx '$(CXX)' --tidy '$(CLANG_TIDY)' $(TIDY_CPP_SRC) -- $(TIDY_CXXFLAGS),:)
 
-tidy: $(VERSION_H) analyze-cpp $(TIDY_PY_DEPS)
+tidy: $(VERSION_H) analyze-cpp
 	$(if $(TIDY_C_SRC),$(CLANG_TIDY) --quiet $(TIDY_C_SRC) -- $(TIDY_CFLAGS),:)
 
-warn-strict: $(VERSION_H) $(TIDY_PY_DEPS)
-	$(if $(TIDY_C_SRC),$(CC) $(REL_CFLAGS) $(TIDY_PY_INC) $(WARN_STRICT) -fsyntax-only $(TIDY_C_SRC),:)
+warn-strict: $(VERSION_H)
+	$(if $(TIDY_C_SRC),$(CC) $(REL_CFLAGS) $(WARN_STRICT) -fsyntax-only $(TIDY_C_SRC),:)
 	$(if $(TIDY_CPP_SRC),$(CXX) $(REL_CXXFLAGS) $(WARN_STRICT_CXX) -fsyntax-only $(TIDY_CPP_SRC),:)
 
 # GCC's path-sensitive analyzer (leaks, use-after-free, fd/stream misuse).
 # Complementary to clang-tidy; Linux CI runs it, gcc is required.
 # double-free is off: it misreads the oom-flag-guarded free in buf_detach
 # (src/util/util.c) and flags every caller of path_join.
-analyze: $(VERSION_H) analyze-cpp analyze-cpp-gcc $(TIDY_PY_DEPS)
+analyze: $(VERSION_H) analyze-cpp analyze-cpp-gcc
 	@for f in $(TIDY_C_SRC); do \
-		$(ANALYZER_CC) $(STD) $(WARN) $(INC) $(DEFS) $(TIDY_PY_INC) -fanalyzer -O1 \
+		$(ANALYZER_CC) $(STD) $(WARN) $(INC) $(DEFS) -fanalyzer -O1 \
 			-Wno-analyzer-double-free \
 			-c -o /dev/null $$f || exit 1; \
 	done

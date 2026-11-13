@@ -11,15 +11,15 @@ behavior is in the linked feature contract; ADRs explain decisions when needed.
 | Claude connection | `src/backends/acp/`, [contract](backends/acp.md) | `test_acp_client.py`, `test_acp_managed.py` |
 | Add/change a tool extension or the `tny` Python package | `python/tny/`, `src/core/tool_extensions.c`, `src/core/tool_host.c`, `src/cli/cmd_tool_ext.c`, [guide](extensions.md) | `make test-tool-extensions`, `tests/integration/test_tool_extensions.py` |
 | Prompt reuse / context stability | `src/core/skills.c`, native request builder | `skills_suite` |
-| Model-visible tool discovery | `src/core/tools.c`, `src/core/code_python.c` | `code_runtime_suite`, `test_execution_code_mode.py` |
+| Model-visible tool discovery | `src/core/tools.c` (`tools_code_mode`), `python/tny/_cell.py` | `code_runtime_suite`, `test_execution_code_mode.py` |
 | Search scope / completeness | `core/tools_fs.c`, [contract](adr/0208-truthful-scoped-file-search.md) | `test_search_coverage.py`, `bench_search_coverage.py` |
 | Large file/web content | `tools_fs.c`, `tools_web.c`, session result writer, [contract](adr/0212-size-aware-content-returns.md) | `test_read_file_ranges.py`, `test_content_bounds.py` |
 | Ranged local file reads | `core/tools_fs.c`, [contract](adr/0211-bounded-ranged-file-reads.md) | `test_read_file_ranges.py` |
 | Implement a nested tool | `src/core/tools_*.c`, [catalog](features/mcp-and-skills.md) | owning unit suite + real execution fixture |
-| Parallel independent reads | `execution_parallel.c`, `execution.c`, `code_python.c` | `test_execution_code_mode.py` (rendezvous, barriers, spill recovery, timeout) |
+| Parallel independent reads | `execution_parallel.c`, `execution.c`, `python/tny/_cell.py` | `test_execution_code_mode.py` (rendezvous, barriers, spill recovery, timeout) |
 | Recover execution output | `session.c` streaming results, `code_runtime.c`, `tools_shell.c` | `test_execution_code_mode.py` (middle diagnostics, resume, limits, binary ranges) |
 | Long-session execution transport | `execution_state.c`, `execution.c`, [projection contract](adr/0207-bounded-execution-session-projection.md) | `execution_state_suite`, `test_execution_snapshot.py`, encoder benchmark |
-| Run/cancel a code cell | `execution*.c`, `code_runtime.c`, `util/execution_*.c` | `test_execution_code_mode.py`, `test_terminal_cancel.py` |
+| Run/cancel a code cell | `execution*.c`, `code_runtime.c`, `code_python.c` (finding python3), `python/tny/_cell.py`, `util/execution_*.c` | `test_execution_code_mode.py`, `test_terminal_cancel.py` |
 | Resume/crash recovery | `session.c`, `checkpoint.cpp`, `runner.cpp` | `runner_suite`, session/checkpoint fixtures |
 | Durable job records and transactions | `core/jobs_record.cpp`, private `jobs_record.hpp` | `make test-runner-ownership test-runner-mutation`; job corruption fixtures |
 | Durable background orchestration | `core/jobs.cpp`, `util/jobs_host.c` | job integration fixtures |

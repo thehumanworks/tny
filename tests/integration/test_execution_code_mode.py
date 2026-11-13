@@ -965,21 +965,22 @@ class ExecutionCodeMode(unittest.TestCase):
                 self.assertNotIn("failed protocol/cleanup", error)
                 error.encode("utf-8", errors="strict")
 
-    def test_model_instructions_match_bundled_host_modules(self):
+    def test_model_instructions_describe_the_host_python(self):
+        # Cells run on the user's own python3 (ADR 0222): the prompt must not
+        # promise a bundled standard library, and the cell sees the same
+        # interpreter a shell would run.
         for wire in ("responses", "chat"):
             with self.subTest(wire=wire):
                 output = self.run_code(
-                    "import sqlite3, ctypes, bz2, lzma, compression.zstd, urllib.request, ssl\n"
-                    "assert sqlite3.connect(':memory:').execute('select 42').fetchone() == (42,)\n"
-                    "assert bz2.decompress(bz2.compress(b'hello')) == b'hello'\n"
-                    "assert lzma.decompress(lzma.compress(b'hello', preset=0)) == b'hello'\n"
-                    "print('bundled-host-modules-ok')\n",
+                    "import os, shutil, sys\n"
+                    "print(os.path.samefile(sys.executable, shutil.which('python3')))\n",
                     wire=wire,
                 )
-                self.assertEqual(output, "bundled-host-modules-ok\n")
+                self.assertEqual(output, "True\n")
                 prompts = json.dumps(self.server.bodies, ensure_ascii=False)
-                self.assertNotIn("sqlite3, ctypes, bz2 and lzma are not built", prompts)
-                self.assertIn("sqlite3, ctypes, bz2, lzma", prompts)
+                self.assertIn("the user's own python3", prompts)
+                self.assertNotIn("bundled", prompts)
+                self.assertNotIn("CPython", prompts)
                 self.assertIn("Direct Python effects are not mediated", prompts)
 
     def test_both_wires_no_tool_stream(self):
@@ -1094,7 +1095,7 @@ print("cwd", os.getcwd() == {python_string(str(self.workspace.resolve()))})
 pathlib.Path("{wire}.txt").write_text("direct write")
 fd = os.open("{wire}-os.txt", os.O_WRONLY | os.O_CREAT)
 os.close(fd)
-print("env", os.environ.get("TNY_CELL_FIXTURE"), repr(sys.executable))
+print("env", os.environ.get("TNY_CELL_FIXTURE"), os.path.isabs(sys.executable))
 done = subprocess.run(["sh", "-c", "cat {wire}.txt; echo; echo inherited-output; exit 5"])
 print("exit", done.returncode)
 with urllib.request.urlopen({url}, timeout=5) as reply:
@@ -1106,7 +1107,7 @@ print(json.dumps({{"answer": value["value"] + 1}}))
                     env={"TNY_CELL_FIXTURE": "visible-to-python"},
                 )
                 self.assertIn("cwd True", output)
-                self.assertIn("env visible-to-python ''", output)
+                self.assertIn("env visible-to-python True", output)
                 self.assertIn("direct write\ninherited-output\nexit 5", output)
                 self.assertIn("http 200 loopback:/plain", output)
                 self.assertIn('"answer":43', output.replace(" ", ""))
@@ -1140,11 +1141,11 @@ except urllib.error.URLError as error:
     print("default verification", type(error.reason).__name__)
 trusted = ssl.create_default_context(cafile={python_string(str(cert))})
 with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
-    print("https", reply.status, reply.read().decode(), ssl.OPENSSL_VERSION.split()[1])
+    print("https", reply.status, reply.read().decode())
 """
         )
         self.assertIn("default verification SSLCertVerificationError", output)
-        self.assertIn("https 200 loopback:/tls 3.5.8", output)
+        self.assertIn("https 200 loopback:/tls\n", output)
 
     def test_timeout_stops_python_descendants_and_keeps_output(self):
         pid_file = self.home / "sleep.pid"
@@ -1178,10 +1179,6 @@ with urllib.request.urlopen({url}, timeout=5, context=trusted) as reply:
         cases = [
             ({"code": "value ="}, "error"),
             ({"code": "while True:\n    pass", "timeout_ms": 40}, "error"),
-            (
-                {"code": 't = []\nwhile True:\n    t.append("x" * 100000)'},
-                "error",
-            ),
             (
                 {
                     "code": "for _ in range(65):\n"

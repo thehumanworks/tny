@@ -584,7 +584,13 @@ class ToolExtensionsTest(unittest.TestCase):
                 "deploying v1.2 to prod (blue-green)",
             ),
             (("deploy", "start", "wip-x", "--env", "prod"), 2, "refusing to deploy"),
-            (("deploy", "start", "v1", "--env", "dev"), None, "expected one of"),
+            # The built-in validator's wording, or pydantic's when the user's
+            # python3 has it installed (ADR 0222: the host's packages apply).
+            (
+                ("deploy", "start", "v1", "--env", "dev"),
+                None,
+                ("expected one of", "Input should be 'staging' or 'prod'"),
+            ),
             (("deploy", "wait"), 0, "settled"),
             (("issues", "labels", "add", "7", "bug"), 0, "#7 +bug"),
             (("issues", "labels", "remove", "7", "bug"), 0, "#7 -bug"),
@@ -614,7 +620,12 @@ class ToolExtensionsTest(unittest.TestCase):
                     self.assertNotEqual(0, run.returncode, out)
                 else:
                     self.assertEqual(code, run.returncode, out)
-                self.assertIn(needle, out.replace(" ", "") if needle[0] == '"' else out)
+                if isinstance(needle, tuple):
+                    self.assertTrue(any(n in out for n in needle), out)
+                else:
+                    self.assertIn(
+                        needle, out.replace(" ", "") if needle[0] == '"' else out
+                    )
 
     # -- policy -----------------------------------------------------------------
 

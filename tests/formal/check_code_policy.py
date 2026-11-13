@@ -53,7 +53,6 @@ EXPECTED = (
     "tny_code_output_admit",
     "tny_code_output_take",
     "tny_code_utf8_lead_width",
-    "tny_code_memory_admit",
     "tny_code_frame_admit",
 )
 # Theorems the proof file must contain; each one's axioms are printed.
@@ -73,9 +72,6 @@ REQUIRED = (
     "output_admitted_sum_exact",
     "output_boundaries",
     "output_wrap_rejected",
-    "memory_admit_iff",
-    "memory_admitted_sum_exact",
-    "memory_boundaries",
     "frame_admit_iff",
     "frame_requires_running",
     "no_terminal_phase_frames",

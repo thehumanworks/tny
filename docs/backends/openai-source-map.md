@@ -37,7 +37,7 @@ operations. No new platform seam or public ABI is introduced.
 - `make test-openai-errors`: links only error policy plus JSON/util/allocator
   code. Runs classification precedence, static plan-code lifetime, privacy,
   UTF-8/control-character bounds, route-specific text and Retry-After cases,
-  using the normal debug sanitizer settings. No provider or CPython build.
+  using the normal debug sanitizer settings. No provider call.
 - `make debug` then `build/tny-test -s openai`: runs both the error-policy suite
   and backend unit suite, including decoder and ownership behavior.
 - `tests/integration/test_openai.py` and

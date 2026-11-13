@@ -37,10 +37,6 @@ uint64_t tny_code_utf8_lead_width(uint64_t byte) {
                                           : 0;
 }
 
-bool tny_code_memory_admit(uint64_t used, uint64_t request, uint64_t header, uint64_t limit) {
-    return used <= limit && header <= limit - used && request <= limit - used - header;
-}
-
 bool tny_code_frame_admit(int phase, int type, uint64_t payload_bytes, uint64_t calls_done) {
     return phase == TNY_CODE_PHASE_RUNNING && payload_bytes >= 1 &&
            ((type == TNY_CODE_FRAME_CALL && calls_done < TNY_CODE_TOOL_CALLS &&

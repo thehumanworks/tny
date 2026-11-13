@@ -1,7 +1,8 @@
 # 0179 — Python code mode on pinned embedded CPython
 
 Date: 2026-09-27
-Status: accepted; release verification is recorded separately. Its confinement,
+Status: runtime choice superseded by [ADR 0222](0222-host-python3-code-cells.md)
+(cells run on the user's python3). Previously: accepted; release verification is recorded separately. Its confinement,
 empty environment, restricted builtins, JSON facade, stdlib packaging, 64 MiB heap,
 30 s ceiling and terminal output budget are superseded by
 [ADR 0180](0180-host-authorized-python-code-cells.md); the runtime choice, cell

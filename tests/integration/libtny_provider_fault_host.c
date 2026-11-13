@@ -127,7 +127,6 @@ int main(int argc, char **argv) {
      * image, just like tests/test_main.c; never fall back to in-process tools. */
     if (argc == 2 && strcmp(argv[1], "--exec-command") == 0) return tny_exec_command_main();
     if (argc == 2 && strcmp(argv[1], "--exec-server") == 0) return tny_execution_server_main();
-    if (argc == 2 && strcmp(argv[1], "--code-cell") == 0) return tny_code_cell_main();
     if (argc == 2 && strcmp(argv[1], "--native-storage-guard") == 0) {
         tools_call call = {0};
         /* The guard must reject authority before dereferencing or releasing it. */

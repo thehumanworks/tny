@@ -36,11 +36,15 @@ protocol checks on every connection, including resume.
 
 ## Execution server
 
-Agent tools use the singleton `run_code` surface on both HTTP wires and ACP.
+Agent tools use the singleton `run_code` surface on both HTTP wires and ACP
+whenever the user's python3 (3.8 or newer: `TNY_PYTHON`, else the first
+`python3` on `PATH`) can run cells; otherwise the native tool catalog is
+model-facing directly ([ADR 0222](adr/0222-host-python3-code-cells.md)).
 Each cell starts a fresh native execution process with a trusted context
-snapshot. Each cell's Python runs in a further fresh child with the host
-environment, the local workspace as working directory and the OS user's
-authority: files, sockets, subprocesses and the bundled standard library. The
+snapshot. Each cell's Python runs in a further fresh child of that python3
+with the host environment, the local workspace as working directory and the
+OS user's authority: files, sockets, subprocesses and the interpreter's
+installed packages, virtual environment included. The
 execution server keeps a bounded stdout/stderr preview and streams recoverable
 raw output into the existing session result store (ADR 0206), then answers its nested
 calls. Nested operations keep existing permissions, hooks and workspace policy;
@@ -49,9 +53,10 @@ Python stays local) and restrictive modes or profiles. Direct provider tool
 names fail closed. See
 [ADR 0174](adr/0174-execution-server-code-mode.md),
 [ADR 0179](adr/0179-python-code-mode-cpython.md),
-[ADR 0180](adr/0180-host-authorized-python-code-cells.md) and the
+[ADR 0180](adr/0180-host-authorized-python-code-cells.md),
+[ADR 0222](adr/0222-host-python3-code-cells.md) and the
 [acceptance contract](verification/execution-code-mode/contract.md).
-Wasm returns an unsupported-execution error because it cannot spawn this server.
+Wasm keeps `run_code` and returns an unsupported-execution error because it cannot spawn this server.
 
 Independent nested reads can use `tools.parallel(calls_json)`: up to four
 fresh-exec workers, ordered owner-side admission/settlement and serial barriers

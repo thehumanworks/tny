@@ -264,29 +264,6 @@ theorem utf8_lead_width_boundaries :
     tny_code_utf8_lead_width (-1#64) = 0#64 := by
   decide
 
-/-! ## Interpreter heap accounting -/
-
-theorem memory_admit_iff (u r h l : BitVec 64) :
-    tny_code_memory_admit u r h l = true ↔ u.toNat + h.toNat + r.toNat ≤ l.toNat := by
-  simp only [tny_code_memory_admit]; tny_bv; omega
-
-theorem memory_admitted_sum_exact (u r h l : BitVec 64)
-    (e : tny_code_memory_admit u r h l = true) :
-    (u + h + r).toNat = u.toNat + h.toNat + r.toNat ∧ (u + h + r).toNat ≤ l.toNat := by
-  have := (memory_admit_iff u r h l).mp e
-  simp only [BitVec.toNat_add] at *; omega
-
-theorem memory_boundaries :
-    let l := 67108864#64
-    tny_code_memory_admit 0#64 67108848#64 16#64 l = true ∧
-    tny_code_memory_admit 0#64 67108849#64 16#64 l = false ∧
-    tny_code_memory_admit l 0#64 0#64 l = true ∧
-    tny_code_memory_admit 67108865#64 0#64 0#64 l = false ∧
-    tny_code_memory_admit 1#64 (-1#64) 0#64 l = false ∧
-    tny_code_memory_admit 1#64 0#64 (-1#64) l = false ∧
-    tny_code_memory_admit 16#64 (-1#64) 17#64 l = false := by
-  decide
-
 /-! ## Parent admission of child frames -/
 
 theorem frame_admit_iff (p t : BitVec 32) (n c : BitVec 64) :
@@ -373,7 +350,6 @@ theorem nonvacuity :
     tny_code_call_admit 0#64 4#64 false 2#64 true = true ∧
     tny_code_result_admit 1#64 = true ∧ tny_code_output_admit 10#64 10#64 = true ∧
     tny_code_output_take 10#64 10#64 = 10#64 ∧
-    tny_code_memory_admit 1024#64 64#64 16#64 67108864#64 = true ∧
     tny_code_frame_admit 1#32 67#32 8#64 0#64 = true ∧
     tny_code_frame_admit 1#32 68#32 1#64 0#64 = true := by
   decide

@@ -71,7 +71,8 @@ flake's Home Manager, NixOS or nix-darwin module do both for you
 
 Decorators keep the function's own type, so `@tny.tool def f(x: int) -> str`
 still reads as `(x: int) -> str` and wrong arguments are flagged. The tool host
-runs CPython 3.14; set the checker's Python version to match.
+runs on your own `python3` (3.10 or newer), so set the checker's Python version
+to that interpreter's.
 
 ## Agent skill
 
@@ -285,14 +286,17 @@ optimisation, and on wasm, where no tool host can run.
 ## How it works
 
 The `tny` package is built into the binary. The first time a process needs
-an extension tool, it starts one tool host, `tny --tool-host serve`, which
-imports the modules in the embedded CPython 3.14 and answers MCP requests on a
-pipe. The host lives as long as its tny process. A timed-out or cancelled call
+an extension tool, it starts one tool host on the user's `python3` (3.10 or
+newer; `TNY_PYTHON` picks another, [ADR 0222](adr/0222-host-python3-code-cells.md)).
+The host reads the embedded `tny` package from its first stdin line, imports
+the modules with the interpreter's own packages available, and answers MCP
+requests on a pipe. Without a usable python3 extension calls fail with an error
+that says so. The host lives as long as its tny process. A timed-out or cancelled call
 kills the host and the next call starts a fresh one.
 
 The catalog is cached in `~/.tny/cache/tool-extensions/`, keyed by a
-fingerprint of every module file (path, size, mtime, inode) and the tny
-version, so listing tools does not start Python until a file changes.
+fingerprint of every module file (path, size, mtime, inode), the interpreter
+path and the tny version, so listing tools does not start Python until a file changes.
 Proxy listings are re-read only when files change or on `tny tool check`;
 catalogs with proxy failures are never cached.
 

@@ -39,9 +39,6 @@ uint64_t tny_code_output_take(uint64_t used, uint64_t available);
 /* UTF-8 lead-byte width, or zero for NUL/invalid/continuation bytes.
  * The output sanitizer separately validates remaining bytes and scalar bounds. */
 uint64_t tny_code_utf8_lead_width(uint64_t byte);
-/* Allocation accounting without overflow: `request` plus a header fits the
- * remaining heap budget below `limit`. */
-bool tny_code_memory_admit(uint64_t used, uint64_t request, uint64_t header, uint64_t limit);
 /* Parent admission of a child frame. FAILED and FINISHED admit nothing. */
 bool tny_code_frame_admit(int phase, int type, uint64_t payload_bytes, uint64_t calls_done);
 

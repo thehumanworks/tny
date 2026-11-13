@@ -31,29 +31,22 @@ static int configure(int fd) {
     return 0;
 }
 
-static int start_entry_at(tny_exec_host *host, const char *entry, int output_fd,
-                          const char *executable) {
+/* argv[0] is absolute; fd 3 is the private socket, 1 and 2 the output pipe. */
+static int start_argv(tny_exec_host *host, char *const argv[], int output_fd) {
     *host = (tny_exec_host){.fd = -1, .pid = -1};
     /* Exact process identity is required for cancellation, not best-effort groups. */
     if (!tny_process_tree_supported()) return ENOTSUP;
-    char *exe = executable ? xstrdup(executable) : tny_process_self_path();
-    if (!exe) return ENOTSUP;
     int fds[2];
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds)) {
-        free(exe);
-        return errno;
-    }
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds)) return errno;
     int rc = 0;
     if (configure(fds[0]) || configure(fds[1])) rc = errno;
     if (!rc) {
-        char *option = xstrdup(entry);
-        char *argv[] = {exe, option, NULL};
         tny_fd_mapping maps[] = {{.source = fds[1], .target = 3},
                                  {.source = output_fd, .target = 1},
                                  {.source = output_fd, .target = 2}};
         size_t count = 0;
         while (environ[count]) count++;
-        char **environment = option ? calloc(count + 1, sizeof *environment) : NULL;
+        char **environment = calloc(count + 1, sizeof *environment);
         if (!environment) rc = ENOMEM;
         else {
             size_t used = 0;
@@ -63,12 +56,25 @@ static int start_entry_at(tny_exec_host *host, const char *entry, int output_fd,
                                           &host->pid);
             free(environment);
         }
-        free(option);
     }
-    free(exe);
     close(fds[1]);
     if (rc) close(fds[0]);
     else host->fd = fds[0];
+    return rc;
+}
+
+static int start_entry_at(tny_exec_host *host, const char *entry, int output_fd,
+                          const char *executable) {
+    *host = (tny_exec_host){.fd = -1, .pid = -1};
+    char *exe = executable ? xstrdup(executable) : tny_process_self_path();
+    char *option = exe ? xstrdup(entry) : NULL;
+    int rc = ENOTSUP;
+    if (option) {
+        char *argv[] = {exe, option, NULL};
+        rc = start_argv(host, argv, output_fd);
+    }
+    free(option);
+    free(exe);
     return rc;
 }
 
@@ -96,15 +102,20 @@ int tny_exec_host_start_tool(tny_exec_host *host) { return start_entry(host, "--
 
 int tny_exec_host_start(tny_exec_host *host) { return start_entry(host, "--exec-server", -1); }
 
-/* Code cells act on the host as the OS user (docs/adr/0180): they inherit the
- * execution server's environment like any tool process. Only tny's private
- * process-scope fields are withheld, as for every unrelated child launch. */
-int tny_exec_host_start_cell(tny_exec_host *host, int output_fd) {
-    if (output_fd < 0) {
+/* Code cells act on the host as the OS user (docs/adr/0180, 0222): the user's
+ * python3 with the execution server's environment, like any tool process.
+ * Only tny's private process-scope fields are withheld, as for every
+ * unrelated child launch. -u keeps print() ordered with subprocess output;
+ * -X utf8 makes text I/O UTF-8 whatever the locale. */
+int tny_exec_host_start_cell(tny_exec_host *host, const char *python, const char *loader,
+                             int output_fd) {
+    if (output_fd < 0 || !python || python[0] != '/' || !loader) {
         *host = (tny_exec_host){.fd = -1, .pid = -1};
-        return EBADF;
+        return output_fd < 0 ? EBADF : ENOENT;
     }
-    return start_entry(host, "--code-cell", output_fd);
+    char *argv[] = {(char *)python, (char *)"-u",   (char *)"-X", (char *)"utf8",
+                    (char *)"-c",   (char *)loader, NULL};
+    return start_argv(host, argv, output_fd);
 }
 
 int tny_exec_host_accept(void) {
@@ -297,7 +308,10 @@ int tny_exec_host_start_embedded(tny_exec_host *host, const char *executable,
     return tny_exec_host_start(host);
 }
 int tny_exec_host_start_tool(tny_exec_host *host) { return tny_exec_host_start(host); }
-int tny_exec_host_start_cell(tny_exec_host *host, int output_fd) {
+int tny_exec_host_start_cell(tny_exec_host *host, const char *python, const char *loader,
+                             int output_fd) {
+    (void)python;
+    (void)loader;
     (void)output_fd;
     return tny_exec_host_start(host);
 }

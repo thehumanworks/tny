@@ -2,6 +2,7 @@
  * Python tool extensions (docs/extensions.md, ADR 0218). */
 #include "core/tool_extensions.h"
 
+#include "core/code_python.h"
 #include "core/tool_host.h"
 #include "core/tools.h"
 #include "json/json.h"
@@ -170,8 +171,9 @@ static bool fingerprint(const tny_ctx *ctx, char out[17], char **project, char *
     bool any = (*project && dir_exists(*project)) || (*global && dir_exists(*global));
     buf_t b;
     buf_init(&b);
-    buf_appendf(&b, "tny %s %016llx\n", TNY_VERSION,
-                (unsigned long long)tny_tool_host_package_hash());
+    const char *python = tny_python_path();
+    buf_appendf(&b, "tny %s %016llx %s\n", TNY_VERSION,
+                (unsigned long long)tny_tool_host_package_hash(), python ? python : "-");
     fingerprint_dir(&b, "project", *project && dir_exists(*project) ? *project : NULL);
     fingerprint_dir(&b, "global", *global && dir_exists(*global) ? *global : NULL);
     snprintf(out, 17, "%016llx", (unsigned long long)fnv1a(b.data ? b.data : "", b.len));
@@ -211,18 +213,74 @@ static int open_log(const tny_ctx *ctx) {
     return fd;
 }
 
+static int write_all(int fd, const char *data, size_t len) {
+    while (len) {
+        ssize_t w = write(fd, data, len);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        data += w;
+        len -= (size_t)w;
+    }
+    return 0;
+}
+
+/* `python3 -c HOST_LOADER serve [--project DIR] [--global DIR]`: the first
+ * stdin line carries the embedded package (tny_tool_host_package_json), which
+ * is served from memory ahead of every path entry; then tny._host.main runs
+ * newline-delimited MCP on stdin/stdout. Workspace files never shadow it. */
+static const char HOST_LOADER[] =
+    "import sys\n"
+    "sys.path[:] = [p for p in sys.path if p not in ('', '.')]\n"
+    "if sys.version_info < (3, 10):\n"
+    "    sys.stderr.write('tny: tool extensions need Python 3.10 or newer, found %d.%d\\n'\n"
+    "                     % sys.version_info[:2])\n"
+    "    raise SystemExit(2)\n"
+    "import importlib.abc, importlib.util, json\n"
+    "_tny_sources = json.loads(sys.stdin.buffer.readline())\n"
+    "class _TnyLoader(importlib.abc.Loader):\n"
+    "    def __init__(self, source, origin):\n"
+    "        self.source, self.origin = source, origin\n"
+    "    def create_module(self, spec):\n"
+    "        return None\n"
+    "    def exec_module(self, module):\n"
+    "        exec(compile(self.source, self.origin, 'exec'), module.__dict__)\n"
+    "class _TnyFinder:\n"
+    "    @classmethod\n"
+    "    def find_spec(cls, name, path=None, target=None):\n"
+    "        entry = _tny_sources.get(name)\n"
+    "        if entry is None:\n"
+    "            return None\n"
+    "        is_package, source = entry\n"
+    "        origin = '<tny>/' + name.replace('.', '/') + ('/__init__.py' if is_package else "
+    "'.py')\n"
+    "        return importlib.util.spec_from_loader(name, _TnyLoader(source, origin),\n"
+    "                                               origin=origin, is_package=is_package)\n"
+    "sys.meta_path.insert(0, _TnyFinder)\n"
+    "import tny._host\n"
+    "sys.exit(tny._host.main(sys.argv[1:]))\n";
+
 static int host_start_locked(const tny_ctx *ctx, const char *key, const char *project,
                              const char *global, char *why, size_t why_len) {
     host_stop_locked();
-    char *self = tny_process_self_path();
-    if (!self) {
-        snprintf(why, why_len, "cannot locate the tny executable");
+    const char *python = tny_python_path();
+    if (!python) {
+        snprintf(why, why_len,
+                 "no python3 found: tool extensions run on the host's python3 (3.10 or newer); "
+                 "install one or set TNY_PYTHON");
         return -1;
     }
-    char *argv[8];
+    char *package = tny_tool_host_package_json();
+    if (!package) {
+        snprintf(why, why_len, "out of memory");
+        return -1;
+    }
+    char *argv[10];
     int argc = 0;
-    argv[argc++] = self;
-    argv[argc++] = (char *)"--tool-host";
+    argv[argc++] = (char *)python;
+    argv[argc++] = (char *)"-c";
+    argv[argc++] = (char *)HOST_LOADER;
     argv[argc++] = (char *)"serve";
     if (project && dir_exists(project)) {
         argv[argc++] = (char *)"--project";
@@ -235,14 +293,14 @@ static int host_start_locked(const tny_ctx *ctx, const char *key, const char *pr
     argv[argc] = NULL;
     int in_pipe[2], out_pipe[2];
     if (pipe(in_pipe) != 0) {
-        free(self);
+        free(package);
         snprintf(why, why_len, "pipe: %s", strerror(errno));
         return -1;
     }
     if (pipe(out_pipe) != 0) {
         close(in_pipe[0]);
         close(in_pipe[1]);
-        free(self);
+        free(package);
         snprintf(why, why_len, "pipe: %s", strerror(errno));
         return -1;
     }
@@ -253,10 +311,10 @@ static int host_start_locked(const tny_ctx *ctx, const char *key, const char *pr
     if (err_fd >= 0 && err_fd != g_ext.stderr_fd) close(err_fd);
     close(in_pipe[0]);
     close(out_pipe[1]);
-    free(self);
     if (rc != 0) {
         close(in_pipe[1]);
         close(out_pipe[0]);
+        free(package);
         snprintf(why, why_len, "cannot start the tool host: %s", strerror(rc));
         return -1;
     }
@@ -269,18 +327,18 @@ static int host_start_locked(const tny_ctx *ctx, const char *key, const char *pr
     g_ext.from_host = out_pipe[0];
     buf_init(&g_ext.pending);
     snprintf(g_ext.host_key, sizeof g_ext.host_key, "%s", key);
-    return 0;
-}
-
-static int write_all(int fd, const char *data, size_t len) {
-    while (len) {
-        ssize_t w = write(fd, data, len);
-        if (w < 0) {
-            if (errno == EINTR) continue;
-            return -1;
-        }
-        data += w;
-        len -= (size_t)w;
+    /* The package line goes first; a host that died on startup surfaces as a
+     * failed write here or as EOF on the first request. */
+    struct sigaction ignore = {0}, old;
+    ignore.sa_handler = SIG_IGN;
+    sigaction(SIGPIPE, &ignore, &old);
+    int wrc = write_all(g_ext.to_host, package, strlen(package));
+    sigaction(SIGPIPE, &old, NULL);
+    free(package);
+    if (wrc != 0) {
+        host_stop_locked();
+        snprintf(why, why_len, "the tool host exited (see ~/.tny/logs/tool-extensions.log)");
+        return -1;
     }
     return 0;
 }

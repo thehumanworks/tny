@@ -6,20 +6,16 @@
 # src/tests filesets, native process support and Python stdlib; no new inputs.
 # Offline harness benchmark route tests use the existing tests fileset and Python stdlib.
 # test-openai-errors links the private failure policy and existing JSON/util
-# sources only; src/tests filesets and the C compiler cover it without CPython,
+# sources only; src/tests filesets and the C compiler cover it without Python,
 # provider I/O, generated fixtures or additional dependencies.
-# Optional python-embed-bench links the existing C/CPython graph and test fileset;
-# generated-code execution remains outside package builds and requires bwrap.
 # tests/build/test_code_cell_seams.py host-compiles the explicit unsupported
 # code-cell seams with the existing compiler/Python inputs. Its
 # tests/fixtures/code_output_pipe.c fault matrix inserts the actual production
 # helper and checks descriptor cleanup without downloads or new dependencies.
 # Benchmark policy checks and source-linked production C proofs are in the
 # existing ../tests fileset. Optional live trials/downloads are never sandbox inputs.
-# Python code cells build third_party/cpython's pinned tarball (fetched by
-# nix/cpython-source.nix) and the pinned third_party/<name>/URL libraries
-# (nix/cpython-deps.nix) with scripts/cpython_runtime.sh, which freezes the
-# stdlib via scripts/cpython_freeze_stdlib.py; see ADRs 0179 and 0180.
+# Python code cells and tool extensions run on the host python3 (ADR 0222);
+# python/tny sources are embedded by scripts/embed_python.sh.
 # The production predicate proof tests/formal/check_execution_protocol.py
 # uses the existing tests fileset and explicit Clang/Z3 inputs in nix/tests.nix.
 # test_code_runtime.c and integration/test_execution_code_mode.py plus its
@@ -58,11 +54,9 @@ let
     ../python
     ../scripts/check_abi_baseline.py
     ../scripts/embed_python.sh # embeds python/tny for the tool host
-    ../scripts/cpython_runtime.sh # builds the pinned CPython for code cells
-    ../scripts/cpython_freeze_stdlib.py # freezes its standard library
-    ../scripts/install_licenses.sh # `make install` ships the embedded licenses
+    ../scripts/install_licenses.sh # `make install` ships the license notices
     ../LICENSE # `make install` ships tny's own MIT license
-    ../THIRD_PARTY_NOTICES.md # `make install` ships notices with the CPython license
+    ../THIRD_PARTY_NOTICES.md # `make install` ships vendored-library notices
     ../shell # installed workflows and the Zsh quick-ask widget
     ../sdk/native # private native execution worker, no CLI frontend
     ../src

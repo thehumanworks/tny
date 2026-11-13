@@ -29,9 +29,10 @@ live inference without authorization. Nix invokes the same Makefile.
 
 Replace the provider-facing native tool registry with `run_code`, preserve the
 filtered nested catalog, and execute each bounded Python cell in a fresh process
-([ADR 0179](adr/0179-python-code-mode-cpython.md)) with the OS user's host
-authority and the bundled standard library
-([ADR 0180](adr/0180-host-authorized-python-code-cells.md)).
+of the user's python3 ([ADR 0179](adr/0179-python-code-mode-cpython.md),
+[ADR 0222](adr/0222-host-python3-code-cells.md)) with the OS user's host
+authority ([ADR 0180](adr/0180-host-authorized-python-code-cells.md)). Without
+a usable python3 the native tools stay model-facing.
 Native Chat/Responses and verified ACP share the same authority checks. The
 [acceptance contract](verification/execution-code-mode/contract.md) and
 [evidence ledger](verification/execution-code-mode/evidence.md) track protocol,

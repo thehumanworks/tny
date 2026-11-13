@@ -141,12 +141,20 @@ typedef struct {
  * ACP clients see the verb rather than an opaque shell blob. */
 const char *tools_call_label(const tools_call *call);
 
-/* Model-facing OpenAI tools array: exactly run_code. malloc'd. */
+/* Code mode (run_code only) whenever the user's python3 can run cells
+ * (ADR 0222); otherwise, on native builds, the native tools are model-facing
+ * directly. libtny, wasm, MSYS2 and embedded hosts always keep run_code, which
+ * refuses there with no direct fallback. */
+bool tools_code_mode(const tny_ctx *ctx);
+/* Model-facing OpenAI tools array: the native catalog, or exactly run_code in
+ * code mode. malloc'd. */
 char *tools_schema_json(tools_env *env);
 /* Discoverable nested tools, subject to the current runtime/profile. malloc'd. */
 char *tools_catalog_json(tools_env *env);
 /* Shared native/ACP instructions for the code execution interface. */
 const char *tools_code_instructions(void);
+/* Code instructions in code mode, else "". */
+const char *tools_mode_instructions(const tny_ctx *ctx);
 const char *tools_reason_instructions(tny_ctx *ctx);
 
 /* Execute one call. Returns a malloc'd string for the role:"tool" message.

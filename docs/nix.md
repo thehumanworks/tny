@@ -123,10 +123,12 @@ against `<nixpkgs>`.
 
 No vendor agent binary is a runtime dependency. Provider traffic and native Codex/Grok OAuth use HTTP directly.
 
-`python3` is not required for tny itself. Code mode and tool extensions
-([extensions.md](extensions.md)) use the embedded interpreter. The optional
-instruction-evolution helpers `execlp` `python3` from PATH, and the default
-package supplies one through its wrapper.
+`python3` is not required for tny itself. Code cells, tool extensions
+([extensions.md](extensions.md)) and the optional instruction-evolution helpers
+run the `python3` on PATH ([ADR 0222](adr/0222-host-python3-code-cells.md));
+the default package appends one to PATH through its wrapper, so a user's own
+python3 or virtual environment earlier on PATH wins. Without one, the model
+calls the native tools directly.
 
 The wasm build is not packaged — `make wasm` needs emsdk
 ([ADR 0017](adr/0017-wasm-browser-parity.md)).
@@ -198,18 +200,11 @@ inputs for that check; the unwrapped runtime gains no test-runner dependency.
 
 ## Developing
 
-The embedded CPython build unpacks its pinned dependency sources during
-`buildPhase`, after Nix's source patching. OpenSSL's `Configure` is therefore
-invoked explicitly with the declared build-time `perl`, rather than relying
-on its `/usr/bin/env perl` shebang. This applies to the wrapped and unwrapped
-CLI packages and the test derivation; no host `/usr/bin/env` is required.
-
 The packages build with `TNY_SHELL_PATH=${stdenv.shell}`, and their checks fail
 if the binary still names `/bin/sh`. That one path serves the terminal tool,
-the sandbox probe, the TUI shell fallback and the embedded Python: the stdlib
-freezer rewrites `/bin/sh` in the frozen sources, so `subprocess` with
-`shell=True` in a code cell runs the store shell too
-([ADR 0220](adr/0220-build-shell-in-every-shipped-path.md)). To reproduce the
+the sandbox probe and the TUI shell fallback
+([ADR 0220](adr/0220-build-shell-in-every-shipped-path.md)). Code cells run the
+user's python3, whose `subprocess` uses that interpreter's own shell. To reproduce the
 check without Nix, build with any other absolute shell path and search the
 binary:
 
@@ -297,7 +292,6 @@ LD_LIBRARY_PATH="$(nix eval --raw nixpkgs#openssl.out)/lib" make test
 ## License
 
 tny is MIT-licensed ([ADR 0219](adr/0219-mit-license.md)), so `tny`, `libtny`
-and `python-tny` set `meta.license = lib.licenses.mit`. The embedded CPython and
-vendored libraries keep their own licenses; `make install` puts every text,
-tny's `LICENSE` included, under `share/doc/tny`, and `THIRD_PARTY_NOTICES.md`
-lists them.
+and `python-tny` set `meta.license = lib.licenses.mit`. Vendored libraries keep
+their own licenses; `make install` puts tny's `LICENSE` and
+`THIRD_PARTY_NOTICES.md`, which lists them, under `share/doc/tny`.

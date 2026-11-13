@@ -3,11 +3,15 @@ import {
   copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 
 const here = dirname(fileURLToPath(import.meta.url));
+// Code cells run on the host python3 (ADR 0222). The child's PATH is empty,
+// so name the interpreter explicitly.
+const hostPython = (process.env.PATH || "").split(delimiter)
+  .map((dir) => join(dir, "python3")).find((path) => existsSync(path));
 const delay = (ms) => new Promise((done) => setTimeout(done, ms));
 const timeoutMs = (name, seconds) => {
   const configured = Number(process.env[name] ?? seconds);
@@ -124,6 +128,7 @@ async function main() {
   const { resolveNativeAddon } = await import(pathToFileURL(join(source, "scripts/native-loader.mjs")));
   const native = resolveNativeAddon({ packageRoot: source });
   assert.ok(native.executorPath, "build the native executor before this acceptance test");
+  assert.ok(hostPython, "code cells need a python3 on PATH (ADR 0222)");
   const root = mkdtempSync(join(tmpdir(), "tny-native-sdk-"));
   const stage = join(root, "package");
   const build = join(stage, "build/Release");
@@ -165,7 +170,7 @@ async function main() {
       }, async (baseUrl) => {
         const result = await new Promise((done, reject) => {
           const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "--case"], {
-            env: { ...process.env, PATH: join(workspace, "empty-path"),
+            env: { ...process.env, PATH: join(workspace, "empty-path"), TNY_PYTHON: hostPython,
               TNY_NATIVE_PACKAGE_DIR: "", TNY_TEST_STAGE: stage, TNY_TEST_WORKSPACE: workspace,
               TNY_TEST_CASE: kind, TNY_TEST_WIRE: wire, TNY_TEST_BASE_URL: baseUrl },
             cwd: workspace, stdio: ["ignore", "pipe", "pipe"],

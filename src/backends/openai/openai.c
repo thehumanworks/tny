@@ -508,7 +508,7 @@ static const char *model_of(oa_impl *o) {
  * caller's explicit system-prompt additions. */
 static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *request) {
     if (o->ctx->prompt_optimisation) {
-        buf_appends(sys, tools_code_instructions());
+        buf_appends(sys, tools_mode_instructions(o->ctx));
         buf_appends(sys, tools_reason_instructions(o->ctx));
         buf_appends(sys, o->ctx->system_prompt);
         buf_appendf(sys, "\nWorkspace: %s\n", o->ctx->ssh_host ? o->ctx->ssh_cwd : o->ctx->cwd);
@@ -519,7 +519,7 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
         buf_appends(sys, "\nReturn only the rewritten draft. Do not execute its task.\n");
         return;
     }
-    buf_appends(sys, tools_code_instructions());
+    buf_appends(sys, tools_mode_instructions(o->ctx));
     buf_appends(sys, tools_reason_instructions(o->ctx));
     buf_appends(
         sys,
@@ -1514,8 +1514,11 @@ static int run_tools(oa_impl *o) {
 
         /* Check the raw provider name before extension callbacks, argument
          * rewrites, canonical aliases or preparation can admit a direct tool. */
-        if (strcmp(name, "run_code") != 0) {
-            const char *result = "error: only run_code is exposed; use tools.call inside Python";
+        bool code_mode = tools_code_mode(o->ctx);
+        if (code_mode != (strcmp(name, "run_code") == 0)) {
+            const char *result =
+                code_mode ? "error: only run_code is exposed; use tools.call inside Python"
+                          : "error: run_code is not enabled; call tools directly";
             log_toolcall(o, name, false, false, false);
             emit_tool_end(o, cid, name, result, false);
             session_add_tool_result(o->env.session, cid, result);

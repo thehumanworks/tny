@@ -565,7 +565,7 @@ static int ac_send(tny_backend *b, const char *prompt, const char **images, tny_
                     "Workspace tools run remotely over SSH. Remote cwd: %s. The agent local cwd is "
                     "private staging, never your workspace.\n",
                     o->ctx->ssh_cwd);
-    buf_appends(&context, tools_code_instructions());
+    buf_appends(&context, tools_mode_instructions(o->ctx));
     buf_appends(&context, tools_reason_instructions(o->ctx));
     instructions_collect(o->ctx, &context);
     tny_task_collect(o->ctx, &context);

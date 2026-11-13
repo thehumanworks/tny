@@ -5,11 +5,8 @@
   lib,
   stdenv,
   cacert,
-  fetchurl,
-  linkFarm,
   makeBinaryWrapper,
   openssl,
-  perl,
   python3,
   tini,
 
@@ -20,8 +17,8 @@
   #   pkgs.tny.override { version = "0.2.1"; }
   version ? "0.0.0-unknown",
 
-  # tny execs `python3` from PATH for helper modules and reads the system
-  # CA bundle for TLS. Wrapping supplies both; set false for an unwrapped
+  # tny execs `python3` from PATH for code cells, tool extensions and helper
+  # modules (ADR 0222), and reads the system CA bundle for TLS. Wrapping supplies both; set false for an unwrapped
   # binary that inherits the caller's environment untouched.
   wrapRuntime ? true,
 }:
@@ -29,16 +26,13 @@
 let
   sources = import ./source.nix { inherit lib; };
   src = sources.build;
-  cpythonSource = import ./cpython-source.nix { inherit lib fetchurl; };
-  cpythonDeps = import ./cpython-deps.nix { inherit lib fetchurl linkFarm; };
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "tny";
   inherit version src;
 
   strictDeps = true;
-  # perl runs OpenSSL's Configure for the embedded runtime (ADR 0180).
-  nativeBuildInputs = [ perl ] ++ lib.optionals wrapRuntime [ makeBinaryWrapper ];
+  nativeBuildInputs = lib.optionals wrapRuntime [ makeBinaryWrapper ];
   nativeInstallCheckInputs = lib.optionals stdenv.hostPlatform.isLinux [
     python3
     openssl.bin
@@ -72,11 +66,6 @@ stdenv.mkDerivation (finalAttrs: {
     "CXX=${stdenv.cc.targetPrefix}c++"
     "TNY_VERSION=${finalAttrs.version}"
     "TNY_SHELL_PATH=${stdenv.shell}"
-    # Code cells embed the pinned static CPython and its pinned libraries;
-    # the sandbox has no network.
-    "CPYTHON_TARBALL=${cpythonSource}"
-    "CPYTHON_DEPS_DIR=${cpythonDeps}"
-    "CPYTHON_FETCH=0"
   ];
 
   postFixup = lib.optionalString wrapRuntime ''
@@ -131,8 +120,8 @@ stdenv.mkDerivation (finalAttrs: {
       is required for inference or native subscription login/refresh.
     '';
     homepage = "https://github.com/thehumanworks/tny";
-    # tny itself is MIT; the embedded CPython and vendored libraries keep
-    # their own licenses, installed under share/doc/tny (THIRD_PARTY_NOTICES.md).
+    # tny itself is MIT; vendored libraries keep their own licenses,
+    # installed under share/doc/tny (THIRD_PARTY_NOTICES.md).
     license = lib.licenses.mit;
     mainProgram = "tny";
     platforms = lib.platforms.linux ++ lib.platforms.darwin;
