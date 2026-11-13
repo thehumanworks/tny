@@ -13,7 +13,7 @@ files in this directory are the complete record.
 | [0167](0167-workspace-dashboard-navigation.md) | Current-workspace-first session sections and fuzzy directory filtering |
 | [0166](0166-global-sessions-and-immediate-backgrounding.md) | Fresh native runners, immediate background detachment and a dashboard of all saved workspaces |
 | [0165](0165-tnyjev-decision-engine.md) | Isolated typed tnyjev decision client (removed by 0221) |
-| [0157](0157-purposeful-file-defined-swarms.md) | Strict versioned swarm files compile bounded nesting into one durable team with persisted provenance |
+| [0157](0157-purposeful-file-defined-swarms.md) | Superseded by 0221. Strict versioned swarm files compile bounded nesting into one durable team with persisted provenance |
 | [0150](0150-agent-first-harness-and-measured-footprint.md) | Agent-first harness: effective context, no binary-size ceiling, no competitor-size target |
 | [0136](0136-terminal-background-completion.md) | Owned background terminal completion, bounded observation and no PID polling |
 | [0001](0001-run-all-agents-in-yolo-mode.md) | All agents run in yolo mode by default |
@@ -148,9 +148,9 @@ files in this directory are the complete record.
 - [0143 — Durable DAG execution over existing jobs](0143-durable-dag-over-jobs.md)
 - [0144 — Lazy, selective workflow context](0144-lazy-selective-workflow-context.md)
 - [0145 — Managed task workspaces with explicit integration](0145-managed-task-workspaces.md)
-- [0146 — Bounded durable collaboration mailboxes](0146-durable-team-mailbox.md)
+- [0146 — Bounded durable collaboration mailboxes](0146-durable-team-mailbox.md) (superseded by 0221)
 - [0147 — Shared launch admission](0147-shared-admission.md)
-- [0148 — Thin asynchronous team controls](0148-team-control-over-jobs.md)
+- [0148 — Thin asynchronous team controls](0148-team-control-over-jobs.md) (superseded by 0221)
 - [0149 — Native team boundaries and safe delivery](0149-native-team-boundaries.md)
 - [0150 — Agent-first harness and measured footprint](0150-agent-first-harness-and-measured-footprint.md)
 - [0151 — Actionable exact-edit failures](0151-actionable-exact-edit-failures.md)
@@ -166,13 +166,13 @@ Earlier records above are historical; the new ADR lists the affected decisions.
 - [0153: Environment keys, OAuth stores and atomic provider selection](0153-environment-keys-and-oauth-credentials.md)
 - [0154 — Agents session inspection and continuation](0154-agents-session-inspection-and-continuation.md) — proposed: attach when available, otherwise inspect read-only; explicit ownership and `/continue` for saved-checkpoint recovery; preserves ADR 0104.
 
-- [0157: Purposeful file-defined swarms](0157-purposeful-file-defined-swarms.md) — required coordinators, bounded nested definitions and one durable runtime.
-- [0158: Capability-aligned purposeful participant context](0158-purposeful-capability-surface.md) — readonly reviewer tool surface and evidence-based evaluation.
+- [0157: Purposeful file-defined swarms](0157-purposeful-file-defined-swarms.md) (superseded by 0221) — required coordinators, bounded nested definitions and one durable runtime.
+- [0158: Capability-aligned purposeful participant context](0158-purposeful-capability-surface.md) (superseded by 0221) — readonly reviewer tool surface and evidence-based evaluation.
 - [0159: Yolo and writable defaults for every agent](0159-yolo-agent-defaults.md) — writable team/swarm defaults, explicit read-only overrides.
 
-- [0160: Swarm contribution contracts](0160-swarm-contribution-contracts.md) — causal readiness, bounded direct evidence and explicit isolated workspaces.
-- [0161: Typed swarm messages](0161-typed-swarm-messages.md) — named recipients and approval-bound durable sends.
-- [0162: Durable swarm review continuity](0162-durable-swarm-review-continuity.md) — immutable review packets, explicit follow-up work, capacity visibility and profile-aligned guidance.
+- [0160: Swarm contribution contracts](0160-swarm-contribution-contracts.md) (superseded by 0221) — causal readiness, bounded direct evidence and explicit isolated workspaces.
+- [0161: Typed swarm messages](0161-typed-swarm-messages.md) (superseded by 0221) — named recipients and approval-bound durable sends.
+- [0162: Durable swarm review continuity](0162-durable-swarm-review-continuity.md) (superseded by 0221) — immutable review packets, explicit follow-up work, capacity visibility and profile-aligned guidance.
 - [0163: Explicit reasoning effort for embedded runtimes](0163-sdk-reasoning-effort.md) — ABI 1.3 `tny_runtime_options_v3`, `reasoning_effort` / `reasoningEffort` in both SDKs.
 
 - [0164: Optional ACP clients with an owning-runtime MCP bridge](0164-optional-acp-clients.md)

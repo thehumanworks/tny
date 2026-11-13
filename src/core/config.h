@@ -133,15 +133,6 @@ typedef struct tny_ctx {
      * credential).  The complete body is persisted alongside metadata. */
     char task_digest[TNY_TASK_DIGEST_HEX_LEN + 1];
     bool task_explicit;
-    int swarm_cap; /* 0 off, -1 lead decides, positive collaborator ceiling */
-    bool swarm_explicit;
-    /* A file-selected swarm is held as validated canonical JSON. The source
-     * path is provenance only: resume/rebind use this snapshot and never
-     * silently reread the path. */
-    char *swarm_definition;
-    char *swarm_source;
-    char swarm_definition_digest[65];
-    int swarm_participants;
 
     /* reasoning effort (all providers). Canonical levels are
      * TNY_EFFORT_LEVELS; other tokens are provider-advertised values passed

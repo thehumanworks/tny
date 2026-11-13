@@ -22,7 +22,7 @@ behavior is in the linked feature contract; ADRs explain decisions when needed.
 | Run/cancel a code cell | `execution*.c`, `code_runtime.c`, `util/execution_*.c` | `test_execution_code_mode.py`, `test_terminal_cancel.py` |
 | Resume/crash recovery | `session.c`, `checkpoint.cpp`, `runner.cpp` | `runner_suite`, session/checkpoint fixtures |
 | Durable job records and transactions | `core/jobs_record.cpp`, private `jobs_record.hpp` | `make test-runner-ownership test-runner-mutation`; job corruption fixtures |
-| Durable background orchestration | `core/jobs.cpp`, `team_*.c`, `util/jobs_host.c` | job/team integration fixtures |
+| Durable background orchestration | `core/jobs.cpp`, `util/jobs_host.c` | job integration fixtures |
 | Shell DAG scheduling | `shell/tny-workflows.sh`, [workflows](workflows.md) | `make test-shell-workflows` (Bash and Zsh) |
 | CLI / TUI presentation | `src/cli/`, `src/tui/` | CLI JSON/help fixtures, PTY tests |
 | Public embedding | `include/tny/tny.h`, `src/lib/`, `sdk/` | ABI/conformance/SDK gates |

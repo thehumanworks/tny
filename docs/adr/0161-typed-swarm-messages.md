@@ -1,6 +1,6 @@
 # ADR 0161: typed named messages adapt the durable team mailbox
 
-- Status: accepted
+- Status: Superseded by [ADR 0221](0221-remove-unproven-features.md)
 - Date: 2026-09-20
 
 ## Context

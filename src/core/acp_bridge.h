@@ -11,8 +11,6 @@ void tny_acp_bridge_bind(tny_acp_bridge *b, const tools_env *env, tny_openai_con
                          void *ud);
 const char *tny_acp_bridge_servers_json(const tny_acp_bridge *b);
 void tny_acp_bridge_begin_turn(tny_acp_bridge *b, tny_backend_event_cb cb, void *ud);
-int tny_acp_bridge_prepare_prompt(tny_acp_bridge *b, buf_t *context, char *err, size_t len);
-int tny_acp_bridge_ack_context(tny_acp_bridge *b);
 void tny_acp_bridge_end_turn(tny_acp_bridge *b);
 /* OOM/teardown: release pending resources, no allocation, hooks, or protocol I/O. */
 void tny_acp_bridge_abort(tny_acp_bridge *b);

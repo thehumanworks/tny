@@ -13,7 +13,6 @@
 #define TNY_JOBS_H
 
 #include "core/config.h"
-#include "core/swarm_manifest.h"
 #include "util/util.h"
 
 #define TNY_JOBS_SCHEMA_VERSION      1
@@ -102,8 +101,6 @@ char *tny_jobs_detail(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, char **err
  * short safe message; no provider body, credential or child stderr.
  * DAG cancel requires args.expected_attempt, compared under the same state
  * transaction as the flag write. Ordinary batches retain unfenced cancellation.
- * Inherited team members must authenticate their current item attempt and are
- * refused unsupported legacy mutations; a supplied target ID grants no authority.
  * DAG retry fences the secret-safe execution scope and any soft token policy. */
 int tny_jobs_run(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *out, char *err,
                  size_t errlen);
@@ -119,9 +116,8 @@ int tny_jobs_run_cancel(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *o
  * submit JSON: dag:true and per-item depends_on:[stable item indices].
  * DAG workspace policies prepare through task_workspace outside state.lock;
  * only the existing jobs supervisor owns execution. Opt-in root admission
- * enrolls that same item attempt, never a second execution authority. Child
- * membership bearers travel only in owned environment storage; job records
- * contain the SHA256 verifier. max_steps remains an inherited launch ceiling.
+ * enrolls that same item attempt, never a second execution authority.
+ * max_steps remains an inherited launch ceiling.
  * DAG item.provider resolves a bounded native profile into an owned private
  * snapshot before execution state. Status exposes public per-item selectors;
  * retry checks all per-item scopes, including carried successes. Explicit
@@ -131,43 +127,15 @@ int tny_jobs_run_context(tny_ctx *ctx, tny_jobs_op op, yyjson_val *args, buf_t *
                          size_t errlen, bool (*cancelled)(void *), void *cancel_ud,
                          const char *parent_session);
 
-/* Purposeful definitions enter jobs only through this compiler-owned seam.
- * Public request JSON cannot confer this authority. The immutable manifest is
- * checked against every ordered item and coordinator edge before submission.
- * activation_id is a persisted nonce from the parent session and is copied to
- * job.json so an interrupted caller can discover exactly its own submission. */
-char *tny_jobs_swarm_detail(tny_ctx *ctx, yyjson_val *args, const tny_swarm_manifest *manifest,
-                            const char *definition_sha256, char **error);
-int tny_jobs_swarm_submit(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen,
-                          bool (*cancelled)(void *), void *cancel_ud, const char *parent_session,
-                          const char *activation_id, const tny_swarm_manifest *manifest,
-                          const char *definition_sha256);
-/* 1: exactly one valid matching run copied to run_id; 0: no record exists and
- * retry with the same activation is safe; -1: ambiguous or invalid state. */
-int tny_jobs_swarm_recover(tny_ctx *ctx, const char *parent_session, const char *activation_id,
-                           const tny_swarm_manifest *manifest, const char *definition_sha256,
-                           int admission_cap, char run_id[TNY_JOBS_ID_LEN + 1], char *err,
-                           size_t errlen);
-bool tny_jobs_swarm_validate_run(tny_ctx *ctx, const char *run_id, const char *parent_session,
-                                 const char *activation_id, const tny_swarm_manifest *manifest,
-                                 const char *definition_sha256, int admission_cap, char *err,
-                                 size_t errlen);
-
 /* The hidden supervisor entry point: `tny jobs _worker <id>` with the bounded
  * payload on stdin, the acknowledgment pipe on stdout and the live owner lock
  * on descriptor 3. Returns the process exit code. */
 int tny_jobs_worker_main(tny_ctx *ctx, const char *id, int payload_fd, int ack_fd, int owner_fd);
-/* Dedicated team adapter: validates the private inherited member capability,
- * exact own item and attempt. Never permits sibling/foreign-run mutation. The
- * actual cancel write retains the ordinary transaction's attempt fence. */
-int tny_jobs_cancel_member(tny_ctx *ctx, yyjson_val *args, buf_t *out, char *err, size_t errlen);
 
 /* False in runtimes that cannot own a child process (wasm). Execution
  * operations refuse before any file or provider side effect; reading existing
  * records stays available and never claims process ownership. */
 bool tny_jobs_execution_supported(void);
-/* Refuse mode adoption over pre-existing owned work or uncertain cleanup. */
-bool tny_jobs_swarm_transition_safe(tny_ctx *ctx, const char *session);
 
 /* 32 lowercase hex, no path separators. */
 bool tny_jobs_valid_id(const char *id);

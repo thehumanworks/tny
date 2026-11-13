@@ -159,9 +159,7 @@ static void same(const tny_ctx *c, yyjson_doc *expected) {
 static void complete_schema(tny_ctx *c) {
     yyjson_doc *d = snapshot(c, false);
     yyjson_val *r = yyjson_doc_get_root(d);
-    /* Legacy contexts omit the two nullable definition strings but retain the
-     * explicit empty digest and zero participant count. */
-    REQUIRE(yyjson_obj_size(r) == 72);
+    REQUIRE(yyjson_obj_size(r) == 68);
     REQUIRE(yyjson_is_arr(jget(r, "agent_argv")) && yyjson_arr_size(jget(r, "agent_argv")) == 0);
     REQUIRE(yyjson_is_bool(jget(r, "agent_from_profile")) &&
             yyjson_get_bool(jget(r, "agent_from_profile")) == c->agent_from_profile);
@@ -169,15 +167,7 @@ static void complete_schema(tny_ctx *c) {
     REQUIRE(yyjson_is_bool(jget(r, "acp_require_tools_authority")) &&
             yyjson_get_bool(jget(r, "acp_require_tools_authority")) ==
                 c->acp_require_tools_authority);
-    REQUIRE(yyjson_is_bool(jget(r, "swarm_explicit")) &&
-            yyjson_get_bool(jget(r, "swarm_explicit")) == c->swarm_explicit);
-    REQUIRE(yyjson_is_int(jget(r, "swarm_cap")) &&
-            yyjson_get_int(jget(r, "swarm_cap")) == c->swarm_cap);
-    REQUIRE(!jget(r, "swarm_definition"));
-    REQUIRE(!jget(r, "swarm_source"));
-    REQUIRE(jget_str(r, "swarm_definition_digest") && !*jget_str(r, "swarm_definition_digest"));
-    REQUIRE(yyjson_is_int(jget(r, "swarm_participants")) &&
-            yyjson_get_int(jget(r, "swarm_participants")) == 0);
+    REQUIRE(!jget(r, "swarm_cap")); /* purposeful swarms were removed (ADR 0221) */
     REQUIRE(jget_str(r, "cwd") && !strcmp(jget_str(r, "cwd"), c->cwd));
     REQUIRE(jget_str(r, "provider_name") &&
             !strcmp(jget_str(r, "provider_name"), c->provider_name));
@@ -303,13 +293,12 @@ static void complete_schema(tny_ctx *c) {
                 c->mcp_import_order[i]);
     yyjson_doc_free(d);
     d = snapshot(c, true);
-    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 63);
+    REQUIRE(yyjson_obj_size(yyjson_doc_get_root(d)) == 57);
     REQUIRE(jget_str(yyjson_doc_get_root(d), "retrieval_state") &&
             !strcmp(jget_str(yyjson_doc_get_root(d), "retrieval_state"), c->retrieval_state));
     REQUIRE(!jget(yyjson_doc_get_root(d), "acp_cleanup_file"));
     REQUIRE(!jget(yyjson_doc_get_root(d), "openai_signin_key"));
-    REQUIRE(yyjson_is_null(jget(yyjson_doc_get_root(d), "swarm_definition")));
-    REQUIRE(yyjson_is_null(jget(yyjson_doc_get_root(d), "swarm_source")));
+    REQUIRE(!jget(yyjson_doc_get_root(d), "swarm_definition"));
     yyjson_doc_free(d);
 }
 static void encoder_lifetime(void) {
@@ -723,49 +712,6 @@ static void bench(void) {
 }
 static void setup(void) { REQUIRE(mkdtemp(fixture_dir)); }
 static void cleanup(void) { REQUIRE(rmdir(fixture_dir) == 0); }
-static void swarm_metadata_ownership(void) {
-    tny_ctx *c = fixture(true);
-    set_string(&c->swarm_definition,
-               "{\"version\":1,\"purpose\":\"Review evidence\","
-               "\"coordinator\":{\"name\":\"lead\",\"purpose\":\"Synthesize\"},"
-               "\"agents\":[{\"name\":\"reviewer\",\"purpose\":\"Inspect\"}],\"swarms\":[]}");
-    set_string(&c->swarm_source, "/fixture/swarm.json");
-    uint8_t digest[32];
-    REQUIRE(sha256((const uint8_t *)c->swarm_definition, strlen(c->swarm_definition), digest));
-    for (size_t i = 0; i < sizeof digest; i++)
-        snprintf(c->swarm_definition_digest + i * 2, 3, "%02x", digest[i]);
-    c->swarm_cap = c->swarm_participants = 1;
-    c->swarm_explicit = true;
-    for (int public_only = 0; public_only <= 1; public_only++) {
-        yyjson_doc *d = snapshot(c, public_only != 0);
-        yyjson_val *r = yyjson_doc_get_root(d);
-        REQUIRE(yyjson_obj_size(r) == (public_only ? 63u : 74u));
-        REQUIRE(jget_str(r, "swarm_definition") &&
-                !strcmp(jget_str(r, "swarm_definition"), c->swarm_definition));
-        REQUIRE(jget_str(r, "swarm_source") &&
-                !strcmp(jget_str(r, "swarm_source"), c->swarm_source));
-        REQUIRE(jget_str(r, "swarm_definition_digest") &&
-                !strcmp(jget_str(r, "swarm_definition_digest"), c->swarm_definition_digest));
-        REQUIRE(yyjson_is_int(jget(r, "swarm_participants")) &&
-                yyjson_get_int(jget(r, "swarm_participants")) == 1);
-        yyjson_doc_free(d);
-    }
-    roundtrip(c);
-    yyjson_doc *d = snapshot(c, false);
-    invalid(d, "swarm_definition", "null");
-    invalid(d, "swarm_source", "null");
-    invalid(d, "swarm_definition_digest", "\"short\"");
-    invalid(d, "swarm_participants", "0");
-    invalid(d, "swarm_participants", "17");
-    invalid(d, "swarm_participants", "\"1\"");
-    invalid(d, "swarm_cap", "2");
-    yyjson_doc_free(d);
-    for (int operation = 0; operation < 4; operation++) sweep(c, operation);
-    tny_ctx_free(c);
-    puts(
-        "purposeful swarm checkpoint metadata: schema, roundtrip, invalid state and faults passed");
-}
-
 static void acp_context_ownership(void) {
     tny_ctx *c = fixture(false);
     c->backend = TNY_BK_ACP;
@@ -817,7 +763,6 @@ int main(int argc, char **argv) {
     checkpoint_retry_after_settlement();
     complete_schema(full);
     acp_context_ownership();
-    swarm_metadata_ownership();
     backend_bounds(full);
     encoder_lifetime();
     roundtrip(full);

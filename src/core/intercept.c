@@ -9,8 +9,6 @@
 #include "core/tools_image.h"
 #include "core/tools_jobs.h"
 #include "core/tools_workspace.h"
-#include "core/tools_team.h"
-#include "core/team_runtime.h"
 #include "core/edit.h"
 #include "core/shellwords.h"
 #include "mcp/mcp.h"
@@ -578,37 +576,6 @@ static tny_intercept *parse_ask_user(char **argv, int argc, int i, bool json,
     return ic_label(ic, "tny ask-user");
 }
 
-/* `tny jobs …` typed into the terminal becomes the typed job tool it stands
- * for: the same argv grammar, the same request object, the same exact
- * permission identity. A command this parser cannot classify is refused
- * rather than handed to the shell, so the classifier can never become a way
- * around the job permission gate (docs/adr/0093). */
-static tny_intercept *parse_team(tools_env *env, char **argv, int argc, int i,
-                                 const buf_t *payload) {
-    char *request = NULL;
-    const char *error = NULL;
-    tny_team_op op = tny_team_parse_argv(argc - i, argv + i, payload ? payload->data : NULL,
-                                         payload ? payload->len : 0, &request, &error);
-    const char *permission = tny_team_permission_tool(op);
-    tny_intercept *ic = ic_new(op == TNY_TEAM_NONE ? TNY_INTERCEPT_REFUSED : TNY_INTERCEPT_TEAM,
-                               permission ? permission : "team_status");
-    if (!ic) {
-        free(request);
-        return NULL;
-    }
-    ic->value = request;
-    ic->action = i < argc ? xstrdup(argv[i]) : NULL;
-    yyjson_doc *doc = request ? jparse(request, strlen(request)) : NULL;
-    char *detail_error = NULL;
-    ic->detail = doc ? tool_team_detail(env, op, yyjson_doc_get_root(doc), &detail_error) : NULL;
-    yyjson_doc_free(doc);
-    if (!ic->detail || !ic->action) {
-        ic->kind = TNY_INTERCEPT_REFUSED;
-        ic->message = detail_error ? detail_error : xstrdup(error ? error : "invalid team request");
-    } else free(detail_error);
-    return ic_label(ic, "tny team");
-}
-
 static tny_intercept *parse_task_workspace(tools_env *env, char **argv, int argc, int i) {
     char *request = NULL;
     bool json = false;
@@ -635,27 +602,11 @@ static tny_intercept *parse_task_workspace(tools_env *env, char **argv, int argc
     return ic_label(ic, "tny task-workspace");
 }
 
-static tny_intercept *parse_mailbox(char **argv, int argc, int i) {
-    char error[320] = "";
-    char *request = tny_team_mailbox_parse_argv(argc - i, argv + i, error, sizeof error);
-    yyjson_doc *doc = request ? jparse(request, strlen(request)) : NULL;
-    yyjson_val *args = doc ? yyjson_doc_get_root(doc) : NULL;
-    const char *permission = tny_team_mailbox_permission(args);
-    tny_intercept *ic = ic_new(request ? TNY_INTERCEPT_MAILBOX : TNY_INTERCEPT_REFUSED,
-                               permission ? permission : "team_inbox");
-    if (ic) {
-        ic->value = request;
-        ic->detail = args ? tny_team_mailbox_detail(args) : NULL;
-        if (!request || !ic->detail) {
-            ic->kind = TNY_INTERCEPT_REFUSED;
-            ic->message = xstrdup(error[0] ? error : "invalid mailbox request");
-        }
-        ic_label(ic, "tny mailbox");
-    } else free(request);
-    yyjson_doc_free(doc);
-    return ic;
-}
-
+/* `tny jobs …` typed into the terminal becomes the typed job tool it stands
+ * for: the same argv grammar, the same request object, the same exact
+ * permission identity. A command this parser cannot classify is refused
+ * rather than handed to the shell, so the classifier can never become a way
+ * around the job permission gate (docs/adr/0093). */
 static tny_intercept *parse_jobs(tools_env *env, char **argv, int argc, int i, bool json,
                                  const buf_t *payload) {
     char *request = NULL;
@@ -774,8 +725,7 @@ static tny_intercept *parse_verb(tools_env *env, const tny_words *w, const buf_t
     if (argv[i][0] == '-') {
         int command = cli_command_index(argc, argv);
         if (command > 0 && command < argc &&
-            (strcmp(argv[command], "jobs") == 0 || strcmp(argv[command], "mailbox") == 0 ||
-             strcmp(argv[command], "task-workspace") == 0 || strcmp(argv[command], "team") == 0)) {
+            (strcmp(argv[command], "jobs") == 0 || strcmp(argv[command], "task-workspace") == 0)) {
             tny_intercept *refused = ic_new(TNY_INTERCEPT_REFUSED, "terminal");
             if (!refused) return NULL;
             refused->message = xstrdup("leading global options are unsupported for jobs inside "
@@ -805,8 +755,6 @@ static tny_intercept *parse_verb(tools_env *env, const tny_words *w, const buf_t
         return parse_image(argv, argc, i, json);
     }
     if (strcmp(verb, "jobs") == 0) return parse_jobs(env, argv, argc, i, json, payload);
-    if (strcmp(verb, "mailbox") == 0) return parse_mailbox(argv, argc, i);
-    if (strcmp(verb, "team") == 0) return parse_team(env, argv, argc, i, payload);
     if (strcmp(verb, "task-workspace") == 0) return parse_task_workspace(env, argv, argc, i);
     if (strcmp(verb, "ask-user") == 0) return parse_ask_user(argv, argc, i, json, payload);
     if (strcmp(verb, "ask") == 0) return parse_ask(argv, argc, i);
@@ -1249,19 +1197,6 @@ char *tny_intercept_execute(tools_env *env, const tny_intercept *ic) {
     if (!env || !ic) return NULL;
     switch (ic->kind) {
     case TNY_INTERCEPT_JOBS: return exec_jobs(env, ic);
-    case TNY_INTERCEPT_TEAM: {
-        buf_t out, err;
-        buf_init(&out);
-        buf_init(&err);
-        char diagnostic[320] = "";
-        yyjson_doc *doc = jparse(ic->value, strlen(ic->value));
-        int rc = doc ? tool_team_run(env, tny_team_op_parse(ic->action), yyjson_doc_get_root(doc),
-                                     &out, diagnostic, sizeof diagnostic)
-                     : 1;
-        yyjson_doc_free(doc);
-        if (rc) buf_appendf(&err, "tny: team: %s\n", diagnostic);
-        return ic_result(env, rc, &out, &err);
-    }
     case TNY_INTERCEPT_TASK_WORKSPACE: {
         buf_t out, err;
         buf_init(&out);
@@ -1281,19 +1216,6 @@ char *tny_intercept_execute(tools_env *env, const tny_intercept *ic) {
             buf_free(&out);
             out = human;
         }
-        return ic_result(env, rc, &out, &err);
-    }
-    case TNY_INTERCEPT_MAILBOX: {
-        buf_t out, err;
-        buf_init(&out);
-        buf_init(&err);
-        char diagnostic[320] = "";
-        yyjson_doc *doc = jparse(ic->value, strlen(ic->value));
-        int rc = doc ? tny_team_mailbox_run(env, yyjson_doc_get_root(doc), false, &out, diagnostic,
-                                            sizeof diagnostic)
-                     : 1;
-        yyjson_doc_free(doc);
-        if (rc) buf_appendf(&err, "tny: mailbox: %s\n", diagnostic);
         return ic_result(env, rc, &out, &err);
     }
     case TNY_INTERCEPT_IMAGE_RENDER: return exec_image_render(env, ic);

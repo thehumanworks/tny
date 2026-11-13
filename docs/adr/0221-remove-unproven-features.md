@@ -77,3 +77,41 @@ and the related tests and docs (about 3.6k lines of `src/`, 7.3k lines of
 tests and SDK code). The prompt text check that optimisation shared with
 dictation moves to `tny_prompt_text_valid` in `core/optimise.c`. The settings
 key `dictation` stays reserved, so old settings files still load.
+
+### Swarms, team control and the team mailbox
+
+Supersedes [ADR 0146](0146-durable-team-mailbox.md),
+[ADR 0148](0148-team-control-over-jobs.md),
+[ADR 0156](0156-collective-swarm-mode.md),
+[ADR 0157](0157-purposeful-file-defined-swarms.md),
+[ADR 0158](0158-purposeful-capability-surface.md),
+[ADR 0160](0160-swarm-contribution-contracts.md),
+[ADR 0161](0161-typed-swarm-messages.md) and
+[ADR 0162](0162-durable-swarm-review-continuity.md). The project's own live
+evaluation of swarm contribution contracts found "no acceptance or speed
+improvement" over a single agent (3 of 3 tasks accepted in both conditions,
+the swarm slower on every task and with more tool errors), and its purposeful
+swarm report advised preferring a single agent for small work. The feature set
+was large and reached into the core: a manifest compiler, a mailbox service,
+team control and a team tool, typed swarm messages, three CLI commands
+(`tny swarm`, `tny team`, `tny mailbox`), the `--swarm` and `--swarm-file`
+flags, `/swarm`, member capability bearers and dependency-evidence prompts in
+`jobs.cpp`, swarm state in the session, checkpoint and execution-server
+projections, and an ACP coordination-context queue that only swarm activation
+and team messages filled. The owner chose to remove it.
+
+Removed: `src/core/swarm*`, `src/core/team_*`, `src/core/tools_team.*`,
+`src/cli/cmd_{swarm,team,mailbox}.c`, the `team_control`, `team_mailbox` and
+`swarm_message` tools and terminal intercepts, the ACP pending-context queue,
+`examples/swarm`, `schemas/swarm.schema.json`, the swarm benchmarks and their
+tests and docs (about 7.1k lines of `src/` and 10.8k lines of tests).
+
+Kept: durable jobs with DAGs, workspace policies (including
+`shared_read_only` and `TNY_TEAM_READ_ONLY`), shared admission, managed task
+workspaces and synchronous subagents. Job records keep the four-field DAG
+definition hash, so existing non-swarm records still verify. Jobs no longer
+issue member capabilities, write `mailbox_capability_sha256`, accept
+`peer_messages`, or report `startup_error_code`. Public checkpoints written
+before this change still recover: their swarm fields are ignored and the
+identity hash keeps an empty slot where the swarm digest was. A checkpoint of a
+session that had an active swarm no longer matches and is refused.

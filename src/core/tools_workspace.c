@@ -1,6 +1,6 @@
 #include "core/tools_workspace.h"
 #include "core/jobs.h"
-#include "core/team_runtime.h"
+#include "core/tools.h"
 #include "util/jobs_host.h"
 #include "util/git.h"
 #include "util/task_workspace.h"
@@ -209,6 +209,19 @@ static void result(buf_t *out, tny_workspace_op op, task_workspace_id id, const 
     }
     buf_appendf(out, ",\"conflict\":%s}\n", same(status, "conflict") ? "true" : "false");
 }
+/* A local operator (no tool actor, not nested) or the recorded parent session
+ * controls a DAG record's workspaces. */
+static bool workspace_record_authority(const tools_env *actor, yyjson_val *root) {
+    if (!jget_bool(root, "dag", false)) return false;
+    if (!actor) {
+        const char *nested = getenv("TNY_NESTED");
+        return !nested || strcmp(nested, "1") != 0;
+    }
+    const char *parent = jget_str(root, "parent_session_id");
+    const char *session = actor->session ? actor->session->id : actor->session_id;
+    return parent && session && strcmp(parent, session) == 0;
+}
+
 static int workspace_run(tny_ctx *ctx, const tools_env *actor, tny_workspace_op op,
                          yyjson_val *args, buf_t *out, char *err, size_t cap) {
     if (err && cap) err[0] = 0;
@@ -267,12 +280,8 @@ static int workspace_run(tny_ctx *ctx, const tools_env *actor, tny_workspace_op 
         !same(text(root, "state"), text(view, "state")) ||
         !same(text(root, "workspace"), text(view, "workspace")))
         goto done;
-    tools_env operator_env = {.ctx = ctx};
-    int authority = tny_team_record_authority(actor ? actor : &operator_env, root, actor == NULL);
-    why = "caller is not the recorded parent/operator or this task's current member";
-    if (authority == -2 ||
-        (authority >= 0 && (op != TNY_WORKSPACE_INSPECT || authority != id.task)))
-        goto done;
+    why = "caller is not the recorded parent session or a local operator";
+    if (!workspace_record_authority(actor, root)) goto done;
     yyjson_val *item = yyjson_arr_get(jget(root, "items"), (size_t)id.task);
     yyjson_val *policy = jget(item, "workspace");
     if (!policy) policy = jget(jget(item, "request"), "workspace");

@@ -218,7 +218,7 @@ static bool server_state(execution_server *s) {
 }
 
 /* Session durability belongs to the owner even when a nested operation must
- * commit context before acknowledging a mailbox/job handoff. */
+ * commit context before acknowledging a job handoff. */
 static int server_save(void *ud) { return server_state(ud) ? 0 : -1; }
 
 static char *server_materialize_transcript(void *ud, const char *handle, size_t *out_len) {

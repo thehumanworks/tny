@@ -34,11 +34,6 @@ void ac_emit_end(ac_impl *o, tny_stop_reason stop) {
     if ((stop == TNY_STOP_DONE || stop == TNY_STOP_INTERRUPTED) &&
         (o->permission_denied || (o->bridge && tny_acp_bridge_permission_blocked(o->bridge))))
         stop = TNY_STOP_DENIED;
-    if (stop == TNY_STOP_DONE && o->bridge && tny_acp_bridge_ack_context(o->bridge) != 0) {
-        const char *message = "acp: could not persist delivered runtime context acknowledgement";
-        ac_emit_text(o, TNY_EV_ERROR, message, strlen(message));
-        stop = TNY_STOP_ERROR;
-    }
     if (o->bridge) {
         if (tny_alloc_settling() || tny_alloc_scope_failed()) tny_acp_bridge_abort(o->bridge);
         else tny_acp_bridge_end_turn(o->bridge);

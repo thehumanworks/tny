@@ -1,7 +1,5 @@
 #include "core/acp_bridge.h"
 #include "lib/custom_tools.h"
-#include "core/swarm.h"
-#include "core/team_runtime.h"
 #include "util/alloc.h"
 #include "net/net.h"
 #include "util/process.h"
@@ -39,7 +37,6 @@ struct tny_acp_bridge {
     char *directory, *path, *servers;
     bool active, stop_requested;
     unsigned long long sequence;
-    size_t forwarded_context;
     bridge_client clients[BRIDGE_CLIENTS];
 };
 
@@ -543,56 +540,6 @@ void tny_acp_bridge_begin_turn(tny_acp_bridge *b, tny_backend_event_cb cb, void 
     b->active = true;
     b->stop_requested = false;
 }
-int tny_acp_bridge_prepare_prompt(tny_acp_bridge *b, buf_t *context, char *err, size_t len) {
-    if (!b || !b->env.session) return -1;
-    b->forwarded_context = 0;
-    if (tny_swarm_activate(&b->env, err, len) != 0 || tny_team_deliver(&b->env, err, len) != 0)
-        return -1;
-    yyjson_mut_val *pending =
-        yyjson_mut_obj_get(yyjson_mut_doc_get_root(b->env.session->doc), "acp_pending_context");
-    size_t i, count, bytes = 0;
-    yyjson_mut_val *value;
-    if (pending && (!yyjson_mut_is_arr(pending) || yyjson_mut_arr_size(pending) > 256)) goto fail;
-    yyjson_mut_arr_foreach(pending, i, count, value) {
-        if (!yyjson_mut_is_str(value) || yyjson_mut_get_len(value) > 1024u * 1024u - bytes)
-            goto fail;
-        bytes += yyjson_mut_get_len(value);
-        buf_appends(context, "\n[Durable tny coordination context]\n");
-        buf_append(context, yyjson_mut_get_str(value), yyjson_mut_get_len(value));
-        buf_appends(context, "\n");
-        if (buf_oom(context)) goto fail;
-        b->forwarded_context++;
-    }
-    return 0;
-fail:
-    snprintf(err, len, "could not prepare bounded ACP coordination context");
-    return -1;
-}
-
-int tny_acp_bridge_ack_context(tny_acp_bridge *b) {
-    if (!b || !b->forwarded_context) return 0;
-    tny_session_state *session = b->env.session;
-    yyjson_mut_val *root = yyjson_mut_doc_get_root(session->doc);
-    yyjson_mut_val *pending = yyjson_mut_obj_get(root, "acp_pending_context");
-    yyjson_mut_val *remaining = yyjson_mut_arr(session->doc);
-    size_t i, count;
-    yyjson_mut_val *value;
-    if (!remaining || yyjson_mut_arr_size(pending) < b->forwarded_context) return -1;
-    yyjson_mut_arr_foreach(pending, i, count, value) {
-        if (i >= b->forwarded_context &&
-            !yyjson_mut_arr_add_strcpy(session->doc, remaining, yyjson_mut_get_str(value)))
-            return -1;
-    }
-    yyjson_mut_val *key = yyjson_mut_strcpy(session->doc, "acp_pending_context");
-    if (!key || !yyjson_mut_obj_put(root, key, remaining)) return -1;
-    if (session_save(session) != 0) {
-        (void)yyjson_mut_obj_put(root, key, pending);
-        return -1;
-    }
-    b->forwarded_context = 0;
-    return 0;
-}
-
 void tny_acp_bridge_end_turn(tny_acp_bridge *b) {
     if (!b) return;
     b->active = false;

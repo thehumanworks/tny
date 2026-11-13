@@ -4,7 +4,6 @@
 #include "backends/openai/openai.h"
 #include "backends/openai/stream_decode.h"
 #include "core/tools.h"
-#include "core/team_runtime.h"
 #include "core/openai_auth.h"
 #include "core/image_service.h"
 #include "backends/openai/request_owner.h"
@@ -13,7 +12,6 @@
 #include "core/instructions.h"
 #include "core/intercept.h"
 #include "core/tasks.h"
-#include "core/swarm.h"
 #include "core/skills.h"
 #include "mcp/mcp.h"
 #include "lib/custom_tools.h"
@@ -523,7 +521,6 @@ static void build_system_prompt(oa_impl *o, buf_t *sys, oa_request_owner *reques
     }
     buf_appends(sys, tools_code_instructions());
     buf_appends(sys, tools_reason_instructions(o->ctx));
-    tny_swarm_policy(o->ctx, sys);
     buf_appends(
         sys,
         "You are an AI assistant working through tny, a terminal agent harness.\n"
@@ -1084,8 +1081,6 @@ request_oom:
 }
 
 static int start_post(oa_impl *o, char *errbuf, size_t errlen) {
-    if (tny_swarm_activate(&o->env, errbuf, errlen) != 0) return -1;
-    if (tny_team_deliver(&o->env, errbuf, errlen) != 0) return -1;
     return start_post_mode(o, errbuf, errlen, false);
 }
 

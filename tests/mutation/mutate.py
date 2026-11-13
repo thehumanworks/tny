@@ -86,13 +86,6 @@ TARGETS = [
         {"== -> !="},
     ),
     (
-        "src/core/swarm_manifest.c",
-        ["parse_group", "tny_swarm_manifest_parse"],
-        r"depth > TNY_SWARM_MANIFEST_MAX_DEPTH|participant_count >= parser->capacity|len > TNY_SWARM_MANIFEST_MAX_BYTES",
-        "tests/integration/test_purposeful_swarm.py",
-        "purposeful-swarm",
-    ),
-    (
         "src/core/tools_fs.c",
         ["t_edit_file"],
         r"while \(cut &&|if \(cut &&|if \(cut < len\)",
@@ -112,20 +105,6 @@ TARGETS = [
         r"task->exit_code == 0|waited != child|owner != TNY_JOBS_OWNER_HELD",
         "tests/integration/test_terminal_background.py",
         "terminal-completion",
-    ),
-    (
-        "src/core/team_runtime.c",
-        ["tny_team_capability_matches"],
-        r"return difference == 0",
-        "tests/integration/test_swarm_delivery.py",
-        "swarm-auth",
-    ),
-    (
-        "src/core/perm.c",
-        ["perm_check"],
-        r"ctx->workspace_read_only &&",
-        "tests/integration/test_swarm_delivery.py",
-        "swarm-auth",
     ),
     (
         "src/cli/cmd_misc.c",

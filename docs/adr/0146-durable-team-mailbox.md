@@ -1,6 +1,6 @@
 # ADR 0146: Bounded durable collaboration mailboxes over job authority
 
-- Status: Proposed / unpublished; mailbox service implemented, public integration pending
+- Status: Superseded by [ADR 0221](0221-remove-unproven-features.md)
 - Date: 2026-09-18
 - Issue: #156 (parent #152; identity/control #153)
 - Contract: [team-mailbox.md](../team-mailbox.md)

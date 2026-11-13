@@ -4,7 +4,7 @@ Native jobs prepare declared isolated workspaces before worker launch and record
 the resolved cwd with the item. Public inspection, integration and cleanup are
 available through `task-workspace`, all-tools native tools and the terminal
 adapter. They share the job's authority and attempt fences; they do not create a
-second scheduler. See [team control](team-control.md).
+second scheduler. See [jobs](jobs.md).
 
 ## Choose a policy explicitly
 
@@ -83,9 +83,8 @@ no-commit merge of that revision. Repository merge drivers still apply.
 A successful response reports `status:"integrated"`, not acceptance. Inspect the
 staged diff. Run a caller-configured check using ordinary terminal in the launch
 checkout, recording command, cwd, exit and output in the parent session. Then
-commit only if explicitly authorized. `team verify` execution is unsupported;
-it refuses and creates no fake evidence. Even a successful manual check does not
-turn the team job's `verification:"unverified"` into an accepted state.
+commit only if explicitly authorized. A successful manual check does not turn the
+job's `verification:"unverified"` into an accepted state.
 
 A conflict returns exit 2 and `status:"conflict"`, with `accepted:false`. The
 launch index and conflict files remain; both worker branches/worktrees remain.
@@ -122,6 +121,4 @@ silently overwriting their work.
 A crash during reservation can leave uncertain metadata, which is preserved and
 refused rather than automatically adopted. Inspect residue before choosing a new
 attempt. `result.json` is a bounded snapshot, not verification evidence or an
-acceptance decision. See the
-[review/implement/manual-check template](../examples/swarm/review-implement.md)
-and [ADR 0145](adr/0145-managed-task-workspaces.md).
+acceptance decision. See [ADR 0145](adr/0145-managed-task-workspaces.md).

@@ -29,8 +29,6 @@
 # Its C ABI capability probes use the existing host compiler, not emsdk.
 # ACP client mocks and test-acp-bridge-deadline use the existing Python stdlib,
 # compiler, and native source/test filesets; no clock or adapter dependency.
-# Collective swarm tests reuse the existing stdlib/PTY/compiler closure;
-# test_collective_{swarm,cap}.py and mailbox helpers are included under tests.
 # `make test` as a derivation: the greatest unit suite under ASan/UBSan, the
 # event-schema and conformance-contract checks, and the fixture-driven
 # integration suite for native HTTP profiles. No live keys, no network (AGENTS.md).
@@ -128,16 +126,10 @@ stdenv.mkDerivation {
     # Codex auth, independent callers, cancellation/refresh and backgrounding.
     # task_workspace_process_suite remains in ordinary/Valgrind unit runs;
     # only macOS leaks excludes that fork-based suite. Nonfork workspace tests
-    # and team_runtime_suite remain in the leak gate. Swarm provider fixtures
-    # need only the declared Git, Python, compiler and existing PTY/process tools.
-    # test_swarm_startup.py uses stdenv's C/C++ drivers, dl on Linux, and existing
-    # local HTTP fixtures for before-POST failures; no additional package is used.
-    # test_admission.py and test_team_mailbox.py compile their real C helpers
+    # remain in the leak gate.
+    # test_admission.py compiles its real C helpers
     # with stdenv's compiler and existing fixtures. Pause/crash/fault tests use
     # stdlib fcntl, signals and subprocesses; no provider or new program is needed.
-    # test_swarm_agents.py also uses stdlib PTYs and the existing jobs fixture;
-    # test_purposeful_swarm.py uses the same stdlib loopback provider and real CLI;
-    # schemas/swarm.schema.json and examples/swarm are source-closure inputs.
     # git/procps below suffice, with no new runtime program or live credential.
     # test_background_agents.py uses stdlib PTYs, fcntl writer probes, owned
     # processes, and local HTTP; test_native_search.py uses split SSE fixtures.

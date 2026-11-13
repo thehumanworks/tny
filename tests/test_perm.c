@@ -467,7 +467,7 @@ TEST perm_workspace_deny_beats_global_allow(void) {
     PASS();
 }
 
-TEST team_read_only_precedes_modes_rules_and_grants(void) {
+TEST read_only_workspace_precedes_modes_rules_and_grants(void) {
     tny_ctx *ctx = ctx_in_mode("{\"permission\":{\"*\":\"allow\"}}", TNY_MODE_YOLO);
     ASSERT(ctx);
     ctx->workspace_read_only = true;
@@ -485,9 +485,7 @@ TEST team_read_only_precedes_modes_rules_and_grants(void) {
         ASSERT_EQ(PERM_ALLOW, perm_check(p, "read_file", "README.md"));
         ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "cat README.md"));
         ASSERT_EQ(PERM_ALLOW, perm_check(p, "terminal", "git status --short"));
-        ASSERT_EQ(PERM_ALLOW, perm_check(p, "team_send", "same-run recipient"));
-        ASSERT_EQ(PERM_ALLOW, perm_check(p, "team_review_read", "historical packet"));
-        ASSERT_EQ(PERM_DENY, perm_check(p, "team_review", "record packet"));
+        ASSERT_EQ(PERM_ALLOW, perm_check(p, "job_status", "run"));
     }
     perm_free(p);
     tny_ctx_free(ctx);
@@ -500,7 +498,7 @@ TEST team_read_only_precedes_modes_rules_and_grants(void) {
 }
 
 SUITE(perm_suite) {
-    RUN_TEST(team_read_only_precedes_modes_rules_and_grants);
+    RUN_TEST(read_only_workspace_precedes_modes_rules_and_grants);
     RUN_TEST(shlex_reads_a_simple_command);
     RUN_TEST(shlex_flags_every_metacharacter);
     RUN_TEST(shlex_flags_env_prefix);

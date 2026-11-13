@@ -35,7 +35,7 @@ The product source is live under `src/` with unit, integration, mutation, and la
   loop; the MCP bridge executes tny tools in the owning runtime. Verified Claude
   uses strict tny-only tooling. Unverified external built-ins are outside these
   guarantees; managed ACP and SSH require the verified adapter (ADR 0164).
-- Permission mode defaults to **yolo** for every provider and agent (`docs/adr/0001`, `docs/adr/0159`). Teams and swarms default to shared writable workspaces. Read-only workspace policies and `ask`/`auto` modes require explicit overrides; never introduce a read-only agent default.
+- Permission mode defaults to **yolo** for every provider and agent (`docs/adr/0001`, `docs/adr/0159`). DAG job items default to shared writable workspaces. Read-only workspace policies and `ask`/`auto` modes require explicit overrides; never introduce a read-only agent default.
 - Decisions are recorded in `docs/adr/`; add a new ADR when you change one.
 - CLI is noninteractive-first: flags, stdin, `--json`, layered `--help` with examples (`docs/cli.md`).
 - TUI is a shell, not an IDE (`docs/tui.md`). No ncurses.

@@ -1,6 +1,6 @@
 # ADR 0148: Thin asynchronous team controls; fail-closed verification gap
 
-Status: accepted control slice; #153 remains partially delivered
+Status: Superseded by [ADR 0221](0221-remove-unproven-features.md)
 
 ## Context and decision
 

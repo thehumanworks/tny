@@ -24,7 +24,6 @@ bool tools_search_can_skip(size_t index, int hits, int limit, size_t last_comple
 struct mcp_client;    /* mcp/mcp.h */
 struct tny_intercept; /* core/intercept.h */
 struct tny_image_plan;
-struct tny_swarm_message_plan;
 struct tny_tool_registration;
 struct custom_tool_pending;
 
@@ -135,7 +134,6 @@ typedef struct {
     tny_image_preview_selection *image_selection;
     /* Exact authenticated endpoint and canonical payload authorized for a
      * typed send. Execution never resolves model arguments a second time. */
-    struct tny_swarm_message_plan *swarm_message_plan;
 } tools_call;
 
 /* Human label of an intercepted call ("tny edit docs/x.md"), or NULL for an
