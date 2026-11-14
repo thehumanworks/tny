@@ -4,6 +4,8 @@
 #include "tny/tny.h"
 #include "core/image_service.h"
 #include "core/optimise.h"
+#include "core/perm.h"
+#include "core/tools.h"
 #include "lib/error.h"
 #include "util/alloc.h"
 
@@ -16,7 +18,7 @@
 #define REQUEST_MAX (256u * 1024u)
 
 enum { JOB_READY, JOB_RUNNING, JOB_DONE };
-enum { GENERATE, EDIT, OPTIMISE, OPERATION_COUNT };
+enum { GENERATE, EDIT, OPTIMISE, LIST_TOOLS, CALL_TOOL, OPERATION_COUNT };
 struct tny_toolkit_job {
     pid_t pid;
     atomic_int state;
@@ -33,7 +35,8 @@ struct tny_toolkit_job {
     bool image_committed;
 };
 
-static const char *const operations[] = {"generate_image", "edit_image", "optimise"};
+static const char *const operations[] = {"generate_image", "edit_image", "optimise", "list_tools",
+                                         "call_tool"};
 
 /* Validate names as well as values. Never print user data in diagnostics. */
 static bool fields(yyjson_val *object, const char *const *names, size_t count) {
@@ -93,6 +96,9 @@ static bool request_valid(tny_toolkit_job *job) {
         "strict_size", "persist_manifest", "from_manifest", "artifact", "images"};
     static const char *const optimise[] = {"text",    "provider", "model",          "base_url",
                                            "api_key", "wire_api", "timeout_seconds"};
+    /* Native tool calls (ADR 0223): the same nested catalog as `tny tool`. */
+    static const char *const list_tools[] = {"permission_mode"};
+    static const char *const call_tool[] = {"name", "arguments", "permission_mode"};
     yyjson_val *root = yyjson_doc_get_root(job->doc);
     if (!fields(root, envelope, 4)) return false;
     yyjson_val *version = jget(root, "version");
@@ -153,6 +159,18 @@ static bool request_valid(tny_toolkit_job *job) {
                string_field(r, "wire_api", 16, false) &&
                (!wire || !strcmp(wire, "chat") || !strcmp(wire, "responses")) &&
                integer_field(r, "timeout_seconds", 86400, false);
+    }
+    case LIST_TOOLS:
+    case CALL_TOOL: {
+        const char *mode = jget_str(r, "permission_mode");
+        if (jget(r, "permission_mode") &&
+            (!mode ||
+             (strcmp(mode, "ask") != 0 && strcmp(mode, "auto") != 0 && strcmp(mode, "yolo") != 0)))
+            return false;
+        if (job->operation == LIST_TOOLS) return fields(r, list_tools, 1);
+        yyjson_val *arguments = jget(r, "arguments");
+        return fields(r, call_tool, 3) && string_field(r, "name", 128, true) &&
+               (!arguments || yyjson_is_obj(arguments));
     }
     default: return false;
     }
@@ -228,6 +246,81 @@ static int run_image(tny_toolkit_job *job, tny_ctx *ctx, yyjson_val *r, char *er
     return rc;
 }
 
+static tny_perm_mode perm_mode_named(const char *s, tny_perm_mode fallback) {
+    if (!s) return fallback;
+    if (!strcmp(s, "ask")) return TNY_MODE_ASK;
+    if (!strcmp(s, "auto")) return TNY_MODE_AUTO;
+    if (!strcmp(s, "yolo")) return TNY_MODE_YOLO;
+    return fallback;
+}
+
+/* One embedded nested-tool operation. The context keeps library_mode, so
+ * process-owning and ambient-state tools (terminal, subagent, jobs, memory,
+ * skills, MCP, extensions) stay out of the catalog exactly as for embedded
+ * runtimes (ADR 0215); turn-bound tools are hidden and refused as in
+ * `tny tool` (ADR 0217). An explicit request mode wins, then settings, then
+ * yolo: the caller naming a tool is the decision a reviewer would make. */
+static int run_tool(tny_toolkit_job *job, tny_ctx *ctx, yyjson_val *r) {
+    yyjson_val *sroot = ctx->settings ? yyjson_doc_get_root(ctx->settings) : NULL;
+    const char *configured = jget_str(jget(jget(sroot, "workspaces"), ctx->cwd), "permission_mode");
+    if (!configured) configured = jget_str(sroot, "permission_mode");
+    ctx->perm_mode =
+        perm_mode_named(jget_str(r, "permission_mode"), perm_mode_named(configured, TNY_MODE_YOLO));
+    perm_engine *perm = perm_new(ctx);
+    if (!perm) return 1;
+    tools_env env = {.ctx = ctx, .perm = perm, .cancelled = stopped, .cancelled_ud = job};
+    int rc = 1;
+    if (job->operation == LIST_TOOLS) {
+        char *catalog = tools_catalog_json(&env);
+        yyjson_doc *doc = catalog ? jparse(catalog, strlen(catalog)) : NULL;
+        yyjson_val *root = doc ? yyjson_doc_get_root(doc) : NULL;
+        if (root && yyjson_is_arr(root)) {
+            buf_appends(&job->result, "{\"tools\":[");
+            size_t idx, max, n = 0;
+            yyjson_val *item;
+            yyjson_arr_foreach(root, idx, max, item) {
+                yyjson_val *fn = jget(item, "function");
+                if (tools_turn_bound(jget_str(fn, "name"))) continue;
+                char *text = jwrite_val(fn);
+                if (!text) {
+                    job->result.oom = true;
+                    break;
+                }
+                if (n++) buf_appends(&job->result, ",");
+                buf_appends(&job->result, text);
+                free(text);
+            }
+            buf_appends(&job->result, "]}");
+            rc = 0;
+        }
+        yyjson_doc_free(doc);
+        free(catalog);
+    } else {
+        const char *name = jget_str(r, "name");
+        yyjson_val *arguments = jget(r, "arguments");
+        char *args = arguments ? jwrite_val(arguments) : xstrdup("{}");
+        char *result = !args ? NULL
+                       : tools_turn_bound(name)
+                           ? tool_err("%s belongs to a conversation turn", name)
+                           : tools_execute(&env, name, args);
+        if (result) {
+            bool ok = !str_starts(result, "error:");
+            buf_appends(&job->result, "{\"name\":");
+            jescape(&job->result, name);
+            buf_appendf(&job->result, ",\"ok\":%s,\"result\":", ok ? "true" : "false");
+            jescape(&job->result, result);
+            buf_appends(&job->result, "}");
+            /* A call stopped part way is a cancellation, not a tool error. */
+            rc = !ok && stopped(job) ? 130 : 0;
+        }
+        free(result);
+        free(args);
+    }
+    tools_discard_pending_images(&env);
+    perm_free(perm);
+    return rc;
+}
+
 static int32_t run(tny_toolkit_job *job) {
     if (stopped(job)) return TNY_STATUS_CANCELLED;
     /* Public embedding has no matching execution-server launcher. Re-execing
@@ -256,6 +349,8 @@ static int32_t run(tny_toolkit_job *job) {
         switch (job->operation) {
         case GENERATE:
         case EDIT: rc = run_image(job, ctx, r, err, sizeof err); break;
+        case LIST_TOOLS:
+        case CALL_TOOL: rc = run_tool(job, ctx, r); break;
         case OPTIMISE: break; /* rejected before creating a context */
         }
     }

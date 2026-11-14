@@ -126,6 +126,25 @@ export interface OptimisationResult {
   readonly model: string;
 }
 
+/** Embedded native tool calls (ADR 0223). */
+export interface ToolCallOptions {
+  signal?: AbortSignal;
+  /** Explicit mode; otherwise settings `permission_mode`, then yolo. */
+  permissionMode?: "ask" | "auto" | "yolo";
+}
+export interface ToolSpec {
+  readonly name: string;
+  readonly description: string;
+  /** JSON Schema of the arguments object. */
+  readonly parameters: Readonly<Record<string, unknown>>;
+}
+export interface ToolCallResult {
+  readonly name: string;
+  /** False for a tool-level error; `text` then starts with `error:`. */
+  readonly ok: boolean;
+  readonly text: string;
+}
+
 /** libtny ABI 1.2+. Each call owns a cancellable native job; no Runtime,
  * Session, CLI executable, or close/disposal is required. Paths resolve
  * against the captured workspace. Abort waits for native cleanup.
@@ -136,5 +155,8 @@ export class Toolkit {
   editImage(prompt: string | null | undefined, options: ImageEditOptions): Promise<ImageResult>;
   optimise(text: string, options?: OptimisationOptions): Promise<OptimisationResult>;
   optimize(text: string, options?: OptimisationOptions): Promise<OptimisationResult>;
+  listTools(options?: ToolCallOptions): Promise<readonly ToolSpec[]>;
+  callTool(name: string, args?: Record<string, unknown> | null,
+           options?: ToolCallOptions): Promise<ToolCallResult>;
   toJSON(): { workspace: string };
 }

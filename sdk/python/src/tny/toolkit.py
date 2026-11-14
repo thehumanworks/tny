@@ -1,11 +1,11 @@
-"""Standalone native image and prompt services (libtny ABI 1.2+)."""
+"""Standalone native image, prompt and tool services (libtny ABI 1.2+)."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -18,6 +18,7 @@ ImageQuality = Literal["auto", "low", "medium", "high", "xhigh", "max"]
 ImageSizeStatus = Literal["auto", "match", "mismatch", "unverifiable", "unsupported"]
 ImageOperation = Literal["generate", "edit"]
 PathLike = str | os.PathLike[str]
+PermissionModeName = Literal["ask", "auto", "yolo"]
 Text = str | bytes
 
 # The exact codes libtny assigns locally for --strict-size; a provider string
@@ -258,6 +259,75 @@ class OptimisationResult:
     model: str
 
 
+@dataclass(frozen=True, slots=True)
+class ToolSpec:
+    """One native tool from the embedded catalog (ADR 0223)."""
+
+    name: str
+    description: str
+    parameters: Mapping[str, Any] = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallResult:
+    """Text a native tool returned, exactly as the model would see it.
+
+    ``ok`` is false for a tool-level error (a missing file, a refused
+    permission, an unavailable tool); ``text`` then starts with ``error:``.
+    Such results are data, not exceptions: :class:`TnyError` is raised only
+    for invalid requests, cancellation and library failures.
+    """
+
+    name: str
+    ok: bool
+    text: str
+
+
+def _tool_spec(item: object) -> ToolSpec:
+    if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+        raise ProtocolError(-10)
+    description, parameters = item.get("description"), item.get("parameters")
+    return ToolSpec(
+        item["name"],
+        description if isinstance(description, str) else "",
+        parameters if isinstance(parameters, dict) else {},
+    )
+
+
+def _tool_specs(result: dict[str, Any]) -> tuple[ToolSpec, ...]:
+    tools = result.get("tools")
+    if not isinstance(tools, list):
+        raise ProtocolError(-10)
+    return tuple(_tool_spec(item) for item in tools)
+
+
+def _tool_result(result: dict[str, Any]) -> ToolCallResult:
+    name, ok, text = result.get("name"), result.get("ok"), result.get("result")
+    if (
+        not isinstance(name, str)
+        or not isinstance(ok, bool)
+        or not isinstance(text, str)
+    ):
+        raise ProtocolError(-10)
+    return ToolCallResult(name, ok, text)
+
+
+def _tool_request(
+    name: str,
+    arguments: Mapping[str, object] | None,
+    permission_mode: PermissionModeName | None,
+) -> dict[str, object]:
+    if not isinstance(name, str) or (
+        arguments is not None and not isinstance(arguments, Mapping)
+    ):
+        raise InvalidArgumentError(-1)
+    return {
+        "name": name,
+        "arguments": dict(arguments) if arguments is not None else None,
+        "permission_mode": permission_mode,
+    }
+
+
 def _value(value: object) -> object:
     if isinstance(value, bytes):
         return value.decode("utf-8")
@@ -491,6 +561,29 @@ class Toolkit:
             )
         )
 
+    def list_tools(
+        self, *, cancellation: CancellationToken | None = None
+    ) -> tuple[ToolSpec, ...]:
+        """Native tools callable from this embedded toolkit (ADR 0223)."""
+        return _tool_specs(self._run("list_tools", {}, cancellation))
+
+    def call_tool(
+        self,
+        name: str,
+        arguments: Mapping[str, object] | None = None,
+        *,
+        permission_mode: PermissionModeName | None = None,
+        cancellation: CancellationToken | None = None,
+    ) -> ToolCallResult:
+        """Run one native tool in the toolkit workspace and return its text."""
+        return _tool_result(
+            self._run(
+                "call_tool",
+                _tool_request(name, arguments, permission_mode),
+                cancellation,
+            )
+        )
+
     optimize = optimise
 
 
@@ -639,3 +732,24 @@ class AsyncToolkit:
         )
 
     optimize = optimise
+
+    async def list_tools(
+        self, *, cancellation: CancellationToken | None = None
+    ) -> tuple[ToolSpec, ...]:
+        return _tool_specs(await self._run("list_tools", {}, cancellation))
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: Mapping[str, object] | None = None,
+        *,
+        permission_mode: PermissionModeName | None = None,
+        cancellation: CancellationToken | None = None,
+    ) -> ToolCallResult:
+        return _tool_result(
+            await self._run(
+                "call_tool",
+                _tool_request(name, arguments, permission_mode),
+                cancellation,
+            )
+        )

@@ -68,15 +68,6 @@ static yyjson_val *catalog_find(yyjson_val *root, const char *name) {
     return NULL;
 }
 
-/* Tools whose effect or input belongs to a live conversation turn. */
-static const char *turn_bound(const char *name) {
-    static const char *const names[] = {
-        "read_image", "vision", "read_tool_result", "search_transcript", "ask_user_question", NULL};
-    for (size_t i = 0; name && names[i]; i++)
-        if (strcmp(name, names[i]) == 0) return names[i];
-    return NULL;
-}
-
 static int tool_list(tools_env *env, bool json) {
     char *catalog = tools_catalog_json(env);
     yyjson_doc *doc = catalog ? jparse(catalog, strlen(catalog)) : NULL;
@@ -96,7 +87,7 @@ static int tool_list(tools_env *env, bool json) {
         bool ok = arr != NULL;
         yyjson_arr_foreach(root, idx, max, item) {
             const char *name = jget_str(jget(item, "function"), "name");
-            if (!ok || !name || turn_bound(name)) continue;
+            if (!ok || !name || tools_turn_bound(name)) continue;
             ok = yyjson_mut_arr_add_val(arr, yyjson_val_mut_copy(mut, item));
         }
         if (ok) yyjson_mut_doc_set_root(mut, arr);
@@ -117,7 +108,7 @@ static int tool_list(tools_env *env, bool json) {
             yyjson_val *fn = jget(item, "function");
             const char *name = jget_str(fn, "name");
             const char *desc = jget_str(fn, "description");
-            if (!name || turn_bound(name)) continue;
+            if (!name || tools_turn_bound(name)) continue;
             /* First sentence: up to ". " or a newline, bounded for a terminal. */
             size_t dl = desc ? strcspn(desc, "\n") : 0;
             for (const char *stop = desc ? strstr(desc, ". ") : NULL; stop;
@@ -141,7 +132,8 @@ static int tool_list(tools_env *env, bool json) {
 static int tool_describe(tools_env *env, const char *name) {
     char *catalog = tools_catalog_json(env);
     yyjson_doc *doc = catalog ? jparse(catalog, strlen(catalog)) : NULL;
-    yyjson_val *fn = doc && !turn_bound(name) ? catalog_find(yyjson_doc_get_root(doc), name) : NULL;
+    yyjson_val *fn =
+        doc && !tools_turn_bound(name) ? catalog_find(yyjson_doc_get_root(doc), name) : NULL;
     char *text = fn ? jwrite_val(fn) : NULL;
     int rc = 0;
     if (text) {
@@ -158,7 +150,7 @@ static int tool_describe(tools_env *env, const char *name) {
 
 /* Runs one call and prints it. Exit 0 ok, 2 tool error, 130 interrupted. */
 static int tool_run(tools_env *env, const char *name, const char *args, bool json) {
-    char *result = turn_bound(name)
+    char *result = tools_turn_bound(name)
                        ? tool_err("%s belongs to a conversation turn; use it from tny ask or the "
                                   "TUI (images: tny ask --image PATH)",
                                   name)
