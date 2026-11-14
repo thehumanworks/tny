@@ -582,6 +582,14 @@ static char *append_extension_schema(char *base, tools_env *env) {
     return buf_detach(&merged);
 }
 
+bool tools_turn_bound(const char *name) {
+    static const char *const names[] = {
+        "read_image", "vision", "read_tool_result", "search_transcript", "ask_user_question", NULL};
+    for (size_t i = 0; name && names[i]; i++)
+        if (strcmp(name, names[i]) == 0) return true;
+    return false;
+}
+
 char *tools_catalog_json(tools_env *env) {
     if (env && env->ctx &&
         (env->ctx->prompt_optimisation || env->ctx->mcp_disabled || env->ctx->library_mode ||

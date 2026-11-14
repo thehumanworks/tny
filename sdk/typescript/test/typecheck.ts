@@ -112,6 +112,13 @@ async function toolkitMethods(kit: Toolkit, signal: AbortSignal): Promise<string
 }
 void toolkitMethods;
 
+async function toolkitTools(kit: Toolkit, signal: AbortSignal): Promise<string> {
+  const tools = await kit.listTools({ signal });
+  const result = await kit.callTool(tools[0]!.name, { path: "README.md" }, { permissionMode: "ask" });
+  return result.ok ? result.text + tools[0]!.description : "";
+}
+void toolkitTools;
+
 const accountingWorkflow = new Workflow({ runner: async (_task, _prompt, context) => {
   const usage = { type: "usage" as const, kind: 6 as const, schemaVersion: 1,
     sequence: 1n, timestampMs: 0n, provider: "fixture", sessionId: "s", turnId: "t", inputTokens: 7n,

@@ -233,7 +233,8 @@ I/O. Embedded optimisation has no execution-server launcher and no direct
 fallback; no workspace exploration is performed. The method signatures remain
 available for compatibility.
 
-`Toolkit` exposes image generation/editing through libtny ABI 1.2+.
+`Toolkit` exposes image generation/editing and tny's native file, search and
+web tools (`listTools`, `callTool`) through libtny ABI 1.2+.
 It needs no agent runtime, session, or `tny` executable.
 
 ```typescript
@@ -241,6 +242,7 @@ import { Toolkit } from "@nothumanwork/tny";
 
 const kit = new Toolkit({ workspace: "/path/to/project" });
 const image = await kit.generateImage("A small tree", { outputFile: "tree.png" });
+const hits = await kit.callTool("grep_files", { pattern: "TODO" }); // { ok, text }
 ```
 
 Every call accepts an `AbortSignal` and joins native work on cancellation.

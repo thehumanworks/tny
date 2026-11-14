@@ -187,6 +187,52 @@ class ToolkitABI(unittest.TestCase):
         self.create(raw, -1)
         self.assertEqual(self.provider.requests, [])
 
+    def test_tool_operations_validate_and_run_without_provider_io(self):
+        """list_tools / call_tool (ADR 0223): strict schema, data results."""
+        base = self.payload()
+        for request in (
+            {},  # name required
+            {"name": ""},
+            {"name": "read_file", "arguments": []},
+            {"name": "read_file", "arguments": "{}"},
+            {"name": "read_file", "permission_mode": "never"},
+            {"name": "read_file", "provider": "codex"},
+            {"name": "read_file", "unknown": 1},
+        ):
+            with self.subTest(request=request):
+                self.create(dict(base, operation="call_tool", request=request), -1)
+        self.create(dict(base, operation="list_tools", request={"name": "x"}), -1)
+
+        job = self.create(dict(base, operation="list_tools", request={}))
+        self.assertEqual(self.run_job(job, 0), b"")
+        names = [tool["name"] for tool in self.result_json(job)["tools"]]
+        self.assertIn("write_file", names)
+        self.assertNotIn("read_image", names)
+        self.assertNotIn("terminal", names)
+
+        request = {"name": "write_file", "arguments": {"path": "t.txt", "content": "x"}}
+        job = self.create(dict(base, operation="call_tool", request=request))
+        self.assertEqual(self.run_job(job, 0), b"")
+        result = self.result_json(job)
+        self.assertEqual((result["name"], result["ok"]), ("write_file", True))
+        self.assertEqual((self.path / "t.txt").read_text(), "x")
+
+        request = {"name": "read_file", "arguments": {"path": "absent.txt"}}
+        job = self.create(dict(base, operation="call_tool", request=request))
+        self.assertEqual(self.run_job(job, 0), b"")
+        self.assertFalse(self.result_json(job)["ok"])
+
+        job = self.create(
+            dict(
+                base,
+                operation="call_tool",
+                request={"name": "file_info", "arguments": {"path": "t.txt"}},
+            )
+        )
+        self.assertEqual(self.lib.tny_toolkit_job_cancel(job), 0)
+        self.assertEqual(self.run_job(job, -12), b"toolkit operation cancelled")
+        self.assertEqual(self.provider.requests, [])
+
     def test_strict_size_is_accepted_and_settled_before_any_request(self):
         payload = self.payload()
         payload["request"].update(size="1x1", strict_size=True)

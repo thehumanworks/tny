@@ -31,5 +31,5 @@ call never hides its permission identity behind `terminal`.
 ## Consequences
 
 Scripts get every native tool with one stable JSON envelope and exit-code
-contract. The SDK equivalent is a separate change. Bespoke verbs stay where
+contract. The SDK equivalent is ADR 0223. Bespoke verbs stay where
 they add ergonomics (`tny web`, `tny edit`, `tny image`).

@@ -60,6 +60,53 @@ await kit.editImage("Make the leaves blue", {
 });
 ```
 
+## Native tools
+
+`list_tools()` / `call_tool(name, arguments)` in Python (also on
+`AsyncToolkit`, awaited) and `listTools()` / `callTool(name, args)` in
+TypeScript run tny's own nested tools in process, through the same
+`tools_execute` path as the agent and `tny tool` ([ADR 0223](adr/0223-sdk-toolkit-native-tools.md)).
+No `tny` executable, runtime or session is needed.
+
+```python
+kit = Toolkit(ToolkitConfig(workspace="/path/to/project"))
+print([spec.name for spec in kit.list_tools()])
+kit.call_tool("write_file", {"path": "notes.md", "content": "hi\n"})
+hits = kit.call_tool("grep_files", {"pattern": "TODO"})
+print(hits.text if hits.ok else "failed: " + hits.text)
+```
+
+```typescript
+const hits = await kit.callTool("grep_files", { pattern: "TODO" });
+if (hits.ok) console.log(hits.text);
+```
+
+- **Catalog.** The embedded catalog: file tools (`list_files`, `glob_files`,
+  `grep_files`, `read_file`, `write_file`, `edit_file`, `delete_file`,
+  `rename_file`, `copy_file`, `create_folder`, `file_info`), `semantic_search`,
+  `web_fetch` and `web_search`. Embedding keeps library mode (ADR 0215), so
+  process-owning and ambient-state tools — `terminal`, `subagent`, jobs, teams,
+  `memory`, skills, MCP, Python tool extensions, image export/preview — are
+  absent and calling them returns an unavailable result. Turn-bound tools
+  (`read_image`, `read_tool_result`, `search_transcript`, `ask_user_question`)
+  are hidden and refused as in `tny tool`. Each spec has `name`,
+  `description` and the JSON Schema `parameters`.
+- **Results.** `ToolCallResult` (Python) / a frozen `{name, ok, text}`
+  (TypeScript) carries the exact text the model would see. A tool-level error
+  — a missing file, a refused permission, an unavailable tool — is `ok` false
+  with `text` starting `error:`, not an exception. Invalid requests, a
+  cancellation and library failures raise `TnyError` / `TypeError` as for the
+  other operations.
+- **Permissions.** `permission_mode` / `permissionMode` (`ask`, `auto`,
+  `yolo`) selects the mode for one call; otherwise the settings file's
+  workspace or global `permission_mode`, then `yolo` (naming the tool is the
+  explicit decision). Settings `permission` rules apply in `ask`/`auto`; with
+  no reviewer, a call that needs approval fails closed.
+- **Arguments** are one JSON object. TypeScript copies them with
+  `structuredClone`, so getters, `toJSON` and prototypes never run during
+  envelope construction; functions and other non-data values are rejected.
+- **wasm.** Not applicable: the toolkit is a native-SDK surface.
+
 ## Configuration and authority
 
 The constructor captures its workspace (default: current directory). Relative
@@ -189,6 +236,8 @@ the Python names above. Request fields are:
 | `generate_image` | `output_file`, and `prompt` unless `from_manifest` | `provider`, `model`, `quality`, `size`, `strict_size`, `persist_manifest`, `from_manifest` |
 | `edit_image` | `output_file`, `prompt` unless `from_manifest`, and references from `images`, `artifact` or `from_manifest` | `provider`, `model`, `quality`, `size`, `strict_size`, `persist_manifest`, `from_manifest`, `artifact` |
 | `optimise` | `text` | `provider`, `model`, `base_url`, `api_key`, `wire_api`, `timeout_seconds` |
+| `list_tools` | — | `permission_mode` |
+| `call_tool` | `name` | `arguments` (object), `permission_mode` (`ask`, `auto`, `yolo`) |
 
 `tny_toolkit_job_create` copies/validates without I/O; `tny_toolkit_job_run`
 executes once on a caller-selected thread. `tny_toolkit_job_cancel` is a sticky
@@ -209,6 +258,10 @@ Image JSON retains native fields `kind`, `ok`, `operation`, `provider`, `model`,
 `path`, `mime_type`, and `bytes`, and adds `requested_size`, `effective_size`,
 `width`, `height`, `size_status`, `native`, `transform`, `operation_id`,
 `manifest_path`, `seed` and `request_id`. The last four are `null` when
-persistence was declined or the provider returned no such identifier. The optimisation result shape (`text`, `provider`, `model`) remains
+persistence was declined or the provider returned no such identifier.
+`list_tools` returns `{"tools": [{name, description, parameters}, …]}`;
+`call_tool` returns `{"name", "ok", "result"}` with status OK for any tool
+outcome, and `TNY_STATUS_CANCELLED` when cancellation stopped a failing call.
+Libraries older than this release reject both operations as invalid. The optimisation result shape (`text`, `provider`, `model`) remains
 reserved for compatibility; this release returns no optimisation result. SDKs
 copy successful supported-service results before destroying the job.

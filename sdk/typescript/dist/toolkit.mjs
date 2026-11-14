@@ -60,6 +60,50 @@ function snapshot(options, mapping, withSignal = true) {
   return { values: result, signal };
 }
 
+const permissionModes = new Set(["ask", "auto", "yolo"]);
+
+// Tool arguments are caller data, not options: copy them structurally so no
+// getter, toJSON or prototype runs while the native envelope is built.
+function toolArguments(value) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("tool arguments must be a plain object");
+  }
+  let copy;
+  try {
+    copy = structuredClone(value);
+  } catch {
+    throw new TypeError("tool arguments must be JSON-compatible data");
+  }
+  return copy;
+}
+
+function toolOptions(options) {
+  const { values, signal } = snapshot(options, { permissionMode: "permission_mode" });
+  if (values.permission_mode !== undefined && !permissionModes.has(values.permission_mode)) {
+    throw new TypeError("permissionMode must be ask, auto or yolo");
+  }
+  return { values, signal };
+}
+
+function toolSpec(value) {
+  if (!value || typeof value.name !== "string") throw new TypeError("invalid tool catalog");
+  return Object.freeze({
+    name: value.name,
+    description: typeof value.description === "string" ? value.description : "",
+    parameters: Object.freeze(value.parameters && typeof value.parameters === "object"
+      ? value.parameters : {}),
+  });
+}
+
+function toolCallResult(value) {
+  if (!value || typeof value.name !== "string" || typeof value.ok !== "boolean" ||
+      typeof value.result !== "string") {
+    throw new TypeError("invalid tool result");
+  }
+  return Object.freeze({ name: value.name, ok: value.ok, text: value.result });
+}
+
 function imageResult(value) {
   // Dimensions come from the returned bytes, and provenance from the record
   // actually written; unknown and declined values stay null.
@@ -219,5 +263,22 @@ export function createToolkitClass(native, invoke, TnyError) {
     }
 
     optimize(input, options = {}) { return this.optimise(input, options); }
+
+    /** Native tools callable from this embedded toolkit (ADR 0223). */
+    async listTools(options = {}) {
+      const { values, signal } = toolOptions(options);
+      const result = await this.#run("list_tools", values, signal);
+      if (!Array.isArray(result?.tools)) throw new TypeError("invalid tool catalog");
+      return Object.freeze(result.tools.map(toolSpec));
+    }
+
+    /** Run one native tool; a tool-level error is `{ok: false}`, not a throw. */
+    async callTool(name, args, options = {}) {
+      const { values, signal } = toolOptions(options);
+      values.name = text(name, "tool name");
+      const copied = toolArguments(args);
+      if (copied !== undefined) values.arguments = copied;
+      return toolCallResult(await this.#run("call_tool", values, signal));
+    }
   };
 }

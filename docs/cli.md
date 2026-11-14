@@ -1049,7 +1049,8 @@ tny --provider opencode tool call subagent '{"action":"create","prompt":"…"}'
   tools; process-owning tools keep their existing wasm errors. This surface is
   covered by native tests only.
 
-See [ADR 0217](adr/0217-standalone-tool-cli.md).
+The SDK equivalent is `Toolkit.call_tool` / `callTool`
+([sdk-toolkit.md](sdk-toolkit.md#native-tools)). See [ADR 0217](adr/0217-standalone-tool-cli.md).
 
 ### Python tool extensions
 

@@ -79,8 +79,10 @@ from .toolkit import ImageQuality as ImageQuality
 from .toolkit import ImageResult as ImageResult
 from .toolkit import OptimisationResult as OptimisationResult
 from .toolkit import RetainedImageDetail as RetainedImageDetail
+from .toolkit import ToolCallResult as ToolCallResult
 from .toolkit import Toolkit as Toolkit
 from .toolkit import ToolkitConfig as ToolkitConfig
+from .toolkit import ToolSpec as ToolSpec
 from .workflow import EventHandler as EventHandler
 from .workflow import PermissionHandler as PermissionHandler
 from .workflow import Workflow as Workflow
@@ -146,6 +148,8 @@ __all__ = (
     "ToolRegistration",
     "ToolResult",
     "ToolSensitivity",
+    "ToolCallResult",
+    "ToolSpec",
     "Toolkit",
     "ToolkitConfig",
     "UnsupportedError",

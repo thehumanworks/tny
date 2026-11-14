@@ -151,6 +151,10 @@ bool tools_code_mode(const tny_ctx *ctx);
 char *tools_schema_json(tools_env *env);
 /* Discoverable nested tools, subject to the current runtime/profile. malloc'd. */
 char *tools_catalog_json(tools_env *env);
+/* True for tools whose input or effect belongs to a live conversation turn
+ * (queued images, stored results, the transcript, the frontend). Standalone
+ * callers (`tny tool`, SDK Toolkit) hide and refuse them (ADR 0217). */
+bool tools_turn_bound(const char *name);
 /* Shared native/ACP instructions for the code execution interface. */
 const char *tools_code_instructions(void);
 /* Code instructions in code mode, else "". */

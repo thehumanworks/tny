@@ -30,6 +30,19 @@ async def toolkit_async(toolkit: tny.AsyncToolkit) -> bytes:
     return (await toolkit.optimise("Fix the parser")).text
 
 
+def toolkit_tools(toolkit: tny.Toolkit) -> str:
+    specs: tuple[tny.ToolSpec, ...] = toolkit.list_tools()
+    result: tny.ToolCallResult = toolkit.call_tool(
+        specs[0].name, {"path": "README.md"}, permission_mode="ask"
+    )
+    return result.text if result.ok else ""
+
+
+async def toolkit_tools_async(toolkit: tny.AsyncToolkit) -> bool:
+    await toolkit.list_tools()
+    return (await toolkit.call_tool("read_file", {"path": "README.md"})).ok
+
+
 native_provider: tny.ProviderName = "openai"
 native_config = tny.RuntimeConfig(
     workspace=".",
