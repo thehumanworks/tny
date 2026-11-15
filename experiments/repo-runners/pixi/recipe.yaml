@@ -1,0 +1,34 @@
+package:
+  name: tny
+  version: 0.39.0
+source:
+  git: https://github.com/thehumanworks/tny.git
+  rev: eebc162d1b22125afd75409c8a0a530ed66a0be1
+build:
+  script:
+    - make -j4 TNY_VERSION=0.39.0 CPYTHON_JOBS=4
+    - mkdir -p "$PREFIX/bin"
+    - cp build/tny "$PREFIX/bin/tny"
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ compiler('cxx') }}
+    - make
+    - if: linux
+      then:
+        - binutils
+        - sysroot_linux-64 2.34.*
+    - python
+    - perl
+    - curl
+    - pkg-config
+    - git
+    - patch
+    - sed
+    - coreutils
+    - tar
+    - xz
+  run:
+    - python
+    - openssl
+    - ca-certificates

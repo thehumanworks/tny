@@ -1,0 +1,33 @@
+package:
+  name: tny
+  version: 0.39.0
+source:
+  path: ..
+build:
+  script:
+    - make -j4 TNY_VERSION=0.39.0 CPYTHON_JOBS=4
+    - mkdir -p "$PREFIX/bin"
+    - cp build/tny "$PREFIX/bin/tny"
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ compiler('cxx') }}
+    - make
+    - if: linux
+      then:
+        - binutils
+        - sysroot_linux-64 2.34.*
+    - python >=3.11,<3.15
+    - perl
+    - curl
+    - pkg-config
+    - git
+    - patch
+    - sed
+    - coreutils
+    - tar
+    - xz
+  run:
+    - python >=3.11,<3.15
+    - openssl >=3,<4
+    - ca-certificates

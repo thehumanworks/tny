@@ -48,3 +48,7 @@ site/assets/wasm/
 
 # Per-machine editor hook progress, not project inputs
 /.cursor/hooks/state/
+
+# Experimental source-runner environments
+.pixi/
+bazel-*
