@@ -1,0 +1,4 @@
+source.tar
+source.tar.*
+buck-out/
+.buckd/

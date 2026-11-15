@@ -1,0 +1,3 @@
+load(":build.bzl", "make_binary")
+
+make_binary(name = "tny", source = "source.tar", script = "build.sh", path = read_config("runner", "path", "/usr/bin:/bin:/usr/sbin:/sbin"), cc = read_config("runner", "cc", "cc"), cxx = read_config("runner", "cxx", "c++"))

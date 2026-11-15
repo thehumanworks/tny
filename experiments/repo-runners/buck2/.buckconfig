@@ -1,0 +1,6 @@
+[cells]
+  root = .
+[project]
+  ignore = buck-out,.git
+[buildfile]
+  name = BUCK
