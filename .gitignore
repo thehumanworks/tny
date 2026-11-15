@@ -51,4 +51,4 @@ site/assets/wasm/
 
 # Experimental source-runner environments
 .pixi/
-bazel-*
+bazel-*/
