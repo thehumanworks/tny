@@ -25,3 +25,7 @@ Buck2 can orchestrate this existing Make/CPython build on both operating systems
 The recipe stamps version0.39.0 for this evaluated snapshot. Future application revisions need explicit version handling; version output alone does not establish source identity.
 
 macOS initial build used commit57298966 and passed --version plus8 fixture runtime tests. The quality gate passed after formatting/import-order fixes to the existing experimental smoke script: C/C++ tidy and strict-warning checks passed in the first run; the resumed quality run reused those unchanged inputs and passed all remaining checks. Logs are under /Users/tomas/repo-runner-evaluation/logs/tny-quality-buck2*.
+
+## Final GitHub execution results
+
+The reusable GitHub adapter passed both applications on both hosts. Tested commits: mmr `73663c5d9195aa671ae96f5eb293d42d7a9d74fa`, tny `331c3ce7c43d68edacee32cb4caee71cdee2337b`. All version invocations returned0; final tny binaries passed8 fixture runtime tests on each OS. mmr synthetic read passed on both hosts, and Mac GitHub execution preserved caller working directory. See [final-results.json](evidence/final-results.json) and adjacent logs. Timing is observational, not a comparison across build engines.
